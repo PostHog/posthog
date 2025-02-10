@@ -2203,14 +2203,14 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    distinct_id_field: str
-    id_field: str
+    events_id_field: str
+    table_id_field: str
     kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
     math: Optional[ExperimentMetricMath] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     table_name: str
-    timestamp_field: str
+    table_timestamp_field: str
 
 
 class FeaturePropertyFilter(BaseModel):

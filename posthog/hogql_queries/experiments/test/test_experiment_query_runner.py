@@ -174,7 +174,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             joining_table_name="events",
             joining_table_key="properties.$user_id",
             field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
+            # configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
         )
         return table_name
 
@@ -203,31 +203,31 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {
                 "subscription_id": "1",
                 "subscription_created_at": datetime(2023, 1, 2),
-                "subscription_customer_id": "user_control_0",
+                "subscription_customer_id": "1",
                 "subscription_amount": 100,
             },
             {
                 "subscription_id": "2",
                 "subscription_created_at": datetime(2023, 1, 3),
-                "subscription_customer_id": "user_test_1",
+                "subscription_customer_id": "2",
                 "subscription_amount": 50,
             },
             {
                 "subscription_id": "3",
                 "subscription_created_at": datetime(2023, 1, 4),
-                "subscription_customer_id": "user_test_2",
+                "subscription_customer_id": "3",
                 "subscription_amount": 75,
             },
             {
                 "subscription_id": "4",
                 "subscription_created_at": datetime(2023, 1, 5),
-                "subscription_customer_id": "user_test_3",
+                "subscription_customer_id": "4",
                 "subscription_amount": 80,
             },
             {
                 "subscription_id": "5",
                 "subscription_created_at": datetime(2023, 1, 6),
-                "subscription_customer_id": "user_extra",
+                "subscription_customer_id": "5",
                 "subscription_amount": 90,
             },
         ]
@@ -315,21 +315,21 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=subscription_table_name,
-            source_table_key="subscription_customer_id",
-            joining_table_name=customer_table_name,
-            joining_table_key="customer_id",
-            field_name="subscription_customer",
+            source_table_name=customer_table_name,
+            source_table_key="customer_id",
+            joining_table_name=subscription_table_name,
+            joining_table_key="subscription_customer_id",
+            field_name="subscriptions",
         )
 
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=subscription_table_name,
-            source_table_key="subscription_customer.customer_email",
-            joining_table_name="events",
-            joining_table_key="person.properties.email",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "subscription_created_at"},
+            source_table_name="events",
+            source_table_key="person.properties.email",
+            joining_table_name=customer_table_name,
+            joining_table_key="customer_email",
+            field_name="customer",
+            # configuration={"experiments_optimized": True, "experiments_timestamp_key": "subscription_created_at"},
         )
 
         return subscription_table_name
@@ -1303,10 +1303,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentDataWarehouseMetricConfig(
+                events_id_field="customer.customer_id",  # Need this to be configured as a datawarehouse join
                 table_name=table_name,
-                distinct_id_field="subscription_customer_id",
-                id_field="id",
-                timestamp_field="subscription_created_at",
+                table_id_field="subscription_customer_id",
+                table_timestamp_field="subscription_created_at",
             ),
         )
 
@@ -1359,6 +1359,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         flush_persons_and_events()
+        # breakpoint()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
