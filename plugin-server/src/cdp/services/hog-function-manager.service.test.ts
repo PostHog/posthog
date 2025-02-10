@@ -1,3 +1,5 @@
+import { DateTime, DurationLike } from 'luxon'
+
 import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
 import { Hub } from '~/src/types'
 import { closeHub, createHub } from '~/src/utils/db/hub'
@@ -238,10 +240,20 @@ describe('Hogfunction Manager - Execution Order', () => {
     let hogFunctions: HogFunctionType[]
     let teamId: number
     let teamId2: number
+
+    let time: DateTime
+
+    const advanceTime = (duration: DurationLike) => {
+        time = time.plus(duration)
+        jest.setSystemTime(time.toJSDate())
+    }
+
     beforeEach(async () => {
         // Setup fake timers but exclude nextTick and setImmediate
         // faking them can cause tests to hang or timeout
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
+        time = DateTime.now()
+        jest.setSystemTime(time.toJSDate())
 
         hub = await createHub()
         await resetTestDatabase()
@@ -356,24 +368,21 @@ describe('Hogfunction Manager - Execution Order', () => {
     })
 
     it('should handle null/undefined execution orders and created_at ordering', async () => {
-        // Set initial time
-        jest.setSystemTime(new Date('2024-01-01T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
             execution_order: null,
             type: 'transformation',
         })
 
-        // Advance time by 1 day
-        jest.setSystemTime(new Date('2024-01-02T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
             execution_order: 1,
             type: 'transformation',
         })
 
-        // Advance time by another day
-        jest.setSystemTime(new Date('2024-01-03T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn3',
             execution_order: 1,
@@ -393,34 +402,34 @@ describe('Hogfunction Manager - Execution Order', () => {
 
     it('should maintain order with mixed execution orders and timestamps', async () => {
         // Create functions with different timestamps and execution orders
-        jest.setSystemTime(new Date('2024-01-01T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
             execution_order: 2,
             type: 'transformation',
         })
 
-        jest.setSystemTime(new Date('2024-01-02T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
             execution_order: null,
             type: 'transformation',
         })
 
-        jest.setSystemTime(new Date('2024-01-03T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn3',
             execution_order: 1,
             type: 'transformation',
         })
 
-        jest.setSystemTime(new Date('2024-01-04T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn4',
             execution_order: 1,
             type: 'transformation',
         })
 
+        console.log('before reload', manager['lastUpdatedAt'], manager['hogFunctions'])
         await manager.reloadAllHogFunctions()
         const teamFunctions = manager.getTeamHogFunctions(teamId2)
 
