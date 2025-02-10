@@ -138,7 +138,7 @@ export function PropertyGroupFilters({
                 data-attr={`${pageKey}-add-filter-group`}
                 type="secondary"
                 onClick={addFilterGroup}
-                icon={<IconPlusSmall color="var(--primary)" />}
+                icon={<IconPlusSmall color="var(--accent-primary)" />}
                 sideIcon={null}
                 disabledReason={disabledReason}
             >

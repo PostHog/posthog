@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use sqlx::postgres::any::AnyConnectionBackend;
 use uuid::Uuid;
 
@@ -116,6 +117,7 @@ impl IssueFingerprintOverride {
         team_id: i32,
         fingerprint: &str,
         issue: &Issue,
+        first_seen: DateTime<Utc>,
     ) -> Result<Self, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
@@ -125,15 +127,16 @@ impl IssueFingerprintOverride {
         let res = sqlx::query_as!(
             IssueFingerprintOverride,
             r#"
-            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, created_at)
-            VALUES ($1, $2, $3, $4, 0, NOW())
+            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen, created_at)
+            VALUES ($1, $2, $3, $4, 0, $5, NOW())
             ON CONFLICT (team_id, fingerprint) DO NOTHING
             RETURNING id, team_id, issue_id, fingerprint, version
             "#,
             Uuid::new_v4(),
             team_id,
             issue.id,
-            fingerprint
+            fingerprint,
+            first_seen
         ).fetch_one(executor).await?;
 
         Ok(res)
@@ -144,6 +147,7 @@ pub async fn resolve_issue<'c, A>(
     con: A,
     team_id: i32,
     fingerprinted: FingerprintedErrProps,
+    event_timestamp: DateTime<Utc>,
 ) -> Result<OutputErrProps, UnhandledError>
 where
     A: sqlx::Acquire<'c, Database = sqlx::Postgres>,
@@ -158,8 +162,8 @@ where
 
     // UNWRAP: We never resolve an issue for an exception with no exception list
     let first = fingerprinted.exception_list.first().unwrap();
-    let new_name = first.exception_type.clone();
-    let new_description = first.exception_message.clone();
+    let new_name = sanitize_string(first.exception_type.clone());
+    let new_description = sanitize_string(first.exception_message.clone());
 
     // Start a transaction, so we can roll it back on override insert failure
     conn.begin().await?;
@@ -174,6 +178,7 @@ where
         team_id,
         &fingerprinted.fingerprint,
         &issue,
+        event_timestamp,
     )
     .await?;
 
@@ -188,4 +193,20 @@ where
     }
 
     Ok(fingerprinted.to_output(issue_override.issue_id))
+}
+
+// Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD.
+pub fn sanitize_string(s: String) -> String {
+    s.replace('\u{0000}', "\u{FFFD}")
+}
+
+#[cfg(test)]
+mod test {
+    use crate::issue_resolution::sanitize_string;
+
+    #[test]
+    fn it_replaces_null_characters() {
+        let content = sanitize_string("\u{0000} is not valid JSON".to_string());
+        assert_eq!(content, "� is not valid JSON");
+    }
 }

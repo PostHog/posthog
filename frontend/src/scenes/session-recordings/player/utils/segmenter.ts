@@ -1,4 +1,4 @@
-import { EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
+import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import { Dayjs } from 'lib/dayjs'
 
 import { RecordingSegment, RecordingSnapshot } from '~/types'

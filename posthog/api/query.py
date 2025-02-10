@@ -1,24 +1,30 @@
 import re
 import uuid
-
-from django.http import JsonResponse
+import json
+import time
+import asyncio
+from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception, set_tag
+from sentry_sdk import set_tag
+from asgiref.sync import sync_to_async
 
+from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
+
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,
+    QueryStatusManager,
 )
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
@@ -42,6 +48,7 @@ from posthog.schema import (
     QueryResponseAlternative,
     QueryStatusResponse,
 )
+from typing import cast
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -140,6 +147,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
 
+    @action(methods=["POST"], detail=False)
+    def check_auth_for_async(self, request: Request, *args, **kwargs):
+        return JsonResponse({"user": "ok"}, status=status.HTTP_200_OK)
+
     @extend_schema(
         description="(Experimental)",
         responses={
@@ -183,3 +194,58 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         tag_queries(client_query_id=query_id)
         set_tag("client_query_id", query_id)
+
+
+ASYNC_FALLBACK_TO_POLLING_TIMEOUT = 20
+
+
+async def query_awaited(request: Request, *args, **kwargs) -> HttpResponse:
+    """Async endpoint for handling event source queries."""
+
+    # Call the create method on QueryViewSet
+    view = await sync_to_async(QueryViewSet.as_view)({"post": "create"}, **kwargs)
+    response = await sync_to_async(view)(request)
+
+    if (
+        response.status_code != 202
+    ):  # 202 means accepted, which means we're calculating async. Anything else means we can just return immediately
+        return response
+
+    response.render()
+    data = json.loads(response.rendered_content)
+
+    # For async responses, poll until complete or timeout
+    async def check_query_status():
+        assert kwargs.get("team_id") is not None
+        manager = QueryStatusManager(data["query_status"]["id"], cast(int, kwargs["team_id"]))
+        start_time = time.time()
+        sleep_time = 0.1  # Start with 100ms
+        max_sleep_time = 1.0  # Don't wait more than 1 second between checks
+
+        while time.time() - start_time < ASYNC_FALLBACK_TO_POLLING_TIMEOUT:
+            try:
+                status = await sync_to_async(manager.get_query_status)(show_progress=True)
+                if status.complete:
+                    return status
+            except Exception:
+                pass
+
+            await asyncio.sleep(sleep_time)
+            sleep_time = min(sleep_time * 1.5, max_sleep_time)
+
+        return None
+
+    status = await check_query_status()
+
+    if status is None:
+        # If we timeout on responding syncronously, return the original response so the client can continue to poll
+        return response
+    elif isinstance(status, BaseModel) and hasattr(status, "results"):
+        response_data = json.dumps(status.results)
+    else:
+        response_data = json.dumps(status)
+
+    return HttpResponse(
+        response_data,
+        content_type="application/json",
+    )

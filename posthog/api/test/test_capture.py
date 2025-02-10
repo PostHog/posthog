@@ -201,6 +201,7 @@ def make_processed_recording_event(
             # as well as at the top-level
             "distinct_id": distinct_id,
             "$snapshot_source": "web",
+            "$lib": "web",
         },
         "timestamp": timestamp,
         "distinct_id": distinct_id,
@@ -371,7 +372,10 @@ class TestCapture(BaseTest):
                 topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
                 data=ANY,
                 key=None if expect_random_partitioning else ANY,
-                headers=None,
+                headers=[
+                    ("token", self.team.api_token),
+                    ("distinct_id", distinct_id),
+                ],
             )
 
             if not expect_random_partitioning:
@@ -521,7 +525,7 @@ class TestCapture(BaseTest):
                             "error_message": "MESSAGE_SIZE_TOO_LARGE",
                             "kafka_size": None,  # none here because we're not really throwing MessageSizeTooLargeError
                             "lib_version": "1.2.3",
-                            "posthog_calculation": 425,
+                            "posthog_calculation": 440,
                             "size_difference": "unknown",
                         },
                     },
@@ -1824,6 +1828,7 @@ class TestCapture(BaseTest):
                         "data": {"data": event_data, "source": snapshot_source},
                     }
                 ],
+                "$lib": "web",
                 "$snapshot_source": "web",
                 "$session_id": session_id,
                 "$window_id": window_id,
@@ -1916,10 +1921,11 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self._send_august_2023_version_session_recording_event()
+            self._send_august_2023_version_session_recording_event(distinct_id="distinct_id123")
 
             assert kafka_produce.mock_calls[0].kwargs["headers"] == [
                 ("token", "token123"),
+                ("distinct_id", "distinct_id123"),
                 (
                     # without setting a version in the URL the default is unknown
                     "lib_version",
@@ -1932,10 +1938,13 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self._send_august_2023_version_session_recording_event(query_params="ver=1.123.4")
+            self._send_august_2023_version_session_recording_event(
+                query_params="ver=1.123.4", distinct_id="distinct_id123"
+            )
 
             assert kafka_produce.mock_calls[0].kwargs["headers"] == [
                 ("token", "token123"),
+                ("distinct_id", "distinct_id123"),
                 (
                     # without setting a version in the URL the default is unknown
                     "lib_version",

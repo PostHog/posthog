@@ -2536,6 +2536,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", value);
   }
 
+  VISIT(HogqlxChildElement) {
+    auto tag_element_ctx = ctx->hogqlxTagElement();
+    if (tag_element_ctx) {
+      return visitAsPyObject(tag_element_ctx);
+    } else {
+      return visitAsPyObject(ctx->columnExpr());
+    }
+  }
+
   VISIT(HogqlxTagElementClosed) {
     string kind = visitAsString(ctx->identifier());
     RETURN_NEW_AST_NODE(
@@ -2545,80 +2554,107 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(HogqlxTagElementNested) {
-    string opening = visitAsString(ctx->identifier(0));
-    string closing = visitAsString(ctx->identifier(1));
+    std::string opening = visitAsString(ctx->identifier(0));
+    std::string closing = visitAsString(ctx->identifier(1));
     if (opening != closing) {
       throw SyntaxError("Opening and closing HogQLX tags must match. Got " + opening + " and " + closing);
     }
 
-    auto tag_element_ctx = ctx->hogqlxTagElement();
-    auto column_expr_ctx = ctx->columnExpr();
-    auto tag_attribute_ctx = ctx->hogqlxTagAttribute();
-    PyObject* attributes = PyList_New(tag_attribute_ctx.size() + (tag_element_ctx || column_expr_ctx ? 1 : 0));
-    if (!attributes) throw PyInternalError();
-    bool found_source = false;
-    for (size_t i = 0; i < tag_attribute_ctx.size(); i++) {
-      PyObject* object;
+    auto attribute_ctxs = ctx->hogqlxTagAttribute();
+    PyObject *attributes = PyList_New(attribute_ctxs.size());
+    if (!attributes) {
+      throw PyInternalError();
+    }
+    for (size_t i = 0; i < attribute_ctxs.size(); i++) {
+      PyObject *attr_obj;
       try {
-        object = visitAsPyObject(tag_attribute_ctx[i]);
+        attr_obj = visitAsPyObject(attribute_ctxs[i]);
       } catch (...) {
         Py_DECREF(attributes);
         throw;
       }
-      PyList_SET_ITEM(attributes, i, object);
+      PyList_SET_ITEM(attributes, i, attr_obj); // Steals reference
+    }
 
-      PyObject* name = PyObject_GetAttrString(object, "name");
-      if (!name) {
+    auto child_element_ctxs = ctx->hogqlxChildElement();
+    if (!child_element_ctxs.empty()) {
+      for (size_t i = 0; i < attribute_ctxs.size(); i++) {
+        PyObject *attr = PyList_GetItem(attributes, i); // borrowed
+        if (!attr) {
+          Py_DECREF(attributes);
+          throw PyInternalError();
+        }
+        PyObject *name_obj = PyObject_GetAttrString(attr, "name");
+        if (!name_obj) {
+          Py_DECREF(attributes);
+          throw PyInternalError();
+        }
+        PyObject *children_str = PyUnicode_FromString("children");
+        if (!children_str) {
+          Py_DECREF(name_obj);
+          Py_DECREF(attributes);
+          throw PyInternalError();
+        }
+        int is_children = PyObject_RichCompareBool(name_obj, children_str, Py_EQ);
+        Py_DECREF(children_str);
+        Py_DECREF(name_obj);
+        if (is_children == -1) {
+          Py_DECREF(attributes);
+          throw PyInternalError();
+        }
+        if (is_children == 1) {
+          Py_DECREF(attributes);
+          throw SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute");
+        }
+      }
+
+      PyObject *children_list = PyList_New(child_element_ctxs.size());
+      if (!children_list) {
         Py_DECREF(attributes);
         throw PyInternalError();
       }
-      PyObject* source_as_str = PyUnicode_FromString("source");
-      if (!source_as_str) {
-        Py_DECREF(name);
+      for (size_t i = 0; i < child_element_ctxs.size(); i++) {
+        PyObject *child_ast;
+        try {
+          child_ast = visitAsPyObject(child_element_ctxs[i]);
+        } catch (...) {
+          Py_DECREF(children_list);
+          Py_DECREF(attributes);
+          throw;
+        }
+        PyList_SET_ITEM(children_list, i, child_ast); // Steals reference
+      }
+
+      PyObject *children_attr = build_ast_node(
+        "HogQLXAttribute",
+        "{s:s#,s:O}",
+        "name", "children", (Py_ssize_t)8,
+        "value", children_list
+      );
+      if (!children_attr) {
+        Py_DECREF(children_list);
         Py_DECREF(attributes);
         throw PyInternalError();
       }
-      int tentative_found_source = PyObject_RichCompareBool(name, source_as_str, Py_EQ);
-      Py_DECREF(source_as_str);
-      Py_DECREF(name);
-      if (tentative_found_source == -1) {
+      int appended = PyList_Append(attributes, children_attr);
+      Py_DECREF(children_attr);
+      if (appended == -1) {
         Py_DECREF(attributes);
         throw PyInternalError();
-      }
-      if (tentative_found_source) {
-        found_source = true;
       }
     }
 
-    if (tag_element_ctx) {
-      if (found_source) {
-        Py_DECREF(attributes);
-        throw SyntaxError("Nested HogQLX tags cannot have a source attribute");
-      }
-      PyObject* source_attribute = build_ast_node(
-          "HogQLXAttribute", "{s:s#,s:N}", "name", "source", 6, "value", visitAsPyObject(ctx->hogqlxTagElement())
-      );
-      if (!source_attribute) {
+    PyObject *ret = build_ast_node(
+        "HogQLXTag",
+        "{s:s#,s:N}",
+        "kind", opening.data(), (Py_ssize_t)opening.size(),
+        "attributes", attributes
+    );
+    if (!ret) {
         Py_DECREF(attributes);
         throw PyInternalError();
-      }
-      PyList_SET_ITEM(attributes, tag_attribute_ctx.size(), source_attribute);
-    } else if (column_expr_ctx) {
-      if (found_source) {
-        Py_DECREF(attributes);
-        throw SyntaxError("Nested HogQLX tags cannot have a source attribute");
-      }
-      PyObject* source_attribute = build_ast_node(
-          "HogQLXAttribute", "{s:s#,s:N}", "name", "source", 6, "value", visitAsPyObject(ctx->columnExpr())
-      );
-      if (!source_attribute) {
-        Py_DECREF(attributes);
-        throw PyInternalError();
-      }
-      PyList_SET_ITEM(attributes, tag_attribute_ctx.size(), source_attribute);
     }
-
-    RETURN_NEW_AST_NODE("HogQLXTag", "{s:s#,s:N}", "kind", opening.data(), opening.size(), "attributes", attributes);
+    return ret;
   }
 
   VISIT(Placeholder) {
@@ -2649,6 +2685,112 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw;
     }
     RETURN_NEW_AST_NODE("ExprCall", "{s:N, s:N}", "expr", expr, "args", args);
+  }
+
+  VISIT(ColumnExprCallSelect) {
+    // 1) Parse the "function expression" from columnExpr().
+    PyObject* expr = visitAsPyObject(ctx->columnExpr());
+    if (!expr) {
+      throw PyInternalError();
+    }
+
+    // 2) Check if `expr` is a Field node with a chain of length == 1.
+    //    If so, interpret that chain[0] as the function name, and the SELECT as the function argument.
+    int is_field = is_ast_node_instance(expr, "Field");  // returns 1, 0, or -1 on error
+    if (is_field == -1) {
+      Py_DECREF(expr);
+      throw PyInternalError();
+    }
+
+    if (is_field == 1) {
+      // If it's a Field, get `chain` and see if there's exactly one item in it.
+      PyObject* chain = PyObject_GetAttrString(expr, "chain");
+      if (!chain) {
+          Py_DECREF(expr);
+          throw PyInternalError();
+      }
+
+      if (PyList_Check(chain) && PyList_Size(chain) == 1) {
+        PyObject* item = PyList_GetItem(chain, 0);  // Borrowed reference
+        if (item && PyUnicode_Check(item)) {
+          // 2a) We have a single identifier as function name -> produce ast.Call(name=..., args=[select])
+          PyObject* select_node = nullptr;
+          try {
+            select_node = visitAsPyObject(ctx->selectSetStmt());
+          } catch (...) {
+            Py_DECREF(chain);
+            Py_DECREF(expr);
+            throw;
+          }
+
+          // Prepare [select_node] as the .args list
+          PyObject* args_list = PyList_New(1);
+          if (!args_list) {
+            Py_DECREF(select_node);
+            Py_DECREF(chain);
+            Py_DECREF(expr);
+            throw PyInternalError();
+          }
+          // Steal the select_node reference into the list
+          PyList_SET_ITEM(args_list, 0, select_node);
+
+          // Convert the function name from Python string to char*
+          Py_ssize_t size = 0;
+          const char* func_name = PyUnicode_AsUTF8AndSize(item, &size);
+          if (!func_name) {
+            Py_DECREF(args_list);
+            Py_DECREF(chain);
+            Py_DECREF(expr);
+            throw PyInternalError();
+          }
+
+          // Build a Call node: ast.Call(name=<func_name>, args=[<select_node>])
+          PyObject* call_node =
+            build_ast_node("Call", "{s:s#,s:N}", "name", func_name, size, "args", args_list);
+          Py_DECREF(chain);
+          Py_DECREF(expr);
+
+          if (!call_node) {
+            // build_ast_node already sets an error
+            Py_DECREF(args_list);
+            throw PyInternalError();
+          }
+          return call_node;
+        }
+      }
+      Py_DECREF(chain);
+    }
+
+    // 3) Otherwise, if we couldn't interpret the columnExpr() as a single-chained function name,
+    //    build ExprCall(expr=<expr>, args=[select])
+    PyObject* select_node = nullptr;
+    try {
+      select_node = visitAsPyObject(ctx->selectSetStmt());
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+
+    // Prepare [select_node] as the .args list
+    PyObject* args_list = PyList_New(1);
+    if (!args_list) {
+      Py_DECREF(expr);
+      Py_DECREF(select_node);
+      throw PyInternalError();
+    }
+    // Steal the select_node reference into the list
+    PyList_SET_ITEM(args_list, 0, select_node);
+
+    // Return ast.ExprCall(expr=expr, args=args_list).
+    PyObject* expr_call_node =
+      build_ast_node("ExprCall", "{s:N,s:N}", "expr", expr, "args", args_list);
+    if (!expr_call_node) {
+      Py_DECREF(expr);
+      Py_DECREF(select_node);
+      Py_DECREF(args_list);
+      throw PyInternalError();
+    }
+    return expr_call_node;
   }
 
   VISIT(ColumnExprTemplateString) { return visit(ctx->templateString()); }

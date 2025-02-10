@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.services.query import process_query_dict
+from posthog.clickhouse.client.execute_async import QueryStatusManager, QueryStatus
 from posthog.hogql.query import LimitContext
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
@@ -1007,6 +1008,57 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_without_dashboard_filters.results, [(2,)])
         assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
         self.assertEqual(response_with_dashboard_filters.results, [(1,)])
+
+
+class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
+    def test_async_query_returns_something(self):
+        query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
+
+        # Mock QueryStatusManager to return completed status immediately
+        with patch.object(QueryStatusManager, "get_query_status") as mock_get_query_status:
+            mock_get_query_status.return_value = QueryStatus(
+                id="123",
+                query_async=True,
+                team_id=self.team.id,
+                error=False,
+                complete=True,
+                error_message=None,
+                results={"results": [[1]]},
+            )
+
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query_awaited/", {"query": query.dict(), "refresh": "force_async"}
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            data = response.json()
+            self.assertEqual(data["results"], [[1]])
+
+    def test_sync_query_returns_something(self):
+        query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query_awaited/",
+            {"query": query.dict(), "refresh": True, "async": False},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertEqual(data["results"], [])
+
+    def test_async_query_invalid_json(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/query_awaited/", "invalid json", content_type="application/json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "invalid_request")
+
+    def test_async_auth(self):
+        self.client.logout()
+        query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
+        response = self.client.post(f"/api/environments/{self.team.id}/query_awaited/", {"query": query.dict()})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
+    def test_get_returns_405(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/query_awaited/")
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED, response.content)
 
 
 class TestQueryRetrieve(APIBaseTest):

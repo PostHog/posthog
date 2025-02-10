@@ -183,8 +183,8 @@ class TestExternalDataSchema(APIBaseTest):
 
             assert response.status_code == 200
             mock_trigger_external_data_workflow.assert_called_once()
-            source.refresh_from_db()
-            assert source.job_inputs.get("reset_pipeline") == "True"
+            schema.refresh_from_db()
+            assert schema.sync_type_config.get("reset_pipeline") is True
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
@@ -211,10 +211,9 @@ class TestExternalDataSchema(APIBaseTest):
             assert response.status_code == 200
             mock_trigger_external_data_workflow.assert_called_once()
 
-            source.refresh_from_db()
-            assert source.job_inputs.get("reset_pipeline") == "True"
-
             schema.refresh_from_db()
+
+            assert schema.sync_type_config.get("reset_pipeline") is True
             assert schema.sync_type_config.get("incremental_field") == "field"
             assert schema.sync_type_config.get("incremental_field_type") == "integer"
 

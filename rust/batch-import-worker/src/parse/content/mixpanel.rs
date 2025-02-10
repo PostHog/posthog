@@ -70,6 +70,7 @@ impl MixpanelEvent {
                 now: Utc::now().to_rfc3339(),
                 sent_at: None,
                 token,
+                is_cookieless_mode: false,
             };
 
             Ok(InternallyCapturedEvent { team_id, inner })

@@ -216,6 +216,14 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
         },
     ),
     BatchExportModel(name="events", schema=None),
+    BatchExportModel(
+        name="events",
+        schema=None,
+        filters=[
+            {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
+            {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
+        ],
+    ),
     BatchExportModel(name="persons", schema=None),
     {
         "fields": [
@@ -555,8 +563,11 @@ async def test_postgres_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
-    assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
-        persons_to_export_created
+    assert (
+        run.records_completed == len(events_to_export_created)
+        or run.records_completed == len(persons_to_export_created)
+        or run.records_completed
+        == len([event for event in events_to_export_created if event["properties"] is not None])
     )
 
     await assert_clickhouse_records_in_postgres(

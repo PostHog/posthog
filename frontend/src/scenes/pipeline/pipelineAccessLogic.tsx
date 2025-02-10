@@ -5,7 +5,7 @@ import { AvailableFeature } from '~/types'
 
 import { canConfigurePlugins, canGloballyManagePlugins } from './access'
 import type { pipelineAccessLogicType } from './pipelineAccessLogicType'
-import { Destination, NewDestinationItemType, PipelineBackend, SiteApp, Transformation } from './types'
+import { Destination, NewDestinationItemType, SiteApp, Transformation } from './types'
 
 export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
     path(['scenes', 'pipeline', 'pipelineAccessLogic']),
@@ -29,12 +29,8 @@ export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
                 canEnableNewDestinations
             ): ((destination: Destination | NewDestinationItemType | SiteApp | Transformation) => boolean) => {
                 return (destination: Destination | NewDestinationItemType | SiteApp | Transformation) => {
-                    return destination.backend === PipelineBackend.HogFunction
-                        ? ('hog_function' in destination
-                              ? destination.hog_function.type === 'site_destination' ||
-                                destination.hog_function.type === 'site_app' ||
-                                destination.hog_function.template?.status === 'free'
-                              : destination.status === 'free') || canEnableNewDestinations
+                    return 'free' in destination
+                        ? destination.free || canEnableNewDestinations
                         : canEnableNewDestinations
                 }
             },

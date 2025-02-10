@@ -71,20 +71,15 @@ func convertToResponsePostHogEvent(event PostHogEvent, teamId int) *ResponsePost
 	}
 }
 
-var personUUIDV5Namespace *uuid.UUID
+var personUUIDV5Namespace = uuid.Must(uuid.FromString("932979b4-65c3-4424-8467-0b66ec27bc22"))
 
 func uuidFromDistinctId(teamId int, distinctId string) string {
 	if teamId == 0 || distinctId == "" {
 		return ""
 	}
 
-	if personUUIDV5Namespace == nil {
-		uuid, _ := uuid.FromString("932979b4-65c3-4424-8467-0b66ec27bc22")
-		personUUIDV5Namespace = &uuid
-	}
-
 	input := fmt.Sprintf("%d:%s", teamId, distinctId)
-	return uuid.NewV5(*personUUIDV5Namespace, input).String()
+	return uuid.NewV5(personUUIDV5Namespace, input).String()
 }
 
 func removeSubscription(clientId string, subs []Subscription) []Subscription {

@@ -71,8 +71,7 @@
       },
       "xmlsec": {
         "pkg-path": "xmlsec",
-        "pkg-group": "python",
-        "version": "1.2.34"
+        "version": "1.3.6"
       }
     },
     "vars": {
@@ -81,7 +80,7 @@
       "POSTHOG_SKIP_MIGRATION_CHECKS": "1"
     },
     "hook": {
-      "on-activate": "# Guide through installing and configuring direnv if it's not present (optionally)\nif [[ -t 0 ]] && [ ! -d \"$DIRENV_DIR\" ] && [ ! -f \"$FLOX_ENV_CACHE/.hush-direnv\" ]; then\n  read -p \"\n👉 Use direnv (https://direnv.net) for automatic activation of this environment by your shell.\n❓ Would you like direnv to be set up now? (y/n, default: y)\" -n 1 -r\n  if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then\n    $FLOX_ENV_CACHE/../env/direnv-setup.sh\n  else\n    echo \"⏭️ Skipping direnv setup. This message will not be shown again, but if you change your mind, just run '.flox/bin/direnv-setup.sh'\"\n    touch $FLOX_ENV_CACHE/.hush-direnv\n  fi\n  echo\nfi\n\n# Set up a Python virtual environment\nexport PYTHON_DIR=\"$FLOX_ENV_CACHE/venv\"\nif [ ! -d \"$PYTHON_DIR\" ]; then\n  uv venv \"$PYTHON_DIR\" --allow-existing\nfi\n\necho -e \"Python virtual environment path: \\033[33m.flox/cache/venv\\033[0m\"\necho -e \"Python interpreter path, for your code editor: \\033[33m.flox/cache/venv/bin/python\\033[0m\"\n\nsource \"$PYTHON_DIR/bin/activate\"\n\n# Install Python dependencies (this is practically instant thanks to uv)\nuv pip install -q -r requirements.txt -r requirements-dev.txt\n\n# Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)\n# This also sets up pre-commit hooks via Husky\nif [ ! -d \"node_modules\" ]; then\n  pnpm install -s\nfi\n\nif [[ -t 0 ]]; then # The block below only runs when in an interactive shell\n  # Add required entries to /etc/hosts if not present\n  if ! grep -q \"127.0.0.1 kafka clickhouse\" /etc/hosts; then\n    echo\n    echo \"🚨 Amending /etc/hosts to map hostnames 'kafka' and 'clickhouse' to 127.0.0.1...\"\n    echo \"127.0.0.1 kafka clickhouse\" | sudo tee -a /etc/hosts 1> /dev/null\n    echo \"✅ /etc/hosts amended\"\n  fi\n\n  # Print intro message\n  echo -e \"\nIT'S DANGEROUS TO GO ALONE! RUN THIS:\n1. \\033[31mbin/migrate\\033[0m - to run all migrations\n2. \\033[32mbin/start\\033[0m - to start the entire stack\n3. \\033[34m./manage.py generate_demo_data\\033[0m - to create a user with demo data\n\"\nfi\n"
+      "on-activate": "# Guide through installing and configuring direnv if it's not present (optionally)\nif [[ -t 0 ]] && [ ! -d \"$DIRENV_DIR\" ] && [ ! -f \"$FLOX_ENV_CACHE/.hush-direnv\" ]; then\n  read -p \"\n👉 Use direnv (https://direnv.net) for automatic activation of this environment by your shell.\n❓ Would you like direnv to be set up now? (y/n, default: y)\" -n 1 -r\n  if [[ $REPLY =~ ^[Yy]$ || -z $REPLY ]]; then\n    $FLOX_ENV_CACHE/../env/direnv-setup.sh\n  else\n    echo \"⏭️ Skipping direnv setup. This message will not be shown again, but if you change your mind, just run '.flox/bin/direnv-setup.sh'\"\n    touch $FLOX_ENV_CACHE/.hush-direnv\n  fi\n  echo\nfi\n\n# Set up a Python virtual environment\nexport PYTHON_DIR=\"$FLOX_ENV_CACHE/venv\"\nif [ ! -d \"$PYTHON_DIR\" ]; then\n  uv venv \"$PYTHON_DIR\" --allow-existing\nfi\n\necho -e \"Python virtual environment path: \\033[33m.flox/cache/venv\\033[0m\"\necho -e \"Python interpreter path, for your code editor: \\033[33m.flox/cache/venv/bin/python\\033[0m\"\n\nsource \"$PYTHON_DIR/bin/activate\"\n\n# Install Python dependencies (this is practically instant thanks to uv)\nuv pip install -q -r requirements.txt -r requirements-dev.txt\n\n# Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)\n# This also sets up pre-commit hooks via Husky\nif [ ! -d \"node_modules\" ]; then\n  pnpm install -s\nfi\n\nif [[ -t 0 ]]; then # The block below only runs when in an interactive shell\n  # Add required entries to /etc/hosts if not present\n  if ! grep -q \"127.0.0.1 kafka clickhouse clickhouse-coordinator\" /etc/hosts; then\n    echo\n    echo \"🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse' and 'clickhouse-coordinator' to 127.0.0.1...\"\n    echo \"127.0.0.1 kafka clickhouse clickhouse-coordinator\" | sudo tee -a /etc/hosts 1> /dev/null\n    echo \"✅ /etc/hosts amended\"\n  fi\n\n  # Print intro message\n  echo -e \"\nIT'S DANGEROUS TO GO ALONE! RUN THIS:\n1. \\033[31mbin/migrate\\033[0m - to run all migrations\n2. \\033[32mbin/start\\033[0m - to start the entire stack\n3. \\033[34m./manage.py generate_demo_data\\033[0m - to create a user with demo data\n\"\nfi\n"
     },
     "profile": {
       "bash": "  source \"$PYTHON_DIR/bin/activate\"\n",
@@ -221,6 +220,482 @@
       },
       "system": "x86_64-linux",
       "group": "go",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/xc823qc0xrblmwgcc3nla10jq5ig9w86-brotli-1.1.0.drv",
+      "description": "Generic-purpose lossless compression algorithm and tool",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "brotli-1.1.0",
+      "pname": "brotli",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.1.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/f0rk65v51vl7l9p4y493rm6qfk8i97xr-brotli-1.1.0-dev",
+        "lib": "/nix/store/5as889bhhc7yb4x9qhc3vnpn6pnx4dgp-brotli-1.1.0-lib",
+        "out": "/nix/store/pb5as8l7hpf5ndml0y6j04i9zb81naq7-brotli-1.1.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/8ml5h9vwdfx3nqfpnl3k4jsxv019fklb-brotli-1.1.0.drv",
+      "description": "Generic-purpose lossless compression algorithm and tool",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "brotli-1.1.0",
+      "pname": "brotli",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.1.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/qlklllx4yg1gp7d5i1pw0hfwk0vrqbqw-brotli-1.1.0-dev",
+        "lib": "/nix/store/8fkzylzp8clfgkwl3sbcavdwr4fpcy1p-brotli-1.1.0-lib",
+        "out": "/nix/store/xygqfz5hk0dvbyikdsakz942y7j9amsl-brotli-1.1.0"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/pvxmxg04mhaz4r6gy81zdqjs79ar4czi-brotli-1.1.0.drv",
+      "description": "Generic-purpose lossless compression algorithm and tool",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "brotli-1.1.0",
+      "pname": "brotli",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.1.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/9fq5rv7mxbggsnyirgswqh0b7yjs45h7-brotli-1.1.0-dev",
+        "lib": "/nix/store/ahrbm7280ff9xbydqm5124qxmhs676rd-brotli-1.1.0-lib",
+        "out": "/nix/store/ih83y4pmwr3c658ngih6x6yxfpqva7q3-brotli-1.1.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/h3q18g1m5b1cnmahg0da2sxyb4d23cxw-brotli-1.1.0.drv",
+      "description": "Generic-purpose lossless compression algorithm and tool",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "brotli-1.1.0",
+      "pname": "brotli",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.1.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/6qshp6mlih60gwrp4qrh03czi11xa5f9-brotli-1.1.0-dev",
+        "lib": "/nix/store/mzhn6vgk5g9p63gvzj7pgyia2mfp2glw-brotli-1.1.0-lib",
+        "out": "/nix/store/nf35c6arwgbny5qv956yb369gp3g7xjl-brotli-1.1.0"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "corepack",
+      "broken": false,
+      "derivation": "/nix/store/akzx3kf890akdkfdnkv1822g4dqp11ad-corepack-nodejs-22.12.0.drv",
+      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "corepack-nodejs-22.12.0",
+      "pname": "corepack",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-22.12.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/8n75ydr46mng4msi66p20wz9wm56vkgq-corepack-nodejs-22.12.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "corepack",
+      "broken": false,
+      "derivation": "/nix/store/qkgm540b62irg0c7skfz3ciwgx7wdj2w-corepack-nodejs-22.12.0.drv",
+      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "corepack-nodejs-22.12.0",
+      "pname": "corepack",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-22.12.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/pr8ji49rl468hb8qg2nryb1zawlspfpg-corepack-nodejs-22.12.0"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "corepack",
+      "broken": false,
+      "derivation": "/nix/store/4zi2ir58i7wlcyiq58n6l5by4i3iqy1z-corepack-nodejs-22.12.0.drv",
+      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "corepack-nodejs-22.12.0",
+      "pname": "corepack",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-22.12.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/g252pz7bxswyxfnm7m5m6knvmqimrq3b-corepack-nodejs-22.12.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "corepack",
+      "broken": false,
+      "derivation": "/nix/store/044q0g2pxn10nfl5lgvv59gszfavwr4z-corepack-nodejs-22.12.0.drv",
+      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "corepack-nodejs-22.12.0",
+      "pname": "corepack",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-22.12.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/zk31r2zxvbgwml3xzgp1m3845n5crnix-corepack-nodejs-22.12.0"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_18",
+      "broken": false,
+      "derivation": "/nix/store/hhmxx8i4g5h3f61124dmm7vd93jd3985-nodejs-18.20.6.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "nodejs-18.20.6",
+      "pname": "nodejs_18",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-18.20.6",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "libv8": "/nix/store/acgb9797zwj0f4j8c0a42y0xh0c0gplj-nodejs-18.20.6-libv8",
+        "out": "/nix/store/0cswv2szl5zp2pnz2bkc354959b1j8ss-nodejs-18.20.6"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_18",
+      "broken": false,
+      "derivation": "/nix/store/4r9ncsk1yspf73ffll5ccwp8akaabyhi-nodejs-18.20.6.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "nodejs-18.20.6",
+      "pname": "nodejs_18",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-18.20.6",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "libv8": "/nix/store/a3465k5z17dp64ykn1jslfmbr663gnan-nodejs-18.20.6-libv8",
+        "out": "/nix/store/d6m988csbhk9hjhwvwh97wyvr2myb06r-nodejs-18.20.6"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_18",
+      "broken": false,
+      "derivation": "/nix/store/sw85k49rqnayv8d2c249wwd5v0m005q4-nodejs-18.20.6.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "nodejs-18.20.6",
+      "pname": "nodejs_18",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-18.20.6",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "libv8": "/nix/store/9r7wjc5dma2vm52j5cx5xw8b2wxx3dxm-nodejs-18.20.6-libv8",
+        "out": "/nix/store/h1ifnz74w42gzww6vfpw744ryzfpcmsx-nodejs-18.20.6"
+      },
+      "system": "x86_64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_18",
+      "broken": false,
+      "derivation": "/nix/store/lzl4inslxkzp4522nik7r2rdq56azpqf-nodejs-18.20.6.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "nodejs-18.20.6",
+      "pname": "nodejs_18",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-18.20.6",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "libv8": "/nix/store/isbmxxr3n6fjwr5a7svviw8ksjsk8js3-nodejs-18.20.6-libv8",
+        "out": "/nix/store/cnyxnqdcmc08803c4lc8iwiszpa482hy-nodejs-18.20.6"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodemon",
+      "broken": false,
+      "derivation": "/nix/store/40wyhzxxyz50nazphxi3jjvdm58817jg-nodemon-3.1.9.drv",
+      "description": "Simple monitor script for use during development of a Node.js app",
+      "install_id": "nodemon",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "nodemon-3.1.9",
+      "pname": "nodemon",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.1.9",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/2gxfca3w1wd3md5c2mva7hvm4hhxnxlw-nodemon-3.1.9"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodemon",
+      "broken": false,
+      "derivation": "/nix/store/b12ai0p3acgv7nqfdc306lwkyfyd71av-nodemon-3.1.9.drv",
+      "description": "Simple monitor script for use during development of a Node.js app",
+      "install_id": "nodemon",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "nodemon-3.1.9",
+      "pname": "nodemon",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.1.9",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/rlalp9sml80r2xxagsq2wmxh9bvnyzfk-nodemon-3.1.9"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodemon",
+      "broken": false,
+      "derivation": "/nix/store/15xk7p48l7pd1byzkfc6xv1l1cfdr8h2-nodemon-3.1.9.drv",
+      "description": "Simple monitor script for use during development of a Node.js app",
+      "install_id": "nodemon",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "nodemon-3.1.9",
+      "pname": "nodemon",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.1.9",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/h6pzxr6y2cjzjv4gz45yvl1gn6x7ldj5-nodemon-3.1.9"
+      },
+      "system": "x86_64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodemon",
+      "broken": false,
+      "derivation": "/nix/store/n4hay1245bd7kx4m6s9sijrvdiswjqm0-nodemon-3.1.9.drv",
+      "description": "Simple monitor script for use during development of a Node.js app",
+      "install_id": "nodemon",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "nodemon-3.1.9",
+      "pname": "nodemon",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.1.9",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/821bw77lw9ddrkc829alblpk8q6qw2f1-nodemon-3.1.9"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
       "priority": 5
     },
     {
@@ -588,130 +1063,6 @@
       "outputs": {
         "dist": "/nix/store/ap7bl4yas61vz3k0fh98wn08b9x8s79a-uv-0.2.15-dist",
         "out": "/nix/store/6pxd9hxps14jr88mmixpvp5z3ygcdpdy-uv-0.2.15"
-      },
-      "system": "x86_64-linux",
-      "group": "python",
-      "priority": 5
-    },
-    {
-      "attr_path": "xmlsec",
-      "broken": false,
-      "derivation": "/nix/store/p85izfrfdj8n22pm9iv1b8a511pm2i5n-xmlsec-1.2.34.drv",
-      "description": "XML Security Library in C based on libxml2",
-      "install_id": "xmlsec",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "xmlsec-1.2.34",
-      "pname": "xmlsec",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.34",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/mnrmn6vndrfgxyxmbqvmrwi7qjwr3d0m-xmlsec-1.2.34-dev",
-        "out": "/nix/store/ff6sr1v2q8gqmnyvpl6xfxw3r2lb56i3-xmlsec-1.2.34"
-      },
-      "system": "aarch64-darwin",
-      "group": "python",
-      "priority": 5
-    },
-    {
-      "attr_path": "xmlsec",
-      "broken": false,
-      "derivation": "/nix/store/7zscs792mb7v53i43jf4qq0gypgrql8g-xmlsec-1.2.34.drv",
-      "description": "XML Security Library in C based on libxml2",
-      "install_id": "xmlsec",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "xmlsec-1.2.34",
-      "pname": "xmlsec",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.34",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/k8n1j04qrbhlzxklrxhk32aphh58jqcf-xmlsec-1.2.34-dev",
-        "out": "/nix/store/qdscjbwglk2953azhhhsibf0xlsjig1h-xmlsec-1.2.34"
-      },
-      "system": "aarch64-linux",
-      "group": "python",
-      "priority": 5
-    },
-    {
-      "attr_path": "xmlsec",
-      "broken": false,
-      "derivation": "/nix/store/cbl3q86h6vzzzi50ph82syrkha9g9mah-xmlsec-1.2.34.drv",
-      "description": "XML Security Library in C based on libxml2",
-      "install_id": "xmlsec",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "xmlsec-1.2.34",
-      "pname": "xmlsec",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.34",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/jc3nxrj9kv447gb5ywxqal45b7ick5c7-xmlsec-1.2.34-dev",
-        "out": "/nix/store/fzhimicsixlzc8k6l0f5vh5lzbxsl39c-xmlsec-1.2.34"
-      },
-      "system": "x86_64-darwin",
-      "group": "python",
-      "priority": 5
-    },
-    {
-      "attr_path": "xmlsec",
-      "broken": false,
-      "derivation": "/nix/store/5z6p8lb90900s6k8lml62mlwjjx6whm2-xmlsec-1.2.34.drv",
-      "description": "XML Security Library in C based on libxml2",
-      "install_id": "xmlsec",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "xmlsec-1.2.34",
-      "pname": "xmlsec",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.2.34",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/z0k51x5cg15f2r058ypjzhf9bakzq16g-xmlsec-1.2.34-dev",
-        "out": "/nix/store/rrnig5ybklsrf8kiwn15lvci0rfq6379-xmlsec-1.2.34"
       },
       "system": "x86_64-linux",
       "group": "python",
@@ -1123,8 +1474,8 @@
       "unfree": false,
       "version": "wrapper-1.80.1",
       "outputs_to_install": [
-        "out",
-        "man"
+        "man",
+        "out"
       ],
       "outputs": {
         "doc": "/nix/store/pwm2c3c2msxiy78ms1g1syqcf4zjwidx-rustc-wrapper-1.80.1-doc",
@@ -1156,8 +1507,8 @@
       "unfree": false,
       "version": "wrapper-1.80.1",
       "outputs_to_install": [
-        "out",
-        "man"
+        "man",
+        "out"
       ],
       "outputs": {
         "doc": "/nix/store/ycyqn2r84lmhkd0vf605nz28ngb6qbbm-rustc-wrapper-1.80.1-doc",
@@ -1189,8 +1540,8 @@
       "unfree": false,
       "version": "wrapper-1.80.1",
       "outputs_to_install": [
-        "out",
-        "man"
+        "man",
+        "out"
       ],
       "outputs": {
         "doc": "/nix/store/0b1mwhz7l71wdwxf925q4k8cvmcpx3aq-rustc-wrapper-1.80.1-doc",
@@ -1222,8 +1573,8 @@
       "unfree": false,
       "version": "wrapper-1.80.1",
       "outputs_to_install": [
-        "out",
-        "man"
+        "man",
+        "out"
       ],
       "outputs": {
         "doc": "/nix/store/iyl50h2sik10vb40kiipiavzlgrrks04-rustc-wrapper-1.80.1-doc",
@@ -1357,28 +1708,27 @@
     {
       "attr_path": "mprocs",
       "broken": false,
-      "derivation": "/nix/store/5hckam5lgqqmlkjd1r6a0bzkkvhfm349-mprocs-0.7.1.drv",
+      "derivation": "/nix/store/v06gw32c9bg2sjfk0qmysw1hk4x709dc-mprocs-0.7.2.drv",
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "mprocs-0.7.1",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "mprocs-0.7.2",
       "pname": "mprocs",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
       "stabilities": [
-        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "0.7.1",
+      "version": "0.7.2",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/pk1mb41ryrw2izq15pymxjwqvw8mr29p-mprocs-0.7.1"
+        "out": "/nix/store/mmjad3322myzwdjr613ddimdq0x44vxa-mprocs-0.7.2"
       },
       "system": "aarch64-darwin",
       "group": "toplevel",
@@ -1387,28 +1737,27 @@
     {
       "attr_path": "mprocs",
       "broken": false,
-      "derivation": "/nix/store/lg4yvv4az18g59l7rgfvn2pqxidx5qgb-mprocs-0.7.1.drv",
+      "derivation": "/nix/store/7ahrw70dbkq2m32g40aq5c9fvm683ynd-mprocs-0.7.2.drv",
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "mprocs-0.7.1",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "mprocs-0.7.2",
       "pname": "mprocs",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
       "stabilities": [
-        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "0.7.1",
+      "version": "0.7.2",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/dynm867fg992nb5wlysvrg1p14cwgsca-mprocs-0.7.1"
+        "out": "/nix/store/dd4rzg52rz1h4p4j963pwbhjhzc5ivcm-mprocs-0.7.2"
       },
       "system": "aarch64-linux",
       "group": "toplevel",
@@ -1417,28 +1766,27 @@
     {
       "attr_path": "mprocs",
       "broken": false,
-      "derivation": "/nix/store/xbicacfnn0gnz08rri7jwc40byxrm404-mprocs-0.7.1.drv",
+      "derivation": "/nix/store/ja4h2gyn7qagxnbz489iyj5j0g7fdg95-mprocs-0.7.2.drv",
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "mprocs-0.7.1",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "mprocs-0.7.2",
       "pname": "mprocs",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
       "stabilities": [
-        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "0.7.1",
+      "version": "0.7.2",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/kx138kp8rxjwph6wqp3lk8v6fybij2bz-mprocs-0.7.1"
+        "out": "/nix/store/nxgsjq75rsxi1m1cij8hs6pzycmf36w4-mprocs-0.7.2"
       },
       "system": "x86_64-darwin",
       "group": "toplevel",
@@ -1447,523 +1795,150 @@
     {
       "attr_path": "mprocs",
       "broken": false,
-      "derivation": "/nix/store/ydrq0m8lp0m3pjpd9ndg1x30z3bg81qx-mprocs-0.7.1.drv",
+      "derivation": "/nix/store/c11r1ycrwmfa53r6lwn4zlmdps9q28v4-mprocs-0.7.2.drv",
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "name": "mprocs-0.7.1",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "mprocs-0.7.2",
       "pname": "mprocs",
-      "rev": "9f4128e00b0ae8ec65918efeba59db998750ead6",
-      "rev_count": 647193,
-      "rev_date": "2024-07-03T18:27:49Z",
-      "scrape_date": "2024-07-05T00:14:29Z",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
       "stabilities": [
-        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "0.7.1",
+      "version": "0.7.2",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/ky3hbhjvsr4l5nh1xjipkbswll37j0dq-mprocs-0.7.1"
+        "out": "/nix/store/ndpcn1xb5mn53y7cfx7axjybaf118jrx-mprocs-0.7.2"
       },
       "system": "x86_64-linux",
       "group": "toplevel",
       "priority": 5
     },
     {
-      "attr_path": "brotli",
+      "attr_path": "xmlsec",
       "broken": false,
-      "derivation": "/nix/store/6cwflld1b78lmqr3mj7c8jgysbfq32qk-brotli-1.1.0.drv",
-      "description": "Generic-purpose lossless compression algorithm and tool",
-      "install_id": "brotli",
+      "derivation": "/nix/store/npw5s8xc26plb2yw90iivl2ikrgrdywa-xmlsec-1.3.6.drv",
+      "description": "XML Security Library in C based on libxml2",
+      "install_id": "xmlsec",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "brotli-1.1.0",
-      "pname": "brotli",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "xmlsec-1.3.6",
+      "pname": "xmlsec",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
       "stabilities": [
-        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "1.1.0",
+      "version": "1.3.6",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "dev": "/nix/store/x9x8kz1dm5mlk9shcs1d802ynj6w61y2-brotli-1.1.0-dev",
-        "lib": "/nix/store/r7fvblydd9smajp3asaqhm6jvqc38qmb-brotli-1.1.0-lib",
-        "out": "/nix/store/ns2pn7hja7k1rmviv52zrf2xbb0xx1wn-brotli-1.1.0"
+        "dev": "/nix/store/xk5p268064kk8zpg814d1qf5k11567nx-xmlsec-1.3.6-dev",
+        "out": "/nix/store/1az65ianwq0d2bbvmm02jwlld0dnd162-xmlsec-1.3.6"
       },
       "system": "aarch64-darwin",
-      "group": "nodejs",
+      "group": "toplevel",
       "priority": 5
     },
     {
-      "attr_path": "brotli",
+      "attr_path": "xmlsec",
       "broken": false,
-      "derivation": "/nix/store/4p76dm63fspxbwhng9mhkr9qh9y449hs-brotli-1.1.0.drv",
-      "description": "Generic-purpose lossless compression algorithm and tool",
-      "install_id": "brotli",
+      "derivation": "/nix/store/8wv3diwavvfqzhvbixzrplx8px4cf1lk-xmlsec-1.3.6.drv",
+      "description": "XML Security Library in C based on libxml2",
+      "install_id": "xmlsec",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "brotli-1.1.0",
-      "pname": "brotli",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "xmlsec-1.3.6",
+      "pname": "xmlsec",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
       "stabilities": [
-        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "1.1.0",
+      "version": "1.3.6",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "dev": "/nix/store/j3am2m4jn6pkiv0bm2r45z51243qf45x-brotli-1.1.0-dev",
-        "lib": "/nix/store/0w6nm7j7w5b27gxmb6kfang0n69ybx94-brotli-1.1.0-lib",
-        "out": "/nix/store/xq716j0dkf2pwxvvl426ga1vxsmyjgbj-brotli-1.1.0"
+        "dev": "/nix/store/jdcamqgxr39lsh27zvi4p5jxwwh8jq4x-xmlsec-1.3.6-dev",
+        "out": "/nix/store/iswr05yh4658qv4zss42plyq5v4m243n-xmlsec-1.3.6"
       },
       "system": "aarch64-linux",
-      "group": "nodejs",
+      "group": "toplevel",
       "priority": 5
     },
     {
-      "attr_path": "brotli",
+      "attr_path": "xmlsec",
       "broken": false,
-      "derivation": "/nix/store/p3y1bh5164jlw6gy45037wnrd7rzdncx-brotli-1.1.0.drv",
-      "description": "Generic-purpose lossless compression algorithm and tool",
-      "install_id": "brotli",
+      "derivation": "/nix/store/9jqq405rf01w8b8x1lg0myssazfldl9x-xmlsec-1.3.6.drv",
+      "description": "XML Security Library in C based on libxml2",
+      "install_id": "xmlsec",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "brotli-1.1.0",
-      "pname": "brotli",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "xmlsec-1.3.6",
+      "pname": "xmlsec",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
       "stabilities": [
-        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "1.1.0",
+      "version": "1.3.6",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "dev": "/nix/store/hxz478davwb39pcs9p40chhmj6igh5hn-brotli-1.1.0-dev",
-        "lib": "/nix/store/v8zhc6am8gqbc16w6ik20yj9wbpn015i-brotli-1.1.0-lib",
-        "out": "/nix/store/azlw8ri487sa8rmwg86cdysf3j8xh1c5-brotli-1.1.0"
+        "dev": "/nix/store/602wpc62zh9ynzkbclgry756w96mkq1m-xmlsec-1.3.6-dev",
+        "out": "/nix/store/k4k4af77sn96pjafxmabsd841cn7q85s-xmlsec-1.3.6"
       },
       "system": "x86_64-darwin",
-      "group": "nodejs",
+      "group": "toplevel",
       "priority": 5
     },
     {
-      "attr_path": "brotli",
+      "attr_path": "xmlsec",
       "broken": false,
-      "derivation": "/nix/store/rbwgzdy86dfwp0nlvqy7k39n61486979-brotli-1.1.0.drv",
-      "description": "Generic-purpose lossless compression algorithm and tool",
-      "install_id": "brotli",
+      "derivation": "/nix/store/64ch7lpv3qalphh6kd2prgrjlwfzv6h4-xmlsec-1.3.6.drv",
+      "description": "XML Security Library in C based on libxml2",
+      "install_id": "xmlsec",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "brotli-1.1.0",
-      "pname": "brotli",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=799ba5bffed04ced7067a91798353d360788b30d",
+      "name": "xmlsec-1.3.6",
+      "pname": "xmlsec",
+      "rev": "799ba5bffed04ced7067a91798353d360788b30d",
+      "rev_count": 747653,
+      "rev_date": "2025-02-04T14:46:40Z",
+      "scrape_date": "2025-02-05T00:30:07Z",
       "stabilities": [
-        "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "1.1.0",
+      "version": "1.3.6",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "dev": "/nix/store/m69rxkn1154drqhcbnqjr6i7xbar4yb4-brotli-1.1.0-dev",
-        "lib": "/nix/store/2vgwd43vqxm66grkgsy7z1d87z31nzph-brotli-1.1.0-lib",
-        "out": "/nix/store/2ww03dm6fbyp76fp0kv1dv9cxd39fiis-brotli-1.1.0"
+        "dev": "/nix/store/npvmw7i5i4i7ck5nw42y0kcy4p35c9mr-xmlsec-1.3.6-dev",
+        "out": "/nix/store/71qqpvd4gd9yd1gbcbc7rs468pvfxwr3-xmlsec-1.3.6"
       },
       "system": "x86_64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/fjjlk4g8ybfl2lh9kdi1j3k52rssif0z-corepack-nodejs-20.18.1.drv",
-      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "corepack-nodejs-20.18.1",
-      "pname": "corepack",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-20.18.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/xb7rzh9a99dwidaaks5dhkbq3g5qx2fi-corepack-nodejs-20.18.1"
-      },
-      "system": "aarch64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/39wdrzfmghz3j4jr6sh6z4ndhfzq6kmg-corepack-nodejs-20.18.1.drv",
-      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "corepack-nodejs-20.18.1",
-      "pname": "corepack",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-20.18.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/64m1bmya4yvz2pfpa4li800m8caxawwy-corepack-nodejs-20.18.1"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/0nxs6aij505x6c8lr747gfmfryv5gh03-corepack-nodejs-20.18.1.drv",
-      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "corepack-nodejs-20.18.1",
-      "pname": "corepack",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-20.18.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/2apr9lhsr6gvcbr92dhvall1qvjc2d1h-corepack-nodejs-20.18.1"
-      },
-      "system": "x86_64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/hdmcwb8m1l9lkcrqhc4s32vyfrrv9xsf-corepack-nodejs-20.18.1.drv",
-      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "corepack-nodejs-20.18.1",
-      "pname": "corepack",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-20.18.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/y7kznvfcjl2y8cpivy6vbp1j0x5rdqlm-corepack-nodejs-20.18.1"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_18",
-      "broken": false,
-      "derivation": "/nix/store/1xpdiwn64w121hqam7a572x76j05k59b-nodejs-18.20.5.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "nodejs-18.20.5",
-      "pname": "nodejs_18",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-18.20.5",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "libv8": "/nix/store/a40q0j0m27m1dxy9i94accm5zaknpx2k-nodejs-18.20.5-libv8",
-        "out": "/nix/store/6dlw5588gs7whckfx2l0iyd8xi4gklq6-nodejs-18.20.5"
-      },
-      "system": "aarch64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_18",
-      "broken": false,
-      "derivation": "/nix/store/vhpwx7fmj5zcmm8jn8zj4kr7559kfwaf-nodejs-18.20.5.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "nodejs-18.20.5",
-      "pname": "nodejs_18",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-18.20.5",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "libv8": "/nix/store/1plafrvq3c9vhdwilizkfl1wff0n5n6h-nodejs-18.20.5-libv8",
-        "out": "/nix/store/x07wndwyr9f6xhk6rk7iq5rn2qbw4d3y-nodejs-18.20.5"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_18",
-      "broken": false,
-      "derivation": "/nix/store/rm9x0h8ap163r25lqjppxny4y7d5h6vv-nodejs-18.20.5.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "nodejs-18.20.5",
-      "pname": "nodejs_18",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-18.20.5",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "libv8": "/nix/store/rdx8vcizxv9q5kqd1qydz5gkagar5xy8-nodejs-18.20.5-libv8",
-        "out": "/nix/store/24kh8yc1g5d9whhbdykf58zymfbxbki6-nodejs-18.20.5"
-      },
-      "system": "x86_64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_18",
-      "broken": false,
-      "derivation": "/nix/store/9hq82dni4ix0h26rdrvysrkdqvfxgfwl-nodejs-18.20.5.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "nodejs-18.20.5",
-      "pname": "nodejs_18",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-18.20.5",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "libv8": "/nix/store/3kp2j4w0k9cb7r29wq2iv8kyp7hw1dqs-nodejs-18.20.5-libv8",
-        "out": "/nix/store/nmmgwk1a0cakhmhwgf1v2b5ws3zf899h-nodejs-18.20.5"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodemon",
-      "broken": false,
-      "derivation": "/nix/store/454gjk7ccq5wi4kjvl7ndi4r2k5sha4h-nodemon-3.1.7.drv",
-      "description": "Simple monitor script for use during development of a Node.js app",
-      "install_id": "nodemon",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "nodemon-3.1.7",
-      "pname": "nodemon",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "3.1.7",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/jyma37lrhs9a2vsr3nmwn84c4zd3599z-nodemon-3.1.7"
-      },
-      "system": "aarch64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodemon",
-      "broken": false,
-      "derivation": "/nix/store/33hjd9vsavll3yjrh30mdv94hrrqynw7-nodemon-3.1.7.drv",
-      "description": "Simple monitor script for use during development of a Node.js app",
-      "install_id": "nodemon",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "nodemon-3.1.7",
-      "pname": "nodemon",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "3.1.7",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/fxjh3jriwvrzvqs0wdrs7z8pmfbcz4sg-nodemon-3.1.7"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodemon",
-      "broken": false,
-      "derivation": "/nix/store/ppa01g3mryjq4hyr9lq6z6i35yzfmlhp-nodemon-3.1.7.drv",
-      "description": "Simple monitor script for use during development of a Node.js app",
-      "install_id": "nodemon",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "nodemon-3.1.7",
-      "pname": "nodemon",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "3.1.7",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/rpfxqn5685305p818ciqc8cvzck24vh2-nodemon-3.1.7"
-      },
-      "system": "x86_64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodemon",
-      "broken": false,
-      "derivation": "/nix/store/smvwbfikai22yhl00plbwzn652k884pa-nodemon-3.1.7.drv",
-      "description": "Simple monitor script for use during development of a Node.js app",
-      "install_id": "nodemon",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "name": "nodemon-3.1.7",
-      "pname": "nodemon",
-      "rev": "d3c42f187194c26d9f0309a8ecc469d6c878ce33",
-      "rev_count": 723344,
-      "rev_date": "2024-12-17T08:37:14Z",
-      "scrape_date": "2024-12-19T03:52:25Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "3.1.7",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/q9zi4k1ssw831waxxpli9wybq9a5ycl3-nodemon-3.1.7"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
+      "group": "toplevel",
       "priority": 5
     }
   ]

@@ -21,7 +21,7 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     PostgresBatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -590,15 +590,18 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 model_name = model.name
                 extra_query_parameters = model.schema["values"] if model.schema is not None else None
                 fields = model.schema["fields"] if model.schema is not None else None
+                filters = model.filters
             else:
                 model_name = "events"
                 extra_query_parameters = None
                 fields = None
+                filters = None
         else:
             model = inputs.batch_export_schema
             model_name = "custom"
             extra_query_parameters = model["values"] if model is not None else {}
             fields = model["fields"] if model is not None else None
+            filters = None
 
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -608,7 +611,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
-        producer_task = producer.start(
+        producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
             is_backfill=inputs.is_backfill,
@@ -616,6 +619,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             full_range=full_range,
             done_ranges=done_ranges,
             fields=fields,
+            filters=filters,
             destination_default_fields=postgres_default_fields(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -656,9 +660,14 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        # NOTE: PostgreSQL has a 63 byte limit on identifiers.
+        # With a 6 digit `team_id`, this leaves 30 bytes for a table name input.
+        # TODO: That should be enough, but we should add a proper check and alert on larger inputs.
         stagle_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
-        )
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            if requires_merge
+            else inputs.table_name
+        )[:63]
 
         if requires_merge:
             primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))

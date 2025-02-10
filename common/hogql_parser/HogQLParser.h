@@ -63,15 +63,15 @@ public:
     RuleWindowExpr = 50, RuleWinPartitionByClause = 51, RuleWinOrderByClause = 52, 
     RuleWinFrameClause = 53, RuleWinFrameExtend = 54, RuleWinFrameBound = 55, 
     RuleExpr = 56, RuleColumnTypeExpr = 57, RuleColumnExprList = 58, RuleColumnExpr = 59, 
-    RuleColumnLambdaExpr = 60, RuleHogqlxTagElement = 61, RuleHogqlxTagAttribute = 62, 
-    RuleWithExprList = 63, RuleWithExpr = 64, RuleColumnIdentifier = 65, 
-    RuleNestedIdentifier = 66, RuleTableExpr = 67, RuleTableFunctionExpr = 68, 
-    RuleTableIdentifier = 69, RuleTableArgList = 70, RuleDatabaseIdentifier = 71, 
-    RuleFloatingLiteral = 72, RuleNumberLiteral = 73, RuleLiteral = 74, 
-    RuleInterval = 75, RuleKeyword = 76, RuleKeywordForAlias = 77, RuleAlias = 78, 
-    RuleIdentifier = 79, RuleEnumValue = 80, RulePlaceholder = 81, RuleString = 82, 
-    RuleTemplateString = 83, RuleStringContents = 84, RuleFullTemplateString = 85, 
-    RuleStringContentsFull = 86
+    RuleColumnLambdaExpr = 60, RuleHogqlxChildElement = 61, RuleHogqlxTagElement = 62, 
+    RuleHogqlxTagAttribute = 63, RuleWithExprList = 64, RuleWithExpr = 65, 
+    RuleColumnIdentifier = 66, RuleNestedIdentifier = 67, RuleTableExpr = 68, 
+    RuleTableFunctionExpr = 69, RuleTableIdentifier = 70, RuleTableArgList = 71, 
+    RuleDatabaseIdentifier = 72, RuleFloatingLiteral = 73, RuleNumberLiteral = 74, 
+    RuleLiteral = 75, RuleInterval = 76, RuleKeyword = 77, RuleKeywordForAlias = 78, 
+    RuleAlias = 79, RuleIdentifier = 80, RuleEnumValue = 81, RulePlaceholder = 82, 
+    RuleString = 83, RuleTemplateString = 84, RuleStringContents = 85, RuleFullTemplateString = 86, 
+    RuleStringContentsFull = 87
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -152,6 +152,7 @@ public:
   class ColumnExprListContext;
   class ColumnExprContext;
   class ColumnLambdaExprContext;
+  class HogqlxChildElementContext;
   class HogqlxTagElementContext;
   class HogqlxTagAttributeContext;
   class WithExprListContext;
@@ -1567,6 +1568,18 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprCallSelectContext : public ColumnExprContext {
+  public:
+    ColumnExprCallSelectContext(ColumnExprContext *ctx);
+
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *LPAREN();
+    SelectSetStmtContext *selectSetStmt();
+    antlr4::tree::TerminalNode *RPAREN();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprIsNullContext : public ColumnExprContext {
   public:
     ColumnExprIsNullContext(ColumnExprContext *ctx);
@@ -1912,6 +1925,22 @@ public:
 
   ColumnLambdaExprContext* columnLambdaExpr();
 
+  class  HogqlxChildElementContext : public antlr4::ParserRuleContext {
+  public:
+    HogqlxChildElementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    HogqlxTagElementContext *hogqlxTagElement();
+    antlr4::tree::TerminalNode *LBRACE();
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *RBRACE();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  HogqlxChildElementContext* hogqlxChildElement();
+
   class  HogqlxTagElementContext : public antlr4::ParserRuleContext {
   public:
     HogqlxTagElementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
@@ -1952,10 +1981,8 @@ public:
     antlr4::tree::TerminalNode *SLASH();
     std::vector<HogqlxTagAttributeContext *> hogqlxTagAttribute();
     HogqlxTagAttributeContext* hogqlxTagAttribute(size_t i);
-    HogqlxTagElementContext *hogqlxTagElement();
-    antlr4::tree::TerminalNode *LBRACE();
-    ColumnExprContext *columnExpr();
-    antlr4::tree::TerminalNode *RBRACE();
+    std::vector<HogqlxChildElementContext *> hogqlxChildElement();
+    HogqlxChildElementContext* hogqlxChildElement(size_t i);
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };

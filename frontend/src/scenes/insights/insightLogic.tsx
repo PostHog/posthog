@@ -14,6 +14,8 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -24,6 +26,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
+import { isValidQueryForExperiment } from '~/queries/utils'
 import {
     AccessControlResourceType,
     InsightLogicProps,
@@ -69,6 +72,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['user'],
             featureFlagLogic,
             ['featureFlags'],
+            sceneLogic,
+            ['activeScene'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -155,12 +160,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
-                    const editMode =
-                        insightSceneLogic.isMounted() &&
-                        insightSceneLogic.values.insight === values.insight &&
-                        insightSceneLogic.values.insightMode === ItemMode.Edit
-
-                    if (editMode) {
+                    // new insight
+                    if (values.insight.short_id == null) {
                         return { ...values.insight, ...metadataUpdate }
                     }
 
@@ -336,6 +337,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         ],
         showPersonsModal: [() => [(s) => s.query], (query) => !query || !query.hidePersonsModal],
+        supportsCreatingExperiment: [
+            (s) => [s.insight, s.activeScene],
+            (insight: QueryBasedInsightModel, activeScene: Scene) =>
+                insight?.query &&
+                isValidQueryForExperiment(insight.query) &&
+                ![
+                    Scene.Experiment,
+                    Scene.Experiments,
+                    Scene.ExperimentsSharedMetric,
+                    Scene.ExperimentsSharedMetrics,
+                ].includes(activeScene),
+        ],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {

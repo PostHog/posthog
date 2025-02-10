@@ -91,12 +91,21 @@ class HogFunction(UUIDModel):
     mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
+    execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
-        from posthog.cdp.templates import ALL_HOG_FUNCTION_TEMPLATES_BY_ID
+        from posthog.api.hog_function_template import HogFunctionTemplates
 
-        return ALL_HOG_FUNCTION_TEMPLATES_BY_ID.get(self.template_id, None)
+        if not self.template_id:
+            return None
+
+        template = HogFunctionTemplates.template(self.template_id)
+
+        if template:
+            return template
+
+        return None
 
     @property
     def filter_action_ids(self) -> list[int]:

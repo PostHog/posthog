@@ -16,9 +16,9 @@ import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
-    const { experiment, featureFlags, metricResults } = useValues(experimentLogic)
-    const { updateExperiment, setExperimentStatsVersion, loadMetricResults, loadSecondaryMetricResults } =
-        useActions(experimentLogic)
+    const { experiment, featureFlags, metricResults, metricResultsLoading, secondaryMetricResultsLoading } =
+        useValues(experimentLogic)
+    const { updateExperiment, setExperimentStatsVersion, refreshExperimentResults } = useActions(experimentLogic)
 
     const { created_by } = experiment
 
@@ -32,8 +32,8 @@ export function Info(): JSX.Element {
 
     return (
         <div>
-            <div className="flex">
-                <div className="w-1/2 inline-flex space-x-8">
+            <div className="flex flex-wrap justify-between gap-4">
+                <div className="inline-flex space-x-8">
                     <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
@@ -72,6 +72,12 @@ export function Info(): JSX.Element {
                             </Link>
                         </div>
                     )}
+                    <div className="block">
+                        <div className="text-xs font-semibold uppercase tracking-wide">
+                            <span>Stats Engine</span>
+                        </div>
+                        <div className="flex gap-1">Bayesian</div>
+                    </div>
                     {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">
@@ -96,9 +102,9 @@ export function Info(): JSX.Element {
                     )}
                 </div>
 
-                <div className="w-1/2 flex flex-col justify-end">
-                    <div className="ml-auto inline-flex space-x-8">
-                        {lastRefresh && (
+                <div className="flex flex-col">
+                    <div className="inline-flex space-x-8">
+                        {experiment.start_date && (
                             <div className="block">
                                 <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
                                 <div className="inline-flex space-x-2">
@@ -113,14 +119,17 @@ export function Info(): JSX.Element {
                                                 : ''
                                         }`}
                                     >
-                                        {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+                                        {metricResultsLoading || secondaryMetricResultsLoading
+                                            ? 'Loading…'
+                                            : lastRefresh
+                                            ? dayjs(lastRefresh).fromNow()
+                                            : 'a while ago'}
                                     </span>
                                     <LemonButton
                                         type="secondary"
                                         size="xsmall"
                                         onClick={() => {
-                                            loadMetricResults(true)
-                                            loadSecondaryMetricResults(true)
+                                            refreshExperimentResults(true)
                                         }}
                                         data-attr="refresh-experiment"
                                         icon={<IconRefresh />}

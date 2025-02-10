@@ -4,14 +4,17 @@ import { DateTime } from 'luxon'
 import { ClickHouseTimestamp } from '../src/types'
 import { safeClickhouseString } from '../src/utils/db/utils'
 import {
+    base64StringToUint32ArrayLE,
     bufferToStream,
     clickHouseTimestampToDateTime,
     cloneObject,
+    createRandomUint32x4,
     escapeClickHouseString,
     getPropertyValueByPath,
     groupBy,
     sanitizeSqlIdentifier,
     stringify,
+    uint32ArrayLEToBase64String,
     UUID,
     UUID7,
     UUIDT,
@@ -26,6 +29,21 @@ describe('utils', () => {
         const buffer = Buffer.from(zip, 'base64')
         const stream = bufferToStream(buffer)
         expect(stream.read()).toEqual(buffer)
+    })
+
+    describe('uint32ArrayToBase64String and base64StringToUint32Array', () => {
+        it('should be reversible with the empty array and empty string', () => {
+            expect(base64StringToUint32ArrayLE(uint32ArrayLEToBase64String(new Uint32Array(0)))).toEqual(
+                new Uint32Array(0)
+            )
+            expect(uint32ArrayLEToBase64String(base64StringToUint32ArrayLE(''))).toEqual('')
+        })
+        it('should be reversible with a random uint32x4', () => {
+            const input = createRandomUint32x4()
+            const base64 = uint32ArrayLEToBase64String(input)
+            const output = base64StringToUint32ArrayLE(base64)
+            expect(output).toEqual(input)
+        })
     })
 
     test('cloneObject', () => {
@@ -98,6 +116,7 @@ describe('utils', () => {
             it('returns the right big integer', () => {
                 const uuid = new UUID('99aBcDeF-1234-4321-0000-dcba87654321')
 
+                // @ts-expect-error bigint literals are fine for tests
                 expect(uuid.valueOf()).toStrictEqual(0x99abcdef123443210000dcba87654321n)
             })
         })

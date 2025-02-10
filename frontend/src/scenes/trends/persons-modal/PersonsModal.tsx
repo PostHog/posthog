@@ -162,38 +162,38 @@ export function PersonsModal({
 
                     {query &&
                         cleanedInsightActorsQueryOptions(insightActorsQueryOptions, query).map(([key, options]) =>
-                            key === 'breakdowns' ? (
-                                options.map(({ values }, index) => (
-                                    <div key={`${key}_${index}`}>
-                                        <LemonSelect
-                                            fullWidth
-                                            className="mb-2"
-                                            value={query?.breakdown?.[index] ?? null}
-                                            onChange={(v) => {
-                                                const breakdown = Array.isArray(query.breakdown)
-                                                    ? [...query.breakdown]
-                                                    : []
-                                                breakdown[index] = v
-                                                updateActorsQuery({ breakdown })
-                                            }}
-                                            options={values}
-                                        />
-                                    </div>
-                                ))
-                            ) : (
-                                <div key={key}>
-                                    <LemonSelect
-                                        fullWidth
-                                        className="mb-2"
-                                        value={query?.[key] ?? null}
-                                        onChange={(v) => updateActorsQuery({ [key]: v })}
-                                        options={options}
-                                    />
-                                </div>
-                            )
+                            key === 'breakdowns'
+                                ? options.map(({ values }, index) => (
+                                      <div key={`${key}_${index}`}>
+                                          <LemonSelect
+                                              fullWidth
+                                              className="mb-2"
+                                              value={query?.breakdown?.[index] ?? null}
+                                              onChange={(v) => {
+                                                  const breakdown = Array.isArray(query.breakdown)
+                                                      ? [...query.breakdown]
+                                                      : []
+                                                  breakdown[index] = v
+                                                  updateActorsQuery({ breakdown })
+                                              }}
+                                              options={values}
+                                          />
+                                      </div>
+                                  ))
+                                : options.length > 1 && (
+                                      <div key={key}>
+                                          <LemonSelect
+                                              fullWidth
+                                              className="mb-2"
+                                              value={query?.[key] ?? null}
+                                              onChange={(v) => updateActorsQuery({ [key]: v })}
+                                              options={options}
+                                          />
+                                      </div>
+                                  )
                         )}
 
-                    <div className="flex items-center gap-2 text-muted">
+                    <div className="flex items-center gap-2 text-secondary">
                         {actorsResponseLoading ? (
                             <>
                                 <Spinner />
@@ -348,7 +348,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="relative border rounded bg-bg-light">
+        <div className="relative border rounded bg-surface-primary">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
@@ -374,9 +374,9 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                             {actor.distinct_ids?.[0] && (
                                 <CopyToClipboardInline
                                     explicitValue={actor.distinct_ids[0]}
-                                    iconStyle={{ color: 'var(--primary)' }}
+                                    iconStyle={{ color: 'var(--accent-primary)' }}
                                     iconPosition="end"
-                                    className="text-xs text-muted-alt"
+                                    className="text-xs text-secondary"
                                 >
                                     {midEllipsis(actor.distinct_ids[0], 32)}
                                 </CopyToClipboardInline>
@@ -401,7 +401,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
             </div>
 
             {expanded ? (
-                <div className="PersonsModal__tabs bg-bg-3000 border-t rounded-b">
+                <div className="PersonsModal__tabs bg-primary border-t rounded-b">
                     <LemonTabs
                         activeKey={tab}
                         onChange={setTab}
@@ -449,7 +449,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                                                               >
                                                                   <div className="flex flex-1 justify-between gap-2 items-center">
                                                                       <span>View recording {i + 1}</span>
-                                                                      <IconPlayCircle className="text-xl text-muted" />
+                                                                      <IconPlayCircle className="text-xl text-secondary" />
                                                                   </div>
                                                               </LemonButton>
                                                           </li>

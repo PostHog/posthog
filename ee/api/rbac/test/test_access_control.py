@@ -17,7 +17,7 @@ class BaseAccessControlTest(APILicensedTest):
     def setUp(self):
         super().setUp()
         self.organization.available_features = [
-            AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            AvailableFeature.ADVANCED_PERMISSIONS,
             AvailableFeature.ROLE_BASED_ACCESS,
         ]
         self.organization.save()

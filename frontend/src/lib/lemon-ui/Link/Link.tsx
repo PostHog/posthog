@@ -21,6 +21,8 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     to?: string | [string, RoutePart?, RoutePart?]
     /** If true, in-app navigation will not be used and the link will navigate with a page load */
     disableClientSideRouting?: boolean
+    /** If true, docs links will not be opened in the docs panel */
+    disableDocsPanel?: boolean
     preventClick?: boolean
     onClick?: (event: React.MouseEvent<HTMLElement>) => void
     onMouseDown?: (event: React.MouseEvent<HTMLElement>) => void
@@ -80,6 +82,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             target,
             subtle,
             disableClientSideRouting,
+            disableDocsPanel = false,
             preventClick = false,
             onClick: onClickRaw,
             className,
@@ -110,7 +113,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
             const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
 
-            if (typeof to === 'string' && isPostHogComDocs(to) && mountedSidePanelLogic) {
+            if (!disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to) && mountedSidePanelLogic) {
                 // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
                 const { sidePanelOpen } = mountedSidePanelLogic.values
                 const { openSidePanel } = mountedSidePanelLogic.actions

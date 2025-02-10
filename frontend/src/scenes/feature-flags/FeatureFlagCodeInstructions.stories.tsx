@@ -32,6 +32,8 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     user_access_level: 'editor',
     tags: [],
     surveys: [],
+    is_remote_configuration: false,
+    status: 'ACTIVE',
 }
 
 const GROUP_FEATURE_FLAG: FeatureFlagType = {

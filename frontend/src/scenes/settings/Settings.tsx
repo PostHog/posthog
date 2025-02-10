@@ -1,8 +1,10 @@
 import './Settings.scss'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -85,7 +87,7 @@ export function Settings({
                       active={selectedLevel === level && !selectedSectionId}
                       onClick={() => selectLevel(level)}
                   >
-                      <span className="text-muted-alt">{capitalizeFirstLetter(level)}</span>
+                      <span className="text-secondary">{capitalizeFirstLetter(level)}</span>
                   </OptionButton>
               ),
               items: sections
@@ -94,10 +96,17 @@ export function Settings({
                       key: section.id,
                       content: (
                           <OptionButton
-                              to={urls.settings(section.id)}
+                              to={section.to ?? urls.settings(section.id)}
                               handleLocally={handleLocally}
                               active={selectedSectionId === section.id}
-                              onClick={() => selectSection(section.id, level)}
+                              isLink={!!section.to}
+                              onClick={() => {
+                                  if (section.to) {
+                                      router.actions.push(section.to)
+                                  } else {
+                                      selectSection(section.id, level)
+                                  }
+                              }}
                           >
                               {section.title}
                           </OptionButton>
@@ -110,7 +119,7 @@ export function Settings({
     ) : (
         <>
             {capitalizeFirstLetter(selectedLevel)}
-            {selectedSection ? ` / ${selectedSection.title}` : null}
+            {selectedSection ? <>` / `{selectedSection.title}</> : null}
         </>
     )
 
@@ -181,7 +190,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                                 )}
                             </h2>
                         )}
-                        {x.description && <p>{x.description}</p>}
+                        {x.description && <p className="max-w-160">{x.description}</p>}
 
                         {x.component}
                     </div>
@@ -218,9 +227,11 @@ const OptionButton = ({
     onClick,
     children,
     handleLocally,
+    isLink = false,
 }: Pick<LemonButtonProps, 'to' | 'children' | 'active'> & {
     handleLocally: boolean
     onClick: () => void
+    isLink?: boolean
 }): JSX.Element => {
     return (
         <LemonButton
@@ -234,6 +245,7 @@ const OptionButton = ({
                     : undefined
             }
             size="small"
+            sideIcon={isLink ? <IconExternal /> : undefined}
             fullWidth
             active={active}
         >

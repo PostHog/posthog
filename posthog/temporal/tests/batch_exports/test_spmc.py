@@ -1,7 +1,7 @@
 import asyncio
 import datetime as dt
 import random
-import typing as t
+import typing
 
 import pyarrow as pa
 import pytest
@@ -10,6 +10,7 @@ from django.test import override_settings
 from posthog.temporal.batch_exports.spmc import (
     Producer,
     RecordBatchQueue,
+    compose_filters_clause,
     slice_record_batch,
     use_distributed_events_recent_table,
 )
@@ -116,7 +117,7 @@ async def test_record_batch_producer_uses_extra_query_parameters(clickhouse_clie
 
     queue = RecordBatchQueue()
     producer = Producer()
-    producer_task = producer.start(
+    producer_task = await producer.start(
         queue=queue,
         team_id=team_id,
         is_backfill=False,
@@ -211,9 +212,44 @@ def test_slice_record_batch_in_half():
         },
     ],
 )
-def test_use_events_recent(test_data: dict[str, t.Any]):
+def test_use_events_recent(test_data: dict[str, typing.Any]):
     with override_settings(BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT=test_data["rollout"]):
         assert (
             use_distributed_events_recent_table(is_backfill=test_data["is_backfill"], team_id=test_data["team_id"])
             == test_data["use_events_recent"]
         )
+
+
+@pytest.mark.parametrize(
+    "filters,expected_clause,expected_values",
+    [
+        (
+            [
+                {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]},
+            ],
+            """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)""",
+            {"hogql_val_0": "$browser", "hogql_val_1": "Firefox"},
+        ),
+        (
+            [
+                {"key": "$current_url", "operator": "icontains", "type": "event", "value": "https://posthog.com"},
+            ],
+            """ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), %(hogql_val_1)s), 0)""",
+            {"hogql_val_0": "$current_url", "hogql_val_1": "%https://posthog.com%"},
+        ),
+        (
+            [
+                {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]},
+                {"key": "test", "operator": "exact", "type": "event", "value": ["Test"]},
+            ],
+            """and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0))""",
+            {"hogql_val_0": "$browser", "hogql_val_1": "Firefox", "hogql_val_2": "test", "hogql_val_3": "Test"},
+        ),
+    ],
+)
+def test_compose_filters_clause(
+    filters: list[dict[str, typing.Any]], expected_clause: str, expected_values: dict[str, str], ateam
+):
+    result_clause, result_values = compose_filters_clause(filters, team_id=ateam.id)
+    assert result_clause == expected_clause
+    assert result_values == expected_values

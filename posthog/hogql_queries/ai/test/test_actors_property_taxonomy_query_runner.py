@@ -107,3 +107,28 @@ class TestActorsPropertyTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results.results.sample_count, 1)
         # Ensure the value is a string
         self.assertEqual(results.results.sample_values[0], "30")
+
+    @snapshot_clickhouse_queries
+    def test_max_value_count(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"age": 29},
+            team=self.team,
+        )
+        _create_person(
+            distinct_ids=["person2"],
+            properties={"age": 30},
+            team=self.team,
+        )
+        _create_person(
+            distinct_ids=["person3"],
+            properties={"age": 31},
+            team=self.team,
+        )
+
+        # regular person property
+        results = ActorsPropertyTaxonomyQueryRunner(
+            team=self.team, query=ActorsPropertyTaxonomyQuery(property="age", maxPropertyValues=1)
+        ).calculate()
+        self.assertEqual(len(results.results.sample_values), 1)
+        self.assertEqual(results.results.sample_count, 3)

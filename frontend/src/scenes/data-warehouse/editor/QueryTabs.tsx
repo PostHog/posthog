@@ -1,7 +1,7 @@
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import AutoTab from './AutoTab'
 import { NEW_QUERY, QueryTab } from './multitabEditorLogic'
@@ -45,6 +45,10 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
     const [tabName, setTabName] = useState(() => model.name || NEW_QUERY)
     const [isEditing, setIsEditing] = useState(false)
 
+    useEffect(() => {
+        setTabName(model.view?.name || model.name || NEW_QUERY)
+    }, [model.view?.name])
+
     const handleRename = (): void => {
         setIsEditing(false)
         onRename(model, tabName)
@@ -54,8 +58,8 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
         <div
             onClick={() => onClick?.(model)}
             className={clsx(
-                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-light)] cursor-pointer',
-                active ? 'bg-[var(--bg-light)] border-t border-l border-r' : 'bg-bg-3000',
+                'space-y-px rounded-t p-1 flex border-b-2 border-transparent flex-row items-center gap-1 hover:bg-surface-primary cursor-pointer',
+                active ? 'bg-surface-primary border-b-2 !border-brand-yellow' : 'bg-surface-secondary',
                 onClear ? 'pl-3 pr-2' : 'px-3'
             )}
         >

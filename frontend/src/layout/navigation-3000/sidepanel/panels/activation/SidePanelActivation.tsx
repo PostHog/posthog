@@ -23,10 +23,14 @@ export const SidePanelActivation = (): JSX.Element => {
                 <p>Use our Quick Start guide to learn about everything PostHog can do for you and your product.</p>
                 <div className="flex items-center justify-center">
                     <div className="flex flex-col items-center">
-                        <LemonProgressCircle progress={completionPercent / 100} size={100} className="text-primary">
+                        <LemonProgressCircle
+                            progress={completionPercent / 100}
+                            size={100}
+                            className="text-accent-primary"
+                        >
                             <span className="text-2xl">{activeTasks.length}</span>
                         </LemonProgressCircle>
-                        <p className="text-muted mt-2 ">still to go</p>
+                        <p className="text-secondary mt-2 ">still to go</p>
                     </div>
                     <div className="h-60">
                         <ProfessorHog className="max-h-full w-auto object-contain" />

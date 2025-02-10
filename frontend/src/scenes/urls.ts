@@ -1,10 +1,17 @@
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
+import { toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import { HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
+import {
+    type ExperimentFunnelsQuery,
+    type ExperimentTrendsQuery,
+    HogQLFilters,
+    HogQLVariable,
+    Node,
+} from '~/queries/schema'
 import {
     ActionType,
     ActivityTab,
@@ -36,8 +43,6 @@ import { SurveysTabs } from './surveys/surveysLogic'
  *
  * Sync the paths with AutoProjectMiddleware!
  */
-
-export type LLMObservabilityTab = 'dashboard' | 'traces' | 'generations'
 
 export const urls = {
     ...productUrls,
@@ -75,13 +80,18 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
+    revenue: (): string => '/data-management/revenue',
     insights: (): string => '/insights',
-    insightNew: (type?: InsightType, dashboardId?: DashboardType['id'] | null, query?: Node): string =>
+    insightNew: ({
+        type,
+        dashboardId,
+        query,
+    }: { type?: InsightType; dashboardId?: DashboardType['id'] | null; query?: Node } = {}): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(type ? { insight: type } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
         }).url,
-    insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
+    insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
         combineUrl(
             `/data-warehouse`,
             {},
@@ -156,7 +166,13 @@ export const urls = {
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
-    experiment: (id: string | number): string => `/experiments/${id}`,
+    experiment: (
+        id: string | number,
+        options?: {
+            metric?: ExperimentTrendsQuery | ExperimentFunnelsQuery
+            name?: string
+        }
+    ): string => `/experiments/${id}${options ? `?${toParams(options)}` : ''}`,
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,

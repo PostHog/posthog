@@ -4,6 +4,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
+import { ChatCompletionUserMessageParam } from 'openai/resources/chat/completions'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -28,10 +29,12 @@ import {
     AppMetricsTotalsV2Response,
     AppMetricsV2RequestParams,
     AppMetricsV2Response,
+    BatchExportBackfill,
     BatchExportConfiguration,
     BatchExportRun,
     CohortType,
     CommentType,
+    CoreMemory,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
@@ -65,10 +68,13 @@ import {
     HogFunctionStatus,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
+    HogFunctionTestInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LinkedInAdsAccountType,
+    LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
     LogEntry,
     LogEntryRequestParams,
@@ -93,6 +99,7 @@ import {
     PropertyDefinitionType,
     QueryBasedInsightModel,
     RawAnnotationType,
+    RawBatchExportBackfill,
     RawBatchExportRun,
     RoleMemberType,
     RolesListParams,
@@ -129,6 +136,7 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     LOGS_PORTION_LIMIT,
 } from './constants'
+import type { ProductIntentProperties } from './utils/product-intents'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -819,6 +827,21 @@ class ApiRequest {
             .withQueryString({ customerId })
     }
 
+    public integrationLinkedInAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('linkedin_ads_accounts')
+    }
+
+    public integrationLinkedInAdsConversionRules(
+        id: IntegrationType['id'],
+        accountId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('linkedin_ads_conversion_rules')
+            .withQueryString({ accountId })
+    }
+
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
@@ -886,6 +909,10 @@ class ApiRequest {
         return apiRequest
     }
 
+    public queryAwaited(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('query_awaited')
+    }
+
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
@@ -913,6 +940,10 @@ class ApiRequest {
         return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
     }
 
+    public batchExportBackfills(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id).addPathComponent('backfills')
+    }
+
     public batchExportRun(
         id: BatchExportConfiguration['id'],
         runId: BatchExportRun['id'],
@@ -927,6 +958,14 @@ class ApiRequest {
 
     public dataWarehouseFolder(id: DataWarehouseFolder['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseFolders(teamId).addPathComponent(id)
+    }
+
+    public batchExportBackfill(
+        id: BatchExportConfiguration['id'],
+        backfillId: BatchExportBackfill['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.batchExportBackfills(id, teamId).addPathComponent(backfillId)
     }
 
     // External Data Source
@@ -1000,6 +1039,19 @@ class ApiRequest {
 
     public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
+    }
+
+    public addProductIntent(): ApiRequest {
+        return this.environments().current().addPathComponent('add_product_intent')
+    }
+
+    // Max Core Memory
+    public coreMemory(): ApiRequest {
+        return this.environmentsDetail().addPathComponent('core_memory')
+    }
+
+    public coreMemoryDetail(id: CoreMemory['id']): ApiRequest {
+        return this.coreMemory().addPathComponent(id)
     }
 }
 
@@ -1908,11 +1960,11 @@ const api = {
         async createTestInvocation(
             id: HogFunctionType['id'],
             data: {
-                configuration: Partial<HogFunctionType>
+                configuration: Record<string, any>
                 mock_async_functions: boolean
                 globals: any
             }
-        ): Promise<any> {
+        ): Promise<HogFunctionTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
 
@@ -2141,6 +2193,14 @@ const api = {
                 .withAction(session_recording_id)
                 .delete()
         },
+
+        async aiFilters(messages: ChatCompletionUserMessageParam[]): Promise<{ result: string; data: any }> {
+            return await new ApiRequest().recordings().withAction('ai/filters').create({ data: { messages } })
+        },
+
+        async aiRegex(regex: string): Promise<{ result: string; data: any }> {
+            return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
+        },
     },
 
     notebooks: {
@@ -2239,6 +2299,19 @@ const api = {
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+        },
+        async listBackfills(
+            id: BatchExportConfiguration['id'],
+            params: Record<string, any> = {}
+        ): Promise<PaginatedResponse<RawBatchExportBackfill>> {
+            return await new ApiRequest().batchExportBackfills(id).withQueryString(toParams(params)).get()
+        },
+        async cancelBackfill(
+            id: BatchExportConfiguration['id'],
+            backfillId: BatchExportBackfill['id'],
+            teamId?: TeamType['id']
+        ): Promise<BatchExportBackfill> {
+            return await new ApiRequest().batchExportBackfill(id, backfillId, teamId).withAction('cancel').create()
         },
         async retryRun(
             id: BatchExportConfiguration['id'],
@@ -2578,6 +2651,15 @@ const api = {
         ): Promise<{ conversionActions: GoogleAdsConversionActionType[] }> {
             return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId).get()
         },
+        async linkedInAdsAccounts(id: IntegrationType['id']): Promise<{ adAccounts: LinkedInAdsAccountType[] }> {
+            return await new ApiRequest().integrationLinkedInAdsAccounts(id).get()
+        },
+        async linkedInAdsConversionRules(
+            id: IntegrationType['id'],
+            accountId: string
+        ): Promise<{ conversionRules: LinkedInAdsConversionRuleType[] }> {
+            return await new ApiRequest().integrationLinkedInAdsConversionRules(id, accountId).get()
+        },
     },
 
     resourcePermissions: {
@@ -2654,6 +2736,26 @@ const api = {
         },
     },
 
+    productIntents: {
+        async update(data: ProductIntentProperties): Promise<TeamType> {
+            return await new ApiRequest().addProductIntent().update({ data })
+        },
+    },
+
+    coreMemory: {
+        async list(): Promise<PaginatedResponse<CoreMemory>> {
+            return await new ApiRequest().coreMemory().get()
+        },
+        async create(coreMemory: Pick<CoreMemory, 'text'>): Promise<CoreMemory> {
+            return await new ApiRequest().coreMemory().create({
+                data: coreMemory,
+            })
+        },
+        async update(coreMemoryId: CoreMemory['id'], coreMemory: Pick<CoreMemory, 'text'>): Promise<CoreMemory> {
+            return await new ApiRequest().coreMemoryDetail(coreMemoryId).update({ data: coreMemory })
+        },
+    },
+
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
@@ -2684,8 +2786,34 @@ const api = {
         })
     },
 
+    async queryAwaited<T extends Record<string, any> = QuerySchema>(
+        query: T,
+        options?: ApiMethodOptions,
+        queryId?: string,
+        refresh?: RefreshType,
+        filtersOverride?: DashboardFilter | null,
+        variablesOverride?: Record<string, HogQLVariable> | null
+    ): Promise<
+        T extends { [response: string]: any }
+            ? T['response'] extends infer P | undefined
+                ? P
+                : T['response']
+            : Record<string, any>
+    > {
+        return await new ApiRequest().queryAwaited().create({
+            ...options,
+            data: {
+                query,
+                client_query_id: queryId,
+                refresh,
+                filters_override: filtersOverride,
+                variables_override: variablesOverride,
+            },
+        })
+    },
+
     conversations: {
-        async create(data: { content: string; conversation?: string | null }): Promise<Response> {
+        async create(data: { content: string; conversation?: string | null; trace_id: string }): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
         },
     },

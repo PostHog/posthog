@@ -9,6 +9,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -102,6 +103,8 @@ const NEW_FLAG: FeatureFlagType = {
     can_edit: true,
     user_access_level: 'editor',
     tags: [],
+    is_remote_configuration: false,
+    status: 'ACTIVE',
 }
 const NEW_VARIANT = {
     key: '',
@@ -125,6 +128,14 @@ export function validateFeatureFlagKey(key: string): string | undefined {
         : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
         ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
         : undefined
+}
+
+function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
+    if (!is_remote_configuration) {
+        return undefined
+    }
+
+    return payload === undefined ? 'Payload is required for remote configuration flags.' : undefined
 }
 
 export interface FeatureFlagLogicProps {
@@ -267,6 +278,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         removeRollbackCondition: (index: number) => ({ index }),
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
@@ -295,7 +307,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
             },
-            errors: ({ key, filters }) => {
+            errors: ({ key, filters, is_remote_configuration }) => {
                 return {
                     key: validateFeatureFlagKey(key),
                     filters: {
@@ -310,6 +322,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             FeatureFlagGroupType,
                             ValidationErrorType
                         >[],
+                        payloads: {
+                            true: validatePayloadRequired(is_remote_configuration, filters?.payloads?.['true']),
+                        } as any,
+                        // Forced any cast necessary to prevent Kea's typechecking from raising "Type instantiation
+                        // is excessively deep and possibly infinite" error
                     },
                 }
             },
@@ -350,6 +367,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return state
                     }
                     return { ...state, filters: { ...state.filters, multivariate: multivariateOptions } }
+                },
+                setRemoteConfigEnabled: (state, { enabled }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        is_remote_configuration: enabled,
+                    }
                 },
                 addVariant: (state) => {
                     if (!state) {
@@ -561,7 +588,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
-                        actions.addProductIntent({ product_type: ProductKey.FEATURE_FLAGS })
+                        actions.addProductIntent({
+                            product_type: ProductKey.FEATURE_FLAGS,
+                            intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
+                        })
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
@@ -763,6 +793,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        experiment: {
+            loadExperiment: async () => {
+                if (values.featureFlag.experiment_set) {
+                    return await api.experiments.get(values.featureFlag.experiment_set[0])
+                }
+            },
+        },
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -843,6 +880,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadFeatureFlagSuccess: async () => {
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
+            actions.loadExperiment()
         },
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
@@ -926,12 +964,38 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadScheduledChanges()
             }
         },
+        setRemoteConfigEnabled: ({ enabled }) => {
+            if (enabled) {
+                actions.setFeatureFlagFilters(
+                    {
+                        ...values.featureFlag.filters,
+                        groups: [
+                            {
+                                variant: null,
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
+                    {}
+                )
+            }
+        },
     })),
     selectors({
         sentryErrorCount: [(s) => [s.sentryStats], (stats) => stats.total_count],
         sentryIntegrationEnabled: [(s) => [s.sentryStats], (stats) => !!stats.sentry_integration_enabled],
         props: [() => [(_, props) => props], (props) => props],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        flagType: [
+            (s) => [s.featureFlag],
+            (featureFlag) =>
+                featureFlag?.is_remote_configuration
+                    ? 'remote_config'
+                    : featureFlag?.filters.multivariate
+                    ? 'multivariate'
+                    : 'boolean',
+        ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
@@ -969,9 +1033,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ],
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.featureFlag],
-            (featureFlag): SidePanelSceneContext | null => {
-                return featureFlag?.id
+            (s) => [s.featureFlag, s.currentTeam],
+            (featureFlag, currentTeam): SidePanelSceneContext | null => {
+                // Only render the new access control on side panel if they have been migrated
+                return featureFlag?.id && currentTeam?.access_control_version === 'v2'
                     ? {
                           activity_scope: ActivityScope.FEATURE_FLAG,
                           activity_item_id: `${featureFlag.id}`,
@@ -1036,6 +1101,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag) => {
                 return featureFlag?.surveys && featureFlag.surveys.length > 0
+            },
+        ],
+        hasExperiment: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag?.experiment_set && featureFlag.experiment_set.length > 0
+            },
+        ],
+        isDraftExperiment: [
+            (s) => [s.experiment],
+            (experiment) => {
+                // Treat as launched experiment if not yet loaded.
+                if (!experiment) {
+                    return false
+                }
+                return !experiment?.start_date
             },
         ],
     }),

@@ -1,46 +1,31 @@
-import { Message, MessageHeader } from 'node-rdkafka'
+import { MessageHeader } from 'node-rdkafka'
 
 import { status } from '../../../../utils/status'
 import { eventDroppedCounter } from '../../metrics'
-import { KafkaParser } from '../kafka/parser'
-import { BatchMessageProcessor } from '../types'
+import { ParsedMessageData } from '../kafka/types'
 import { TeamService } from './team-service'
 import { MessageWithTeam, Team } from './types'
 
-export class TeamFilter implements BatchMessageProcessor<Message, MessageWithTeam> {
-    constructor(private readonly teamService: TeamService, private readonly parser: KafkaParser) {}
+export class TeamFilter {
+    constructor(private readonly teamService: TeamService) {}
 
-    public async parseMessage(message: Message): Promise<MessageWithTeam | null> {
-        const team = await this.validateTeamToken(message, message.headers)
-        if (!team) {
-            return null
-        }
-
-        const parsedMessage = await this.parser.parseMessage(message)
-        if (!parsedMessage) {
-            return null
-        }
-
-        return {
-            team,
-            message: parsedMessage,
-        }
-    }
-
-    public async parseBatch(messages: Message[]): Promise<MessageWithTeam[]> {
-        const parsedMessages: MessageWithTeam[] = []
+    public async filterBatch(messages: ParsedMessageData[]): Promise<MessageWithTeam[]> {
+        const messagesWithTeam: MessageWithTeam[] = []
 
         for (const message of messages) {
-            const messageWithTeam = await this.parseMessage(message)
-            if (messageWithTeam) {
-                parsedMessages.push(messageWithTeam)
+            const team = await this.validateTeam(message)
+            if (team) {
+                messagesWithTeam.push({
+                    team,
+                    message,
+                })
             }
         }
 
-        return parsedMessages
+        return messagesWithTeam
     }
 
-    private async validateTeamToken(message: Message, headers: MessageHeader[] | undefined): Promise<Team | null> {
+    private async validateTeam(message: ParsedMessageData): Promise<Team | null> {
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
             // TODO refactor
             eventDroppedCounter
@@ -52,13 +37,13 @@ export class TeamFilter implements BatchMessageProcessor<Message, MessageWithTea
 
             status.warn('⚠️', 'invalid_message', {
                 reason,
-                partition: message.partition,
-                offset: message.offset,
+                partition: message.metadata.partition,
+                offset: message.metadata.offset,
                 ...(extra || {}),
             })
         }
 
-        const { token, team } = await this.readTokenFromHeaders(headers)
+        const { token, team } = await this.readTokenFromHeaders(message.headers)
 
         if (!token) {
             dropMessage('no_token_in_header')

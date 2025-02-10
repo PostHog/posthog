@@ -6294,7 +6294,7 @@
   "billing/test/test_quota_limiting.py::TestQuotaLimiting::test_set_org_usage_summary_does_nothing_if_the_same": 0.1937988109999651,
   "billing/test/test_quota_limiting.py::TestQuotaLimiting::test_set_org_usage_summary_updates_correctly": 0.19150971500005198,
   "billing/test/test_quota_limiting.py::TestQuotaLimiting::test_set_org_usage_summary_updates_todays_usage": 0.19120824399999492,
-  "billing/test/test_quota_limiting.py::TestQuotaLimiting::test_sync_org_quota_limits": 0.27129017400000066,
+  "billing/test/test_quota_limiting.py::TestQuotaLimiting::test_update_org_billing_quotas": 0.27129017400000066,
   "clickhouse/materialized_columns/test/test_analyze.py::TestMaterializedColumnsAnalyze::test_mat_columns": 0.3849944399999572,
   "clickhouse/materialized_columns/test/test_columns.py::TestMaterializedColumns::test_backfilling_data": 5.540783361000024,
   "clickhouse/materialized_columns/test/test_columns.py::TestMaterializedColumns::test_caching_and_materializing": 5.973248916999978,

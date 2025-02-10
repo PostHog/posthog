@@ -274,6 +274,18 @@ class PluginAttachment(models.Model):
     file_size = models.IntegerField()
     contents = models.BinaryField()
 
+    def parse_contents(self) -> str | None:
+        contents: bytes | None = self.contents
+        if not contents:
+            return None
+
+        try:
+            if self.content_type == "application/json" or self.content_type == "text/plain":
+                return contents.decode("utf-8")
+            return None
+        except Exception:
+            return None
+
 
 class PluginStorage(models.Model):
     plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
@@ -558,7 +570,33 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
 
 @receiver(models.signals.post_save, sender=Team)
 def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    if created and can_configure_plugins(instance.organization):
+    if not created or not can_configure_plugins(instance.organization):
+        return
+
+    if settings.USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION:
+        if not settings.DISABLE_MMDB:
+            # New way: Create GeoIP transformation
+            from posthog.models.hog_functions.hog_function import HogFunction
+            from posthog.api.hog_function_template import HogFunctionTemplates
+
+            geoip_template = HogFunctionTemplates.template("plugin-posthog-plugin-geoip")
+            if not geoip_template:
+                return
+
+            HogFunction.objects.create(
+                team=instance,
+                created_by=kwargs.get("initiating_user"),
+                type="transformation",
+                name="GeoIP",
+                description="Enrich events with GeoIP data",
+                icon_url="/static/transformations/geoip.png",
+                hog=geoip_template.hog,
+                inputs_schema=geoip_template.inputs_schema,
+                enabled=True,
+                execution_order=1,
+            )
+    else:
+        # Old way: Enable all preinstalled plugins including GeoIP
         for order, preinstalled_plugin in enumerate(Plugin.objects.filter(is_preinstalled=True)):
             PluginConfig.objects.create(
                 team=instance,

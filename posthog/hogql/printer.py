@@ -1498,6 +1498,46 @@ class _Printer(Visitor):
         else:
             raise ImpossibleASTError(f"Invalid frame type {node.frame_type}")
 
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        if self.dialect != "hogql":
+            raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
+
+        attributes = []
+        children = []
+        for attribute in node.attributes:
+            if isinstance(attribute, ast.HogQLXAttribute) and attribute.name == "children":
+                if isinstance(attribute.value, list):
+                    children.extend(attribute.value)
+                else:
+                    children.append(attribute.value)
+            else:
+                attributes.append(attribute)
+
+        tag = f"<{self._print_identifier(node.kind)}"
+        if attributes:
+            tag += " " + (" ".join(self.visit(a) for a in attributes))
+        if children:
+            children_contents = [
+                self.visit(child) if isinstance(child, ast.HogQLXTag) else "{" + self.visit(child) + "}"
+                for child in children
+            ]
+            tag += ">" + ("".join(children_contents)) + "</" + self._print_identifier(node.kind) + ">"
+        else:
+            tag += " />"
+
+        return tag
+
+    def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
+        if self.dialect != "hogql":
+            raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
+        if isinstance(node.value, ast.HogQLXTag):
+            value = self.visit(node.value)
+        elif isinstance(node.value, list):
+            value = "{[" + (", ".join(self.visit(x) for x in node.value)) + "]}"
+        else:
+            value = "{" + self.visit(node.value) + "}"
+        return f"{self._print_identifier(node.name)}={value}"
+
     def _last_select(self) -> Optional[ast.SelectQuery]:
         """Find the last SELECT query in the stack."""
         for node in reversed(self.stack):

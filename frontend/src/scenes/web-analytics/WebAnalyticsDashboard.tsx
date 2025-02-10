@@ -1,20 +1,23 @@
-import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconExpand45, IconGear, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
+import { LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
+import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -35,7 +38,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
-import { PropertyMathType } from '~/types'
+import { AvailableFeature, ProductKey, PropertyMathType } from '~/types'
 
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
@@ -49,23 +52,27 @@ const Filters = (): JSX.Element => {
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates, setCompareFilter, setWebVitalsPercentile } = useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
+
+    const webPropertyFilters = (
+        <WebPropertyFilters setWebAnalyticsFilters={setWebAnalyticsFilters} webAnalyticsFilters={webAnalyticsFilters} />
+    )
 
     return (
         <div
             className={clsx(
-                'sticky z-20 bg-bg-3000',
+                'sticky z-20 bg-primary border-b py-2',
                 mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
             )}
         >
-            <div className="border-b py-2 flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
-                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+            <div className="flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
+                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} allowTimePrecision={true} />
 
                 {productTab === ProductTab.ANALYTICS ? (
                     <>
-                        {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
-                            <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                        ) : null}
+                        <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
                         <WebConversionGoal />
                     </>
                 ) : (
@@ -88,16 +95,63 @@ const Filters = (): JSX.Element => {
                     />
                 )}
 
-                <WebPropertyFilters
-                    setWebAnalyticsFilters={setWebAnalyticsFilters}
-                    webAnalyticsFilters={webAnalyticsFilters}
-                />
+                {hasAdvancedPaths && <PathCleaningToggle />}
 
-                <ReloadAll />
+                {/* Desktop filters, rendered to the left of the reload button */}
+                <div className="hidden md:block">{webPropertyFilters}</div>
 
-                <WebAnalyticsLiveUserCount />
+                {/* Reload is right aligned on bigger screens, looks nicer */}
+                <div className="xl:ml-auto">
+                    <ReloadAll />
+                </div>
             </div>
+
+            {/* Mobile filters, same as above but these ones are rendered under the reload button */}
+            <div className="block md:hidden mt-4">{webPropertyFilters}</div>
         </div>
+    )
+}
+
+const PathCleaningToggle = (): JSX.Element => {
+    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
+    const { setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+
+    return (
+        <Tooltip
+            title={
+                <div className="p-2">
+                    <p className="mb-2">
+                        Path cleaning helps standardize URLs by removing unnecessary parameters and fragments.
+                    </p>
+                    <div className="mb-2">
+                        <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
+                            Learn more about path cleaning rules
+                        </Link>
+                    </div>
+                    <LemonButton
+                        icon={<IconGear />}
+                        type="primary"
+                        size="small"
+                        to={urls.settings('project-product-analytics', 'path-cleaning')}
+                        targetBlank
+                        className="w-full"
+                    >
+                        Edit path cleaning settings
+                    </LemonButton>
+                </div>
+            }
+            placement="top"
+            interactive={true}
+        >
+            <LemonButton
+                icon={<IconBranch />}
+                onClick={() => setIsPathCleaningEnabled(!isPathCleaningEnabled)}
+                type="secondary"
+                size="small"
+            >
+                Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" size="xsmall" />
+            </LemonButton>
+        </Tooltip>
     )
 }
 
@@ -136,6 +190,13 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 icon={<IconOpenInNew />}
                 size="small"
                 type="secondary"
+                onClick={() => {
+                    void addProductIntentForCrossSell({
+                        from: ProductKey.WEB_ANALYTICS,
+                        to: ProductKey.PRODUCT_ANALYTICS,
+                        intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                    })
+                }}
             >
                 Open as new Insight
             </LemonButton>
@@ -267,6 +328,13 @@ export const WebTabs = ({
                 icon={<IconOpenInNew />}
                 size="small"
                 type="secondary"
+                onClick={() => {
+                    void addProductIntentForCrossSell({
+                        from: ProductKey.WEB_ANALYTICS,
+                        to: ProductKey.PRODUCT_ANALYTICS,
+                        intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                    })
+                }}
             >
                 Open as new Insight
             </LemonButton>
@@ -372,16 +440,22 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
-                    {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
-                        <LemonTabs<ProductTab>
-                            activeKey={productTab}
-                            onChange={setProductTab}
-                            tabs={[
-                                { key: ProductTab.ANALYTICS, label: 'Web analytics' },
-                                { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
-                            ]}
-                        />
-                    )}
+                    <div className="flex flex-row">
+                        {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
+                            <div className="flex-1">
+                                <LemonTabs<ProductTab>
+                                    activeKey={productTab}
+                                    onChange={setProductTab}
+                                    tabs={[
+                                        { key: ProductTab.ANALYTICS, label: 'Web analytics' },
+                                        { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
+                                    ]}
+                                />
+                            </div>
+                        )}
+
+                        <WebAnalyticsLiveUserCount />
+                    </div>
 
                     <Filters />
                     <WebAnalyticsHealthCheck />

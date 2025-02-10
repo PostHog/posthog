@@ -4,6 +4,7 @@ from django.conf import settings
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
     calculate_credible_intervals,
@@ -69,6 +70,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         self.stats_version = self.experiment.get_stats_config("version") or 1
 
+        self._fix_math_aggregation()
+
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()
 
@@ -85,6 +88,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if "sum" in math_keys:
             math_keys.remove("sum")
         return any(entity.math in math_keys for entity in query.series)
+
+    def _fix_math_aggregation(self):
+        """
+        Switch unsupported math aggregations to SUM
+        """
+        uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(self.query.count_query)
+        if uses_math_aggregation:
+            self.query.count_query.series[0].math = PropertyMathType.SUM
 
     def _get_date_range(self) -> DateRange:
         """
@@ -117,6 +128,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             breakdown_type="data_warehouse",
         )
 
+    def _get_metric_type(self) -> ExperimentMetricType:
+        # Currently, we rely on the math type to determine the metric type
+        match self.query.count_query.series[0].math:
+            case PropertyMathType.SUM | "hogql":
+                return ExperimentMetricType.CONTINUOUS
+            case _:
+                return ExperimentMetricType.COUNT
+
     def _prepare_count_query(self) -> TrendsQuery:
         """
         This method takes the raw trend query and adapts it
@@ -128,13 +147,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
            to separate results for different experiment variants.
         """
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
-
-        uses_math_aggregation = self._uses_math_aggregation_by_user_or_property_value(prepared_count_query)
-
-        # Only SUM is supported now, but some earlier experiments AVG. That does not
-        # make sense as input for experiment analysis, so we'll swithc that to SUM here
-        if uses_math_aggregation:
-            prepared_count_query.series[0].math = PropertyMathType.SUM
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_date_range()
@@ -270,18 +282,21 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         # Statistical analysis
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
         if self.stats_version == 2:
-            if self.query.count_query.series[0].math:
-                probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
-                significance_code, p_value = are_results_significant_v2_continuous(
-                    control_variant, test_variants, probabilities
-                )
-                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
-            else:
-                probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
-                significance_code, p_value = are_results_significant_v2_count(
-                    control_variant, test_variants, probabilities
-                )
-                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+            match self._get_metric_type():
+                case ExperimentMetricType.CONTINUOUS:
+                    probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
+                    significance_code, p_value = are_results_significant_v2_continuous(
+                        control_variant, test_variants, probabilities
+                    )
+                    credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+                case ExperimentMetricType.COUNT:
+                    probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
+                    significance_code, p_value = are_results_significant_v2_count(
+                        control_variant, test_variants, probabilities
+                    )
+                    credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+                case _:
+                    raise ValueError(f"Unsupported metric type: {self._get_metric_type()}")
         else:
             probabilities = calculate_probabilities(control_variant, test_variants)
             significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
@@ -353,8 +368,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     def _validate_event_variants(self, count_result: TrendsQueryResponse, exposure_result: TrendsQueryResponse):
         errors = {
             ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-            ExperimentNoResultsErrorKeys.NO_EVENTS: True,
-            ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
             ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
             ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
         }
@@ -367,14 +380,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         if not count_result.results or not count_result.results[0]:
             raise ValidationError(code="no-results", detail=json.dumps(errors))
 
-        errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
-
         # Check if "control" is present
         for event in count_result.results:
             event_variant = event.get("breakdown_value")
             if event_variant == "control":
                 errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
-                errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
                 break
         # Check if at least one of the test variants is present
         test_variants = [variant for variant in self.variants if variant != "control"]
@@ -383,7 +393,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             event_variant = event.get("breakdown_value")
             if event_variant in test_variants:
                 errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
-                errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
                 break
 
         has_errors = any(errors.values())

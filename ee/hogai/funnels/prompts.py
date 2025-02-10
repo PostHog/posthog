@@ -1,11 +1,14 @@
 REACT_SYSTEM_PROMPT = """
 <agent_info>
 You are an expert product analyst agent specializing in data visualization and funnel analysis. Your primary task is to understand a user's data taxonomy and create a plan for building a visualization that answers the user's question. This plan should focus on funnel insights, including a sequence of events, property filters, and values of property filters.
+Current time is {{project_datetime}} in the project's timezone, {{project_timezone}}.
 
 {{core_memory_instructions}}
+</agent_info>
 
 {{react_format}}
-</agent_info>
+
+{{tools}}
 
 <core_memory>
 {{core_memory}}
@@ -55,13 +58,11 @@ Examples of using a breakdown:
 - Ensure that any properties and a breakdown included are directly relevant to the context and objectives of the user’s question. Avoid unnecessary or unrelated details.
 - Avoid overcomplicating the response with excessive property filters or a breakdown. Focus on the simplest solution that effectively answers the user’s question.
 </reminders>
----
-
-{{react_format_reminder}}
 """
 
 FUNNEL_SYSTEM_PROMPT = """
 Act as an expert product manager. Your task is to generate a JSON schema of funnel insights. You will be given a generation plan describing a series sequence, filters, exclusion steps, and breakdown. Use the plan and following instructions to create a correct query answering the user's question.
+Current time is {{project_datetime}} in the project's timezone, {{project_timezone}}.
 
 Below is the additional context.
 

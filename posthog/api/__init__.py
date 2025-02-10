@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
-
+import products.early_access_features.backend.api as early_access_feature
 from posthog.api import data_color_theme, metalytics, project
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -18,6 +18,7 @@ from posthog.warehouse.api import (
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
+from ..taxonomy import property_definition_api
 from . import (
     activity_log,
     alert,
@@ -32,9 +33,9 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    hog,
     hog_function,
     hog_function_template,
-    hog,
     ingestion_warnings,
     insight_variable,
     instance_settings,
@@ -60,9 +61,8 @@ from . import (
     uploaded_media,
     user,
     user_group,
+    web_vitals,
 )
-import products.early_access_features.backend.api as early_access_feature
-from ..taxonomy import property_definition_api
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
@@ -238,6 +238,18 @@ environment_batch_exports_router.register(
 legacy_project_batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "project_batch_export_runs", ["team_id", "batch_export_id"]
 )
+environment_batch_exports_router.register(
+    r"backfills",
+    batch_exports.BatchExportBackfillViewSet,
+    "environment_batch_export_backfills",
+    ["team_id", "batch_export_id"],
+)
+legacy_project_batch_exports_router.register(
+    r"backfills",
+    batch_exports.BatchExportBackfillViewSet,
+    "project_batch_export_backfills",
+    ["team_id", "batch_export_id"],
+)
 
 register_grandfathered_environment_nested_viewset(
     r"warehouse_tables", table.TableViewSet, "environment_warehouse_tables", ["team_id"]
@@ -389,11 +401,11 @@ router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_
 
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
-from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.insight import InsightViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
+from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -424,12 +436,17 @@ register_grandfathered_environment_nested_viewset(r"heatmaps", HeatmapViewSet, "
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
-    from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
-    from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
+    from ee.clickhouse.views.experiment_saved_metrics import (
+        ExperimentSavedMetricViewSet,
+    )
+    from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
     from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet
     from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
-    from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
+    from ee.clickhouse.views.person import (
+        EnterprisePersonViewSet,
+        LegacyEnterprisePersonViewSet,
+    )
 
     projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
     projects_router.register(
@@ -595,4 +612,11 @@ projects_router.register(r"search", search.SearchViewSet, "project_search", ["pr
 
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
+)
+
+environments_router.register(
+    r"web_vitals",
+    web_vitals.WebVitalsViewSet,
+    "environment_web_vitals",
+    ["team_id"],
 )

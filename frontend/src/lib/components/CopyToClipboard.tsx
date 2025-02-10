@@ -10,7 +10,7 @@ interface InlinePropsBase {
     /** Makes text selectable instead of copying on click anywhere */
     selectable?: boolean
     isValueSensitive?: boolean
-    tooltipMessage?: string | null
+    tooltipMessage?: React.ReactNode | null
     iconStyle?: Record<string, string | number>
     /** @default end */
     iconPosition?: 'end' | 'start'

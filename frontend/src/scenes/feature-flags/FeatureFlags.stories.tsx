@@ -82,6 +82,13 @@ export function EditMultiVariateFeatureFlag(): JSX.Element {
     return <App />
 }
 
+export function EditRemoteConfigFeatureFlag(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.featureFlag(1738))
+    }, [])
+    return <App />
+}
+
 export function FeatureFlagNotFound(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.featureFlag(1111111111111))

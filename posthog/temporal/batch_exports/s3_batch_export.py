@@ -23,7 +23,7 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     S3BatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -752,15 +752,18 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
                 model_name = model.name
                 extra_query_parameters = model.schema["values"] if model.schema is not None else None
                 fields = model.schema["fields"] if model.schema is not None else None
+                filters = model.filters
             else:
                 model_name = "events"
                 extra_query_parameters = None
                 fields = None
+                filters = None
         else:
             model = inputs.batch_export_schema
             model_name = "custom"
             extra_query_parameters = model["values"] if model is not None else {}
             fields = model["fields"] if model is not None else None
+            filters = None
 
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -770,7 +773,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
-        producer_task = producer.start(
+        producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
             is_backfill=inputs.is_backfill,
@@ -778,6 +781,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             full_range=full_range,
             done_ranges=done_ranges,
             fields=fields,
+            filters=filters,
             destination_default_fields=s3_default_fields(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,

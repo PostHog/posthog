@@ -101,26 +101,35 @@ async function executeQuery<N extends DataNode>(
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
+    const useOptimizedPolling = posthog.isFeatureEnabled('query-optimized-polling')
+
     if (!pollOnly) {
         const refreshParam: RefreshType | undefined =
             refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
-        const response = await api.query(
-            queryNode,
-            methodOptions,
-            queryId,
-            refreshParam,
-            filtersOverride,
-            variablesOverride
-        )
+        let response: NonNullable<N['response']>
+        if (useOptimizedPolling) {
+            response = await api.queryAwaited(
+                queryNode,
+                methodOptions,
+                queryId,
+                refreshParam,
+                filtersOverride,
+                variablesOverride
+            )
+        } else {
+            response = await api.query(
+                queryNode,
+                methodOptions,
+                queryId,
+                refreshParam,
+                filtersOverride,
+                variablesOverride
+            )
+        }
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
             return response
-        }
-
-        if (response.query_status.complete) {
-            // Async query returned immediately
-            return response.results
         }
 
         queryId = response.query_status.id

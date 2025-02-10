@@ -2927,14 +2927,6 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
-                            key: 'project_based_permissioning',
-                            name: 'Project permissions',
-                            description: 'Restrict access to data within the organization to only those who need it.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
                             key: 'role_based_access',
                             name: 'Role-based access',
                             description:
@@ -3149,15 +3141,6 @@ export const billingJson: BillingType = {
                                     note: null,
                                 },
                                 {
-                                    key: 'project_based_permissioning',
-                                    name: 'Project permissions',
-                                    description:
-                                        'Restrict access to data within the organization to only those who need it.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
                                     key: 'advanced_permissions',
                                     name: 'Advanced permissions',
                                     description:
@@ -3300,14 +3283,6 @@ export const billingJson: BillingType = {
                             type: null,
                         },
                         {
-                            key: 'project_based_permissioning',
-                            name: 'Project permissions',
-                            description: 'Restrict access to data within the organization to only those who need it.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
                             key: 'advanced_permissions',
                             name: 'Advanced permissions',
                             description:
@@ -3439,14 +3414,6 @@ export const billingJson: BillingType = {
                     name: 'Role-based access',
                     description:
                         'Control access to features like experiments, session recordings, and feature flags with custom roles.',
-                    images: null,
-                    icon_key: null,
-                    type: null,
-                },
-                {
-                    key: 'project_based_permissioning',
-                    name: 'Project permissions',
-                    description: 'Restrict access to data within the organization to only those who need it.',
                     images: null,
                     icon_key: null,
                     type: null,

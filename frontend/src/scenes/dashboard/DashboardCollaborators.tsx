@@ -15,7 +15,13 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
+import {
+    AccessControlResourceType,
+    AvailableFeature,
+    DashboardType,
+    FusedDashboardCollaboratorType,
+    UserType,
+} from '~/types'
 
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 
@@ -48,9 +54,11 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
         return null
     }
 
-    if (newAccessControl) {
+    // Only render the new access control if they are not using the old dashboard permissions (v1) and have the feature flag enabled
+    if (newAccessControl && dashboard.access_control_version === 'v2') {
         return (
             <AccessControlPopoutCTA
+                resourceType={AccessControlResourceType.Dashboard}
                 callback={() => {
                     push(urls.dashboard(dashboard.id))
                 }}

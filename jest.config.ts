@@ -11,7 +11,7 @@ process.env.TZ = process.env.TZ || 'UTC'
 const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv', 'monaco-editor']
 const eeFolderExists = fs.existsSync('ee/frontend/exports.ts')
 function rootDirectories() {
-    const rootDirectories = ['<rootDir>/frontend/src']
+    const rootDirectories = ['<rootDir>/frontend/src', '<rootDir>/products']
     if (eeFolderExists) {
         rootDirectories.push('<rootDir>/ee/frontend')
     }
@@ -102,7 +102,7 @@ const config: Config = {
         'monaco-editor': '<rootDir>/node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts',
         '^scenes/(.*)$': '<rootDir>/frontend/src/scenes/$1',
         '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
-        '^rrweb/es/rrweb': 'rrweb/dist/rrweb.min.js',
+        '^@posthog/rrweb/es/rrweb': '@posthog/rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
     },

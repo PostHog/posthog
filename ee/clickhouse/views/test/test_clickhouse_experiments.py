@@ -17,7 +17,6 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
-    snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
     FuzzyInt,
 )
@@ -744,31 +743,6 @@ class TestExperimentCRUD(APILicensedTest):
             response.json()["detail"],
             "Can't update keys: get_feature_flag_key on Experiment",
         )
-
-    def test_cant_reuse_existing_feature_flag(self):
-        ff_key = "a-b-test"
-        FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=50,
-            name="Beta feature",
-            key=ff_key,
-            created_by=self.user,
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {"events": []},
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "There is already a feature flag with this key.")
 
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
@@ -1777,6 +1751,61 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
 
+    def test_create_experiment_with_feature_flag_missing_control(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "test-1", "rollout_percentage": 50},
+                        {"key": "test-2", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Feature flag must have control as the first variant.")
+
+    def test_create_experiment_with_valid_existing_feature_flag(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["feature_flag"]["id"], feature_flag.id)
+
     def test_feature_flag_and_experiment_sync(self):
         # Create an experiment with control and test variants
         response = self.client.post(
@@ -2156,7 +2185,6 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
-    @snapshot_clickhouse_insert_cohortpeople_queries
     def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(self):
         cohort_extra = Cohort.objects.create(
             team=self.team,
@@ -2277,6 +2305,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             },
             self.team,
         )
+
         _create_person(
             distinct_ids=["1"],
             team_id=self.team.pk,

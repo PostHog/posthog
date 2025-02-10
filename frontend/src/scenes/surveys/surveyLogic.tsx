@@ -23,10 +23,10 @@ import {
     PropertyOperator,
     RatingSurveyQuestion,
     Survey,
+    SurveyMatchType,
     SurveyQuestionBase,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
-    SurveyUrlMatchType,
 } from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
@@ -1033,7 +1033,7 @@ export const surveyLogic = kea<surveyLogicType>([
         urlMatchTypeValidationError: [
             (s) => [s.survey],
             (survey): string | null => {
-                if (survey.conditions?.urlMatchType === SurveyUrlMatchType.Regex && survey.conditions.url) {
+                if (survey.conditions?.urlMatchType === SurveyMatchType.Regex && survey.conditions.url) {
                     try {
                         new RegExp(survey.conditions.url)
                     } catch (e: any) {
@@ -1213,7 +1213,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     },
                 }
 
-                return urls.insightNew(undefined, undefined, query)
+                return urls.insightNew({ query })
             },
         ],
     }),
@@ -1332,6 +1332,19 @@ function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
     const sanitizedThankYouHeader = sanitizeHTML(surveyPayload.appearance?.thankYouMessageHeader || '')
     const sanitizedThankYouDescription = sanitizeHTML(surveyPayload.appearance?.thankYouMessageDescription || '')
 
+    const appearance = {
+        ...surveyPayload.appearance,
+        ...(sanitizedThankYouHeader && { thankYouMessageHeader: sanitizedThankYouHeader }),
+        ...(sanitizedThankYouDescription && { thankYouMessageDescription: sanitizedThankYouDescription }),
+    }
+
+    // Remove widget-specific fields if survey type is not Widget
+    if (surveyPayload.type !== 'widget') {
+        delete appearance.widgetType
+        delete appearance.widgetLabel
+        delete appearance.widgetColor
+    }
+
     return {
         ...surveyPayload,
         questions: surveyPayload.questions?.map((rawQuestion) => {
@@ -1341,10 +1354,6 @@ function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
                 question: sanitizeHTML(rawQuestion.question || ''),
             }
         }),
-        appearance: {
-            ...surveyPayload.appearance,
-            ...(sanitizedThankYouHeader && { thankYouMessageHeader: sanitizedThankYouHeader }),
-            ...(sanitizedThankYouDescription && { thankYouMessageDescription: sanitizedThankYouDescription }),
-        },
+        appearance,
     }
 }

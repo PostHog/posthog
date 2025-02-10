@@ -98,7 +98,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     if (!currentOnboardingStep) {
         return (
             <div className="flex items-center justify-center my-20">
-                <Spinner className="text-2xl text-muted w-10 h-10" />
+                <Spinner className="text-2xl text-secondary w-10 h-10" />
             </div>
         )
     }
@@ -120,7 +120,9 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         window.innerWidth > 1000 &&
         combinedSnippetAndLiveEventsHosts.length > 0
 
-    const showSessionReplayStep = useFeatureFlag('ONBOARDING_SESSION_REPLAY_SEPERATE_STEP', 'test')
+    const showSessionReplayStep =
+        useFeatureFlag('ONBOARDING_SESSION_REPLAY_SEPARATE_STEP', 'test') &&
+        !selectedProducts.includes(ProductKey.SESSION_REPLAY)
 
     const options: ProductConfigOption[] = [
         {

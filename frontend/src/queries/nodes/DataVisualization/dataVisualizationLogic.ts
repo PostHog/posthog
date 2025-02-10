@@ -780,7 +780,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         isTableVisualization: [
             (state) => [state.visualizationType],
-            (visualizationType): boolean => visualizationType === ChartDisplayType.ActionsTable,
+            (visualizationType): boolean =>
+                // BoldNumber relies on yAxis formatting so it's considered a table visualization
+                visualizationType === ChartDisplayType.ActionsTable ||
+                visualizationType === ChartDisplayType.BoldNumber,
         ],
         showTableSettings: [
             (state) => [state.visualizationType],

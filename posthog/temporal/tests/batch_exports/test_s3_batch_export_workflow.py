@@ -319,6 +319,14 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
         },
     ),
     BatchExportModel(name="events", schema=None),
+    BatchExportModel(
+        name="events",
+        schema=None,
+        filters=[
+            {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
+            {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
+        ],
+    ),
     BatchExportModel(name="persons", schema=None),
     {
         "fields": [
@@ -399,7 +407,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     events_to_export_created, persons_to_export_created = generate_test_data
-    assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
+    assert (
+        records_exported == len(events_to_export_created)
+        or records_exported == len(persons_to_export_created)
+        or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
+    )
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
@@ -747,7 +759,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     events_to_export_created, persons_to_export_created = generate_test_data
-    assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
+    assert (
+        records_exported == len(events_to_export_created)
+        or records_exported == len(persons_to_export_created)
+        or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
+    )
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
@@ -1252,7 +1268,7 @@ async def test_s3_export_workflow_with_s3_bucket(
     ],
     indirect=True,
 )
-@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[2], None])
+@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[3], None])
 async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     clickhouse_client,
     ateam,
@@ -1984,7 +2000,7 @@ async def test_s3_multi_part_upload_raises_exception_if_invalid_endpoint(bucket_
         await s3_upload.start()
 
 
-@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[2], None])
+@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[3], None])
 async def test_s3_export_workflow_with_request_timeouts(
     clickhouse_client,
     ateam,

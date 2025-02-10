@@ -218,20 +218,26 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
     },
     [NodeKind.HogQLQuery]: {
-        name: 'HogQL',
-        description: 'Direct HogQL query.',
+        name: 'SQL',
+        description: 'Direct SQL query.',
         icon: IconBrackets,
         inMenu: true,
     },
+    [NodeKind.HogQLASTQuery]: {
+        name: 'SQL AST',
+        description: 'Direct SQL AST query.',
+        icon: IconBrackets,
+        inMenu: false,
+    },
     [NodeKind.HogQLMetadata]: {
-        name: 'HogQL Metadata',
-        description: 'Metadata for a HogQL query.',
+        name: 'SQL Metadata',
+        description: 'Metadata for a SQL query.',
         icon: IconHogQL,
         inMenu: true,
     },
     [NodeKind.HogQLAutocomplete]: {
-        name: 'HogQL Autocomplete',
-        description: 'Autocomplete for the HogQL query editor.',
+        name: 'SQL Autocomplete',
+        description: 'Autocomplete for the SQL query editor.',
         icon: IconHogQL,
         inMenu: false,
     },
@@ -330,7 +336,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.ActorsPropertyTaxonomyQuery]: {
         name: 'Actor Property Taxonomy',
-        description: 'View the taxonomy of the actor’s property.',
+        description: "View the taxonomy of the actor's property.",
         icon: IconHogQL,
         inMenu: false,
     },
@@ -350,7 +356,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.LIFECYCLE]: QUERY_TYPES_METADATA[NodeKind.LifecycleQuery],
     [InsightType.SQL]: {
         name: 'SQL',
-        description: 'Use HogQL to query your data.',
+        description: 'Use SQL to query your data.',
         icon: IconHogQL,
         inMenu: true,
     },
@@ -484,7 +490,7 @@ export function SavedInsights(): JSX.Element {
             key: 'id',
             width: 32,
             render: function renderType(_, insight) {
-                return <InsightIcon insight={insight} className="text-muted text-2xl" />
+                return <InsightIcon insight={insight} className="text-secondary text-2xl" />
             },
         },
         {
@@ -514,7 +520,7 @@ export function SavedInsights(): JSX.Element {
                                             insight.favorited ? (
                                                 <IconStarFilled className="text-warning" />
                                             ) : (
-                                                <IconStar className="text-muted" />
+                                                <IconStar className="text-secondary" />
                                             )
                                         }
                                         tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
@@ -662,7 +668,7 @@ export function SavedInsights(): JSX.Element {
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
                     <LemonDivider className="my-4" />
                     <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
-                        <span className="text-muted-alt">
+                        <span className="text-secondary">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
                                       count === 1 ? '' : 's'

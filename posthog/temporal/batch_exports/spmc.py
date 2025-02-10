@@ -10,10 +10,18 @@ import pyarrow as pa
 import temporalio.common
 from django.conf import settings
 
-from posthog.temporal.batch_exports.batch_exports import (
-    wait_for_delta_past_data_interval_end,
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.hogql import ast
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.property import property_to_expr
+from posthog.schema import (
+    EventPropertyFilter,
+    HogQLQueryModifiers,
+    MaterializationMode,
 )
-from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails
+from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails, DateRange
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -32,7 +40,6 @@ from posthog.temporal.batch_exports.sql import (
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     BytesSinceLastFlush,
-    DateRange,
     FlushCounter,
     IsLast,
     RecordsSinceLastFlush,
@@ -46,6 +53,7 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
+from posthog.warehouse.util import database_sync_to_async
 
 
 class RecordBatchQueue(asyncio.Queue):
@@ -541,7 +549,7 @@ class Producer:
             raise ValueError("Producer task is not initialized, have you called `Producer.start()`?")
         return self._task
 
-    def start(
+    async def start(
         self,
         queue: RecordBatchQueue,
         model_name: str,
@@ -554,6 +562,7 @@ class Producer:
         use_latest_schema: bool = False,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
+        filters: list[dict[str, str | list[str]]] | None = None,
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -561,6 +570,15 @@ class Producer:
                 fields = default_fields()
             else:
                 fields = destination_default_fields
+
+        extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
+
+        if filters is not None and len(filters) > 0:
+            filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+                filters, team_id=team_id, values=extra_query_parameters
+            )
+        else:
+            filters_str, extra_query_parameters = "", extra_query_parameters
 
         if model_name == "persons":
             if is_backfill and full_range[0] is None:
@@ -615,11 +633,12 @@ class Producer:
 
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-            query = query_template.substitute(fields=query_fields)
+            if filters_str:
+                filters_str = f"AND {filters_str}"
+
+            query = query_template.safe_substitute(fields=query_fields, filters=filters_str)
 
         parameters["team_id"] = team_id
-
-        extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
         parameters = {**parameters, **extra_query_parameters}
 
         self._task = asyncio.create_task(
@@ -810,3 +829,79 @@ def generate_query_ranges(
             continue
 
         yield (candidate_start_at, candidate_end_at)
+
+
+def compose_filters_clause(
+    filters: list[dict[str, str | list[str]]],
+    team_id: int,
+    values: dict[str, str] | None = None,
+) -> tuple[str, dict[str, str]]:
+    """Compose a clause of matching filters for a batch exports query.
+
+    `values` must be set if already replacing other values as otherwise there will
+    be collisions with the values returned by this function.
+
+    Arguments:
+        filters: A list of serialized HogQL filters.
+        team_id: Team we are running for.
+        values: HogQL placeholder values already in use.
+
+    Returns:
+        A printed string with the ClickHouse SQL clause, and a dictionary
+        of placeholder to values to be used as query parameters.
+    """
+    from posthog.models import Team
+
+    team = Team.objects.get(id=team_id)
+    context = HogQLContext(
+        team=team,
+        team_id=team.id,
+        enable_select_queries=True,
+        limit_top_select=False,
+        within_non_hogql_query=True,
+        values=values or {},
+        modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+    )
+    context.database = create_hogql_database(team.id, context.modifiers)
+
+    exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
+    and_expr = ast.And(exprs=exprs)
+    # This query only supports events at the moment.
+    # TODO: Extend for other models that also wish to implement property filtering.
+    select_query = ast.SelectQuery(
+        select=[parse_expr("properties as properties")],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=and_expr,
+    )
+    prepared_select_query: ast.SelectQuery = typing.cast(
+        ast.SelectQuery, prepare_ast_for_printing(select_query, context=context, dialect="hogql", stack=[select_query])
+    )
+    prepared_and_expr = prepare_ast_for_printing(
+        and_expr, context=context, dialect="clickhouse", stack=[prepared_select_query]
+    )
+
+    printed = print_prepared_ast(
+        prepared_and_expr,  # type: ignore
+        context=context,
+        dialect="clickhouse",
+        stack=[prepared_select_query],
+    )
+
+    return printed, context.values
+
+
+async def wait_for_delta_past_data_interval_end(
+    data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=30)
+) -> None:
+    """Wait for some time after `data_interval_end` before querying ClickHouse."""
+    if settings.TEST:
+        return
+
+    target = data_interval_end.astimezone(dt.UTC)
+    now = dt.datetime.now(dt.UTC)
+
+    while target + delta > now:
+        now = dt.datetime.now(dt.UTC)
+        remaining = (target + delta) - now
+        # Sleep between 1-10 seconds, there shouldn't ever be the need to wait too long.
+        await asyncio.sleep(min(max(remaining.total_seconds(), 1), 10))

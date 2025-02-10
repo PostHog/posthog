@@ -75,6 +75,7 @@ export type SideAction = Pick<
     LemonButtonProps,
     | 'onClick'
     | 'to'
+    | 'loading'
     | 'disableClientSideRouting'
     | 'disabled'
     | 'disabledReason'

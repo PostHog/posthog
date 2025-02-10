@@ -29,13 +29,6 @@ import { FilterableInspectorListItemTypes } from '~/types'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
-export const TabToIcon = {
-    [FilterableInspectorListItemTypes.EVENTS]: IconUnverifiedEvent,
-    [FilterableInspectorListItemTypes.CONSOLE]: IconTerminal,
-    [FilterableInspectorListItemTypes.NETWORK]: IconDashboard,
-    [FilterableInspectorListItemTypes.DOCTOR]: IconStethoscope,
-}
-
 function sideActionForType({
     miniFilters,
     setMiniFilter,
@@ -56,6 +49,7 @@ function sideActionForType({
                         (filter: SharedListMiniFilter) => {
                             return (
                                 <LemonButton
+                                    data-attr={`player-inspector-${filter.key}-mini-filter-toggle`}
                                     fullWidth
                                     size="xsmall"
                                     key={filter.name}
@@ -149,6 +143,7 @@ function NetworkFilterSettingsButton(): JSX.Element {
 
     return (
         <FilterSettingsButton
+            data-attr="player-inspector-network-toggle-all"
             type={FilterableInspectorListItemTypes.NETWORK}
             icon={<IconDashboard />}
             // we disable the filter toggle-all when there are no items
@@ -164,6 +159,7 @@ function NetworkFilterSettingsButton(): JSX.Element {
                               closeOnClickInside: false,
                               overlay: (
                                   <LemonButton
+                                      data-attr="player-inspector-network-upsell"
                                       icon={<IconGear />}
                                       fullWidth
                                       size="xsmall"
@@ -195,6 +191,7 @@ function ConsoleFilterSettingsButton(): JSX.Element {
 
     return (
         <FilterSettingsButton
+            data-attr="player-inspector-console-toggle-all"
             type={FilterableInspectorListItemTypes.CONSOLE}
             icon={<IconTerminal />}
             // we disable the filter toggle-all when there are no items
@@ -210,6 +207,7 @@ function ConsoleFilterSettingsButton(): JSX.Element {
                               closeOnClickInside: false,
                               overlay: (
                                   <LemonButton
+                                      data-attr="player-inspector-console-upsell"
                                       icon={<IconGear />}
                                       fullWidth
                                       size="xsmall"
@@ -239,6 +237,7 @@ function EventsFilterSettingsButton(): JSX.Element {
 
     return (
         <FilterSettingsButton
+            data-attr="player-inspector-events-toggle-all"
             type={FilterableInspectorListItemTypes.EVENTS}
             icon={<IconUnverifiedEvent />}
             // we disable the filter toggle-all when there are no items
@@ -269,7 +268,7 @@ export function PlayerInspectorControls(): JSX.Element {
     }, [featureFlags, setMiniFilter])
 
     return (
-        <div className="flex">
+        <div className="flex flex-col">
             <SettingsBar border="bottom" className="justify-end">
                 {mode !== SessionRecordingPlayerMode.Sharing && <EventsFilterSettingsButton />}
                 <ConsoleFilterSettingsButton />
@@ -277,6 +276,7 @@ export function PlayerInspectorControls(): JSX.Element {
                 {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                     mode !== SessionRecordingPlayerMode.Sharing && (
                         <SettingsToggle
+                            data-attr="player-inspector-doctor-toggle"
                             title="Doctor events help diagnose the health of a recording, and are used by PostHog support"
                             icon={<IconStethoscope />}
                             label="Doctor"
@@ -285,6 +285,7 @@ export function PlayerInspectorControls(): JSX.Element {
                         />
                     )}
                 <LemonButton
+                    data-attr="player-inspector-search-toggle"
                     icon={<IconSearch />}
                     size="xsmall"
                     onClick={() => {
@@ -303,6 +304,7 @@ export function PlayerInspectorControls(): JSX.Element {
             {showSearch && (
                 <div className="flex px-2 py-1">
                     <LemonInput
+                        data-attr="player-inspector-search-input"
                         size="xsmall"
                         onChange={(e) => setSearchQuery(e)}
                         placeholder="Search..."

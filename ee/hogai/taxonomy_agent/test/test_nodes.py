@@ -244,9 +244,6 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         node = self._get_node()
         self.assertNotIn("Human:", node._get_react_format_prompt(DummyToolkit(self.team)))
         self.assertIn("retrieve_event_properties,", node._get_react_format_prompt(DummyToolkit(self.team)))
-        self.assertIn(
-            "retrieve_event_properties(event_name: str)", node._get_react_format_prompt(DummyToolkit(self.team))
-        )
 
     def test_property_filters_prompt(self):
         GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)

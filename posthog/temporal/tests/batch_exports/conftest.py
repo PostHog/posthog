@@ -247,7 +247,7 @@ def test_properties(request):
         return request.param
     except AttributeError:
         pass
-    return {"$browser": "Chrome", "$os": "Mac OS X"}
+    return {"$browser": "Chrome", "$os": "Mac OS X", "prop": "value"}
 
 
 @pytest.fixture

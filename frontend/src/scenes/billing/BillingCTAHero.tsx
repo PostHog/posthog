@@ -24,7 +24,10 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
     const { toggleIsPlanComparisonModalOpen, setBillingProductLoading } = useActions(billingProductLogic({ product }))
 
     return (
-        <div className="flex relative justify-between items-center rounded-lg bg-mark" ref={billingHeroRef}>
+        <div
+            className="flex relative justify-between items-center rounded-lg bg-accent-primary-highlight"
+            ref={billingHeroRef}
+        >
             <div className="p-4">
                 <h1 className="mb-0">Get the whole hog.</h1>
                 <h1 className="text-danger">Only pay for what you use.</h1>

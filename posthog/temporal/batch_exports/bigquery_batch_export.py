@@ -21,7 +21,7 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -643,15 +643,18 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 model_name = model.name
                 extra_query_parameters = model.schema["values"] if model.schema is not None else None
                 fields = model.schema["fields"] if model.schema is not None else None
+                filters = model.filters
             else:
                 model_name = "events"
                 extra_query_parameters = None
                 fields = None
+                filters = None
         else:
             model = inputs.batch_export_schema
             model_name = "custom"
             extra_query_parameters = model["values"] if model is not None else {}
             fields = model["fields"] if model is not None else None
+            filters = None
 
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -661,7 +664,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
-        producer_task = producer.start(
+        producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
             is_backfill=inputs.is_backfill,
@@ -669,6 +672,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             full_range=full_range,
             done_ranges=done_ranges,
             fields=fields,
+            filters=filters,
             destination_default_fields=bigquery_default_fields(),
             use_latest_schema=True,
             exclude_events=inputs.exclude_events,
@@ -717,7 +721,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in schema
         ]
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}"
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
 
         with bigquery_client(inputs) as bq_client:
             async with bq_client.managed_table(

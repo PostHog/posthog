@@ -1,7 +1,7 @@
 import './PlayerFrame.scss'
 
+import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 import useSize from '@react-hook/size'
-import { Handler, viewportResizeDimension } from '@rrweb/types'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'

@@ -1144,7 +1144,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         self.organization.available_product_features = [
-            {"key": AvailableFeature.PROJECT_BASED_PERMISSIONING, "name": AvailableFeature.PROJECT_BASED_PERMISSIONING}
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
         self.organization.save()
         self.team.access_control = True
@@ -1187,7 +1187,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_invite_signup_invite_has_private_project_access(self):
         self.client.logout()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.PROJECT_BASED_PERMISSIONING, "name": AvailableFeature.PROJECT_BASED_PERMISSIONING}
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
         self.organization.save()
         private_project = Team.objects.create(
@@ -1220,7 +1220,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_invite_signup_private_project_access_team_no_longer_exists(self):
         self.client.logout()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.PROJECT_BASED_PERMISSIONING, "name": AvailableFeature.PROJECT_BASED_PERMISSIONING}
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
         self.organization.save()
         private_project = Team.objects.create(
