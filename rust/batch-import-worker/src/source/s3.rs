@@ -5,9 +5,9 @@ use axum::async_trait;
 use super::DataSource;
 
 pub struct S3Source {
-    pub client: S3Client,
-    pub bucket: String,
-    pub prefix: String,
+    client: S3Client,
+    bucket: String,
+    prefix: String,
 }
 
 impl S3Source {
