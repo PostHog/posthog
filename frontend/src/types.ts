@@ -4086,6 +4086,7 @@ export interface DataWarehouseTable {
     id: string
     name: string
     format: DataWarehouseTableTypes
+    created_at?: string
     url_pattern: string
     credential: DataWarehouseCredential
     external_data_source?: ExternalDataSource
