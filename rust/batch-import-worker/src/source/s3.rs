@@ -23,20 +23,27 @@ impl S3Source {
 #[async_trait]
 impl DataSource for S3Source {
     async fn keys(&self) -> Result<Vec<String>, Error> {
-        let list = self
-            .client
-            .list_objects()
-            .bucket(&self.bucket)
-            .prefix(self.prefix.clone())
-            .send()
-            .await?;
-
-        Ok(list
-            .contents
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|o| o.key.clone())
-            .collect())
+        let mut keys = Vec::new();
+        let mut continuation_token = None;
+        loop {
+            let mut cmd = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket)
+                .prefix(self.prefix.clone());
+            if let Some(token) = continuation_token {
+                cmd = cmd.continuation_token(token);
+            }
+            let output = cmd.send().await?;
+            if let Some(contents) = output.contents {
+                keys.extend(contents.iter().filter_map(|o| o.key.clone()));
+            }
+            match output.next_continuation_token {
+                Some(token) => continuation_token = Some(token),
+                None => break,
+            }
+        }
+        Ok(keys)
     }
 
     async fn size(&self, key: &str) -> Result<usize, Error> {
