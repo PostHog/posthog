@@ -114,7 +114,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                             const status = backfill.status
                             const color = colorForStatus(status)
                             const progress = backfill.progress
-                            if (progress && progress.progress) {
+                            if (progress && progress.progress !== null && progress.progress !== undefined) {
                                 let label = ''
                                 if (progress.finished_runs && progress.total_runs) {
                                     const runsLabel = progress.total_runs === 1 ? 'run' : 'runs'

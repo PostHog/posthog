@@ -111,7 +111,7 @@ class BatchExportRun(UUIDModel):
     )
     backfill = models.ForeignKey(
         "BatchExportBackfill",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         help_text="The backfill this run belongs to.",
         null=True,
         related_name="runs",

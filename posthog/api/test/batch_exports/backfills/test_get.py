@@ -91,17 +91,7 @@ TEST_TIME = dt.datetime.now(tz=dt.UTC).replace(microsecond=0)
         ),
         # backfill is just a single run from earliest date so not possible to calculate progress
         (BatchExportBackfill.Status.RUNNING, None, dt.datetime(2021, 1, 1, 2, 0, 0, tzinfo=dt.UTC), 0, None),
-        (
-            BatchExportBackfill.Status.COMPLETED,
-            None,
-            dt.datetime(2021, 1, 1, 2, 0, 0, tzinfo=dt.UTC),
-            1,
-            {
-                "total_runs": 1,
-                "finished_runs": 1,
-                "progress": 1,
-            },
-        ),
+        # backfill is a single run from earliest date which has completed
         (
             BatchExportBackfill.Status.COMPLETED,
             None,
@@ -168,7 +158,7 @@ def test_can_get_backfills_for_your_organizations(
             batch_export=batch_export,
             status=BatchExportRun.Status.COMPLETED,
             data_interval_start=start_at if start_at else None,
-            data_interval_end=end_at if end_at else dt.datetime.now(tz=dt.UTC),
+            data_interval_end=end_at if end_at else TEST_TIME,
             backfill=backfill,
         )
 
