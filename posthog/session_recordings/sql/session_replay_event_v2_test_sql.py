@@ -49,9 +49,10 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V
 
 
 SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE = "sharded_session_replay_events_v2_test"
-SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_ENGINE = AggregatingMergeTree(
-    "session_replay_events_v2_test", replication_scheme=ReplicationScheme.SHARDED
-)
+
+
+def SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_ENGINE():
+    return AggregatingMergeTree("session_replay_events_v2_test", replication_scheme=ReplicationScheme.SHARDED)
 
 
 """
@@ -168,7 +169,7 @@ def SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(on_cluster=True):
     ).format(
         table_name=SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_ENGINE,
+        engine=SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_ENGINE(),
     )
 
 
