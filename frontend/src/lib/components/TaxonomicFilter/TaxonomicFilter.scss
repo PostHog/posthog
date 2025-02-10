@@ -3,7 +3,6 @@
     flex-direction: column;
     width: 550px;
     max-width: calc(100vw - 40px);
-    background: var(--bg-light);
 
     &.force-minimum-width {
         min-width: 300px;
@@ -24,7 +23,7 @@
         font-size: 12px;
         font-weight: 600;
         line-height: 12px;
-        color: var(--muted);
+        color: var(--text-secondary);
         text-transform: uppercase;
     }
 

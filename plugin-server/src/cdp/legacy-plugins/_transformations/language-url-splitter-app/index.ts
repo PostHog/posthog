@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 export function processEvent(event: PluginEvent, { config }: LegacyTransformationPluginMeta) {
     const { pattern, matchGroup, property, replacePattern, replaceKey, replaceValue } = config
@@ -17,10 +16,4 @@ export function processEvent(event: PluginEvent, { config }: LegacyTransformatio
         }
     }
     return event
-}
-
-export const languageUrlSplitterApp: LegacyTransformationPlugin = {
-    id: 'language-url-splitter-app',
-    metadata,
-    processEvent,
 }

@@ -10,7 +10,7 @@ from temporalio import activity, workflow
 import temporalio.common
 
 from posthog.models import ProxyRecord
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_org_worker_logger
 
 from posthog.temporal.proxy_service.common import (

@@ -251,7 +251,7 @@ export function ActionFilterRow({
 
     const seriesIndicator =
         seriesIndicatorType === 'numeric' ? (
-            <SeriesGlyph style={{ borderColor: 'var(--border)' }}>{index + 1}</SeriesGlyph>
+            <SeriesGlyph style={{ borderColor: 'var(--border-primary)' }}>{index + 1}</SeriesGlyph>
         ) : (
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
@@ -821,7 +821,7 @@ function useMathSelectorOptions({
     ) {
         options.push({
             value: HogQLMathType.HogQL,
-            label: 'HogQL expression',
+            label: 'SQL expression',
             tooltip: 'Aggregate events by custom SQL expression.',
             'data-attr': `math-node-hogql-expression-${index}`,
         })

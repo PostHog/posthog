@@ -10,7 +10,7 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { WebExperiment, WebExperimentDraftType, WebExperimentForm, WebExperimentTransform } from '~/toolbar/types'
+import { WebExperiment, WebExperimentDraftType, WebExperimentForm } from '~/toolbar/types'
 import { elementToQuery } from '~/toolbar/utils'
 import { Experiment, ExperimentIdType } from '~/types'
 
@@ -71,9 +71,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         removeVariant: (variant: string) => ({
             variant,
         }),
-        applyVariant: (current_variant: string, variant: string) => ({
-            current_variant,
-            variant,
+        applyVariant: (newVariantKey: string) => ({
+            newVariantKey,
         }),
         addNewElement: (variant: string) => ({ variant }),
         removeElement: (variant: string, index: number) => ({ variant, index }),
@@ -184,9 +183,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     ...formValues,
                 }
 
-                // this property is used in the editor to undo transforms
-                // don't need to roundtrip this to the server.
-                delete experimentToSave.undo_transforms
+                // This property is only used in the editor to undo transforms
+                delete experimentToSave.original_html_state
+
                 const { apiURL, temporaryToken } = values
                 const { selectedExperimentId } = values
 
@@ -307,6 +306,17 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         return
                     }
 
+                    // Restore original html state for previous selector
+                    const previousSelector = currentVariant.transforms[index].selector
+                    if (previousSelector) {
+                        const originalHtmlState = values.experimentForm.original_html_state?.[previousSelector]
+                        if (originalHtmlState) {
+                            const element = document.querySelector(previousSelector) as HTMLElement
+                            element.innerHTML = originalHtmlState.innerHTML
+                            element.textContent = originalHtmlState.textContent
+                        }
+                    }
+
                     // Update state
                     const updatedVariants = {
                         ...values.experimentForm.variants,
@@ -315,10 +325,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                             transforms: currentVariant.transforms.map((t, i) =>
                                 i === index
                                     ? {
-                                          ...t,
                                           selector,
                                           text: element.textContent || t.text,
-                                          //   html: element.innerHTML, We set one or the other!
                                       }
                                     : t
                             ),
@@ -344,66 +352,44 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.rebalanceRolloutPercentage()
             }
         },
-        applyVariant: ({ current_variant, variant }) => {
+        applyVariant: ({ newVariantKey }) => {
             if (values.experimentForm && values.experimentForm.variants) {
-                const selectedVariant = values.experimentForm.variants[variant]
+                const selectedVariant = values.experimentForm.variants[newVariantKey]
                 if (selectedVariant) {
-                    if (values.experimentForm.undo_transforms === undefined) {
-                        values.experimentForm.undo_transforms = []
-                    }
-
-                    // run the undo transforms first.
-                    values.experimentForm.undo_transforms?.forEach((transform) => {
-                        if (transform.selector) {
-                            const elements = document.querySelectorAll(transform.selector)
-                            elements.forEach((elements) => {
-                                const htmlElement = elements as HTMLElement
+                    // Restore original HTML state
+                    Object.entries(values.experimentForm.original_html_state || {}).forEach(
+                        ([selector, originalState]) => {
+                            const elements = document.querySelectorAll(selector)
+                            elements.forEach((element) => {
+                                const htmlElement = element as HTMLElement
                                 if (htmlElement) {
-                                    if (transform.html) {
-                                        htmlElement.innerHTML = transform.html
-                                    }
-
-                                    if (transform.css) {
-                                        htmlElement.setAttribute('style', transform.css)
-                                    }
-
-                                    if (transform.text) {
-                                        htmlElement.innerText = transform.text
-                                    }
+                                    htmlElement.innerHTML = originalState.innerHTML
+                                    htmlElement.textContent = originalState.textContent
                                 }
                             })
                         }
-                    })
+                    )
 
+                    // Apply variant transforms
                     selectedVariant.transforms?.forEach((transform) => {
                         if (transform.selector) {
-                            const undoTransform: WebExperimentTransform = {
-                                selector: transform.selector,
-                            }
                             const elements = document.querySelectorAll(transform.selector)
-                            elements.forEach((elements) => {
-                                const htmlElement = elements as HTMLElement
+                            elements.forEach((element) => {
+                                const htmlElement = element as HTMLElement
                                 if (htmlElement) {
                                     if (transform.html) {
-                                        undoTransform.html = htmlElement.innerHTML
                                         htmlElement.innerHTML = transform.html
                                     }
 
                                     if (transform.css) {
-                                        undoTransform.css = htmlElement.getAttribute('style') || ' '
                                         htmlElement.setAttribute('style', transform.css)
                                     }
 
                                     if (transform.text) {
-                                        undoTransform.text = htmlElement.innerText
                                         htmlElement.innerText = transform.text
                                     }
                                 }
                             })
-
-                            if ((current_variant === 'control' || current_variant === '') && variant !== 'control') {
-                                values.experimentForm.undo_transforms?.push(undoTransform)
-                            }
                         }
                     })
                 }

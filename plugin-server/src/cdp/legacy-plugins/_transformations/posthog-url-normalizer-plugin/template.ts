@@ -1,15 +1,19 @@
-import { HogFunctionTemplate } from '~/src/cdp/templates/types'
+import { LegacyTransformationPlugin } from '../../types'
+import { processEvent } from '.'
 
-export const template: HogFunctionTemplate = {
-    free: true,
-    status: 'alpha',
-    type: 'transformation',
-    id: 'plugin-posthog-url-normalizer-plugin',
-    name: 'URL Normalizer',
-    description:
-        'Normalize the format of urls in your application allowing you to more easily compare them in insights.',
-    icon_url: 'https://raw.githubusercontent.com/posthog/posthog-url-normalizer-plugin/main/logo.png',
-    category: ['Transformation'],
-    hog: `return event`,
-    inputs_schema: [],
+export const posthogUrlNormalizerPlugin: LegacyTransformationPlugin = {
+    processEvent,
+    template: {
+        free: true,
+        status: 'stable',
+        type: 'transformation',
+        id: 'plugin-posthog-url-normalizer-plugin',
+        name: 'URL Normalizer',
+        description:
+            'Normalize the format of urls in your application allowing you to more easily compare them in insights.',
+        icon_url: 'https://raw.githubusercontent.com/posthog/posthog-url-normalizer-plugin/main/logo.png',
+        category: ['Transformation'],
+        hog: `return event`,
+        inputs_schema: [],
+    },
 }

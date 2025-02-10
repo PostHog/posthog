@@ -5,30 +5,20 @@ import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataWarehouseTableLogic } from 'scenes/data-warehouse/new/dataWarehouseTableLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
-import { DataWarehouseSettingsTab, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
 const REFRESH_INTERVAL = 10000
 
-export interface DataWarehouseSource {}
-
-export const humanFriendlyDataWarehouseSettingsTabName = (tab: DataWarehouseSettingsTab): string => {
-    switch (tab) {
-        case DataWarehouseSettingsTab.Managed:
-            return 'Managed'
-        case DataWarehouseSettingsTab.SelfManaged:
-            return 'Self managed'
-    }
-}
-
 export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSettingsLogic']),
     connect(() => ({
         values: [databaseTableListLogic, ['dataWarehouseTables']],
-        actions: [databaseTableListLogic, ['loadDatabase']],
+        actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseTableLogic, ['loadTables']],
     })),
     actions({
         deleteSource: (source: ExternalDataSource) => ({ source }),
@@ -147,13 +137,9 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     listeners(({ actions, values, cache }) => ({
         deleteSelfManagedTable: async ({ tableId }) => {
             await api.dataWarehouseTables.delete(tableId)
+            lemonToast.success('Schema deleted')
             actions.loadDatabase()
-        },
-        refreshSelfManagedTableSchema: async ({ tableId }) => {
-            lemonToast.info('Updating schema...')
-            await api.dataWarehouseTables.refreshSchema(tableId)
-            lemonToast.success('Schema updated')
-            actions.loadDatabase()
+            actions.loadTables()
         },
         deleteSource: async ({ source }) => {
             await api.externalDataSources.delete(source.id)
@@ -161,6 +147,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             actions.sourceLoadingFinished(source)
 
             posthog.capture('source deleted', { sourceType: source.source_type })
+        },
+        refreshSelfManagedTableSchema: async ({ tableId }) => {
+            lemonToast.info('Updating schema...')
+            await api.dataWarehouseTables.refreshSchema(tableId)
+            lemonToast.success('Schema updated')
+            actions.loadDatabase()
         },
         reloadSource: async ({ source }) => {
             // Optimistic UI updates before sending updates to the backend

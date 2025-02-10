@@ -405,6 +405,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
         showPercentStackView: filters.show_percent_stack_view,
         showLabelsOnSeries: filters.show_labels_on_series,
         yAxisScaleType: filters.y_axis_scale_type,
+        showMultipleYAxes: filters.show_multiple_y_axes,
     })
 }
 

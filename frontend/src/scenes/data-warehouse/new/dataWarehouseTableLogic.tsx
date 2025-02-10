@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, events, kea, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -45,6 +45,14 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         setDataTableQuery: (query: DataTableNode) => ({ query }),
     }),
     loaders(({ props }) => ({
+        tables: [
+            [] as DataWarehouseTable[],
+            {
+                loadTables: async () => {
+                    return await api.dataWarehouseTables.list().then((response) => response.results)
+                },
+            },
+        ],
         table: {
             loadTable: async () => {
                 if (props.id && props.id !== 'new') {
@@ -66,11 +74,14 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         createTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
+            actions.loadTables()
             router.actions.replace(urls.dataWarehouse())
         },
         updateTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} updated</>)
             actions.editingTable(false)
+            actions.loadDatabase()
+            actions.loadTables()
             router.actions.replace(urls.dataWarehouse())
         },
     })),
@@ -87,11 +98,24 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
                 setDataTableQuery: (_, { query }) => query,
             },
         ],
+        tables: [
+            [] as DataWarehouseTable[],
+            {
+                loadTablesSuccess: (_, { tables }) => tables,
+            },
+        ],
     }),
     forms(({ actions, props }) => ({
         table: {
             defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
             errors: ({ name, url_pattern, credential, format }) => {
+                const HOGQL_TABLE_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+                if (!HOGQL_TABLE_NAME_REGEX.test(name)) {
+                    return {
+                        name: 'Invalid table name. Table names must start with a letter or underscore and contain only alphanumeric characters or underscores.',
+                    }
+                }
+
                 if (url_pattern?.startsWith('s3://')) {
                     return {
                         url_pattern:
@@ -125,4 +149,12 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             },
         },
     })),
+    events(({ actions }) => ({
+        propsChanged: () => {
+            actions.loadTable()
+        },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadTables()
+    }),
 ])

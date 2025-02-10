@@ -34,7 +34,7 @@ export function SettingsBar({ children, border, className }: SettingsBarProps): 
     return (
         <div
             className={clsx(
-                'flex flex-row w-full overflow-hidden font-light text-xs bg-bg-3000 items-center',
+                'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
                 className,
                 {
                     'border-b': ['bottom', 'all'].includes(border),

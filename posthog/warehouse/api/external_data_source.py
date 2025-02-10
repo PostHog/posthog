@@ -10,7 +10,7 @@ from psycopg2 import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -206,6 +206,27 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schema",
             "ssh-tunnel",
             "use_ssl",
+            # vitally
+            "payload",
+            "prefix",
+            "regionsubdomain",
+            "source_type",
+            # chargebee
+            "site_name",
+            # zendesk
+            "subdomain",
+            "email_address",
+            # hubspot
+            "redirect_uri",
+            # snowflake
+            "account_id",
+            "warehouse",
+            "role",
+            # bigquery
+            "dataset_id",
+            "project_id",
+            "client_email",
+            "token_uri",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
@@ -433,12 +454,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 source=new_source_model,
                 should_sync=schema.get("should_sync"),
                 sync_type=sync_type,
-                sync_type_config={
-                    "incremental_field": incremental_field,
-                    "incremental_field_type": incremental_field_type,
-                }
-                if is_incremental
-                else {},
+                sync_type_config=(
+                    {
+                        "incremental_field": incremental_field,
+                        "incremental_field_type": incremental_field_type,
+                    }
+                    if is_incremental
+                    else {}
+                ),
             )
 
             if schema.get("should_sync"):
@@ -902,7 +925,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             subdomain = request.data.get("subdomain", "")
 
             subdomain_regex = re.compile("^[a-zA-Z-]+$")
-            if not subdomain_regex.match(subdomain):
+            if region == "US" and not subdomain_regex.match(subdomain):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Vitally subdomain is incorrect"},
@@ -1029,9 +1052,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={
-                            "message": auth_error_message
-                            if len(auth_error_message) > 0
-                            else "Invalid SSH tunnel auth settings"
+                            "message": (
+                                auth_error_message
+                                if len(auth_error_message) > 0
+                                else "Invalid SSH tunnel auth settings"
+                            )
                         },
                     )
 
@@ -1040,9 +1065,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={
-                            "message": port_error_message
-                            if len(port_error_message) > 0
-                            else "Invalid SSH tunnel auth settings"
+                            "message": (
+                                port_error_message
+                                if len(port_error_message) > 0
+                                else "Invalid SSH tunnel auth settings"
+                            )
                         },
                     )
 
@@ -1256,9 +1283,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     for field in incremental_fields.get(row, [])
                 ],
                 "incremental_available": row in incremental_schemas,
-                "incremental_field": incremental_fields.get(row, [])[0]["field"]
-                if row in incremental_schemas
-                else None,
+                "incremental_field": (
+                    incremental_fields.get(row, [])[0]["field"] if row in incremental_schemas else None
+                ),
                 "sync_type": None,
             }
             for row in schemas

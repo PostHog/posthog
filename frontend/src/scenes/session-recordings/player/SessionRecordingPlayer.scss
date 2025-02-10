@@ -1,5 +1,3 @@
-@import '../../../styles/mixins';
-
 .SessionRecordingPlayer {
     position: relative;
     display: flex;
@@ -7,8 +5,8 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background-color: var(--bg-light);
-    border: 1px solid var(--border);
+    background-color: var(--bg-surface-primary);
+    border: 1px solid var(--border-primary);
     border-radius: var(--radius);
 
     &--no-border {
@@ -22,7 +20,7 @@
         min-width: 1px;
         height: 100%;
         overflow: hidden;
-        background-color: var(--bg-light);
+        background-color: var(--bg-surface-primary);
     }
 
     .SessionRecordingPlayer__main {
@@ -34,7 +32,7 @@
         inset: 0;
         z-index: var(--z-modal);
         overflow-y: auto;
-        background-color: var(--bg-light);
+        background-color: var(--bg-surface-primary);
         border: none;
         border-radius: 0;
 

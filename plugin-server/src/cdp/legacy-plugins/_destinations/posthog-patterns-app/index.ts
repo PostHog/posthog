@@ -2,8 +2,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 
 export type PatternsMeta = LegacyDestinationPluginMeta & {
     config: {
@@ -43,11 +42,4 @@ export const onEvent = async (event: ProcessedPluginEvent, { config, global, fet
         const data = await response.json()
         throw new RetryError(`Export events failed: ${JSON.stringify(data)}`)
     }
-}
-
-export const patternsPlugin: LegacyDestinationPlugin = {
-    id: 'posthog-patterns-app',
-    metadata: metadata as any,
-    setupPlugin: setupPlugin as any,
-    onEvent,
 }

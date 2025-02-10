@@ -81,9 +81,10 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         aggregation_filters = date_from if filters is None else ast.And(exprs=[date_from, filters])
         min_timestamp_expr = (
             ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])
-            if not is_first_matching_event or filters is None
-            else ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), filters])
+            if not is_first_matching_event
+            else ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), aggregation_filters])
         )
+
         return [
             ast.Alias(
                 alias="min_timestamp",

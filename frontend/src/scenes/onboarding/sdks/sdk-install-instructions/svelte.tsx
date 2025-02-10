@@ -34,7 +34,7 @@ onMount(() => {
     )
   }
   return
-};`}
+});`}
         </CodeSnippet>
     )
 }

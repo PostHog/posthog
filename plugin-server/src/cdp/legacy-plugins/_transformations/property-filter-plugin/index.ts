@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 export function setupPlugin({ config, global }: LegacyTransformationPluginMeta) {
     global.propertiesToFilter = config.properties.split(',')
@@ -32,11 +31,4 @@ export function processEvent(event: PluginEvent, { global }: LegacyTransformatio
     }
 
     return { ...event, properties: propertiesCopy }
-}
-
-export const propertyFilterPlugin: LegacyTransformationPlugin = {
-    id: 'property-filter-plugin',
-    metadata,
-    processEvent,
-    setupPlugin,
 }

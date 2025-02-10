@@ -153,12 +153,12 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
             </LemonButton>
             <br />
             {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
-                <div className="border bg-bg-light p-2 rounded gap-2">
+                <div className="border bg-surface-primary p-2 rounded gap-2">
                     <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
                     <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
+                <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-surface-primary pt-4">
                     <div className="col-span-full flex justify-between py-1">
                         {/* If placing a support message, replace the line below with explanation */}
                         <strong>Avg support response times</strong>
@@ -235,7 +235,7 @@ export const SidePanelSupport = (): JSX.Element => {
                             </Section>
 
                             <Section title="Explore the docs">
-                                <ul className="border rounded divide-y bg-bg-light dark:bg-transparent font-title font-medium">
+                                <ul className="border rounded divide-y bg-surface-primary dark:bg-transparent font-title font-medium">
                                     {PRODUCTS.map((product, index) => (
                                         <li key={index}>
                                             <Link

@@ -19,6 +19,7 @@ export enum ProductIntentContext {
     // Cross Sells
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
     WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',
+    WEB_VITALS_INSIGHT = 'web_vitals_insight',
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create experiment from funnel button',
 }
 

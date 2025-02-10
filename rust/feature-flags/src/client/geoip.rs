@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use thiserror::Error;
-use tracing::log::{error, info};
+use tracing::{
+    debug,
+    log::{error, info},
+};
 
 #[derive(Error, Debug)]
 pub enum GeoIpError {
@@ -48,7 +51,9 @@ impl GeoIpClient {
                 Some(city)
             }
             Err(e) => {
-                error!("GeoIP lookup error for IP {}: {}", ip, e);
+                // it's not really an error, it's just that the IP address is not in the database
+                // for example, localhost is not in the database, nor is any private IP address
+                debug!("GeoIP lookup error for IP {}: {}", ip, e);
                 None
             }
         }
@@ -70,7 +75,9 @@ impl GeoIpClient {
                 .map(|city| extract_properties(&city))
                 .unwrap_or_default(),
             Err(_) => {
-                error!("Invalid IP address: {}", ip);
+                // By the time we get here, it's not really an error, it's just that the IP address is not in the database
+                // for example, localhost is not in the database, nor is any private IP address
+                debug!("Invalid IP address: {}", ip);
                 HashMap::new()
             }
         }

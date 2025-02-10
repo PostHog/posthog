@@ -1,24 +1,25 @@
 import './WebVitalsTab.scss'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 
 import { WebVitalsMetric } from '~/queries/schema'
 
-import { getThresholdColor, getValueWithUnit } from './definitions'
+import { getThresholdColor, getValueWithUnit, LONG_METRIC_NAME, METRIC_DESCRIPTION } from './definitions'
 import { WebVitalsProgressBar } from './WebVitalsProgressBar'
 
 type WebVitalsTabProps = {
     value: number | undefined
-    label: string
     metric: WebVitalsMetric
     isActive: boolean
     setTab?: () => void
 }
 
-export function WebVitalsTab({ value, label, metric, isActive, setTab }: WebVitalsTabProps): JSX.Element {
-    const { value: parsedValue, unit } = getValueWithUnit(value, metric)
+export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabProps): JSX.Element {
+    const label = LONG_METRIC_NAME[metric]
 
+    const { value: parsedValue, unit } = getValueWithUnit(value, metric)
     const thresholdColor = getThresholdColor(value, metric)
 
     return (
@@ -27,7 +28,12 @@ export function WebVitalsTab({ value, label, metric, isActive, setTab }: WebVita
             className="WebVitals__WebVitalsTab flex flex-1 flex-row sm:flex-col justify-around sm:justify-start items-center sm:items-start p-4"
             data-active={isActive ? 'true' : 'false'}
         >
-            <span className="text-sm hidden sm:block">{label}</span>
+            <div className="text-sm hidden sm:flex w-full flex-row justify-between">
+                <span>{label}</span>
+                <Tooltip title={METRIC_DESCRIPTION[metric]}>
+                    <IconInfo />
+                </Tooltip>
+            </div>
             <span className="text-sm block sm:hidden">
                 <Tooltip title={label}>{metric}</Tooltip>
             </span>

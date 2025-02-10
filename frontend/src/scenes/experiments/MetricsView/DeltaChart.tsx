@@ -63,16 +63,16 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
 
             return (
                 <span className="inline-flex items-center gap-1 min-w-0">
-                    <IconFunnels className="text-muted flex-shrink-0" fontSize="14" />
+                    <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
                     <span className="truncate">{firstStep}</span>
-                    <IconArrowRight className="text-muted flex-shrink-0" fontSize="14" />
+                    <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
                     <span className="truncate">{lastStep}</span>
                 </span>
             )
         }
     }
 
-    return <span className="text-muted truncate">Untitled metric</span>
+    return <span className="text-secondary truncate">Untitled metric</span>
 }
 
 function generateViolinPath(x1: number, x2: number, y: number, height: number): string {
@@ -136,6 +136,7 @@ export function DeltaChart({
         countDataForVariant,
         exposureCountDataForVariant,
         metricResultsLoading,
+        secondaryMetricResultsLoading,
         featureFlags,
     } = useValues(experimentLogic)
 
@@ -165,6 +166,8 @@ export function DeltaChart({
         return 0
     }
 
+    const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
+
     const BAR_HEIGHT = 10 + getScaleAddition(variants.length)
     const BAR_PADDING = 10 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
@@ -176,7 +179,7 @@ export function DeltaChart({
 
     const { isDarkModeOn } = useValues(themeLogic)
     const COLORS = {
-        TICK_TEXT_COLOR: 'var(--text-secondary-3000)',
+        TICK_TEXT_COLOR: 'var(--text-tertiary)',
         BOUNDARY_LINES: 'var(--border-primary)',
         ZERO_LINE: 'var(--border-bold)',
         BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',
@@ -544,7 +547,7 @@ export function DeltaChart({
                             </svg>
                         </div>
                     </div>
-                ) : metricResultsLoading ? (
+                ) : resultsLoading ? (
                     <svg
                         ref={chartSvgRef}
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
@@ -557,7 +560,7 @@ export function DeltaChart({
                             height="20"
                         >
                             <div
-                                className="flex items-center justify-center text-muted cursor-default"
+                                className="flex items-center justify-center text-secondary cursor-default"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ fontSize: '10px', fontWeight: 400 }}
                             >
@@ -574,7 +577,7 @@ export function DeltaChart({
                         {!experiment.start_date ? (
                             <foreignObject x="0" y={chartHeight / 2 - 10} width={VIEW_BOX_WIDTH} height="20">
                                 <div
-                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-muted cursor-default"
+                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ fontSize: '10px', fontWeight: 400 }}
                                 >
@@ -601,7 +604,7 @@ export function DeltaChart({
                                 onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                             >
                                 <div
-                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-muted cursor-default"
+                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ fontSize: '10px', fontWeight: 400 }}
                                 >
@@ -644,8 +647,8 @@ export function DeltaChart({
                             left: tooltipData.x,
                             top: tooltipData.y,
                             transform: 'translate(-50%, -100%)',
-                            backgroundColor: 'var(--bg-light)',
-                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-surface-primary)',
+                            border: '1px solid var(--border-primary)',
                             padding: '8px 12px',
                             borderRadius: '6px',
                             fontSize: '13px',
@@ -658,7 +661,7 @@ export function DeltaChart({
                         <div className="flex flex-col gap-1">
                             <VariantTag experimentId={experimentId} variantKey={tooltipData.variant} />
                             <div className="inline-flex">
-                                <span className="text-muted font-semibold mb-1">Win probability:</span>
+                                <span className="text-secondary font-semibold mb-1">Win probability:</span>
                                 {result?.probability?.[tooltipData.variant] !== undefined ? (
                                     <span className="flex items-center justify-between flex-1 pl-6">
                                         <LemonProgress
@@ -676,7 +679,7 @@ export function DeltaChart({
                             {metricType === InsightType.TRENDS ? (
                                 <>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">
+                                        <span className="text-secondary font-semibold">
                                             {metricType === InsightType.TRENDS &&
                                             result.exposure_query?.series?.[0]?.math
                                                 ? 'Total'
@@ -691,7 +694,7 @@ export function DeltaChart({
                                         </span>
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Exposure:</span>
+                                        <span className="text-secondary font-semibold">Exposure:</span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const exposure = exposureCountDataForVariant(
@@ -703,7 +706,7 @@ export function DeltaChart({
                                         </span>
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Mean:</span>
+                                        <span className="text-secondary font-semibold">Mean:</span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const variant = result.variants.find(
@@ -718,17 +721,17 @@ export function DeltaChart({
                                 </>
                             ) : (
                                 <div className="flex justify-between items-center">
-                                    <span className="text-muted font-semibold">Conversion rate:</span>
+                                    <span className="text-secondary font-semibold">Conversion rate:</span>
                                     <span className="font-semibold">
                                         {conversionRateForVariant(result, tooltipData.variant)?.toFixed(2)}%
                                     </span>
                                 </div>
                             )}
                             <div className="flex justify-between items-center">
-                                <span className="text-muted font-semibold">Delta:</span>
+                                <span className="text-secondary font-semibold">Delta:</span>
                                 <span className="font-semibold">
                                     {tooltipData.variant === 'control' ? (
-                                        <em className="text-muted">Baseline</em>
+                                        <em className="text-secondary">Baseline</em>
                                     ) : (
                                         (() => {
                                             if (metricType === InsightType.TRENDS) {
@@ -779,7 +782,7 @@ export function DeltaChart({
                                 </span>
                             </div>
                             <div className="flex justify-between items-center">
-                                <span className="text-muted font-semibold">Credible interval:</span>
+                                <span className="text-secondary font-semibold">Credible interval:</span>
                                 <span className="font-semibold">
                                     {(() => {
                                         const interval = credibleIntervalForVariant(
@@ -809,8 +812,8 @@ export function DeltaChart({
                             left: tooltipPosition.x,
                             top: tooltipPosition.y,
                             transform: 'translate(-50%, -100%)',
-                            backgroundColor: 'var(--bg-light)',
-                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-surface-primary)',
+                            border: '1px solid var(--border-primary)',
                             padding: '8px 12px',
                             borderRadius: '6px',
                             fontSize: '13px',

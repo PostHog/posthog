@@ -1,7 +1,9 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconArrowCircleRight } from '@posthog/icons'
-import { LemonSnack, Popover } from '@posthog/lemon-ui'
+import { LemonSnack, Popover, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { isValidRegexp } from 'lib/utils/regexp'
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
@@ -17,6 +19,9 @@ interface PathCleanFilterItem {
 export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFilterItem): JSX.Element {
     const [visible, setVisible] = useState(false)
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: String(filter.alias) })
+
+    const regex = filter.regex ?? ''
+    const isInvalidRegex = !isValidRegexp(regex)
 
     return (
         <Popover
@@ -42,18 +47,21 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ transform: CSS.Translate.toString(transform), transition }}
             >
-                <LemonSnack
-                    type="pill"
-                    onClick={() => setVisible(!visible)}
-                    onClose={onRemove}
-                    title={`${filter.regex} is mapped to ${filter.alias}`}
-                >
-                    <span className="inline-flex items-center">
-                        <span className="font-mono text-accent-primary text-xs">{filter.regex ?? '(Empty)'}</span>
-                        <IconArrowCircleRight className="mx-2" />
-                        <span className="font-mono text-xs">{parseAliasToReadable(filter.alias ?? '(Empty)')}</span>
-                    </span>
-                </LemonSnack>
+                <Tooltip title={isInvalidRegex ? 'NOTE: Invalid Regex, will be skipped' : null}>
+                    <LemonSnack
+                        type="pill"
+                        onClick={() => setVisible(!visible)}
+                        onClose={onRemove}
+                        title={`${filter.regex} is mapped to ${filter.alias}`}
+                        className={clsx({ 'border border-accent-primary': isInvalidRegex })}
+                    >
+                        <span className="inline-flex items-center">
+                            <span className="font-mono text-accent-primary text-xs">{filter.regex ?? '(Empty)'}</span>
+                            <IconArrowCircleRight className="mx-2" />
+                            <span className="font-mono text-xs">{parseAliasToReadable(filter.alias ?? '(Empty)')}</span>
+                        </span>
+                    </LemonSnack>
+                </Tooltip>
             </div>
         </Popover>
     )
