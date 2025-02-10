@@ -1095,6 +1095,12 @@ hr {
     border-top: 1px solid var(--border);
 }
 
+dfn {
+    font-style: normal;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+}
+
 // Vendor-specific adjustments
 
 input::-ms-clear {
