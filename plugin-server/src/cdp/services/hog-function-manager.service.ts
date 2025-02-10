@@ -144,7 +144,9 @@ export class HogFunctionManagerService {
     public async reloadAllHogFunctions(): Promise<void> {
         const items = (
             this.lastUpdatedAt
-                ? await this.hub.postgres.query<HogFunctionType>(
+                ? // If we have the latest updated at timestamp for a hog function then we load all updated hog functions
+                  // Whether deleted/enabled or not
+                  await this.hub.postgres.query<HogFunctionType>(
                       PostgresUse.COMMON_READ,
                       `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE type = ANY($1)
                        AND updated_at > $2 
@@ -152,7 +154,8 @@ export class HogFunctionManagerService {
                       [this.hogTypes, this.lastUpdatedAt],
                       'fetchUpdatedHogFunctions'
                   )
-                : await this.hub.postgres.query<HogFunctionType>(
+                : // Otherwise just load all enabled functions
+                  await this.hub.postgres.query<HogFunctionType>(
                       PostgresUse.COMMON_READ,
                       `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE type = ANY($1)
                         AND deleted = FALSE AND enabled = TRUE 
@@ -182,6 +185,7 @@ export class HogFunctionManagerService {
         this.sanitize(functions)
         await this.enrichWithIntegrations(functions)
 
+        // The query is sorted by updated_at so we can just take the last one
         this.lastUpdatedAt = items[items.length - 1].updated_at
         status.info('🍿', 'Fetched all hog functions from DB anew')
     }
