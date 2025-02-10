@@ -1,13 +1,22 @@
 import {
+    IconCursorClick,
+    IconDatabase,
     IconGraph,
     IconHome,
+    IconLive,
     IconMessage,
     IconNotebook,
+    IconPeople,
+    IconPieChart,
+    IconPlug,
+    IconRewindPlay,
     IconRocket,
-    IconShieldPeople,
+    IconServer,
+    IconSparkles,
     IconTarget,
     IconTestTube,
     IconToggle,
+    IconWarning,
 } from '@posthog/icons'
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
@@ -20,7 +29,7 @@ import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTa
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightType } from '~/types'
+import { InsightType, PipelineStage, ReplayTabs } from '~/types'
 
 import type { treeViewLogicType } from './treeViewLogicType'
 
@@ -39,6 +48,12 @@ const treeData: TreeDataItem[] = [
         id: 'gt_7d8f91',
         name: 'Create new',
         children: [
+            {
+                id: 'aichat',
+                name: 'AI Chat',
+                icon: <IconSparkles />,
+                onClick: () => router.actions.push(urls.max()),
+            },
             {
                 id: 'ob2_q5r6s4t',
                 name: 'Dashboard',
@@ -59,30 +74,42 @@ const treeData: TreeDataItem[] = [
             },
             {
                 id: 'ob2_q5r6s4',
-                name: 'Insights',
+                name: 'Insight',
                 children: [
                     {
                         id: 'hsc_t7u8v',
                         name: 'Trends',
-                        icon: <IconShieldPeople />,
+                        icon: <IconGraph />,
                         onClick: () => router.actions.push(urls.insightNew({ type: InsightType.TRENDS })),
                     },
                     {
                         id: 'ob2a_w9x0y',
                         name: 'Funnels',
-                        icon: <IconShieldPeople />,
+                        icon: <IconGraph />,
                         onClick: () => router.actions.push(urls.insightNew({ type: InsightType.FUNNELS })),
                     },
                     {
                         id: 'ob2b_z1a2b',
                         name: 'Retention',
-                        icon: <IconShieldPeople />,
+                        icon: <IconGraph />,
                         onClick: () => router.actions.push(urls.insightNew({ type: InsightType.RETENTION })),
+                    },
+                    {
+                        id: 'ob2b_z1a2b',
+                        name: 'User Paths',
+                        icon: <IconGraph />,
+                        onClick: () => router.actions.push(urls.insightNew({ type: InsightType.PATHS })),
+                    },
+                    {
+                        id: 'ob2b_z1a2b',
+                        name: 'Stickiness',
+                        icon: <IconGraph />,
+                        onClick: () => router.actions.push(urls.insightNew({ type: InsightType.STICKINESS })),
                     },
                     {
                         id: 'ob2c_c3d4e',
                         name: 'Lifecycle',
-                        icon: <IconShieldPeople />,
+                        icon: <IconGraph />,
                         onClick: () => router.actions.push(urls.insightNew({ type: InsightType.LIFECYCLE })),
                     },
                 ],
@@ -105,7 +132,93 @@ const treeData: TreeDataItem[] = [
                 icon: <IconMessage />,
                 onClick: () => router.actions.push(urls.experiment('new')),
             },
-        ],
+            {
+                id: 'Scene.SQLEditor',
+                name: 'SQL query',
+                icon: <IconServer />,
+                onClick: () => router.actions.push(urls.sqlEditor()),
+            },
+            {
+                id: 'Scene.Pipeline',
+                name: 'Data pipeline',
+                icon: <IconPlug />,
+                children: [
+                    {
+                        id: 'Scene.PipelineSource',
+                        name: 'Source',
+                        icon: <IconPlug />,
+                        onClick: () => router.actions.push(urls.pipelineNodeNew(PipelineStage.Source)),
+                    },
+                    {
+                        id: 'Scene.PipelineDest',
+                        name: 'Destination',
+                        icon: <IconPlug />,
+                        onClick: () => router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination)),
+                    },
+                    {
+                        id: 'Scene.PipelineTrans',
+                        name: 'Transformation',
+                        icon: <IconPlug />,
+                        onClick: () => router.actions.push(urls.pipelineNodeNew(PipelineStage.Transformation)),
+                    },
+                ],
+            },
+        ].sort((a, b) => a.name.localeCompare(b.name)),
+    },
+    {
+        id: 'o_1',
+        name: 'Explore data',
+        icon: <IconDatabase />,
+        children: [
+            {
+                id: 'o_1_1',
+                name: 'Data management',
+                icon: <IconDatabase />,
+                onClick: () => router.actions.push(urls.eventDefinitions()),
+            },
+            {
+                id: 'o_1_2',
+                name: 'People and groups',
+                icon: <IconPeople />,
+                onClick: () => router.actions.push(urls.persons()),
+            },
+            {
+                id: 'o_1_3',
+                name: 'Activity',
+                icon: <IconLive />,
+                onClick: () => router.actions.push(urls.activity()),
+            },
+            {
+                id: 'o_1_4',
+                name: 'Web Analytics',
+                icon: <IconPieChart />,
+                onClick: () => router.actions.push(urls.webAnalytics()),
+            },
+            {
+                id: 'o_1_5',
+                name: 'Recordings',
+                onClick: () => router.actions.push(urls.replay(ReplayTabs.Home)),
+                icon: <IconRewindPlay />,
+            },
+            {
+                id: 'o_1_6',
+                name: 'Playlists',
+                onClick: () => router.actions.push(urls.replay(ReplayTabs.Playlists)),
+                icon: <IconRewindPlay />,
+            },
+            {
+                id: 'Scene.ErrorTracking',
+                name: 'Error tracking',
+                icon: <IconWarning />,
+                onClick: () => router.actions.push(urls.errorTracking()),
+            },
+            {
+                id: 'Scene.Heatmaps',
+                name: 'Heatmaps',
+                icon: <IconCursorClick />,
+                onClick: () => router.actions.push(urls.heatmaps()),
+            },
+        ].sort((a, b) => a.name.localeCompare(b.name)),
     },
     {
         id: 'bt_f5g6h5ee',
