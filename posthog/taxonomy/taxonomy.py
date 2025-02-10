@@ -178,7 +178,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$exception": {
             "label": "Exception",
-            "description": "Automatically captured exceptions from the client Sentry integration",
+            "description": "An unexpected error or unhandled exception in your application",
         },
         "$web_vitals": {
             "label": "Web vitals",
@@ -370,34 +370,53 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Sentry tags",
             "description": "Tags sent to Sentry along with the exception",
         },
-        "$exception_type": {
-            "label": "Exception type",
-            "description": 'Exception categorized into types. E.g. "Error"',
-        },
-        "$exception_message": {
-            "label": "Exception Message",
-            "description": "The message detected on the error.",
-        },
-        "$exception_source": {
-            "label": "Exception source",
-            "description": "The source of the exception. E.g. JS file.",
-        },
         "$exception_list": {
             "label": "Exception list",
             "description": "List of one or more associated exceptions",
             "system": True,
         },
+        "$exception_level": {
+            "label": "Exception level",
+            "description": "Exception categorized by severity",
+            "examples": ["error"],
+        },
+        "$exception_type": {
+            "label": "Exception type",
+            "description": "Exception categorized into types",
+            "examples": ["Error"],
+        },
+        "$exception_message": {
+            "label": "Exception message",
+            "description": "The message detected on the error",
+        },
+        "$exception_fingerprint": {
+            "label": "Exception fingerprint",
+            "description": "A fingerprint used to group issues, can be set clientside",
+        },
+        "$exception_proposed_fingerprint": {
+            "label": "Exception proposed fingerprint",
+            "description": "The fingerprint used to group issues. Auto generated unless provided clientside",
+        },
+        "$exception_issue_id": {
+            "label": "Exception issue ID",
+            "description": "The id of the issue the fingerprint was associated with at ingest time",
+        },
+        "$exception_source": {
+            "label": "Exception source",
+            "description": "The source of the exception",
+            "examples": ["JS file"],
+        },
         "$exception_lineno": {
             "label": "Exception source line number",
-            "description": "Which line in the exception source that caused the exception.",
+            "description": "Which line in the exception source that caused the exception",
         },
         "$exception_colno": {
             "label": "Exception source column number",
-            "description": "Which column of the line in the exception source that caused the exception.",
+            "description": "Which column of the line in the exception source that caused the exception",
         },
         "$exception_DOMException_code": {
             "label": "DOMException code",
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
+            "description": "If a DOMException was thrown, it also has a DOMException code",
         },
         "$exception_is_synthetic": {
             "label": "Exception is synthetic",
@@ -405,7 +424,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$exception_stack_trace_raw": {
             "label": "Exception raw stack trace",
-            "description": "The exception's stack trace, as a string.",
+            "description": "The exceptions stack trace, as a string",
         },
         "$exception_handled": {
             "label": "Exception was handled",
@@ -414,6 +433,25 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$exception_personURL": {
             "label": "Exception person URL",
             "description": "The PostHog person that experienced the exception",
+        },
+        "$cymbal_errors": {
+            "label": "Exception processing errors",
+            "description": "Errors encountered while trying to process exceptions",
+            "system": True,
+        },
+        "$exception_capture_endpoint": {
+            "label": "Exception capture endpoint",
+            "description": "Endpoint used by posthog-js exception autocapture.",
+            "examples": ["/e/"],
+        },
+        "$exception_capture_endpoint_suffix": {
+            "label": "Exception capture endpoint",
+            "description": "Endpoint used by posthog-js exception autocapture.",
+            "examples": ["/e/"],
+        },
+        "$exception_capture_enabled_server_side": {
+            "label": "Exception capture enabled server side",
+            "description": "Whether exception autocapture was enabled in remote config.",
         },
         "$ce_version": {
             "label": "$ce_version",
