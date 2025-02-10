@@ -2900,7 +2900,7 @@
           block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
-      ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/0dd8bef1-da81-4a73-a9ca-7fc3817c2e26_{shard}/posthog.session_replay_events_v2_test', '{replica}')
+      ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/cfaec9a1-673c-4788-8997-b86618b3e428_{shard}/posthog.session_replay_events_v2_test', '{replica}')
   
               PARTITION BY toYYYYMM(min_first_timestamp)
               ORDER BY (toDate(min_first_timestamp), team_id, session_id)
@@ -4107,7 +4107,7 @@
           block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
-      ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/0dd8bef1-da81-4a73-a9ca-7fc3817c2e26_{shard}/posthog.session_replay_events_v2_test', '{replica}')
+      ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/cfaec9a1-673c-4788-8997-b86618b3e428_{shard}/posthog.session_replay_events_v2_test', '{replica}')
   
               PARTITION BY toYYYYMM(min_first_timestamp)
               ORDER BY (toDate(min_first_timestamp), team_id, session_id)
