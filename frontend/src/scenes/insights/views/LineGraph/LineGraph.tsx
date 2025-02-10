@@ -71,15 +71,26 @@ function truncateString(str: string, num: number): string {
     return str
 }
 
+const RESOLVED_COLOR_MAP = new Map<string, string>()
 function resolveVariableColor(color: string | undefined): string | undefined {
     if (!color) {
         return color
     }
 
+    if (RESOLVED_COLOR_MAP.has(color)) {
+        return RESOLVED_COLOR_MAP.get(color)
+    }
+
+    // Cache complex variables to avoid the `getComputedStyle` call on every call
     if (color.startsWith('var(--')) {
         const replaced = color.replace('var(', '').replace(')', '')
-        return getComputedStyle(document.documentElement).getPropertyValue(replaced)
+        const computedColor = getComputedStyle(document.documentElement).getPropertyValue(replaced)
+        RESOLVED_COLOR_MAP.set(color, computedColor)
+        return computedColor
     }
+
+    // Optimize to avoid the `startsWith` check on every call
+    RESOLVED_COLOR_MAP.set(color, color)
 
     return color
 }
