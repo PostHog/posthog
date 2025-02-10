@@ -30,7 +30,7 @@ RouteName = Literal["trends", "funnel", "retention", "root", "end"]
 # Lower casing matters here. Do not change it.
 class retrieve_data_for_question(BaseModel):
     """
-    Retrieve results for a specific data question.
+    Retrieve results for a specific data question. This tool only retrieves data for a single insight at a time. Do not use it to perform operations, such as correlation analysis, comparison, etc. The `trends` insight type is the only insight that can display multiple trends insights in one request. All other insight types strictly return data for a single insight.
     """
 
     query_description: str = Field(description="The description of the query being asked.")
