@@ -11,7 +11,7 @@ const meta: Meta<typeof PathRegexModal> = {
     title: 'Filters/PathRegexModal',
     component: PathRegexModal,
     parameters: {
-        layout: 'centered',
+        layout: 'fullscreen',
     },
 }
 export default meta
