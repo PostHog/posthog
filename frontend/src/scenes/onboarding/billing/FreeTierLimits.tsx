@@ -5,7 +5,7 @@ import { availableOnboardingProducts } from '../onboardingLogic'
 type FreeTierLimit = {
     title: string
     value: string
-    icon: keyof typeof Icons
+    icon: string
     color: string
 }
 
@@ -49,7 +49,7 @@ const freeTierLimits: FreeTierLimit[] = [
 ]
 
 const FreeTierItem = ({ limit }: { limit: FreeTierLimit }): JSX.Element => {
-    const Icon = Icons[limit.icon]
+    const Icon = Icons[limit.icon as keyof typeof Icons]
     return (
         <div className="flex flex-col items-center w-36">
             <div className="flex gap-1 items-center">
@@ -69,8 +69,8 @@ export const FreeTierLimits: React.FC = (): JSX.Element => {
             </h4>
             <div className="flex justify-center">
                 <div className="grid grid-cols-3 gap-4">
-                    {freeTierLimits.map((limit, index) => (
-                        <FreeTierItem key={index} limit={limit} />
+                    {freeTierLimits.map((limit) => (
+                        <FreeTierItem key={limit.title} limit={limit} />
                     ))}
                 </div>
             </div>

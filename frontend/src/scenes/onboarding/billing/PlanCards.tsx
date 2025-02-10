@@ -23,7 +23,7 @@ type Feature = {
 
 enum Plan {
     TOTALLY_FREE = 'totally_free',
-    REDICULOUSLY_CHEAP = 'ridiculously_cheap',
+    RIDICULOUSLY_CHEAP = 'ridiculously_cheap',
 }
 
 type PlanData = {
@@ -71,7 +71,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                     highlight ? 'border-2 border-accent-primary-active' : 'border-gray-200 dark:border-gray-700'
                 )}
             >
-                {planData.plan === Plan.REDICULOUSLY_CHEAP && (
+                {planData.plan === Plan.RIDICULOUSLY_CHEAP && (
                     <div className="absolute top-0 right-0 -mt-4 -mr-4 px-3 py-1 bg-bg-light dark:bg-bg-depth rounded-sm text-xs text-accent-primary-active font-semibold shadow-md border-accent-primary-active border-2">
                         Free tier included!
                     </div>
@@ -96,8 +96,8 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                 </section>
                 <section className="flex-1 mb-3">
                     <ul className="space-y-2">
-                        {planData.features.map((feature, index) => (
-                            <li key={index} className="flex items-center">
+                        {planData.features.map((feature) => (
+                            <li key={feature.name} className="flex items-center">
                                 {feature.available ? (
                                     <IconCheck className="w-4 h-4 text-success mr-2" />
                                 ) : (
@@ -167,7 +167,7 @@ const PLANS_DATA: PlanData[] = [
     },
     {
         title: 'Ridiculously cheap',
-        plan: Plan.REDICULOUSLY_CHEAP,
+        plan: Plan.RIDICULOUSLY_CHEAP,
         subtitle: 'Usage-based pricing after free tier',
         pricePreface: 'Starts at',
         price: '$0',
@@ -195,7 +195,7 @@ export const PlanCards: React.FC<{ product: BillingProductV2Type }> = ({ product
                             key={planData.plan}
                             planData={planData}
                             product={product}
-                            highlight={planData.plan === Plan.REDICULOUSLY_CHEAP}
+                            highlight={planData.plan === Plan.RIDICULOUSLY_CHEAP}
                             hogPosition={index === 0 ? 'top-left' : 'top-right'}
                         />
                     ))}
