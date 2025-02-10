@@ -32,7 +32,7 @@ import {
 import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
-import { sanitizeHTML } from './utils'
+import { sanitizeHTML, validateColor } from './utils'
 
 export enum SurveyEditSection {
     Steps = 'steps',
@@ -121,15 +121,6 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
         targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
-}
-
-function validateColor(color: string | undefined, fieldName: string): string | undefined {
-    if (!color) {
-        return undefined
-    }
-    // Test if the color value is valid using CSS.supports
-    const isValidColor = CSS.supports('color', color)
-    return !isValidColor ? `Invalid color value for ${fieldName}. Please use a valid CSS color.` : undefined
 }
 
 export const surveyLogic = kea<surveyLogicType>([
