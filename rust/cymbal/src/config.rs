@@ -88,7 +88,12 @@ pub struct Config {
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        ConsumerConfig::set_defaults("error-tracking-rs", "exception_symbolification_events");
+        // Our consumer is used in a transaction, so we disable offset commits.
+        ConsumerConfig::set_defaults(
+            "error-tracking-rs",
+            "exception_symbolification_events",
+            false,
+        );
         let res = Self::init_from_env()?;
         init_global_state(&res);
         Ok(res)

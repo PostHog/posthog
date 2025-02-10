@@ -222,11 +222,11 @@ impl Job {
         let mut sink = self.sink.lock().await;
         self.shutdown_guard()?;
         // If this fails, we just bail out, and then eventually someone else will pick up the job again and re-process this chunk
-        sink.begin_write().await?;
+        let txn = sink.begin_write().await?;
         info!("Writing {} events", parsed.data.len());
         // If this fails, as above
         self.shutdown_guard()?;
-        sink.emit(&parsed.data).await?;
+        txn.emit(&parsed.data).await?;
         // This is where things get tricky - if we fail to commit the chunk to the sink in the next step, and we've told PG we've
         // committed the chunk, we'll bail out, and whoever comes next will end up skipping this chunk. To prevent this, we do a two
         // stage commit, where we pause the job before committing the chunk to the sink, and then only unpause it after the sink commit,
@@ -237,7 +237,7 @@ impl Job {
         info!("Beginning PG part commit");
         self.begin_part_commit(&key, parsed.consumed).await?;
         info!("Beginning emitter part commit");
-        sink.commit_write().await?;
+        txn.commit_write().await?;
         info!("Finishing PG part commit");
         self.complete_commit().await?;
         info!("Committed part {} consumed {} bytes", key, parsed.consumed);
