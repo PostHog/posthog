@@ -10,7 +10,6 @@ use cymbal::{
     handle_event,
     metric_consts::{ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
 };
-use envconfig::Envconfig;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -53,7 +52,7 @@ async fn main() {
     setup_tracing();
     info!("Starting up...");
 
-    let config = Config::init_from_env().unwrap();
+    let config = Config::init_with_defaults().unwrap();
     let context = Arc::new(AppContext::new(&config).await.unwrap());
 
     start_health_liveness_server(&config, context.clone());
@@ -73,6 +72,17 @@ async fn main() {
 
         let mut output = Vec::with_capacity(received.len());
         let mut offsets = Vec::with_capacity(received.len());
+
+        let mut producer = context.kafka_producer.lock().await;
+
+        let txn = match producer.begin() {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!("Failed to start kafka transaction, {:?}", e);
+                panic!("Failed to start kafka transaction: {:?}", e);
+            }
+        };
+
         for message in received {
             let (event, offset) = match message {
                 Ok(r) => r,
@@ -105,17 +115,6 @@ async fn main() {
             output.push(event);
             offsets.push(offset);
         }
-
-        let mut producer = context.kafka_producer.lock().await;
-
-        let txn = match producer.begin() {
-            Ok(txn) => txn,
-            Err(e) => {
-                error!("Failed to start kafka transaction, {:?}", e);
-                error!("Failed to start kafka transaction, will panic to trigger restart: {:?}", e);
-                panic!("Failed to start kafka transaction: {:?}", e);
-            }
-        };
 
         txn.send_keyed_iter_to_kafka(
             &context.config.events_topic,
