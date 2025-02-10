@@ -28,7 +28,7 @@ describe('pii-hashing.template', () => {
         const response = await tester.invoke(
             {
                 propertiesToHash: {
-                    $email: '$email',
+                    Email: '$email',
                 },
             },
             mockGlobals
@@ -129,9 +129,9 @@ describe('pii-hashing.template', () => {
         const response = await tester.invoke(
             {
                 propertiesToHash: {
-                    Email: 'properties.nonexistent',
-                    Phone: 'properties.user.phone',
-                    Ssn: 'properties.deeply.nested.invalid.path',
+                    Email: 'nonexistent',
+                    Phone: 'user.phone',
+                    Ssn: 'deeply.nested.invalid.path',
                 },
             },
             mockGlobals
@@ -144,5 +144,106 @@ describe('pii-hashing.template', () => {
         // Invalid paths should not create new properties
         expect((response.execResult as EventResult).properties.$phone).toBeUndefined()
         expect((response.execResult as EventResult).properties.$ssn).toBeUndefined()
+    })
+
+    it('should handle nested property paths', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $set: {
+                        $ip: '127.0.0.1',
+                        $email: 'test@example.com',
+                    },
+                },
+            },
+        })
+
+        const response = await tester.invoke(
+            {
+                propertiesToHash: {
+                    ip: '$set.$ip',
+                    email: '$set.$email',
+                },
+            },
+            mockGlobals
+        )
+
+        expect(response.finished).toBe(true)
+        expect(response.error).toBeUndefined()
+        expect((response.execResult as EventResult).properties.$set.$ip).toMatch(/^[a-f0-9]{64}$/)
+        expect((response.execResult as EventResult).properties.$set.$email).toMatch(/^[a-f0-9]{64}$/)
+    })
+
+    it('should handle deeply nested property paths', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    user: {
+                        contact: {
+                            $email: 'test@example.com',
+                            $phone: '+1234567890',
+                        },
+                    },
+                    $set: {
+                        profile: {
+                            ssn: '123-45-6789',
+                        },
+                    },
+                },
+            },
+        })
+
+        const response = await tester.invoke(
+            {
+                propertiesToHash: {
+                    Email: 'user.contact.$email',
+                    Phone: 'user.contact.$phone',
+                    SSN: '$set.profile.ssn',
+                },
+            },
+            mockGlobals
+        )
+
+        expect(response.finished).toBe(true)
+        expect(response.error).toBeUndefined()
+
+        const result = response.execResult as EventResult
+        expect(result.properties.user.contact.$email).toMatch(/^[a-f0-9]{64}$/)
+        expect(result.properties.user.contact.$phone).toMatch(/^[a-f0-9]{64}$/)
+        expect(result.properties.$set.profile.ssn).toMatch(/^[a-f0-9]{64}$/)
+
+        // Verify original values were hashed
+        expect(result.properties.user.contact.$email).not.toBe('test@example.com')
+        expect(result.properties.user.contact.$phone).not.toBe('+1234567890')
+        expect(result.properties.$set.profile.ssn).not.toBe('123-45-6789')
+    })
+
+    it('should handle nonexistent nested paths gracefully', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    user: {
+                        email: 'test@example.com',
+                    },
+                },
+            },
+        })
+
+        const response = await tester.invoke(
+            {
+                propertiesToHash: {
+                    Email: 'user.contact.email', // nonexistent nested path
+                },
+            },
+            mockGlobals
+        )
+
+        expect(response.finished).toBe(true)
+        expect(response.error).toBeUndefined()
+
+        // Should not modify anything when path doesn't exist
+        const result = response.execResult as EventResult
+        expect(result.properties.user.email).toBe('test@example.com')
+        expect(result.properties.user.contact).toBeUndefined()
     })
 })

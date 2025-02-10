@@ -17,14 +17,48 @@ if (empty(propertiesToHash)) {
     return event
 }
 
-// Create a copy of the event to modify
-let returnEvent := event
+// Create a deep copy of the event to modify
+let returnEvent := jsonParse(jsonStringify(event))
+
+// Helper function to get nested property value
+fun getNestedValue(obj, path) {
+    let parts := splitByString('.', path)
+    let current := obj
+    
+    for (let part in parts) {
+        if (current = null) {
+            return null
+        }
+        current := current[part]
+    }
+    return current
+}
+
+// Helper function to set nested property value
+fun setNestedValue(obj, path, value) {
+    let parts := splitByString('.', path)
+    let current := obj
+    
+    // Navigate to the parent object of the target property
+    for (let i := 1; i < length(parts); i := i + 1) {
+        let part := parts[i]
+        if (current[part] = null) {
+            current[part] := {}
+        }
+        current := current[part]
+    }
+    
+    // Set the value on the last part
+    let lastPart := parts[length(parts)]
+    current[lastPart] := value
+}
 
 // Hash each property value
 for (let _, path in propertiesToHash) {
-    let value := event.properties[path]
-    if (notEmpty(value)) { 
-        returnEvent.properties[path] := sha256Hex(toString(value))
+    let value := getNestedValue(event.properties, path)
+    if (notEmpty(value)) {
+        let hashedValue := sha256Hex(toString(value))
+        setNestedValue(returnEvent.properties, path, hashedValue)
     }
 }
 
@@ -35,7 +69,7 @@ return returnEvent
             key: 'propertiesToHash',
             type: 'dictionary',
             label: 'Properties to Hash',
-            description: 'Add property paths to hash',
+            description: 'Add property paths to hash (use dot notation for nested properties, e.g. "user.email")',
             default: {
                 Ip: '$ip',
             },
