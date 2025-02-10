@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0559_team_api_query_rate_limit"),
+        ("posthog", "0660_organization_is_ai_data_processing_approved"),
     ]
 
     operations = [
