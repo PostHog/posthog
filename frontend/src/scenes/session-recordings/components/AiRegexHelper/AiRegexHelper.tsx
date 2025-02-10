@@ -11,10 +11,13 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 
 import { aiRegexHelperLogic } from './aiRegexHelperLogic'
 
-export function AiRegexHelper({ type }: { type: 'trigger' | 'blocklist' }): JSX.Element {
+type AiRegexHelperProps = {
+    onApply: (regex: string) => void
+}
+
+export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
     const { isOpen, input, generatedRegex, error, isLoading } = useValues(aiRegexHelperLogic)
-    const { setInput, handleGenerateRegex, handleApplyRegex, onClose, handleCopyToClipboard } =
-        useActions(aiRegexHelperLogic)
+    const { setInput, handleGenerateRegex, onClose, handleCopyToClipboard } = useActions(aiRegexHelperLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
 
     const { preflight } = useValues(preflightLogic)
@@ -84,7 +87,8 @@ export function AiRegexHelper({ type }: { type: 'trigger' | 'blocklist' }): JSX.
                             <LemonButton
                                 type="primary"
                                 onClick={() => {
-                                    handleApplyRegex(type)
+                                    onApply(generatedRegex)
+                                    onClose()
                                 }}
                                 tooltip="Apply"
                                 icon={<IconPlus />}

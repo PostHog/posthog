@@ -12,6 +12,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import posthog from 'posthog-js'
 import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { aiRegexHelperLogic } from 'scenes/session-recordings/components/AiRegexHelper/aiRegexHelperLogic'
@@ -29,8 +30,8 @@ function UrlConfigForm({
     onCancel: () => void
     isSubmitting: boolean
 }): JSX.Element {
-    const filterLogic = aiRegexHelperLogic()
-    const { setIsOpen } = useActions(filterLogic)
+    const { setIsOpen } = useActions(aiRegexHelperLogic)
+    const { addUrlTrigger, addUrlBlocklist } = useActions(replayTriggersLogic)
 
     return (
         <Form
@@ -40,8 +41,22 @@ function UrlConfigForm({
             className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-surface-primary gap-2"
         >
             <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
-                <AiRegexHelper type={type} />
+                <AiRegexHelper
+                    onApply={(generatedRegex) => {
+                        try {
+                            const payload: SessionReplayUrlTriggerConfig = { url: generatedRegex, matching: 'regex' }
+                            if (type === 'trigger') {
+                                addUrlTrigger(payload)
+                            } else {
+                                addUrlBlocklist(payload)
+                            }
+                        } catch (error) {
+                            lemonToast.error('Failed to apply regex')
+                        }
+                    }}
+                />
             </FlaggedFeature>
+
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
                     We always wrap the URL regex with anchors to avoid unexpected behavior (if you do not). This is
