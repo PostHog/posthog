@@ -124,7 +124,7 @@ export const WithCustomContent: StoryFn<typeof LemonModal> = () => {
                 inline
                 simple
             >
-                <div className="bg-muted-alt rounded">
+                <div className="rounded">
                     <LemonModal.Header>
                         <h3>I am a custom header</h3>
                     </LemonModal.Header>

@@ -1793,6 +1793,16 @@
                   "table": null,
                   "type": "float"
               },
+              "hogql_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hogql_name",
+                  "id": null,
+                  "name": "hogql_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "created_by": {
                   "chain": null,
                   "fields": null,
@@ -3627,6 +3637,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "float"
+              },
+              "hogql_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hogql_name",
+                  "id": null,
+                  "name": "hogql_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_by": {
                   "chain": null,

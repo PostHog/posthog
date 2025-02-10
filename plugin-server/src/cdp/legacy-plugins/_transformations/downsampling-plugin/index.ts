@@ -1,8 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { createHash } from 'crypto'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 export function setupPlugin({ config, global }: LegacyTransformationPluginMeta) {
     const percentage = parseFloat(config.percentage)
@@ -35,11 +34,4 @@ export function processEvent(event: PluginEvent, { global }: LegacyTransformatio
         return event
     }
     return null
-}
-
-export const downsamplingPlugin: LegacyTransformationPlugin = {
-    id: 'downsampling-plugin',
-    metadata: metadata as any,
-    processEvent,
-    setupPlugin,
 }

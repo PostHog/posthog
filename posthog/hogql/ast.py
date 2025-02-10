@@ -1,3 +1,6 @@
+import dataclasses
+import inspect
+import sys
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union, get_args
 from collections.abc import Sequence
@@ -567,7 +570,8 @@ class PropertyType(Type):
         if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
             return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
 
-        return self.field_type.resolve_constant_type(context)
+        # PropertyTypes are always nullable
+        return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
 
 
 @dataclass(kw_only=True)
@@ -884,3 +888,18 @@ class HogQLXTag(AST):
             "kind": self.kind,
             **{a.name: a.value for a in self.attributes},
         }
+
+
+def create_ast_classes_mapping() -> dict[str, AST]:
+    current_module = sys.modules[__name__]
+    ast_classes: dict[str, AST] = {}
+
+    for name, obj in inspect.getmembers(current_module, inspect.isclass):
+        if issubclass(obj, AST) and obj is not AST:
+            ast_classes[name] = obj
+
+    return ast_classes
+
+
+# Call the function to dynamically generate AST_CLASSES
+AST_CLASSES = create_ast_classes_mapping()

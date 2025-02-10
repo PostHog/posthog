@@ -78,9 +78,10 @@ class TestQuotaLimiting(BaseTest):
         assert patch_capture.call_count == 8  # 7 logs + 1 org
         # Find the org action call
         org_action_call = next(
-            call for call in patch_capture.call_args_list if call.args[1] == "quota limiting suspended"
+            call for call in patch_capture.call_args_list if call.args[1] == "org_quota_limited_until"
         )
         assert org_action_call.kwargs.get("properties") == {
+            "event": "ignored",
             "current_usage": 109,
             "resource": "events",
             "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -119,9 +120,10 @@ class TestQuotaLimiting(BaseTest):
         assert patch_capture.call_count == 8  # 7 logs + 1 org
         # Find the org action call
         org_action_call = next(
-            call for call in patch_capture.call_args_list if call.args[1] == "quota limiting already limited"
+            call for call in patch_capture.call_args_list if call.args[1] == "org_quota_limited_until"
         )
         assert org_action_call.kwargs.get("properties") == {
+            "event": "already limited",
             "current_usage": 109,
             "resource": "events",
         }

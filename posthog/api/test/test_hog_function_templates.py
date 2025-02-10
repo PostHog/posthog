@@ -16,6 +16,7 @@ MOCK_NODE_TEMPLATES = json.loads(
 # NOTE: We check this as a sanity check given that this is a public API so we want to explicitly define what is exposed
 EXPECTED_FIRST_RESULT = {
     "sub_templates": ANY,
+    "free": template.free,
     "type": "destination",
     "status": template.status,
     "id": template.id,

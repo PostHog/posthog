@@ -275,7 +275,7 @@ export function TeamAccessControl(): JSX.Element {
                 onChange={(checked) => {
                     // Let them uncheck it if it's already checked, but don't let them check it if they don't have the feature
                     checked
-                        ? guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () =>
+                        ? guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () =>
                               updateCurrentTeam({ access_control: checked })
                           )
                         : updateCurrentTeam({ access_control: checked })

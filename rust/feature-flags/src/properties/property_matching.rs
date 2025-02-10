@@ -82,7 +82,10 @@ pub fn match_property(
                     Ok(!compute_exact_match(value, match_value))
                 }
             } else {
-                Ok(false)
+                // When value doesn't exist:
+                // - for Exact: it's not a match (false)
+                // - for IsNot: it is a match (true)
+                Ok(operator == OperatorType::IsNot)
             }
         }
         OperatorType::IsSet => Ok(matching_property_values.contains_key(key)),
@@ -111,15 +114,19 @@ pub fn match_property(
                     Ok(!is_contained)
                 }
             } else {
-                // When value doesn't exist, it's not a match
-                Ok(false)
+                // When value doesn't exist:
+                // - for Icontains: it's not a match (false)
+                // - for NotIcontains: it is a match (true)
+                Ok(operator == OperatorType::NotIcontains)
             }
         }
         OperatorType::Regex | OperatorType::NotRegex => {
             if match_value.is_none() {
-                return Ok(false);
+                // When value doesn't exist:
+                // - for Regex: it's not a match (false)
+                // - for NotRegex: it is a match (true)
+                return Ok(operator == OperatorType::NotRegex);
             }
-
             let pattern = match Regex::new(&to_string_representation(value)) {
                 Ok(pattern) => pattern,
                 Err(_) => return Ok(false),
@@ -138,6 +145,8 @@ pub fn match_property(
         }
         OperatorType::Gt | OperatorType::Gte | OperatorType::Lt | OperatorType::Lte => {
             if match_value.is_none() {
+                // When value doesn't exist:
+                // - for Gt/Gte/Lt/Lte: it's not a match (false)
                 return Ok(false);
             }
             // TODO: Move towards only numeric matching of these operators???
@@ -173,6 +182,8 @@ pub fn match_property(
             let parsed_date = determine_parsed_date_for_property_matching(match_value);
 
             if parsed_date.is_none() {
+                // When value doesn't exist:
+                // - for IsDateExact/IsDateAfter/IsDateBefore: it's not a match (false)
                 return Ok(false);
             }
 
@@ -194,8 +205,9 @@ pub fn match_property(
                 Ok(false)
             }
         }
-        // NB: In/NotIn operators should be handled by cohort matching
-        // because by the time we match properties, we've already decomposed the cohort
+        // NB: In/NotIn operators are only for Cohorts,
+        // and should be handled by cohort matching code because
+        // by the time we match properties, we've already decomposed the cohort
         // filter into multiple property filters
         OperatorType::In | OperatorType::NotIn => Err(FlagMatchingError::ValidationError(
             "In/NotIn operators should be handled by cohort matching".to_string(),
@@ -254,11 +266,12 @@ fn is_truthy_property_value(value: &Value) -> bool {
 fn parse_date_string(date_str: &str) -> Option<DateTime<Utc>> {
     // Try parsing common date formats
     let formats = [
-        "%Y-%m-%d",               // 2024-03-21
-        "%Y-%m-%dT%H:%M:%S",      // 2024-03-21T13:45:30
-        "%Y-%m-%dT%H:%M:%S%.3f",  // 2024-03-21T13:45:30.123
-        "%Y-%m-%dT%H:%M:%S%.3fZ", // 2024-03-21T13:45:30.123Z
-        "%Y-%m-%dT%H:%M:%SZ",     // 2024-03-21T13:45:30Z
+        "%Y-%m-%d",                 // 2024-03-21
+        "%Y-%m-%dT%H:%M:%S",        // 2024-03-21T13:45:30
+        "%Y-%m-%dT%H:%M:%S%.3f",    // 2024-03-21T13:45:30.123
+        "%Y-%m-%dT%H:%M:%S%.3fZ",   // 2024-03-21T13:45:30.123Z
+        "%Y-%m-%dT%H:%M:%SZ",       // 2024-03-21T13:45:30Z
+        "%Y-%m-%dT%H:%M:%S%.6f%:z", // 2024-03-21T13:45:30.123+00:00
     ];
 
     for format in formats {
@@ -1302,7 +1315,7 @@ mod test_match_properties {
             negation: None,
         };
 
-        assert!(!match_property(
+        assert!(match_property(
             &property_not_icontains,
             &HashMap::from([("key2".to_string(), json!("value"))]),
             false
@@ -1334,7 +1347,7 @@ mod test_match_properties {
             negation: None,
         };
 
-        assert!(!match_property(
+        assert!(match_property(
             &property_not_regex,
             &HashMap::from([("key2".to_string(), json!("value.com"))]),
             false
@@ -1421,6 +1434,38 @@ mod test_match_properties {
             false
         )
         .expect("Expected no errors with full props mode"));
+
+        // Test IsDateAfter with different date formats
+        let property_is_date_after = PropertyFilter {
+            key: "joined_at".to_string(),
+            value: json!("2023-06-04"), // Simple date format in filter
+            operator: Some(OperatorType::IsDateAfter),
+            prop_type: "person".to_string(),
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Test with ISO8601 format in person properties
+        assert!(match_property(
+            &property_is_date_after,
+            &HashMap::from([(
+                "joined_at".to_string(),
+                json!("2025-01-24T23:20:24.865148+00:00")
+            )]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with a date before the filter date (should not match)
+        assert!(!match_property(
+            &property_is_date_after,
+            &HashMap::from([(
+                "joined_at".to_string(),
+                json!("2023-01-24T23:20:24.865148+00:00")
+            )]),
+            true
+        )
+        .expect("expected match to exist"));
     }
 
     #[test]

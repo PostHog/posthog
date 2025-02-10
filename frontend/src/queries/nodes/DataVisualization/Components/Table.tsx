@@ -20,6 +20,8 @@ interface TableProps {
     cachedResults: HogQLQueryResponse | undefined
 }
 
+export const DEFAULT_PAGE_SIZE = 500
+
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -102,7 +104,7 @@ export const Table = (props: TableProps): JSX.Element => {
             dataSource={tabularData}
             columns={tableColumns}
             loading={responseLoading}
-            pagination={{ pageSize: 2000 }}
+            pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
             emptyState={
                 responseError ? (
                     <InsightErrorState

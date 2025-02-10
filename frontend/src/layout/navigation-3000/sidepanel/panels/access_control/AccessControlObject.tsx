@@ -53,7 +53,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                     <AccessControlObjectDefaults />
                 </div>
 
-                <PayGateMini feature={AvailableFeature.PROJECT_BASED_PERMISSIONING}>
+                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
                     <AccessControlObjectUsers />
                 </PayGateMini>
 
@@ -76,7 +76,7 @@ function AccessControlObjectDefaults(): JSX.Element | null {
             placeholder="Loading..."
             value={accessControlDefault?.access_level ?? undefined}
             onChange={(newValue) => {
-                guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => {
+                guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () => {
                     updateAccessControlDefault(newValue)
                 })
             }}
@@ -126,7 +126,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                                 ? `${member(ac)?.user.first_name} (you)`
                                 : member(ac)?.user.first_name}
                         </p>
-                        <p className="text-muted-alt mb-0">{member(ac)?.user.email}</p>
+                        <p className="text-secondary mb-0">{member(ac)?.user.email}</p>
                     </div>
                 </div>
             ),
@@ -189,7 +189,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                 setModelOpen={setModelOpen}
                 placeholder="Search for team members to add…"
                 onAdd={async (newValues, level) => {
-                    if (guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)) {
+                    if (guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)) {
                         await updateAccessControlMembers(newValues.map((member) => ({ member, level })))
                         setModelOpen(false)
                     }
@@ -302,7 +302,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                 setModelOpen={setModelOpen}
                 placeholder="Search for roles to add…"
                 onAdd={async (newValues, level) => {
-                    if (guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)) {
+                    if (guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)) {
                         await updateAccessControlRoles(newValues.map((role) => ({ role, level })))
                         setModelOpen(false)
                     }

@@ -808,6 +808,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        experiment: {
+            loadExperiment: async () => {
+                if (values.featureFlag.experiment_set) {
+                    return await api.experiments.get(values.featureFlag.experiment_set[0])
+                }
+            },
+        },
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -888,6 +895,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadFeatureFlagSuccess: async () => {
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
+            actions.loadExperiment()
         },
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
@@ -1129,6 +1137,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     .findMounted()
                     ?.values.featureFlags.results.find((flag) => flag.id === props.id)
                 return savedFlag?.has_encrypted_payloads
+            },
+        ],
+        hasExperiment: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag?.experiment_set && featureFlag.experiment_set.length > 0
+            },
+        ],
+        isDraftExperiment: [
+            (s) => [s.experiment],
+            (experiment) => {
+                // Treat as launched experiment if not yet loaded.
+                if (!experiment) {
+                    return false
+                }
+                return !experiment?.start_date
             },
         ],
     }),

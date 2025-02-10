@@ -10,7 +10,7 @@ on:
 
 jobs:
     build:
-        runs-on: depot-ubuntu-24.04
+        runs-on: depot-ubuntu-latest
 
         permissions:
             contents: read

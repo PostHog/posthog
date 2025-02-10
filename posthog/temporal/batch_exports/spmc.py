@@ -16,7 +16,11 @@ from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
-from posthog.schema import EventPropertyFilter
+from posthog.schema import (
+    EventPropertyFilter,
+    HogQLQueryModifiers,
+    MaterializationMode,
+)
 from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails, DateRange
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
@@ -856,6 +860,7 @@ def compose_filters_clause(
         limit_top_select=False,
         within_non_hogql_query=True,
         values=values or {},
+        modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
     context.database = create_hogql_database(team.id, context.modifiers)
 

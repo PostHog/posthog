@@ -16,7 +16,7 @@ from django.conf import settings
 
 from posthog.batch_exports.models import BatchExportBackfill
 from posthog.batch_exports.service import BackfillBatchExportInputs, unpause_batch_export
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportBackfillInputs,
     UpdateBatchExportBackfillStatusInputs,
@@ -399,7 +399,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["TemporalScheduleNotFoundError"],
                 ),
                 start_to_close_timeout=start_to_close_timeout,
-                heartbeat_timeout=dt.timedelta(minutes=2),
+                heartbeat_timeout=dt.timedelta(seconds=30),
             )
 
         except temporalio.exceptions.ActivityError as e:

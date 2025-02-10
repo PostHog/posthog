@@ -28,9 +28,7 @@ from posthog.temporal.batch_exports.backfill_batch_export import (
     get_schedule_frequency,
 )
 from posthog.temporal.tests.utils.datetimes import date_range
-from posthog.temporal.tests.utils.events import (
-    generate_test_events_in_clickhouse,
-)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -347,6 +345,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
 
     backfill = backfills.pop()
     assert backfill.status == "Completed"
+    assert backfill.finished_at is not None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -428,6 +427,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
 
     backfill = backfills.pop()
     assert backfill.status == "Completed"
+    assert backfill.finished_at is not None
 
     batch_export = await afetch_batch_export(desc.id)
     assert batch_export.paused is False
@@ -604,6 +604,7 @@ async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
 
     backfill = backfills.pop()
     assert backfill.status == "Cancelled"
+    assert backfill.finished_at is not None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -702,6 +703,7 @@ async def test_backfill_utc_batch_export_workflow_with_timezone_aware_bounds(
 
     backfill = backfills.pop()
     assert backfill.status == "Completed"
+    assert backfill.finished_at is not None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -797,6 +799,7 @@ async def test_backfill_aware_batch_export_workflow_with_timezone_aware_bounds(
 
     backfill = backfills.pop()
     assert backfill.status == "Completed"
+    assert backfill.finished_at is not None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -868,6 +871,7 @@ async def test_backfill_batch_export_workflow_no_start_at(temporal_worker, tempo
 
     backfill = backfills.pop()
     assert backfill.status == "Completed"
+    assert backfill.finished_at is not None
 
 
 @pytest.mark.parametrize(

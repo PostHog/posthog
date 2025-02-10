@@ -1,5 +1,5 @@
 from rest_framework.exceptions import ValidationError
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import (
     FF_DISTRIBUTION_THRESHOLD,
     MIN_PROBABILITY_FOR_SIGNIFICANCE,

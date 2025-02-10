@@ -4,6 +4,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-loops",
     name="Loops",
@@ -101,6 +102,7 @@ if (res.status >= 400) {
 
 template_send_event: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-loops-event",
     name="Loops",

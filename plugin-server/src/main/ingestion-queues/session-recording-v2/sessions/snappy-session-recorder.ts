@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { ParsedMessageData } from '../kafka/types'
@@ -7,6 +8,10 @@ export interface EndResult {
     buffer: Buffer
     /** Number of events in the session block */
     eventCount: number
+    /** Timestamp of the first event in the session block */
+    startDateTime: DateTime
+    /** Timestamp of the last event in the session block */
+    endDateTime: DateTime
 }
 
 /**
@@ -37,6 +42,11 @@ export class SnappySessionRecorder {
     private eventCount: number = 0
     private rawBytesWritten: number = 0
     private ended = false
+    private startDateTime: DateTime | null = null
+    private endDateTime: DateTime | null = null
+    private _distinctId: string | null = null
+
+    constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
     /**
      * Records a message containing events for this session
@@ -51,7 +61,23 @@ export class SnappySessionRecorder {
             throw new Error('Cannot record message after end() has been called')
         }
 
+        // Store the distinctId from the first message if not already set
+        if (!this._distinctId) {
+            this._distinctId = message.distinct_id
+        }
+
         let rawBytesWritten = 0
+
+        // Note: We don't need to check for zero timestamps here because:
+        // 1. KafkaMessageParser filters out events with zero timestamps
+        // 2. KafkaMessageParser drops messages with no events
+        // Therefore, eventsRange.start and eventsRange.end will always be present and non-zero
+        if (!this.startDateTime || message.eventsRange.start < this.startDateTime) {
+            this.startDateTime = message.eventsRange.start
+        }
+        if (!this.endDateTime || message.eventsRange.end > this.endDateTime) {
+            this.endDateTime = message.eventsRange.end
+        }
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
@@ -65,6 +91,16 @@ export class SnappySessionRecorder {
 
         this.rawBytesWritten += rawBytesWritten
         return rawBytesWritten
+    }
+
+    /**
+     * The distinct_id associated with this session recording
+     */
+    public get distinctId(): string {
+        if (!this._distinctId) {
+            throw new Error('No distinct_id set. No messages recorded yet.')
+        }
+        return this._distinctId
     }
 
     /**
@@ -86,6 +122,8 @@ export class SnappySessionRecorder {
         return {
             buffer,
             eventCount: this.eventCount,
+            startDateTime: this.startDateTime ?? DateTime.fromMillis(0),
+            endDateTime: this.endDateTime ?? DateTime.fromMillis(0),
         }
     }
 }

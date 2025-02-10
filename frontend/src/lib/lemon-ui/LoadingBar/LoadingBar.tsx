@@ -6,11 +6,18 @@ import { twMerge } from 'tailwind-merge'
 export interface SpinnerProps {
     textColored?: boolean
     className?: string
+
+    // a unique id of load task that will trigger reset if changed
+    loadId?: string | null
 }
 
 /** Smoothly animated spinner for loading states. It does not indicate progress, only that something's happening. */
-export function LoadingBar({ className }: SpinnerProps): JSX.Element {
+export function LoadingBar({ className, loadId }: SpinnerProps): JSX.Element {
     const [progress, setProgress] = useState(0)
+
+    useEffect(() => {
+        setProgress(0)
+    }, [loadId])
 
     useEffect(() => {
         const interval = setInterval(() => {

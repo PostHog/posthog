@@ -9,6 +9,7 @@ from posthog.cdp.templates.hog_function_template import (
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    free=False,
     type="destination",
     id="template-webhook-mappings",
     name="HTTP Webhook (mappings based)",

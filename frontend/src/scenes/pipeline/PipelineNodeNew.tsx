@@ -105,6 +105,9 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     }
 
     if (stage === PipelineStage.Transformation) {
+        if (featureFlags[FEATURE_FLAGS.HOG_TRANSFORMATIONS]) {
+            return <NewDestinations types={['transformation']} />
+        }
         return <TransformationOptionsTable />
     } else if (stage === PipelineStage.Destination) {
         return <NewDestinations types={DESTINATION_TYPES} />

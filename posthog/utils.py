@@ -40,7 +40,7 @@ from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -925,6 +925,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
     - if on PostHog Cloud
     - if running end-to-end tests
     - if there's no organization yet
+    - if DEBUG is True
     - if an appropriate license is active and MULTI_ORG_ENABLED is True
     """
     from posthog.models.organization import Organization
@@ -933,6 +934,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
         is_cloud()  # There's no limit of organizations on Cloud
         or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
+        or settings.DEBUG
         or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
     ):
         return True

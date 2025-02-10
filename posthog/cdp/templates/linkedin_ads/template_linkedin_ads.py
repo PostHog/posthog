@@ -2,6 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    free=False,
     type="destination",
     id="template-linkedin-ads",
     name="LinkedIn Ads Conversions",
@@ -12,7 +13,6 @@ template: HogFunctionTemplate = HogFunctionTemplate(
 let body := {
     'conversion': f'urn:lla:llaPartnerConversion:{inputs.conversionRuleId}',
     'conversionHappenedAt': inputs.conversionDateTime,
-    'conversionValue': {},
     'user': {
         'userIds': [],
         'userInfo': {}
@@ -20,6 +20,9 @@ let body := {
     'eventId' : inputs.eventId
 }
 
+if (not empty(inputs.conversionValue) or not empty(inputs.currencyCode)) {
+    body.conversionValue := {}
+}
 if (not empty(inputs.currencyCode)) {
     body.conversionValue.currencyCode := inputs.currencyCode
 }

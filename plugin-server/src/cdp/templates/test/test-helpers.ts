@@ -4,6 +4,7 @@ import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
 import { Hub } from '../../../types'
+import { cleanNullValues, createGeoipLookup } from '../../hog-transformations/transformation-functions'
 import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
 import {
     HogFunctionInputType,
@@ -21,6 +22,18 @@ export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
     person?: Partial<HogFunctionInvocationGlobals['person']>
     source?: Partial<HogFunctionInvocationGlobals['source']>
+}
+
+export function loadTestMMDB() {
+    try {
+        const mmdbBrotliContents = readFileSync(join(__dirname, '../../../../tests/assets/GeoLite2-City-Test.mmdb.br'))
+        const mmdbBuffer = brotliDecompressSync(mmdbBrotliContents)
+        const mmdb = Reader.openBuffer(mmdbBuffer)
+
+        return mmdb
+    } catch (error) {
+        throw new Error(`Failed to load MMDB file: ${error}`)
+    }
 }
 
 export class TemplateTester {
@@ -55,24 +68,16 @@ export class TemplateTester {
         this.mockHub = { mmdb: undefined } as any
 
         if (!skipMMDB) {
-            try {
-                const mmdbBrotliContents = readFileSync(
-                    join(__dirname, '../../../../tests/assets/GeoLite2-City-Test.mmdb.br')
-                )
-                const mmdbBuffer = brotliDecompressSync(mmdbBrotliContents)
-                const mmdb = Reader.openBuffer(mmdbBuffer)
+            const mmdb = loadTestMMDB()
 
-                this.mockHub.mmdb = transformResult
-                    ? ({
-                          city: (ipAddress: string) => {
-                              const res = mmdb.city(ipAddress)
-                              return transformResult(res)
-                          },
-                      } as unknown as ReaderModel)
-                    : mmdb
-            } catch (error) {
-                throw new Error(`Failed to load MMDB file: ${error}`)
-            }
+            this.mockHub.mmdb = transformResult
+                ? ({
+                      city: (ipAddress: string) => {
+                          const res = mmdb.city(ipAddress)
+                          return transformResult(res)
+                      },
+                  } as unknown as ReaderModel)
+                : mmdb
         }
 
         const mockHogFunctionManager = {} as any
@@ -164,19 +169,8 @@ export class TemplateTester {
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {
-            geoipLookup: (ipAddress: unknown) => {
-                if (typeof ipAddress !== 'string') {
-                    return null
-                }
-                if (!this.mockHub.mmdb) {
-                    return null
-                }
-                try {
-                    return this.mockHub.mmdb.city(ipAddress)
-                } catch {
-                    return null
-                }
-            },
+            geoipLookup: createGeoipLookup(this.mockHub.mmdb),
+            cleanNullValues,
         }
 
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}

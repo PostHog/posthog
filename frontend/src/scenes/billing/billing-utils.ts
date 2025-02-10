@@ -8,7 +8,8 @@ export const summarizeUsage = (usage: number | null): string => {
     } else if (usage < 1000) {
         return `${usage}`
     } else if (Math.round(usage / 1000) < 1000) {
-        return `${Math.round(usage / 1000)} thousand`
+        const thousands = usage / 1000
+        return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)} thousand`
     }
     return `${Math.round(usage / 1000000)} million`
 }

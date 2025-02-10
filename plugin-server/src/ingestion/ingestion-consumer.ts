@@ -64,6 +64,7 @@ export class IngestionConsumer {
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
     protected kafkaProducer?: KafkaProducerWrapper
+    protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
 
     private overflowRateLimiter: MemoryRateLimiter
@@ -105,6 +106,11 @@ export class IngestionConsumer {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
             }),
+            // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
+            KafkaProducerWrapper.create(this.hub, 'consumer').then((producer) => {
+                this.kafkaOverflowProducer = producer
+                this.kafkaOverflowProducer.producer.connect()
+            }),
             this.startKafkaConsumer({
                 topic: this.topic,
                 groupId: this.groupId,
@@ -123,6 +129,8 @@ export class IngestionConsumer {
         await this.batchConsumer?.stop()
         status.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
+        status.info('🔁', `${this.name} - stopping kafka overflow producer`)
+        await this.kafkaOverflowProducer?.disconnect()
         status.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
         status.info('👍', `${this.name} - stopped!`)
@@ -418,7 +426,7 @@ export class IngestionConsumer {
 
         await Promise.all(
             kafkaMessages.map((message) =>
-                this.kafkaProducer!.produce({
+                this.kafkaOverflowProducer!.produce({
                     topic: this.overflowTopic!,
                     value: message.value,
                     // ``message.key`` should not be undefined here, but in the

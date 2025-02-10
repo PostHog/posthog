@@ -85,7 +85,7 @@ export function OverViewTab({
                 },
             },
         }
-        return urls.insightNew(undefined, undefined, query)
+        return urls.insightNew({ query })
     }
 
     const columns: LemonTableColumns<FeatureFlagType> = [
@@ -391,7 +391,7 @@ export function OverViewTab({
             <div>{filtersSection}</div>
             <LemonDivider className="my-4" />
             <div className="mb-4">
-                <span className="text-muted-alt ">
+                <span className="text-secondary ">
                     {count
                         ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
                               count === 1 ? '' : 's'

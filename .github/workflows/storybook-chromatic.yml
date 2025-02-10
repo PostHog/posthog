@@ -38,7 +38,7 @@ jobs:
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
-              run: pnpm i -D chromatic
+              run: pnpm i -w -D chromatic
 
             - name: Publish to Chromatic
               uses: chromaui/action@v11
@@ -115,10 +115,10 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
 
             - name: Install CI utilities with pnpm
-              run: pnpm install http-server wait-on
+              run: pnpm install http-server wait-on -g
 
             - name: Build Storybook
               run: pnpm build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam

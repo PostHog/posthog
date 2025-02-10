@@ -284,6 +284,22 @@
             }
         },
         {
+            "name": "PostHog (no typegen)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend (no typegen)",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "order": 1,
+                "group": "compound"
+            }
+        },
+        {
             "name": "PostHog (local billing)",
             "configurations": [
                 "Backend (with local billing)",

@@ -1,3 +1,5 @@
+import { canvasMutation, Replayer } from '@posthog/rrweb'
+import { ReplayPlugin } from '@posthog/rrweb'
 import {
     CanvasArg,
     canvasMutationData,
@@ -5,11 +7,9 @@ import {
     EventType,
     eventWithTime,
     IncrementalSource,
-} from '@rrweb/types'
+} from '@posthog/rrweb-types'
 import { captureException } from '@sentry/react'
 import { debounce } from 'lib/utils'
-import { canvasMutation, Replayer } from 'rrweb'
-import { ReplayPlugin } from 'rrweb/typings/types'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 

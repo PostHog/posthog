@@ -25,8 +25,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.1-sonar-small-128k-chat',
         cost: {
-            prompt_token: 2e-7,
-            completion_token: 2e-7,
+            prompt_token: 0.0000002,
+            completion_token: 0.0000002,
         },
     },
     {
@@ -46,8 +46,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.1-sonar-small-128k-online',
         cost: {
-            prompt_token: 2e-7,
-            completion_token: 2e-7,
+            prompt_token: 0.0000002,
+            completion_token: 0.0000002,
         },
     },
 ]

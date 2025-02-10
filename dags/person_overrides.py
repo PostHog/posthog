@@ -1,3 +1,4 @@
+import datetime
 import time
 import uuid
 from dataclasses import dataclass
@@ -198,7 +199,7 @@ class PersonOverridesSnapshotDictionary:
         return MutationRunner(
             PERSON_DISTINCT_ID_OVERRIDES_TABLE,
             f"""
-            DELETE WHERE
+            DELETE FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE} WHERE
                 isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version)
                 AND snapshot_version >= version
             """,
@@ -229,11 +230,13 @@ class PopulateSnapshotTableConfig(dagster.Config):
         description="The upper bound (non-inclusive) timestamp used when selecting person overrides to be squashed. The "
         "value can be provided in any format that is can be parsed by ClickHouse. This value should be far enough in "
         "the past that there is no reasonable likelihood that events or overrides prior to this time have not yet been "
-        "written to the database and replicated to all hosts in the cluster."
+        "written to the database and replicated to all hosts in the cluster.",
+        default=(datetime.datetime.now() - datetime.timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S"),
     )
     limit: int | None = pydantic.Field(
         description="The number of rows to include in the snapshot. If provided, this can be used to limit the total "
-        "amount of memory consumed by the squash process during execution."
+        "amount of memory consumed by the squash process during execution.",
+        default=None,
     )
 
 

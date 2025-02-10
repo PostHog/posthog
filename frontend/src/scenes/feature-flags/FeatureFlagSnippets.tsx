@@ -517,7 +517,7 @@ export function APISnippet({ groupType, encryptedPayload }: FeatureFlagSnippet):
     const { currentTeam } = useValues(teamLogic)
 
     const groupAddition = groupType
-        ? `
+        ? `,
     "groups": { "${groupType.group_type}": "<${groupType.name_singular || 'group'} ID>" },`
         : ''
 
@@ -542,7 +542,7 @@ export function APISnippet({ groupType, encryptedPayload }: FeatureFlagSnippet):
 -X POST -H 'Content-Type: application/json' \\
 -d '{
     "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",
-    "distinct_id": "[user distinct id]",${groupAddition}
+    "distinct_id": "[user distinct id]"${groupAddition}
 }'
                 `}
             </CodeSnippet>

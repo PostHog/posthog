@@ -48,7 +48,7 @@ export function InsightEmptyState({
     return (
         <div className="insight-empty-state">
             <div className="empty-state-inner">
-                <IconArchive className="text-5xl mb-2 text-secondary-3000" />
+                <IconArchive className="text-5xl mb-2 text-tertiary" />
                 <h2 className="text-xl leading-tight">{heading}</h2>
                 <p className="text-sm text-center text-balance">{detail}</p>
             </div>
@@ -148,13 +148,13 @@ export function StatelessInsightLoadingState({
                 {suggestion ? (
                     suggestion
                 ) : (
-                    <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                    <div className="flex items-center p-4 rounded bg-primary gap-x-3 max-w-120">
                         <IconInfo className="text-xl shrink-0" />
                         <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
                     </div>
                 )}
                 {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-5">
+                    <div className="text-secondary text-xs mx-auto text-center mt-5">
                         Query ID: <span className="font-mono">{queryId}</span>
                     </div>
                 ) : null}
@@ -183,7 +183,7 @@ export function InsightLoadingState({
                 queryId={queryId}
                 pollResponse={insightPollResponse}
                 suggestion={
-                    <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                    <div className="flex items-center p-4 rounded bg-primary gap-x-3 max-w-120">
                         {personsOnEventsMode === 'person_id_override_properties_joined' ? (
                             <>
                                 <IconWarning className="text-xl shrink-0 text-warning" />
@@ -235,7 +235,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </div>
                     <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
                 </>
-                <div className="flex items-center p-4 rounded bg-bg-3000 gap-x-3 max-w-120">
+                <div className="flex items-center p-4 rounded bg-primary gap-x-3 max-w-120">
                     <IconInfo className="text-xl shrink-0" />
                     <p className="text-xs m-0">
                         <>
@@ -253,7 +253,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                     </p>
                 </div>
                 {queryId ? (
-                    <div className="text-muted text-xs mx-auto text-center mt-5">
+                    <div className="text-secondary text-xs mx-auto text-center mt-5">
                         Query ID: <span className="font-mono">{queryId}</span>
                     </div>
                 ) : null}
@@ -308,7 +308,7 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
                     </div>
                 )}
                 {queryId && (
-                    <div className="text-muted text-xs text-center">
+                    <div className="text-secondary text-xs text-center">
                         Query ID: <span className="font-mono">{queryId}</span>
                     </div>
                 )}

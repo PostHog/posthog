@@ -6,6 +6,7 @@ from django.db import connection
 from freezegun import freeze_time
 from inline_snapshot import snapshot
 from rest_framework import status
+from django.test.utils import override_settings
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -16,6 +17,7 @@ from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.models.team import Team
 
 
 EXAMPLE_FULL = {
@@ -289,6 +291,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["hog"] == "fetch(inputs.url);"
         assert response.json()["template"] == {
             "type": "destination",
+            "free": False,
             "name": template_webhook.name,
             "description": template_webhook.description,
             "id": template_webhook.id,
@@ -804,6 +807,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "person",
                 1,
                 3,
+                2,
+                "toString",
+                1,
                 20,
                 32,
                 "$pageview",
@@ -824,6 +830,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "person",
                 1,
                 3,
+                2,
+                "toString",
+                1,
                 20,
                 32,
                 "$pageview",
@@ -1264,6 +1273,127 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         )
 
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[])
+    def test_transformation_functions_require_template_when_disabled(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Custom Transform",
+                "type": "transformation",
+                "hog": "return event",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Transformation functions must be created from a template.",
+            "attr": "template_id",
+        }
+
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[])
+    def test_transformation_functions_preserve_template_code_when_disabled(self):
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = template_slack  # Use existing template instead of creating mock
+
+            # First create with transformations enabled
+            with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"]):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": "Template Transform",
+                        "type": "transformation",
+                        "template_id": template_slack.id,
+                        "hog": "return modified_event",
+                        "inputs": {
+                            "slack_workspace": {"value": 1},
+                            "channel": {"value": "#general"},
+                        },
+                    },
+                )
+                assert response.status_code == status.HTTP_201_CREATED, response.json()
+                function_id = response.json()["id"]
+
+            # Try to update with transformations disabled
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+                data={
+                    "hog": "return another_event",
+                },
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["hog"] == template_slack.hog  # Original template code preserved
+
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[])
+    def test_transformation_uses_template_code_even_when_enabled(self):
+        # Even with transformations enabled, we should still use template code
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "transformation",
+                "name": "Test Function",
+                "description": "Test description",
+                "template_id": template_slack.id,
+                "hog": "return custom_event",  # This should be ignored
+                "inputs": {
+                    "slack_workspace": {"value": 1},
+                    "channel": {"value": "#general"},
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["hog"] == template_slack.hog  # Should always use template code
+
+    def test_transformation_type_gets_execution_order_automatically(self):
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = template_slack
+
+            # Create first transformation function
+            response1 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "type": "transformation",
+                    "name": "First Transformation",
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response1.status_code == status.HTTP_201_CREATED
+            assert response1.json()["execution_order"] == 1
+
+            # Create second transformation function
+            response2 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "type": "transformation",
+                    "name": "Second Transformation",
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response2.status_code == status.HTTP_201_CREATED
+            assert response2.json()["execution_order"] == 2
+
+            # Create a non-transformation function - should not get execution_order
+            response3 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,  # This is fine for destination type
+                    "type": "destination",
+                    "name": "Destination Function",
+                },
+            )
+            assert response3.status_code == status.HTTP_201_CREATED
+            assert response3.json()["execution_order"] is None
+
     def test_list_hog_functions_ordered_by_execution_order_and_created_at(self):
         # Create functions with different execution orders and creation times
         with freeze_time("2024-01-01T00:00:00Z"):
@@ -1319,39 +1449,84 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "Function 4",  # execution_order=null
         ]
 
-    def test_transformation_type_gets_execution_order_automatically(self):
-        # Create first transformation function
-        response1 = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                **EXAMPLE_FULL,
-                "type": "transformation",
-                "name": "First Transformation",
-            },
-        )
-        assert response1.status_code == status.HTTP_201_CREATED
-        assert response1.json()["execution_order"] == 1
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"])
+    def test_transformation_code_editing_restricted_by_team(self):
+        # Create team with ID 2
+        team_2 = Team.objects.create(id=2, organization=self.organization, name="Team 2")
+        self.team = team_2  # Switch to team 2 context
 
-        # Create second transformation function
-        response2 = self.client.post(
+        response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                **EXAMPLE_FULL,
+                "name": "Custom Transform",
                 "type": "transformation",
-                "name": "Second Transformation",
+                "hog": "return modified_event",
             },
         )
-        assert response2.status_code == status.HTTP_201_CREATED
-        assert response2.json()["execution_order"] == 2
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["hog"] == "return modified_event"
 
-        # Create a non-transformation function - should not get execution_order
-        response3 = self.client.post(
+        # Create and switch to team 3
+        team_3 = Team.objects.create(id=3, organization=self.organization, name="Team 3")
+        self.team = team_3
+
+        response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                **EXAMPLE_FULL,
-                "type": "destination",
-                "name": "Destination Function",
+                "name": "Custom Transform",
+                "type": "transformation",
+                "hog": "return modified_event",
             },
         )
-        assert response3.status_code == status.HTTP_201_CREATED
-        assert response3.json()["execution_order"] is None
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Transformation functions must be created from a template.",
+            "attr": "template_id",
+        }
+
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"])
+    def test_transformation_code_editing_with_template_restricted_by_team(self):
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = template_slack
+
+            # Create and test with team ID 2
+            team_2 = Team.objects.create(id=2, organization=self.organization, name="Team 2")
+            self.team = team_2
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Template Transform",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "hog": "return custom_event",
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert response.json()["hog"] == "return custom_event"  # Custom code allowed
+
+            # Create and test with team ID 3
+            team_3 = Team.objects.create(id=3, organization=self.organization, name="Team 3")
+            self.team = team_3
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Template Transform",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "hog": "return custom_event",
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert response.json()["hog"] == template_slack.hog  # Template code enforced

@@ -17,7 +17,7 @@ from posthog.api.utils import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.api.cohort import CohortSerializer
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -67,6 +67,7 @@ from posthog.queries.base import (
 )
 from posthog.rate_limit import BurstRateThrottle
 from loginas.utils import is_impersonated_session
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -167,8 +168,23 @@ class FeatureFlagSerializer(
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         # TODO: make sure this isn't n+1
         return (
+            # Old access control
             can_user_edit_feature_flag(self.context["request"], feature_flag)
-            and self.get_user_access_level(feature_flag) == "editor"
+            or
+            # New access control
+            (
+                self.get_user_access_level(feature_flag) == "editor"
+                and
+                # This is an added check for mid-migration to the new access control. We want to check
+                # if the user has permissions from either system but in the case they are still using
+                # the old system, since the new system defaults to editor we need to check what that
+                # organization is defaulting to for access (view or edit)
+                not OrganizationResourceAccess.objects.filter(
+                    organization=self.context["request"].user.organization,
+                    resource="feature flags",
+                    access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+                ).exists()
+            )
         )
 
     # Simple flags are ones that only have rollout_percentage

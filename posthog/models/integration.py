@@ -10,7 +10,7 @@ from django.db import models
 import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request as GoogleRequest
@@ -625,7 +625,7 @@ class LinkedInAdsIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_linkedin_ads_conversion_rules(self, account_id) -> list[dict]:
+    def list_linkedin_ads_conversion_rules(self, account_id):
         response = requests.request(
             "GET",
             f"https://api.linkedin.com/rest/conversions?q=account&account=urn%3Ali%3AsponsoredAccount%3A{account_id}&fields=conversionMethod%2Cenabled%2Ctype%2Cname%2Cid%2Ccampaigns%2CattributionType",

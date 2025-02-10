@@ -2,7 +2,7 @@ from typing import Optional
 
 import structlog
 from django.contrib.gis.geoip2 import GeoIP2
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -11,7 +11,7 @@ try:
     # Cache setting corresponds to MODE_MEMORY: Load database into memory. Pure Python.
     # Provides faster performance but uses more memory.
 except Exception as e:
-    # Inform Sentry, but don't bring down the app
+    # Inform error tracking, but don't bring down the app
     capture_exception(e)
     geoip = None
 

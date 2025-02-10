@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use common_types::{InternallyCapturedEvent, RawEvent};
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
@@ -93,9 +93,10 @@ pub fn newline_delim<T: Send>(
 
         let mut lines = Vec::new();
 
-        // TODO - I'm reasonably sure this is actually invalid in the face of utf-8 encoding... we should immediately parse the
-        // data as utf-8, and then consume character-by-character, marking how many bytes we consume as we go. I could redesign
-        // this to do that.
+        // Note that we can't parse the entire buffer as a string and then iterate over the lines/characters here,
+        // because it is possible for us to have split the file on a utf8 character boundary, meaning the last line in the
+        // input will end in an invalid utf8 byte sequence. Instead, we iterate over the bytes directly, and only convert
+        // them to utf8 when we've got a complete line.
         while cursor < data.len() {
             // The cursor != 0 bit here is because the "this might be the end of the file" handling below this can sometimes
             // cause the next chunk to start exactly on a newline. This does run the risk of accidentally skipping a blank line,
@@ -103,7 +104,8 @@ pub fn newline_delim<T: Send>(
             // the presence of one in the input will cause the inner function to return an error, not because they're semantically
             // relevant)
             if data[cursor] == NEWLINE_DELIM && cursor != 0 {
-                let line = std::str::from_utf8(&data[last_consumed_byte..cursor])?;
+                let line = std::str::from_utf8(&data[last_consumed_byte..cursor])
+                    .context("Failed to parse line as utf8")?;
                 if !skip_blank_lines || !line.trim().is_empty() {
                     lines.push((cursor, line.trim()));
                 }
@@ -113,13 +115,19 @@ pub fn newline_delim<T: Send>(
             cursor += 1;
         }
 
-        let remainder = std::str::from_utf8(&data[last_consumed_byte..])?;
+        // Sometimes we've split the file on a utf8 character boundary, and the last line is incomplete not just as
+        // a line that can be fed to the inner parser, but as a utf8 string in general. If that's the case, just set
+        // the remainder to be empty, and we can handle it in the next chunk.
+        let remainder = std::str::from_utf8(&data[last_consumed_byte..]).unwrap_or("");
+        let remainder = inner(remainder);
 
         let mut output = Vec::with_capacity(lines.len());
         let intermediate: Vec<_> = lines
             .into_par_iter()
             .map(|(end_byte_idx, line)| (end_byte_idx, inner(line)))
             .collect();
+
+        drop(data);
 
         let mut last_validly_consumed_byte = 0;
         for (byte_idx, res) in intermediate.into_iter() {
@@ -136,8 +144,6 @@ pub fn newline_delim<T: Send>(
                 }
             }
         }
-
-        let remainder = inner(remainder);
 
         // If we managed to parse the last line, add it too, but if we didn't, assume it's due to this chunk being partway through the file,
         // and carry on.
@@ -162,7 +168,7 @@ where
     T: DeserializeOwned + Send,
 {
     newline_delim(skip_blank_lines, |line| {
-        let parsed = serde_json::from_str(line)?;
+        let parsed = serde_json::from_str(line).context("Failed to json parse line")?;
         Ok(parsed)
     })
 }

@@ -28,6 +28,8 @@ fernet = { workspace = true }
 base64 = { workspace = true }
 axum = { workspace = true }
 reqwest = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
 rayon = "1.10.0"
 
 [dev-dependencies]

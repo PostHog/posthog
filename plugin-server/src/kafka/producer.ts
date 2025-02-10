@@ -41,8 +41,8 @@ export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     public producer: HighLevelProducer
 
-    static async create(config: PluginsServerConfig) {
-        const globalConfig = createRdConnectionConfigFromEnvVars(config, 'producer')
+    static async create(config: PluginsServerConfig, mode: 'producer' | 'consumer' = 'producer') {
+        const globalConfig = createRdConnectionConfigFromEnvVars(config, mode)
         const producer = new HighLevelProducer({
             ...globalConfig,
             // milliseconds to wait after the most recently added message before sending a batch. The
@@ -131,7 +131,10 @@ export class KafkaProducerWrapper {
             produceTimer()
         } catch (error) {
             kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
-            status.error('⚠️', 'kafka_produce_error', { error: error, topic: topic })
+            status.error('⚠️', 'kafka_produce_error', {
+                error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
+                topic: topic,
+            })
 
             if ((error as LibrdKafkaError).isRetriable) {
                 // If we get a retriable error, bubble that up so that the

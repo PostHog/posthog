@@ -7,7 +7,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 from prometheus_client import Counter
 import requests
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
@@ -337,7 +337,7 @@ class RemoteConfig(UUIDModel):
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
   window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
     config: {json.dumps(config)},
-    siteApps: [{','.join(site_apps_js)}]
+    siteApps: [{",".join(site_apps_js)}]
   }}
 }})();
         """.strip()

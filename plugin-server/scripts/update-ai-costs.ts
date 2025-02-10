@@ -1,5 +1,6 @@
 import dotenv from 'dotenv'
 import fs from 'fs'
+import bigDecimal from 'js-big-decimal'
 import path from 'path'
 
 dotenv.config()
@@ -7,12 +8,43 @@ dotenv.config()
 interface ModelRow {
     model: string
     cost: {
-        prompt_token: number
-        completion_token: number
+        prompt_token: string
+        completion_token: string
     }
 }
 
-const supportedProviderList = ['openai', 'anthropic', 'google', 'deepseek', 'perplexity', 'cohere', 'mistralai']
+const supportedProviderList = [
+    'openai',
+    'anthropic',
+    'google',
+    'deepseek',
+    'perplexity',
+    'cohere',
+    'mistralai',
+    'meta-llama',
+]
+
+function serializeModels(models: ModelRow[]): string {
+    let output = '[\n'
+    models.forEach((model, index) => {
+        output += '  {\n'
+        output += `    model: ${JSON.stringify(model.model)},\n`
+        output += '    cost: {\n'
+        output += `      prompt_token: ${new bigDecimal(model.cost.prompt_token)
+            .round(10)
+            .stripTrailingZero()
+            .getValue()},\n`
+        output += `      completion_token: ${new bigDecimal(model.cost.completion_token)
+            .round(10)
+            .stripTrailingZero()
+            .getValue()}\n`
+        output += '    }\n'
+        output += '  }'
+        output += index < models.length - 1 ? ',\n' : '\n'
+    })
+    output += ']'
+    return output
+}
 
 const main = async () => {
     if (!process.env.OPENROUTER_API_KEY) {
@@ -59,27 +91,25 @@ const main = async () => {
             providerModels.set(provider, [])
         }
 
+        // Convert pricing values to numbers before using toFixed(10)
+        const promptPrice = new bigDecimal(model.pricing.prompt).getValue()
+        const completionPrice = new bigDecimal(model.pricing.completion).getValue()
+
         const modelRow: ModelRow = {
             model: modelParts.join('/'), // Only include the part after the provider
             cost: {
-                prompt_token: parseFloat(model.pricing.prompt),
-                completion_token: parseFloat(model.pricing.completion),
+                prompt_token: promptPrice,
+                completion_token: completionPrice,
             },
         }
 
         providerModels.get(provider)!.push(modelRow)
     }
 
-    // Generate files for each provider
+    // Generate files for each provider using our custom serializer
     for (const [provider, models] of providerModels.entries()) {
-        if (!fs.existsSync(baseDir)) {
-            fs.mkdirSync(baseDir)
-        }
-
-        const fileContent = `import type { ModelRow } from './types';\n\nexport const costs: ModelRow[] = ${JSON.stringify(
-            models,
-            null,
-            2
+        const fileContent = `import type { ModelRow } from './types';\n\nexport const costs: ModelRow[] = ${serializeModels(
+            models
         )};\n`
         fs.writeFileSync(path.join(baseDir, `${provider}.ts`), fileContent)
     }

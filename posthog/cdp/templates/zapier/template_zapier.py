@@ -2,7 +2,8 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="free",
+    status="stable",
+    free=True,
     type="destination",
     id="template-zapier",
     name="Zapier",

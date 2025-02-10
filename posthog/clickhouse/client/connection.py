@@ -22,7 +22,7 @@ class Workload(Enum):
 class NodeRole(Enum):
     ALL = "ALL"
     COORDINATOR = "COORDINATOR"
-    WORKER = "WORKER"
+    DATA = "DATA"
 
 
 _default_workload = Workload.ONLINE

@@ -21,7 +21,7 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     PostgresBatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -660,9 +660,14 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        # NOTE: PostgreSQL has a 63 byte limit on identifiers.
+        # With a 6 digit `team_id`, this leaves 30 bytes for a table name input.
+        # TODO: That should be enough, but we should add a proper check and alert on larger inputs.
         stagle_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
-        )
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            if requires_merge
+            else inputs.table_name
+        )[:63]
 
         if requires_merge:
             primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))

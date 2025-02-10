@@ -232,6 +232,13 @@ def test_use_events_recent(test_data: dict[str, typing.Any]):
         ),
         (
             [
+                {"key": "$current_url", "operator": "icontains", "type": "event", "value": "https://posthog.com"},
+            ],
+            """ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), %(hogql_val_1)s), 0)""",
+            {"hogql_val_0": "$current_url", "hogql_val_1": "%https://posthog.com%"},
+        ),
+        (
+            [
                 {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]},
                 {"key": "test", "operator": "exact", "type": "event", "value": ["Test"]},
             ],

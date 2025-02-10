@@ -63,6 +63,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
+    HogQLASTQuery = 'HogQLASTQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
@@ -297,12 +298,19 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
-    /** Variables to be subsituted into the query */
+    /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
+    /** Client provided name of the query */
+    name?: string
+}
+
+export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
+    kind: NodeKind.HogQLASTQuery
+    query: Record<string, any>
 }
 
 export interface HogQueryResponse {
@@ -897,6 +905,8 @@ export type TrendsFilter = {
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    /** @default false */
+    showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
     /**
      * Wether result datasets are associated by their values or by their order.
@@ -1099,7 +1109,14 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
     retentionFilter: RetentionFilter
 }
 
-export interface PathsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export type PathsLink = {
+    source: string
+    target: string
+    value: number
+    average_conversion_time: number
+}
+
+export interface PathsQueryResponse extends AnalyticsQueryResponseBase<PathsLink[]> {}
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
