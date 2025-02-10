@@ -487,6 +487,21 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events_v2_test]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS kafka_session_replay_events_v2_test ON CLUSTER 'posthog'
+      (
+          session_id VARCHAR,
+          team_id Int64,
+          distinct_id VARCHAR,
+          first_timestamp DateTime64(6, 'UTC'),
+          last_timestamp DateTime64(6, 'UTC'),
+          block_url String,
+      ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_v2_test_test', 'group1', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_table_query[app_metrics2]
   '''
   
@@ -1503,6 +1518,21 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_session_replay_events_v2_test]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS kafka_session_replay_events_v2_test ON CLUSTER 'posthog'
+      (
+          session_id VARCHAR,
+          team_id Int64,
+          distinct_id VARCHAR,
+          first_timestamp DateTime64(6, 'UTC'),
+          last_timestamp DateTime64(6, 'UTC'),
+          block_url String,
+      ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_v2_test_test', 'group1', 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_table_query[log_entries]
   '''
   
@@ -2258,6 +2288,53 @@
   
   '''
 # ---
+# name: test_create_table_query[session_replay_events_v2_test]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS session_replay_events_v2_test ON CLUSTER 'posthog'
+      (
+          session_id VARCHAR,
+          team_id Int64,
+          distinct_id VARCHAR,
+          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+      ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events_v2_test', sipHash64(distinct_id))
+  
+  '''
+# ---
+# name: test_create_table_query[session_replay_events_v2_test_mv]
+  '''
+  
+      CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_v2_test_mv ON CLUSTER 'posthog'
+      TO posthog_test.writable_session_replay_events_v2_test (
+          `session_id` String,
+          `team_id` Int64,
+          `distinct_id` String,
+          `min_first_timestamp` DateTime64(6, 'UTC'),
+          `max_last_timestamp` DateTime64(6, 'UTC'),
+          `block_first_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+          `block_last_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+          `block_urls` SimpleAggregateFunction(groupArrayArray, Array(String)),
+          `_timestamp` Nullable(DateTime)
+      )
+      AS SELECT
+          session_id,
+          team_id,
+          distinct_id,
+          min(first_timestamp) AS min_first_timestamp,
+          max(last_timestamp) AS max_last_timestamp,
+          groupArray(first_timestamp) AS block_first_timestamps,
+          groupArray(last_timestamp) AS block_last_timestamps,
+          groupArray(block_url) AS block_urls,
+          max(_timestamp) as _timestamp
+      FROM posthog_test.kafka_session_replay_events_v2_test
+      GROUP BY session_id, team_id, distinct_id
+  
+  '''
+# ---
 # name: test_create_table_query[sessions]
   '''
   
@@ -2808,6 +2885,27 @@
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
+  '''
+# ---
+# name: test_create_table_query[sharded_session_replay_events_v2_test]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS sharded_session_replay_events_v2_test ON CLUSTER 'posthog'
+      (
+          session_id VARCHAR,
+          team_id Int64,
+          distinct_id VARCHAR,
+          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+      ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events_v2_test', '{replica}')
+  
+              PARTITION BY toYYYYMM(min_first_timestamp)
+              ORDER BY (toDate(min_first_timestamp), team_id, session_id)
+              SETTINGS index_granularity=512
+          
   '''
 # ---
 # name: test_create_table_query[sharded_sessions]
@@ -3994,6 +4092,27 @@
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_session_replay_events_v2_test]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS sharded_session_replay_events_v2_test ON CLUSTER 'posthog'
+      (
+          session_id VARCHAR,
+          team_id Int64,
+          distinct_id VARCHAR,
+          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+      ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events_v2_test', '{replica}')
+  
+              PARTITION BY toYYYYMM(min_first_timestamp)
+              ORDER BY (toDate(min_first_timestamp), team_id, session_id)
+              SETTINGS index_granularity=512
+          
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_sessions]

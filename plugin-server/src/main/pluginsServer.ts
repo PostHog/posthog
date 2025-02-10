@@ -503,7 +503,14 @@ export async function startPluginsServer(
             const hub = await setupHub()
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
-            const ingester = new SessionRecordingIngesterV2(serverConfig, false, postgres, batchConsumerFactory)
+            const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
+            const ingester = new SessionRecordingIngesterV2(
+                serverConfig,
+                false,
+                postgres,
+                batchConsumerFactory,
+                producer
+            )
             await ingester.start()
             services.push(ingester.service)
         }
@@ -512,7 +519,14 @@ export async function startPluginsServer(
             const hub = await setupHub()
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
-            const ingester = new SessionRecordingIngesterV2(serverConfig, true, postgres, batchConsumerFactory)
+            const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
+            const ingester = new SessionRecordingIngesterV2(
+                serverConfig,
+                true,
+                postgres,
+                batchConsumerFactory,
+                producer
+            )
             await ingester.start()
             services.push(ingester.service)
         }
