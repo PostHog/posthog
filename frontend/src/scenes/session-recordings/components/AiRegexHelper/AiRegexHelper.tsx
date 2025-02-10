@@ -45,10 +45,7 @@ export function AiRegexHelper({ type }: { type: 'trigger' | 'blocklist' }): JSX.
                 {generatedRegex && (
                     <div className="mt-2">
                         <h3 className="text-sm font-bold">Your regex is:</h3>
-
-                        <LemonBanner type="info" className="w-full flex flex-row justify-between gap-2 items-center">
-                            {generatedRegex}
-                        </LemonBanner>
+                        <LemonBanner type="info">{generatedRegex}</LemonBanner>
                         <div className="flex flex-row gap-2 justify-end mt-2">
                             <LemonButton
                                 type="secondary"
