@@ -12,7 +12,7 @@ export const MetaPanel = (): JSX.Element => {
 
     const Sessions = (
         <div className="flex flex-col flex-1">
-            <div className="flex text-muted text-xs space-x-px">
+            <div className="flex text-secondary text-xs space-x-px">
                 <span>Sessions</span>
                 {!hasSessionCount && <IconInfo className="mt-0.5" />}
             </div>
@@ -27,17 +27,17 @@ export const MetaPanel = (): JSX.Element => {
             {issue ? <div className="italic line-clamp-3">{issue.description}</div> : <LemonSkeleton />}
             <div className="flex space-x-2">
                 <div className="flex-1">
-                    <div className="text-muted text-xs">First seen</div>
+                    <div className="text-secondary text-xs">First seen</div>
                     {issue ? <TZLabel time={issue.first_seen} className="border-dotted border-b" /> : <LemonSkeleton />}
                 </div>
                 <div className="flex-1">
-                    <div className="text-muted text-xs">Last seen</div>
+                    <div className="text-secondary text-xs">Last seen</div>
                     {issue ? <TZLabel time={issue.last_seen} className="border-dotted border-b" /> : <LemonSkeleton />}
                 </div>
             </div>
             <div className="flex space-x-2 justify-between gap-8">
                 <div className="flex flex-col flex-1">
-                    <div className="text-muted text-xs">Occurrences</div>
+                    <div className="text-secondary text-xs">Occurrences</div>
                     <div className="text-2xl font-semibold">
                         {issue?.occurrences ? humanFriendlyLargeNumber(issue.occurrences) : null}
                     </div>
@@ -50,7 +50,7 @@ export const MetaPanel = (): JSX.Element => {
                     </Tooltip>
                 )}
                 <div className="flex flex-col flex-1">
-                    <div className="text-muted text-xs">Users</div>
+                    <div className="text-secondary text-xs">Users</div>
                     <div className="text-2xl font-semibold">
                         {issue?.users ? humanFriendlyLargeNumber(issue.users) : null}
                     </div>

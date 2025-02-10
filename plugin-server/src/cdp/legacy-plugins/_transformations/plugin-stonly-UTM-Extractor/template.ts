@@ -8,7 +8,7 @@ export const pluginStonlyUtmExtractor: LegacyTransformationPlugin = {
         free: true,
         status: 'deprecated',
         type: 'transformation',
-        id: 'plugin-stonly-utm-extractor',
+        id: 'plugin-plugin-stonly-UTM-Extractor',
         name: 'UTM Extractor',
         description: 'UTM extractor',
         icon_url: '/static/hedgehog/builder-hog-01.png',

@@ -59,7 +59,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
                             items={[
                                 {
                                     label: 'Open as new insight',
-                                    to: urls.insightNew(undefined, undefined, query),
+                                    to: urls.insightNew({ query }),
                                 },
                             ]}
                         />

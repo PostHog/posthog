@@ -21,7 +21,7 @@ export function PipelineNodeConfiguration(): JSX.Element {
             ) : node.backend === PipelineBackend.Plugin ? (
                 <PipelinePluginConfiguration stage={stage} pluginConfigId={node.id} />
             ) : (
-                <PipelineBatchExportConfiguration id={node.id} />
+                <PipelineBatchExportConfiguration id={node.id.toString()} />
             )}
         </div>
     )

@@ -484,7 +484,7 @@ export const LineGraph = (): JSX.Element => {
 
     return (
         <div
-            className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
+            className={clsx('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
                 DataVisualization__LineGraph: presetChartHeight,
                 'h-full': !presetChartHeight,
                 border: showEditingUI,
