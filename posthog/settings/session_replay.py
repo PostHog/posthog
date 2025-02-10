@@ -39,3 +39,6 @@ SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, 
 # a list of teams that are allowed to use the SESSION_REPLAY_RRWEB_SCRIPT
 # can be a comma separated list of team ids or '*' to allow all teams
 SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", ""))
+
+# a AI model to use for session recording filters
+SESSION_REPLAY_AI_MODEL = get_from_env("SESSION_REPLAY_AI_MODEL", "gpt-4o-mini")
