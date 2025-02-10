@@ -732,14 +732,18 @@ def capture_report(
         raise ValueError("Either org_id or team_id must be provided")
     pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
     try:
-        capture_event(
-            pha_client=pha_client,
-            name=capture_event_name,
-            organization_id=org_id,
-            team_id=team_id,
-            properties=full_report_dict,
-            timestamp=at_date,
-        )
+        # Send for all members in the organization
+        organization_members = OrganizationMembership.objects.filter(organization_id=org_id)
+        for member in organization_members:
+            capture_event(
+                pha_client=pha_client,
+                name=capture_event_name,
+                organization_id=org_id,
+                team_id=team_id,
+                properties=full_report_dict,
+                timestamp=at_date,
+                distinct_id=member.distinct_id,
+            )
         logger.info(f"UsageReport sent to PostHog for organization {org_id}")
     except Exception as err:
         logger.exception(
