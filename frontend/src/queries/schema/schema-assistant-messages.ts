@@ -35,7 +35,7 @@ export interface AssistantMessageMetadata {
 export interface AssistantToolCall {
     id: string
     name: string
-    arguments: Record<string, unknown>
+    args: Record<string, unknown>
 }
 
 export interface AssistantMessage extends BaseAssistantMessage {

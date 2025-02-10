@@ -71,8 +71,8 @@ class AssistantGraph:
             "trends": AssistantNodeName.TRENDS_PLANNER,
             "funnel": AssistantNodeName.FUNNEL_PLANNER,
             "retention": AssistantNodeName.RETENTION_PLANNER,
-            "end": AssistantNodeName.END,
             "root": AssistantNodeName.ROOT,
+            "end": AssistantNodeName.END,
         }
         root_node = RootNode(self._team)
         builder.add_node(AssistantNodeName.ROOT, root_node.run)

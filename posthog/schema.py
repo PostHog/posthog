@@ -168,7 +168,7 @@ class AssistantToolCall(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    arguments: dict[str, Any]
+    args: dict[str, Any]
     id: str
     name: str
 

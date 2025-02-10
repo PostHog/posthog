@@ -3,11 +3,11 @@ from collections.abc import Generator, Iterator
 from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
+import posthoganalytics
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-import posthoganalytics
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
@@ -38,6 +38,7 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
+    AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
@@ -250,7 +251,9 @@ class Assistant:
             if node_val := state_update.get(node_name):
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
-                    return node_val.messages[0]
+                    message = node_val.messages[0]
+                    if not isinstance(message, AssistantToolCallMessage):
+                        return message
 
         return None
 

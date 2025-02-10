@@ -1361,7 +1361,7 @@
         "AssistantToolCall": {
             "additionalProperties": false,
             "properties": {
-                "arguments": {
+                "args": {
                     "additionalProperties": {},
                     "type": "object"
                 },
@@ -1372,7 +1372,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "arguments"],
+            "required": ["id", "name", "args"],
             "type": "object"
         },
         "AssistantToolCallMessage": {

@@ -69,7 +69,7 @@ class RootNode(AssistantNode):
                 AssistantMessage(
                     content=str(message.content),
                     tool_calls=[
-                        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], arguments=tool_call["args"])
+                        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"])
                         for tool_call in message.tool_calls
                     ],
                     id=str(uuid4()),
@@ -91,7 +91,9 @@ class RootNode(AssistantNode):
             if isinstance(message, HumanMessage):
                 history.append(LangchainHumanMessage(content=message.content))
             elif isinstance(message, AssistantMessage):
-                history.append(LangchainAIMessage(content=message.content))
+                history.append(
+                    LangchainAIMessage(content=message.content, tool_calls=message.model_dump()["tool_calls"] or [])
+                )
             elif isinstance(message, AssistantToolCallMessage):
                 history.append(LangchainToolMessage(content=message.content, tool_call_id=message.tool_call_id))
         if state.messages and isinstance(state.messages[-1], AssistantMessage):
@@ -138,10 +140,4 @@ class RootNodeTools(AssistantNode):
         return "end"
 
     def _construct_ai_message(self, message: AssistantMessage):
-        tool_calls = message.tool_calls or []
-        return LangchainAIMessage(
-            content=message.content,
-            tool_calls=[
-                {"id": tool_call.id, "name": tool_call.name, "args": tool_call.arguments} for tool_call in tool_calls
-            ],
-        )
+        return LangchainAIMessage(content=message.content, tool_calls=message.model_dump()["tool_calls"] or [])
