@@ -83,3 +83,11 @@ Examples of use cases include:
 - How many users come back to perform action X after performing action Y.
 - How often users return to use a specific feature.
 """
+
+ROOT_VALIDATION_EXCEPTION_PROMPT = """
+The function call you previously provided didn't pass the validation and raised a Pydantic validation exception.
+<pydantic_exception>
+{{{exception}}}
+</pydantic_exception>
+You must fix the exception and try again.
+"""

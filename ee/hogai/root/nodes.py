@@ -1,19 +1,30 @@
 import datetime
-from typing import Literal, cast
+from typing import Literal
 from uuid import uuid4
 
-from langchain_core.messages import AIMessage as LangchainAIMessage, HumanMessage as LangchainHumanMessage, BaseMessage
+from langchain_core.messages import (
+    AIMessage as LangchainAIMessage,
+    BaseMessage,
+    HumanMessage as LangchainHumanMessage,
+    ToolMessage as LangchainToolMessage,
+)
+from langchain_core.output_parsers import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
-from langchain_core.output_parsers import PydanticToolsParser
-from ee.hogai.root.prompts import POST_QUERY_USER_PROMPT, ROOT_INSIGHT_DESCRIPTION_PROMPT, ROOT_SYSTEM_PROMPT
+
+from ee.hogai.root.prompts import (
+    POST_QUERY_USER_PROMPT,
+    ROOT_INSIGHT_DESCRIPTION_PROMPT,
+    ROOT_SYSTEM_PROMPT,
+    ROOT_VALIDATION_EXCEPTION_PROMPT,
+)
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantMessage, HumanMessage, RouterMessage
+from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-RouteName = Literal["trends", "funnel", "retention", "end"]
+RouteName = Literal["trends", "funnel", "retention", "root", "end"]
 
 
 # Lower casing matters here. Do not change it.
@@ -26,6 +37,7 @@ class retrieve_data_for_question(BaseModel):
     query_kind: Literal["trends", "funnel", "retention"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
+RootToolCall = retrieve_data_for_question
 root_tools_parser = PydanticToolsParser(tools=[retrieve_data_for_question])
 
 
@@ -52,31 +64,18 @@ class RootNode(AssistantNode):
             config,
         )
 
-        state_messages: list[BaseModel] = []
-
-        if message.content:  # Should practically always be set, but with tool case this is not _guaranteed_
-            state_messages.append(AssistantMessage(content=str(message.content), id=str(uuid4())))
-
-        if message.tool_calls:
-            try:
-                tool_calls: list[retrieve_data_for_question] = root_tools_parser.invoke(message, config=config)
-            except ValidationError:
-                pass  # TODO: Retry generation using this error message
-            else:
-                state_messages.append(
-                    RouterMessage(
-                        content=tool_calls[0].query_kind,
-                        id=str(uuid4()),
-                    )
-                )
-
-        return PartialAssistantState(messages=state_messages)
-
-    def router(self, state: AssistantState) -> RouteName:
-        last_message = state.messages[-1]
-        if isinstance(last_message, RouterMessage):
-            return cast(RouteName, last_message.content)
-        return "end"
+        return PartialAssistantState(
+            messages=[
+                AssistantMessage(
+                    content=str(message.content),
+                    tool_calls=[
+                        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], arguments=tool_call["args"])
+                        for tool_call in message.tool_calls
+                    ],
+                    id=str(uuid4()),
+                ),
+            ]
+        )
 
     @property
     def _model(self):
@@ -84,7 +83,7 @@ class RootNode(AssistantNode):
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
         return ChatOpenAI(
             model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True, parallel_tool_calls=False
-        ).bind_tools([retrieve_data_for_question])
+        ).bind_tools([retrieve_data_for_question], strict=True)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         history: list[BaseMessage] = []
@@ -93,8 +92,56 @@ class RootNode(AssistantNode):
                 history.append(LangchainHumanMessage(content=message.content))
             elif isinstance(message, AssistantMessage):
                 history.append(LangchainAIMessage(content=message.content))
-            elif isinstance(message, RouterMessage):
-                history.append(LangchainAIMessage(content=f"Generating a {message.content} query…"))
+            elif isinstance(message, AssistantToolCallMessage):
+                history.append(LangchainToolMessage(content=message.content, tool_call_id=message.tool_call_id))
         if state.messages and isinstance(state.messages[-1], AssistantMessage):
             history.append(LangchainHumanMessage(content=POST_QUERY_USER_PROMPT))
         return history
+
+
+class RootNodeTools(AssistantNode):
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        last_message = state.messages[-1]
+        if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
+            return None
+
+        try:
+            langchain_msg = self._construct_ai_message(last_message)
+            parsed_tool_calls: list[RootToolCall] = root_tools_parser.invoke(langchain_msg)
+        except ValidationError as e:
+            content = (
+                ChatPromptTemplate.from_template(ROOT_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
+                .format_messages(exception=e.errors(include_url=False))[0]
+                .content
+            )
+            return PartialAssistantState(
+                messages=[AssistantToolCallMessage(content=str(content), id=str(uuid4()), tool_call_id=last_message.id)]
+            )
+        if len(parsed_tool_calls) != 1:
+            raise ValueError("Expected exactly one tool call.")
+        tool_call = parsed_tool_calls[0]
+        return PartialAssistantState(
+            root_tool_call_id=last_message.tool_calls[-1].id,
+            root_tool_call_args={
+                "query_kind": tool_call.query_kind,
+                "query_description": tool_call.query_description,
+            },
+        )
+
+    def router(self, state: AssistantState) -> RouteName:
+        last_message = state.messages[-1]
+        if isinstance(last_message, AssistantToolCallMessage):
+            return "root"
+        if state.root_tool_call_id is not None and state.root_tool_call_args:
+            if query_kind := state.root_tool_call_args.get("query_kind"):
+                return query_kind
+        return "end"
+
+    def _construct_ai_message(self, message: AssistantMessage):
+        tool_calls = message.tool_calls or []
+        return LangchainAIMessage(
+            content=message.content,
+            tool_calls=[
+                {"id": tool_call.id, "name": tool_call.name, "args": tool_call.arguments} for tool_call in tool_calls
+            ],
+        )

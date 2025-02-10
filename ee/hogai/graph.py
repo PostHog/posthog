@@ -18,14 +18,14 @@ from ee.hogai.memory.nodes import (
     MemoryInitializerNode,
     MemoryOnboardingNode,
 )
+from ee.hogai.query_executor.nodes import QueryExecutorNode
 from ee.hogai.retention.nodes import (
     RetentionGeneratorNode,
     RetentionGeneratorToolsNode,
     RetentionPlannerNode,
     RetentionPlannerToolsNode,
 )
-from ee.hogai.root.nodes import RootNode
-from ee.hogai.query_executor.nodes import QueryExecutorNode
+from ee.hogai.root.nodes import RootNode, RootNodeTools
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
     TrendsGeneratorToolsNode,
@@ -72,11 +72,15 @@ class AssistantGraph:
             "funnel": AssistantNodeName.FUNNEL_PLANNER,
             "retention": AssistantNodeName.RETENTION_PLANNER,
             "end": AssistantNodeName.END,
+            "root": AssistantNodeName.ROOT,
         }
         root_node = RootNode(self._team)
         builder.add_node(AssistantNodeName.ROOT, root_node.run)
+        root_node_tools = RootNodeTools(self._team)
+        builder.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools.run)
+        builder.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
         builder.add_conditional_edges(
-            AssistantNodeName.ROOT, root_node.router, path_map=cast(dict[Hashable, str], path_map)
+            AssistantNodeName.ROOT_TOOLS, root_node_tools.router, path_map=cast(dict[Hashable, str], path_map)
         )
         return self
 

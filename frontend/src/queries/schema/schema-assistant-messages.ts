@@ -2,6 +2,7 @@ import { AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery } 
 
 export enum AssistantMessageType {
     Human = 'human',
+    ToolCall = 'tool',
     Assistant = 'ai',
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
@@ -31,10 +32,17 @@ export interface AssistantMessageMetadata {
     form?: AssistantForm
 }
 
+export interface AssistantToolCall {
+    id: string
+    name: string
+    arguments: Record<string, unknown>
+}
+
 export interface AssistantMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Assistant
     content: string
     meta?: AssistantMessageMetadata
+    tool_calls?: AssistantToolCall[]
 }
 
 export interface ReasoningMessage extends BaseAssistantMessage {
@@ -81,4 +89,10 @@ export enum AssistantGenerationStatusType {
 
 export interface AssistantGenerationStatusEvent {
     type: AssistantGenerationStatusType
+}
+
+export interface AssistantToolCallMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.ToolCall
+    content: string
+    tool_call_id: string
 }
