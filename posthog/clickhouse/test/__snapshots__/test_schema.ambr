@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: test_create_kafka_events_with_disabled_protobuf
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -26,18 +26,18 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
-
-
+      
+      
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
-
+  
       SETTINGS kafka_skip_broken_messages = 100
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics2]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -50,12 +50,12 @@
       count Int64
   )
   ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics2_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -71,12 +71,12 @@
       error_details String CODEC(ZSTD(3))
   )
   ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_issue_fingerprint_overrides]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -84,14 +84,14 @@
       issue_id UUID,
       is_deleted Int8,
       version Int64
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_error_tracking_issue_fingerprint_test', 'clickhouse-error-tracking-issue-fingerprint-overrides', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_dead_letter_queue]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
@@ -110,14 +110,14 @@
       error_location VARCHAR,
       error VARCHAR,
       tags Array(VARCHAR)
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_json]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -142,18 +142,18 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
-
-
+      
+      
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
-
+  
       SETTINGS kafka_skip_broken_messages = 100
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_recent_json]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_recent_json ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -178,18 +178,18 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
-
-
+      
+      
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1_recent', 'JSONEachRow')
-
+  
       SETTINGS kafka_skip_broken_messages = 100
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_groups]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
@@ -197,14 +197,14 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_heatmaps]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_heatmaps ON CLUSTER 'posthog'
   (
       session_id VARCHAR,
@@ -224,12 +224,12 @@
       current_url VARCHAR,
       type LowCardinality(String)
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_heatmap_events_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_ingestion_warnings]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -237,14 +237,14 @@
       type VARCHAR,
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_log_entries]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_log_entries ON CLUSTER 'posthog'
   (
       team_id UInt64,
@@ -266,14 +266,14 @@
       level LowCardinality(String),
       -- The actual log message.
       message String
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'log_entries_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_performance_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -323,14 +323,14 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
   (
       id UUID,
@@ -340,14 +340,14 @@
       is_identified Int8,
       is_deleted Int8,
       version UInt64
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id2]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -355,14 +355,14 @@
       person_id UUID,
       is_deleted Int8,
       version Int64
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
@@ -371,12 +371,12 @@
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id_overrides]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id_overrides ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -384,24 +384,24 @@
       person_id UUID,
       is_deleted Int8,
       version Int64
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_overrides]
   '''
-
+  
       CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
       ON CLUSTER 'posthog'
-
+  
       ENGINE = Kafka(
           'kafka:9092', -- Kafka hosts
           'clickhouse_person_override_test', -- Kafka topic
           'clickhouse-person-overrides', -- Kafka consumer group id
           'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
       )
-
+  
       -- Take the types from the `person_overrides` table, except for the
       -- `created_at`, which we want to use the DEFAULT now() from the
       -- `person_overrides` definition. See
@@ -418,12 +418,12 @@
           -- created_at,
           version
       FROM `posthog_test`.`person_overrides`
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_plugin_log_entries]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
@@ -435,14 +435,14 @@
       type VARCHAR,
       message VARCHAR,
       instance_id UUID
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_recording_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -453,15 +453,15 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-
-
+      
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_session_replay_events ON CLUSTER 'posthog'
   (
       session_id VARCHAR,
@@ -484,12 +484,12 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String)
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events_v2_test]
   '''
-
+  
       CREATE TABLE IF NOT EXISTS kafka_session_replay_events_v2_test ON CLUSTER 'posthog'
       (
           session_id VARCHAR,
@@ -499,12 +499,12 @@
           last_timestamp DateTime64(6, 'UTC'),
           block_url String,
       ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_v2_test_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[app_metrics2]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS app_metrics2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -523,19 +523,19 @@
       metric_kind LowCardinality(String),
       metric_name LowCardinality(String),
       count SimpleAggregateFunction(sum, Int64)
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   )
   ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics2', rand())
-
+  
   '''
 # ---
 # name: test_create_table_query[app_metrics2_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv ON CLUSTER 'posthog'
   TO posthog_test.sharded_app_metrics2
   AS SELECT
@@ -548,12 +548,12 @@
   metric_name,
   count
   FROM posthog_test.kafka_app_metrics2
-
+  
   '''
 # ---
 # name: test_create_table_query[app_metrics]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -567,19 +567,19 @@
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   )
   ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics', rand())
-
+  
   '''
 # ---
 # name: test_create_table_query[app_metrics_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER 'posthog'
   TO posthog_test.sharded_app_metrics
   AS SELECT
@@ -595,12 +595,12 @@
   error_type,
   error_details
   FROM posthog_test.kafka_app_metrics
-
+  
   '''
 # ---
 # name: test_create_table_query[channel_definition]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER 'posthog' (
       domain String NOT NULL,
       kind String NOT NULL,
@@ -609,12 +609,12 @@
       type_if_organic String NULL
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.channel_definition', '{replica}-{shard}')
   ORDER BY (domain, kind);
-
+  
   '''
 # ---
 # name: test_create_table_query[cohortpeople]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
       person_id UUID,
@@ -624,13 +624,13 @@
       version UInt64
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
   Order By (team_id, cohort_id, person_id, version)
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query[distributed_events_recent]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS distributed_events_recent ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -655,20 +655,20 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), _timestamp_ms DateTime64
-
+      
   ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'events_recent', sipHash64(distinct_id))
-
+  
   '''
 # ---
 # name: test_create_table_query[error_tracking_issue_fingerprint_overrides]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -676,24 +676,24 @@
       issue_id UUID,
       is_deleted Int8,
       version Int64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
       , INDEX kafka_timestamp_minmax_error_tracking_issue_fingerprint_overrides _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.error_tracking_issue_fingerprint_overrides', '{replica}-{shard}', version)
-
+  
       ORDER BY (team_id, fingerprint)
       SETTINGS index_granularity = 512
-
+      
   '''
 # ---
 # name: test_create_table_query[error_tracking_issue_fingerprint_overrides_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_issue_fingerprint_overrides_mv ON CLUSTER 'posthog'
   TO posthog_test.error_tracking_issue_fingerprint_overrides
   AS SELECT
@@ -707,12 +707,12 @@
   _partition
   FROM posthog_test.kafka_error_tracking_issue_fingerprint_overrides
   WHERE version > 0 -- only store updated rows, not newly inserted ones
-
+  
   '''
 # ---
 # name: test_create_table_query[events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -737,7 +737,7 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
+      
       , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
       , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
@@ -750,19 +750,19 @@
       , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
       , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
       , properties_group_custom Map(String, String), properties_group_feature_flags Map(String, String)
-
-
+  
+      
   , _timestamp DateTime
   , _offset UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
-
+      
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
-
+  
   '''
 # ---
 # name: test_create_table_query[events_dead_letter_queue]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
@@ -781,23 +781,23 @@
       error_location VARCHAR,
       error VARCHAR,
       tags Array(VARCHAR)
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_events_dead_letter_queue _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', _timestamp)
   ORDER BY (id, event_uuid, distinct_id, team_id)
-
+  
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query[events_dead_letter_queue_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER 'posthog'
   TO posthog_test.events_dead_letter_queue
   AS SELECT
@@ -820,12 +820,12 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_events_dead_letter_queue
-
+  
   '''
 # ---
 # name: test_create_table_query[events_json_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_events
   AS SELECT
@@ -854,12 +854,12 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_events_json
-
+  
   '''
 # ---
 # name: test_create_table_query[events_recent]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS events_recent ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -884,24 +884,24 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   , inserted_at DateTime64(6, 'UTC') DEFAULT NOW64(), _timestamp_ms DateTime64
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.events_recent', '{replica}-{shard}', _timestamp)
   PARTITION BY toStartOfHour(inserted_at)
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
   TTL toDateTime(inserted_at) + INTERVAL 7 DAY
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query[events_recent_json_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv ON CLUSTER 'posthog'
   TO posthog_test.events_recent
   AS SELECT
@@ -932,12 +932,12 @@
   _offset,
   _partition
   FROM posthog_test.kafka_events_recent_json
-
+  
   '''
 # ---
 # name: test_create_table_query[groups]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
@@ -945,19 +945,19 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
   Order By (team_id, group_type_index, group_key)
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query[groups_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS groups_mv ON CLUSTER 'posthog'
   TO posthog_test.groups
   AS SELECT
@@ -969,12 +969,12 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_groups
-
+  
   '''
 # ---
 # name: test_create_table_query[heatmaps]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS heatmaps ON CLUSTER 'posthog'
   (
       session_id VARCHAR,
@@ -997,12 +997,12 @@
       _offset UInt64,
       _partition UInt64
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
-
+  
   '''
 # ---
 # name: test_create_table_query[heatmaps_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_heatmaps
   AS SELECT
@@ -1026,12 +1026,12 @@
       _offset,
       _partition
   FROM posthog_test.kafka_heatmaps
-
+  
   '''
 # ---
 # name: test_create_table_query[ingestion_warnings]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS ingestion_warnings ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1039,18 +1039,18 @@
       type VARCHAR,
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ingestion_warnings', rand())
-
+  
   '''
 # ---
 # name: test_create_table_query[ingestion_warnings_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER 'posthog'
   TO posthog_test.ingestion_warnings
   AS SELECT
@@ -1063,12 +1063,12 @@
   _offset,
   _partition
   FROM posthog_test.kafka_ingestion_warnings
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_app_metrics2]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1081,12 +1081,12 @@
       count Int64
   )
   ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics2_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_app_metrics]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1102,12 +1102,12 @@
       error_details String CODEC(ZSTD(3))
   )
   ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_error_tracking_issue_fingerprint_overrides]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1115,14 +1115,14 @@
       issue_id UUID,
       is_deleted Int8,
       version Int64
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_error_tracking_issue_fingerprint_test', 'clickhouse-error-tracking-issue-fingerprint-overrides', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_events_dead_letter_queue]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
@@ -1141,14 +1141,14 @@
       error_location VARCHAR,
       error VARCHAR,
       tags Array(VARCHAR)
-
+      
   ) ENGINE = Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
   '''
 # ---
 # name: test_create_table_query[kafka_events_json]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1173,18 +1173,18 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
-
-
+      
+      
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
-
+  
       SETTINGS kafka_skip_broken_messages = 100
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_events_recent_json]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_recent_json ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1209,18 +1209,18 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
-
-
+      
+      
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1_recent', 'JSONEachRow')
-
+  
       SETTINGS kafka_skip_broken_messages = 100
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_groups]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
@@ -1228,14 +1228,14 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_heatmaps]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_heatmaps ON CLUSTER 'posthog'
   (
       session_id VARCHAR,
@@ -1255,12 +1255,12 @@
       current_url VARCHAR,
       type LowCardinality(String)
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_heatmap_events_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_ingestion_warnings]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1268,14 +1268,14 @@
       type VARCHAR,
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_log_entries]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_log_entries ON CLUSTER 'posthog'
   (
       team_id UInt64,
@@ -1297,14 +1297,14 @@
       level LowCardinality(String),
       -- The actual log message.
       message String
-
+      
   ) ENGINE = Kafka('kafka:9092', 'log_entries_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_performance_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1354,14 +1354,14 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_person]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
   (
       id UUID,
@@ -1371,14 +1371,14 @@
       is_identified Int8,
       is_deleted Int8,
       version UInt64
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_person_distinct_id2]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1386,14 +1386,14 @@
       person_id UUID,
       is_deleted Int8,
       version Int64
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_person_distinct_id]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
@@ -1402,12 +1402,12 @@
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_person_distinct_id_overrides]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id_overrides ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1415,24 +1415,24 @@
       person_id UUID,
       is_deleted Int8,
       version Int64
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'clickhouse-person-distinct-id-overrides', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_person_overrides]
   '''
-
+  
       CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
       ON CLUSTER 'posthog'
-
+  
       ENGINE = Kafka(
           'kafka:9092', -- Kafka hosts
           'clickhouse_person_override_test', -- Kafka topic
           'clickhouse-person-overrides', -- Kafka consumer group id
           'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
       )
-
+  
       -- Take the types from the `person_overrides` table, except for the
       -- `created_at`, which we want to use the DEFAULT now() from the
       -- `person_overrides` definition. See
@@ -1449,12 +1449,12 @@
           -- created_at,
           version
       FROM `posthog_test`.`person_overrides`
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_plugin_log_entries]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
@@ -1466,14 +1466,14 @@
       type VARCHAR,
       message VARCHAR,
       instance_id UUID
-
+      
   ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_session_recording_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1484,15 +1484,15 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-
-
+      
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_session_replay_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS kafka_session_replay_events ON CLUSTER 'posthog'
   (
       session_id VARCHAR,
@@ -1515,12 +1515,12 @@
       snapshot_source LowCardinality(Nullable(String)),
       snapshot_library Nullable(String)
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[kafka_session_replay_events_v2_test]
   '''
-
+  
       CREATE TABLE IF NOT EXISTS kafka_session_replay_events_v2_test ON CLUSTER 'posthog'
       (
           session_id VARCHAR,
@@ -1530,12 +1530,12 @@
           last_timestamp DateTime64(6, 'UTC'),
           block_url String,
       ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_v2_test_test', 'group1', 'JSONEachRow')
-
+  
   '''
 # ---
 # name: test_create_table_query[log_entries]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS log_entries ON CLUSTER 'posthog'
   (
       team_id UInt64,
@@ -1557,20 +1557,20 @@
       level LowCardinality(String),
       -- The actual log message.
       message String
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_entries', '{replica}-{shard}', _timestamp)
   PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
-
+  
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query[log_entries_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS log_entries_mv ON CLUSTER 'posthog'
   TO posthog_test.log_entries
   AS SELECT
@@ -1584,12 +1584,12 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_log_entries
-
+  
   '''
 # ---
 # name: test_create_table_query[performance_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1639,30 +1639,30 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_performance_events', sipHash64(session_id))
-
+  
   '''
 # ---
 # name: test_create_table_query[performance_events_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER 'posthog'
   TO posthog_test.writeable_performance_events
   AS SELECT
   uuid, session_id, window_id, pageview_id, distinct_id, timestamp, time_origin, entry_type, name, team_id, current_url, start_time, duration, redirect_start, redirect_end, worker_start, fetch_start, domain_lookup_start, domain_lookup_end, connect_start, secure_connection_start, connect_end, request_start, response_start, response_end, decoded_body_size, encoded_body_size, initiator_type, next_hop_protocol, render_blocking_status, response_status, transfer_size, largest_contentful_paint_element, largest_contentful_paint_render_time, largest_contentful_paint_load_time, largest_contentful_paint_size, largest_contentful_paint_id, largest_contentful_paint_url, dom_complete, dom_content_loaded_event, dom_interactive, load_event_end, load_event_start, redirect_count, navigation_type, unload_event_end, unload_event_start
   ,_timestamp, _offset, _partition
   FROM posthog_test.kafka_performance_events
-
+  
   '''
 # ---
 # name: test_create_table_query[person]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
   (
       id UUID,
@@ -1672,22 +1672,22 @@
       is_identified Int8,
       is_deleted Int8,
       version UInt64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_person _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', version)
   Order By (team_id, id)
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query[person_distinct_id2]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1695,24 +1695,24 @@
       person_id UUID,
       is_deleted Int8,
       version Int64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , _partition UInt64
       , INDEX kafka_timestamp_minmax_person_distinct_id2 _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
-
+  
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
-
+      
   '''
 # ---
 # name: test_create_table_query[person_distinct_id2_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id2_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id2
   AS SELECT
@@ -1725,12 +1725,12 @@
   _offset,
   _partition
   FROM posthog_test.kafka_person_distinct_id2
-
+  
   '''
 # ---
 # name: test_create_table_query[person_distinct_id]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
@@ -1738,19 +1738,19 @@
       team_id Int64,
       _sign Int8 DEFAULT 1,
       is_deleted Int8 ALIAS if(_sign==-1, 1, 0)
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id', '{replica}-{shard}', _sign)
   Order By (team_id, distinct_id, person_id)
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query[person_distinct_id_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id
   AS SELECT
@@ -1761,12 +1761,12 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_person_distinct_id
-
+  
   '''
 # ---
 # name: test_create_table_query[person_distinct_id_overrides]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS person_distinct_id_overrides ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1774,24 +1774,24 @@
       person_id UUID,
       is_deleted Int8,
       version Int64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
       , INDEX kafka_timestamp_minmax_person_distinct_id_overrides _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id_overrides', '{replica}-{shard}', version)
-
+  
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
-
+      
   '''
 # ---
 # name: test_create_table_query[person_distinct_id_overrides_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_overrides_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id_overrides
   AS SELECT
@@ -1805,12 +1805,12 @@
   _partition
   FROM posthog_test.kafka_person_distinct_id_overrides
   WHERE version > 0 -- only store updated rows, not newly inserted ones
-
+  
   '''
 # ---
 # name: test_create_table_query[person_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS person_mv ON CLUSTER 'posthog'
   TO posthog_test.person
   AS SELECT
@@ -1824,16 +1824,16 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_person
-
+  
   '''
 # ---
 # name: test_create_table_query[person_overrides]
   '''
-
+  
       CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
       ON CLUSTER 'posthog' (
           team_id INT NOT NULL,
-
+  
           -- When we merge two people `old_person_id` and `override_person_id`, we
           -- want to keep track of a mapping from the `old_person_id` to the
           -- `override_person_id`. This allows us to join with the
@@ -1842,7 +1842,7 @@
           -- `override_person_id`.
           old_person_id UUID NOT NULL,
           override_person_id UUID NOT NULL,
-
+  
           -- The timestamp the merge of the two people was completed.
           merged_at DateTime64(6, 'UTC') NOT NULL,
           -- The timestamp of the oldest event associated with the
@@ -1854,14 +1854,14 @@
           -- JOIN as it will be stored separately with the Wide ClickHouse table
           -- storage.
           created_at DateTime64(6, 'UTC') DEFAULT now(),
-
+  
           -- the specific version of the `old_person_id` mapping. This is used to
           -- allow us to discard old mappings as new ones are added. This version
           -- will be provided by the corresponding PostgreSQL
           --`posthog_personoverrides` table
           version INT NOT NULL
       )
-
+  
       -- By specifying Replacing merge tree on version, we allow ClickHouse to
       -- discard old versions of a `old_person_id` mapping. This should help keep
       -- performance in check as new versions are added. Note that given we can
@@ -1876,24 +1876,24 @@
       -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
       -- for details.
       ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_overrides', '{replica}-{shard}', version)
-
+  
       -- We partition the table by the `oldest_event` column. This allows us to
       -- handle updating the events table partition by partition, progressing each
       -- override partition by partition in lockstep with the events table. Note
       -- that this means it is possible that we have a mapping from
       -- `old_person_id` in multiple partitions during the merge process.
       PARTITION BY toYYYYMM(oldest_event)
-
+  
       -- We want to collapse down on the `old_person_id` such that we end up with
       -- the newest known mapping for it in the table. Query side we will need to
       -- ensure that we are always querying the latest version of the mapping.
       ORDER BY (team_id, old_person_id)
-
+  
   '''
 # ---
 # name: test_create_table_query[person_overrides_mv]
   '''
-
+  
       CREATE MATERIALIZED VIEW IF NOT EXISTS `posthog_test`.`person_overrides_mv`
       ON CLUSTER 'posthog'
       TO `posthog_test`.`person_overrides`
@@ -1908,31 +1908,31 @@
           -- created_at,
           version
       FROM `posthog_test`.`kafka_person_overrides`
-
+  
   '''
 # ---
 # name: test_create_table_query[person_static_cohort]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
   (
       id UUID,
       person_id UUID,
       cohort_id Int64,
       team_id Int64
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp)
   Order By (team_id, cohort_id, person_id, id)
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query[plugin_log_entries]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
@@ -1944,20 +1944,20 @@
       type VARCHAR,
       message VARCHAR,
       instance_id UUID
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp)
   PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, plugin_id, plugin_config_id, timestamp)
-
+  
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query[plugin_log_entries_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS plugin_log_entries_mv ON CLUSTER 'posthog'
   TO posthog_test.plugin_log_entries
   AS SELECT
@@ -1973,30 +1973,30 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_plugin_log_entries
-
+  
   '''
 # ---
 # name: test_create_table_query[raw_sessions]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS raw_sessions ON CLUSTER 'posthog'
   (
       team_id Int64,
       session_id_v7 UInt128, -- integer representation of a uuidv7
-
+  
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-
+  
       -- urls
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       -- device
       initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2005,7 +2005,7 @@
       initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
       initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
-
+  
       -- geoip
       -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
       initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2013,7 +2013,7 @@
       initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- attribution
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2034,7 +2034,7 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
       -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
@@ -2047,41 +2047,41 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
-
+  
       -- replay
       maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
-
+  
       -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
       page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
-
+  
       -- web vitals
       vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
-
+  
   '''
 # ---
 # name: test_create_table_query[raw_sessions_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS raw_sessions_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_raw_sessions
   AS
-
+  
   SELECT
       team_id,
       toUInt128(toUUID(`$session_id`)) as session_id_v7,
-
+  
       argMaxState(distinct_id, timestamp) as distinct_id,
-
+  
       min(timestamp) AS min_timestamp,
       max(timestamp) AS max_timestamp,
-
+  
       -- urls
       groupUniqArray(nullIf(JSONExtractString(properties, '$current_url'), '')) AS urls,
       argMinState(JSONExtractString(properties, '$current_url'), timestamp) as entry_url,
       argMaxState(JSONExtractString(properties, '$current_url'), timestamp) as end_url,
       argMaxState(JSONExtractString(properties, '$external_click_url'), timestamp) as last_external_click_url,
-
+  
       -- device
       argMinState(JSONExtractString(properties, '$browser'), timestamp) as initial_browser,
       argMinState(JSONExtractString(properties, '$browser_version'), timestamp) as initial_browser_version,
@@ -2090,14 +2090,14 @@
       argMinState(JSONExtractString(properties, '$device_type'), timestamp) as initial_device_type,
       argMinState(JSONExtractInt(properties, '$viewport_width'), timestamp) as initial_viewport_width,
       argMinState(JSONExtractInt(properties, '$viewport_height'), timestamp) as initial_viewport_height,
-
+  
       -- geoip
       argMinState(JSONExtractString(properties, '$geoip_country_code'), timestamp) as initial_geoip_country_code,
       argMinState(JSONExtractString(properties, '$geoip_subdivision_1_code'), timestamp) as initial_geoip_subdivision_1_code,
       argMinState(JSONExtractString(properties, '$geoip_subdivision_1_name'), timestamp) as initial_geoip_subdivision_1_name,
       argMinState(JSONExtractString(properties, '$geoip_subdivision_city_name'), timestamp) as initial_geoip_subdivision_city_name,
       argMinState(JSONExtractString(properties, '$geoip_time_zone'), timestamp) as initial_geoip_time_zone,
-
+  
       -- attribution
       argMinState(JSONExtractString(properties, '$referring_domain'), timestamp) as initial_referring_domain,
       argMinState(JSONExtractString(properties, 'utm_source'), timestamp) as initial_utm_source,
@@ -2118,7 +2118,7 @@
       argMinState(JSONExtractString(properties, 'mc_cid'), timestamp) as initial_mc_cid,
       argMinState(JSONExtractString(properties, 'igshid'), timestamp) as initial_igshid,
       argMinState(JSONExtractString(properties, 'ttclid'), timestamp) as initial_ttclid,
-
+  
       -- count
       sumIf(1, event='$pageview') as pageview_count,
       uniqState(CAST(if(event='$pageview', uuid, NULL) AS Nullable(UUID))) as pageview_uniq,
@@ -2126,13 +2126,13 @@
       uniqState(CAST(if(event='$autocapture', uuid, NULL) AS Nullable(UUID))) as autocapture_uniq,
       sumIf(1, event='$screen') as screen_count,
       uniqState(CAST(if(event='$screen', uuid, NULL) AS Nullable(UUID))) as screen_uniq,
-
+  
       -- replay
       false as maybe_has_session_replay,
-
+  
       -- perf
       uniqUpToState(1)(CAST(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL) AS Nullable(UUID))) as page_screen_autocapture_uniq_up_to,
-
+  
       -- web vitals
       argMinState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64'), timestamp) as vitals_lcp
   FROM posthog_test.sharded_events
@@ -2142,13 +2142,13 @@
       toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))),
       cityHash64(session_id_v7),
       session_id_v7
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query[session_recording_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -2160,17 +2160,17 @@
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
       , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot', events_summary Array(String) COMMENT 'column_materializer::events_summary', click_count Int8 COMMENT 'column_materializer::click_count', keypress_count Int8 COMMENT 'column_materializer::keypress_count', timestamps_summary Array(DateTime64(6, 'UTC')) COMMENT 'column_materializer::timestamps_summary', first_event_timestamp Nullable(DateTime64(6, 'UTC')) COMMENT 'column_materializer::first_event_timestamp', last_event_timestamp Nullable(DateTime64(6, 'UTC')) COMMENT 'column_materializer::last_event_timestamp', urls Array(String) COMMENT 'column_materializer::urls'
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
-
+  
   '''
 # ---
 # name: test_create_table_query[session_recording_events_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS session_recording_events_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_session_recording_events
   AS SELECT
@@ -2185,12 +2185,12 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_session_recording_events
-
+  
   '''
 # ---
 # name: test_create_table_query[session_replay_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS session_replay_events ON CLUSTER 'posthog'
   (
       -- part of order by so will aggregate correctly
@@ -2230,12 +2230,12 @@
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
-
+  
   '''
 # ---
 # name: test_create_table_query[session_replay_events_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_session_replay_events (
   `session_id` String, `team_id` Int64, `distinct_id` String,
@@ -2285,12 +2285,12 @@
   max(_timestamp) as _timestamp
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
-
+  
   '''
 # ---
 # name: test_create_table_query[session_replay_events_v2_test]
   '''
-
+  
       CREATE TABLE IF NOT EXISTS session_replay_events_v2_test ON CLUSTER 'posthog'
       (
           session_id VARCHAR,
@@ -2302,12 +2302,12 @@
           block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
       ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events_v2_test', sipHash64(distinct_id))
-
+  
   '''
 # ---
 # name: test_create_table_query[session_replay_events_v2_test_mv]
   '''
-
+  
       CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_v2_test_mv ON CLUSTER 'posthog'
       TO posthog_test.writable_session_replay_events_v2_test (
           `session_id` String,
@@ -2332,12 +2332,12 @@
           max(_timestamp) as _timestamp
       FROM posthog_test.kafka_session_replay_events_v2_test
       GROUP BY session_id, team_id, distinct_id
-
+  
   '''
 # ---
 # name: test_create_table_query[sessions]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sessions ON CLUSTER 'posthog'
   (
       -- part of order by so will aggregate correctly
@@ -2348,14 +2348,14 @@
       -- this is fine since even if the distinct_id changes during a session
       -- it will still (or should still) map to the same person
       distinct_id SimpleAggregateFunction(any, String),
-
+  
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-
+  
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2375,7 +2375,7 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
       -- duplicate the event count as a specific column for pageviews and autocaptures,
@@ -2383,31 +2383,31 @@
       pageview_count SimpleAggregateFunction(sum, Int64),
       autocapture_count SimpleAggregateFunction(sum, Int64),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_sessions', sipHash64(session_id))
-
+  
   '''
 # ---
 # name: test_create_table_query[sessions_mv]
   '''
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS sessions_mv ON CLUSTER 'posthog'
   TO posthog_test.writable_sessions
   AS
-
+  
   SELECT
-
+  
   `$session_id` as session_id,
   team_id,
-
+  
   -- it doesn't matter which distinct_id gets picked (it'll be somewhat random) as they can all join to the right person
   any(distinct_id) as distinct_id,
-
+  
   min(timestamp) AS min_timestamp,
   max(timestamp) AS max_timestamp,
-
+  
   groupUniqArray(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')) AS urls,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), timestamp) as entry_url,
   argMaxState(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), timestamp) as exit_url,
-
+  
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, '$referring_domain'), '^"|"$', ''), timestamp) as initial_referring_domain,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'utm_source'), '^"|"$', ''), timestamp) as initial_utm_source,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'utm_campaign'), '^"|"$', ''), timestamp) as initial_utm_campaign,
@@ -2427,21 +2427,21 @@
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'mc_cid'), '^"|"$', ''), timestamp) as initial_mc_cid,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'igshid'), '^"|"$', ''), timestamp) as initial_igshid,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'ttclid'), '^"|"$', ''), timestamp) as initial_ttclid,
-
+  
   sumMap(CAST(([event], [1]), 'Map(String, UInt64)')) as event_count_map,
   sumIf(1, event='$pageview') as pageview_count,
   sumIf(1, event='$autocapture') as autocapture_count
-
+  
   FROM posthog_test.sharded_events
   WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND team_id IN (1, 2, 13610, 19279, 21173, 29929, 32050, 9910, 11775, 21129, 31490)
   GROUP BY `$session_id`, team_id
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query[sharded_app_metrics2]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -2460,22 +2460,22 @@
       metric_kind LowCardinality(String),
       metric_name LowCardinality(String),
       count SimpleAggregateFunction(sum, Int64)
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics2', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name)
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query[sharded_app_metrics]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -2489,21 +2489,21 @@
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
-
+  
   '''
 # ---
 # name: test_create_table_query[sharded_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -2528,7 +2528,7 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
+      
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
       , $group_2 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
@@ -2560,25 +2560,25 @@
                   )
                   CODEC(ZSTD(1))
               , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter
-
-
+  
+      
   , _timestamp DateTime
   , _offset UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
-
+      
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query[sharded_heatmaps]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_heatmaps ON CLUSTER 'posthog'
   (
       session_id VARCHAR,
@@ -2601,7 +2601,7 @@
       _offset UInt64,
       _partition UInt64
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.heatmaps', '{replica}')
-
+  
       PARTITION BY toYYYYMM(timestamp)
       -- almost always this is being queried by
       --   * type,
@@ -2612,17 +2612,17 @@
       -- we'll almost never query this by session id
       -- so from least to most cardinality that's
       ORDER BY (type, team_id,  toDate(timestamp), current_url, viewport_width)
-
+      
   -- I am purposefully not setting index granularity
   -- the default is 8192, and we will be loading a lot of data
   -- per query, we tend to copy this 512 around the place but
   -- i don't think it applies here
-
+  
   '''
 # ---
 # name: test_create_table_query[sharded_ingestion_warnings]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -2630,20 +2630,20 @@
       type VARCHAR,
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_ingestion_warnings', '{replica}')
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
-
+  
   '''
 # ---
 # name: test_create_table_query[sharded_performance_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -2693,40 +2693,40 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
-
-
-
+  
+  
+  
   '''
 # ---
 # name: test_create_table_query[sharded_raw_sessions]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_raw_sessions ON CLUSTER 'posthog'
   (
       team_id Int64,
       session_id_v7 UInt128, -- integer representation of a uuidv7
-
+  
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-
+  
       -- urls
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       -- device
       initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2735,7 +2735,7 @@
       initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
       initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
-
+  
       -- geoip
       -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
       initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2743,7 +2743,7 @@
       initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- attribution
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2764,7 +2764,7 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
       -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
@@ -2777,17 +2777,17 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
-
+  
       -- replay
       maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
-
+  
       -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
       page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
-
+  
       -- web vitals
       vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
-
+  
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
   ORDER BY (
       team_id,
@@ -2796,12 +2796,12 @@
       session_id_v7
   )
   SAMPLE BY cityHash64(session_id_v7)
-
+  
   '''
 # ---
 # name: test_create_table_query[sharded_session_recording_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -2813,24 +2813,24 @@
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
       , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_sharded_session_recording_events _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_recording_events', '{replica}', _timestamp)
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-
+  
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query[sharded_session_replay_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_session_replay_events ON CLUSTER 'posthog'
   (
       -- part of order by so will aggregate correctly
@@ -2870,7 +2870,7 @@
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
-
+  
       PARTITION BY toYYYYMM(min_first_timestamp)
       -- order by is used by the aggregating merge tree engine to
       -- identify candidates to merge, e.g. toDate(min_first_timestamp)
@@ -2884,12 +2884,12 @@
       -- hopefully, this is a good balance between the two
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query[sharded_session_replay_events_v2_test]
   '''
-
+  
       CREATE TABLE IF NOT EXISTS sharded_session_replay_events_v2_test ON CLUSTER 'posthog'
       (
           session_id VARCHAR,
@@ -2901,16 +2901,16 @@
           block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
       ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events_v2_test', '{replica}')
-
+  
               PARTITION BY toYYYYMM(min_first_timestamp)
               ORDER BY (toDate(min_first_timestamp), team_id, session_id)
               SETTINGS index_granularity=512
-
+          
   '''
 # ---
 # name: test_create_table_query[sharded_sessions]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_sessions ON CLUSTER 'posthog'
   (
       -- part of order by so will aggregate correctly
@@ -2921,14 +2921,14 @@
       -- this is fine since even if the distinct_id changes during a session
       -- it will still (or should still) map to the same person
       distinct_id SimpleAggregateFunction(any, String),
-
+  
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-
+  
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2948,7 +2948,7 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
       -- duplicate the event count as a specific column for pageviews and autocaptures,
@@ -2956,7 +2956,7 @@
       pageview_count SimpleAggregateFunction(sum, Int64),
       autocapture_count SimpleAggregateFunction(sum, Int64),
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sessions', '{replica}')
-
+  
       PARTITION BY toYYYYMM(min_timestamp)
       -- order by is used by the aggregating merge tree engine to
       -- identify candidates to merge, e.g. toDate(min_timestamp)
@@ -2970,12 +2970,12 @@
       -- hopefully, this is a good balance between the two
       ORDER BY (toStartOfDay(min_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query[writable_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS writable_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -3000,19 +3000,19 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
-
+  
+      
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
-
+  
   '''
 # ---
 # name: test_create_table_query[writable_heatmaps]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS writable_heatmaps ON CLUSTER 'posthog'
   (
       session_id VARCHAR,
@@ -3035,30 +3035,30 @@
       _offset UInt64,
       _partition UInt64
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
-
+  
   '''
 # ---
 # name: test_create_table_query[writable_raw_sessions]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS writable_raw_sessions ON CLUSTER 'posthog'
   (
       team_id Int64,
       session_id_v7 UInt128, -- integer representation of a uuidv7
-
+  
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-
+  
       -- urls
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       -- device
       initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3067,7 +3067,7 @@
       initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
       initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
-
+  
       -- geoip
       -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
       initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3075,7 +3075,7 @@
       initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- attribution
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3096,7 +3096,7 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
       -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
@@ -3109,22 +3109,22 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
-
+  
       -- replay
       maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
-
+  
       -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
       page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
-
+  
       -- web vitals
       vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
-
+  
   '''
 # ---
 # name: test_create_table_query[writable_session_recording_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS writable_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -3135,18 +3135,18 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
-
+  
   '''
 # ---
 # name: test_create_table_query[writable_sessions]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS writable_sessions ON CLUSTER 'posthog'
   (
       -- part of order by so will aggregate correctly
@@ -3157,14 +3157,14 @@
       -- this is fine since even if the distinct_id changes during a session
       -- it will still (or should still) map to the same person
       distinct_id SimpleAggregateFunction(any, String),
-
+  
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-
+  
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3184,7 +3184,7 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
       -- duplicate the event count as a specific column for pageviews and autocaptures,
@@ -3192,12 +3192,12 @@
       pageview_count SimpleAggregateFunction(sum, Int64),
       autocapture_count SimpleAggregateFunction(sum, Int64),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_sessions', sipHash64(session_id))
-
+  
   '''
 # ---
 # name: test_create_table_query[writeable_performance_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS writeable_performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -3247,18 +3247,18 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_performance_events', sipHash64(session_id))
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[channel_definition]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER 'posthog' (
       domain String NOT NULL,
       kind String NOT NULL,
@@ -3267,12 +3267,12 @@
       type_if_organic String NULL
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.channel_definition', '{replica}-{shard}')
   ORDER BY (domain, kind);
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[cohortpeople]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
       person_id UUID,
@@ -3282,13 +3282,13 @@
       version UInt64
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
   Order By (team_id, cohort_id, person_id, version)
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[error_tracking_issue_fingerprint_overrides]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS error_tracking_issue_fingerprint_overrides ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -3296,24 +3296,24 @@
       issue_id UUID,
       is_deleted Int8,
       version Int64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
       , INDEX kafka_timestamp_minmax_error_tracking_issue_fingerprint_overrides _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.error_tracking_issue_fingerprint_overrides', '{replica}-{shard}', version)
-
+  
       ORDER BY (team_id, fingerprint)
       SETTINGS index_granularity = 512
-
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[events_dead_letter_queue]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
@@ -3332,23 +3332,23 @@
       error_location VARCHAR,
       error VARCHAR,
       tags Array(VARCHAR)
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_events_dead_letter_queue _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', _timestamp)
   ORDER BY (id, event_uuid, distinct_id, team_id)
-
+  
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[events_recent]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS events_recent ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -3373,24 +3373,24 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   , inserted_at DateTime64(6, 'UTC') DEFAULT NOW64(), _timestamp_ms DateTime64
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.events_recent', '{replica}-{shard}', _timestamp)
   PARTITION BY toStartOfHour(inserted_at)
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
   TTL toDateTime(inserted_at) + INTERVAL 7 DAY
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[groups]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
@@ -3398,19 +3398,19 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
   Order By (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[log_entries]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS log_entries ON CLUSTER 'posthog'
   (
       team_id UInt64,
@@ -3432,20 +3432,20 @@
       level LowCardinality(String),
       -- The actual log message.
       message String
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_entries', '{replica}-{shard}', _timestamp)
   PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
-
+  
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[person]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
   (
       id UUID,
@@ -3455,22 +3455,22 @@
       is_identified Int8,
       is_deleted Int8,
       version UInt64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_person _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', version)
   Order By (team_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[person_distinct_id2]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -3478,24 +3478,24 @@
       person_id UUID,
       is_deleted Int8,
       version Int64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , _partition UInt64
       , INDEX kafka_timestamp_minmax_person_distinct_id2 _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
-
+  
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
-
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[person_distinct_id]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
@@ -3503,19 +3503,19 @@
       team_id Int64,
       _sign Int8 DEFAULT 1,
       is_deleted Int8 ALIAS if(_sign==-1, 1, 0)
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id', '{replica}-{shard}', _sign)
   Order By (team_id, distinct_id, person_id)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[person_distinct_id_overrides]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS person_distinct_id_overrides ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -3523,28 +3523,28 @@
       person_id UUID,
       is_deleted Int8,
       version Int64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
       , INDEX kafka_timestamp_minmax_person_distinct_id_overrides _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id_overrides', '{replica}-{shard}', version)
-
+  
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
-
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[person_overrides]
   '''
-
+  
       CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
       ON CLUSTER 'posthog' (
           team_id INT NOT NULL,
-
+  
           -- When we merge two people `old_person_id` and `override_person_id`, we
           -- want to keep track of a mapping from the `old_person_id` to the
           -- `override_person_id`. This allows us to join with the
@@ -3553,7 +3553,7 @@
           -- `override_person_id`.
           old_person_id UUID NOT NULL,
           override_person_id UUID NOT NULL,
-
+  
           -- The timestamp the merge of the two people was completed.
           merged_at DateTime64(6, 'UTC') NOT NULL,
           -- The timestamp of the oldest event associated with the
@@ -3565,14 +3565,14 @@
           -- JOIN as it will be stored separately with the Wide ClickHouse table
           -- storage.
           created_at DateTime64(6, 'UTC') DEFAULT now(),
-
+  
           -- the specific version of the `old_person_id` mapping. This is used to
           -- allow us to discard old mappings as new ones are added. This version
           -- will be provided by the corresponding PostgreSQL
           --`posthog_personoverrides` table
           version INT NOT NULL
       )
-
+  
       -- By specifying Replacing merge tree on version, we allow ClickHouse to
       -- discard old versions of a `old_person_id` mapping. This should help keep
       -- performance in check as new versions are added. Note that given we can
@@ -3587,43 +3587,43 @@
       -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
       -- for details.
       ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_overrides', '{replica}-{shard}', version)
-
+  
       -- We partition the table by the `oldest_event` column. This allows us to
       -- handle updating the events table partition by partition, progressing each
       -- override partition by partition in lockstep with the events table. Note
       -- that this means it is possible that we have a mapping from
       -- `old_person_id` in multiple partitions during the merge process.
       PARTITION BY toYYYYMM(oldest_event)
-
+  
       -- We want to collapse down on the `old_person_id` such that we end up with
       -- the newest known mapping for it in the table. Query side we will need to
       -- ensure that we are always querying the latest version of the mapping.
       ORDER BY (team_id, old_person_id)
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[person_static_cohort]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
   (
       id UUID,
       person_id UUID,
       cohort_id Int64,
       team_id Int64
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp)
   Order By (team_id, cohort_id, person_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[plugin_log_entries]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
@@ -3635,20 +3635,20 @@
       type VARCHAR,
       message VARCHAR,
       instance_id UUID
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp)
   PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, plugin_id, plugin_config_id, timestamp)
-
+  
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics2]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -3667,22 +3667,22 @@
       metric_kind LowCardinality(String),
       metric_name LowCardinality(String),
       count SimpleAggregateFunction(sum, Int64)
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics2', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name)
-
-
+  
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -3696,21 +3696,21 @@
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -3735,7 +3735,7 @@
       group3_created_at DateTime64,
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
-
+      
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
       , $group_2 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
@@ -3767,25 +3767,25 @@
                   )
                   CODEC(ZSTD(1))
               , INDEX properties_group_feature_flags_keys_bf mapKeys(properties_group_feature_flags) TYPE bloom_filter, INDEX properties_group_feature_flags_values_bf mapValues(properties_group_feature_flags) TYPE bloom_filter
-
-
+  
+      
   , _timestamp DateTime
   , _offset UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
-
+      
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_heatmaps]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_heatmaps ON CLUSTER 'posthog'
   (
       session_id VARCHAR,
@@ -3808,7 +3808,7 @@
       _offset UInt64,
       _partition UInt64
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.heatmaps', '{replica}')
-
+  
       PARTITION BY toYYYYMM(timestamp)
       -- almost always this is being queried by
       --   * type,
@@ -3819,17 +3819,17 @@
       -- we'll almost never query this by session id
       -- so from least to most cardinality that's
       ORDER BY (type, team_id,  toDate(timestamp), current_url, viewport_width)
-
+      
   -- I am purposefully not setting index granularity
   -- the default is 8192, and we will be loading a lot of data
   -- per query, we tend to copy this 512 around the place but
   -- i don't think it applies here
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_ingestion_warnings]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -3837,20 +3837,20 @@
       type VARCHAR,
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_ingestion_warnings', '{replica}')
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_performance_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -3900,40 +3900,40 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
-
+  
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_raw_sessions]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_raw_sessions ON CLUSTER 'posthog'
   (
       team_id Int64,
       session_id_v7 UInt128, -- integer representation of a uuidv7
-
+  
       -- ClickHouse will pick the latest value of distinct_id for the session
       -- this is fine since even if the distinct_id changes during a session
       distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-
+  
       -- urls
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       end_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
       last_external_click_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       -- device
       initial_browser AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_browser_version AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3942,7 +3942,7 @@
       initial_device_type AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_viewport_width AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
       initial_viewport_height AggregateFunction(argMin, Int64, DateTime64(6, 'UTC')),
-
+  
       -- geoip
       -- only store the properties we actually use, as there's tons, see https://posthog.com/docs/cdp/geoip-enrichment
       initial_geoip_country_code AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3950,7 +3950,7 @@
       initial_geoip_subdivision_1_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- attribution
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3971,7 +3971,7 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
       -- double-counted, so the counts were wrong. To get around this, also keep track of the unique uuids. This will be
@@ -3984,17 +3984,17 @@
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_count SimpleAggregateFunction(sum, Int64),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
-
+  
       -- replay
       maybe_has_session_replay SimpleAggregateFunction(max, Bool), -- will be written False to by the events table mv and True to by the replay table mv
-
+  
       -- as a performance optimisation, also keep track of the uniq events for all of these combined, a bounce is a session with <2 of these
       page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
-
+  
       -- web vitals
       vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
-
+  
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
   ORDER BY (
       team_id,
@@ -4003,12 +4003,12 @@
       session_id_v7
   )
   SAMPLE BY cityHash64(session_id_v7)
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_session_recording_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -4020,24 +4020,24 @@
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
       , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_sharded_session_recording_events _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_recording_events', '{replica}', _timestamp)
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-
+  
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_session_replay_events]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_session_replay_events ON CLUSTER 'posthog'
   (
       -- part of order by so will aggregate correctly
@@ -4077,7 +4077,7 @@
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
-
+  
       PARTITION BY toYYYYMM(min_first_timestamp)
       -- order by is used by the aggregating merge tree engine to
       -- identify candidates to merge, e.g. toDate(min_first_timestamp)
@@ -4091,12 +4091,12 @@
       -- hopefully, this is a good balance between the two
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_session_replay_events_v2_test]
   '''
-
+  
       CREATE TABLE IF NOT EXISTS sharded_session_replay_events_v2_test ON CLUSTER 'posthog'
       (
           session_id VARCHAR,
@@ -4108,16 +4108,16 @@
           block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
           block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
       ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events_v2_test', '{replica}')
-
+  
               PARTITION BY toYYYYMM(min_first_timestamp)
               ORDER BY (toDate(min_first_timestamp), team_id, session_id)
               SETTINGS index_granularity=512
-
+          
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_sessions]
   '''
-
+  
   CREATE TABLE IF NOT EXISTS sharded_sessions ON CLUSTER 'posthog'
   (
       -- part of order by so will aggregate correctly
@@ -4128,14 +4128,14 @@
       -- this is fine since even if the distinct_id changes during a session
       -- it will still (or should still) map to the same person
       distinct_id SimpleAggregateFunction(any, String),
-
+  
       min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
       max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-
+  
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
+  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -4155,7 +4155,7 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-
+  
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
       -- duplicate the event count as a specific column for pageviews and autocaptures,
@@ -4163,7 +4163,7 @@
       pageview_count SimpleAggregateFunction(sum, Int64),
       autocapture_count SimpleAggregateFunction(sum, Int64),
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sessions', '{replica}')
-
+  
       PARTITION BY toYYYYMM(min_timestamp)
       -- order by is used by the aggregating merge tree engine to
       -- identify candidates to merge, e.g. toDate(min_timestamp)
@@ -4177,6 +4177,6 @@
       -- hopefully, this is a good balance between the two
       ORDER BY (toStartOfDay(min_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
-
+  
   '''
 # ---
