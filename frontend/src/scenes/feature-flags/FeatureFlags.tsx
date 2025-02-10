@@ -85,7 +85,7 @@ export function OverViewTab({
                 },
             },
         }
-        return urls.insightNew(undefined, undefined, query)
+        return urls.insightNew({ query })
     }
 
     const columns: LemonTableColumns<FeatureFlagType> = [

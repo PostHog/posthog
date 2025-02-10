@@ -14,13 +14,12 @@ import {
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -194,7 +193,7 @@ export function ExploreButton({
             size={size}
             type="primary"
             icon={<IconAreaChart />}
-            to={urls.insightNew(undefined, undefined, query)}
+            to={urls.insightNew({ query })}
             targetBlank
         >
             Explore as Insight
@@ -248,7 +247,7 @@ export function EllipsisAnimation(): JSX.Element {
 export function ExperimentLoadingAnimation(): JSX.Element {
     return (
         <div className="flex flex-col flex-1 justify-center items-center">
-            <Animation type={AnimationType.LaptopHog} />
+            <LoadingBar />
             <div className="text-xs text-secondary w-44">
                 <span className="mr-1">Fetching experiment results</span>
                 <EllipsisAnimation />

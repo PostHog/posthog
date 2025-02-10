@@ -21,10 +21,7 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
         <div className="w-full h-1 rounded-full relative">
             {/* Green segment up to "good" threshold */}
             <div
-                className={clsx(
-                    'absolute h-full rounded-full',
-                    band === 'good' ? 'bg-success' : 'bg-surface-secondary'
-                )}
+                className={clsx('absolute h-full rounded-full', band === 'good' ? 'bg-success' : 'bg-surface-tooltip')}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: `${goodWidth}%` }}
             >
@@ -35,7 +32,7 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
             <div
                 className={clsx(
                     'absolute h-full rounded-full',
-                    band === 'needs_improvements' ? 'bg-warning' : 'bg-surface-secondary'
+                    band === 'needs_improvements' ? 'bg-warning' : 'bg-surface-tooltip'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ left: `${goodWidth + 1}%`, width: `${improvementsWidth - 1}%` }}
@@ -45,7 +42,7 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
 
             {/* Red segment after "poor" threshold */}
             <div
-                className={clsx('absolute h-full rounded-full', band === 'poor' ? 'bg-danger' : 'bg-surface-secondary')}
+                className={clsx('absolute h-full rounded-full', band === 'poor' ? 'bg-danger' : 'bg-surface-tooltip')}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ left: `${goodWidth + improvementsWidth + 1}%`, width: `${poorWidth - 1}%` }}
             >

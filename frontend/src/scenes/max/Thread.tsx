@@ -277,7 +277,7 @@ function VisualizationAnswer({
                       </div>
                       <div className="relative mb-1">
                           <LemonButton
-                              to={urls.insightNew(undefined, undefined, query)}
+                              to={urls.insightNew({ query })}
                               sideIcon={<IconOpenInNew />}
                               size="xsmall"
                               targetBlank
