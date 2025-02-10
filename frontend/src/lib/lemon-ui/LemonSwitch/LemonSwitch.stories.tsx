@@ -53,3 +53,34 @@ Bordered.args = { bordered: true }
 
 export const Disabled: Story = Template.bind({})
 Disabled.args = { disabled: true }
+
+export const Sizes = (): JSX.Element => {
+    return (
+        <table className="table-auto border-collapse border border-gray-200">
+            <tbody>
+                <tr>
+                    <td className="border border-gray-200 p-2">
+                        <LemonSwitch label="xsmall" size="xsmall" />
+                    </td>
+                    <td className="border border-gray-200 p-2">
+                        <LemonSwitch label="small" size="small" />
+                    </td>
+                    <td className="border border-gray-200 p-2">
+                        <LemonSwitch label="medium" size="medium" />
+                    </td>
+                </tr>
+                <tr>
+                    <td className="border border-gray-200 p-2">
+                        <LemonSwitch label="xsmall" size="xsmall" bordered={true} />
+                    </td>
+                    <td className="border border-gray-200 p-2">
+                        <LemonSwitch label="small" size="small" bordered={true} />
+                    </td>
+                    <td className="border border-gray-200 p-2">
+                        <LemonSwitch label="medium" size="medium" bordered={true} />
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    )
+}

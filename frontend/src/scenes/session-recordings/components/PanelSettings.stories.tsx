@@ -1,5 +1,6 @@
 import { SideAction } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { IconReplay } from 'lib/lemon-ui/icons'
 import {
     SettingsBar,
     SettingsBarProps,
@@ -8,14 +9,15 @@ import {
     SettingsToggle,
 } from 'scenes/session-recordings/components/PanelSettings'
 
-type Story = StoryObj<typeof SettingsBar>
-const meta: Meta<typeof SettingsBar> = {
+type StoryProps = SettingsBarProps & { icon?: JSX.Element }
+type Story = StoryObj<StoryProps>
+const meta: Meta<StoryProps> = {
     title: 'Replay/Components/Settings Bar',
     component: SettingsBar,
     tags: ['autodocs'],
 }
 export default meta
-const BasicTemplate: StoryFn<typeof SettingsBar> = (props: SettingsBarProps) => {
+const BasicTemplate: StoryFn<StoryProps> = ({ icon, ...props }) => {
     const buttonSideAction: SideAction = {
         dropdown: {
             overlay: {},
@@ -23,16 +25,39 @@ const BasicTemplate: StoryFn<typeof SettingsBar> = (props: SettingsBarProps) => 
     }
     return (
         <SettingsBar {...props}>
-            <SettingsToggle label="inactive toggle" active={false} />
-            <SettingsToggle label="active toggle" active={true} />
-            <SettingsButton label="inactive button" active={false} />
-            <SettingsButton label="active button" active={true} />
-            <SettingsMenu items={[{ label: 'inactive menu item', active: false, onClick: () => {} }]} label="menu" />
-            <SettingsButton label="inactive button with side action" sideAction={buttonSideAction} active={false} />
-            <SettingsButton label="active button with side action" sideAction={buttonSideAction} active={true} />
+            <SettingsToggle label="inactive toggle" active={false} icon={icon} />
+            <SettingsToggle label="active toggle" active={true} icon={icon} />
+            <SettingsButton label="inactive button" active={false} icon={icon} />
+            <SettingsButton label="active button" active={true} icon={icon} />
+            <SettingsMenu
+                items={[{ label: 'inactive menu item', active: false, onClick: () => {} }]}
+                label="menu"
+                icon={icon}
+            />
+            <SettingsButton
+                label="inactive button with side action"
+                sideAction={buttonSideAction}
+                active={false}
+                icon={icon}
+            />
+            <SettingsButton
+                label="active button with side action"
+                sideAction={buttonSideAction}
+                active={true}
+                icon={icon}
+            />
         </SettingsBar>
     )
 }
 
-export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
+export const Default: Story = {
+    render: BasicTemplate,
+    args: {},
+}
+
+export const WithIcons: Story = {
+    render: BasicTemplate,
+    args: {
+        icon: <IconReplay />,
+    },
+}

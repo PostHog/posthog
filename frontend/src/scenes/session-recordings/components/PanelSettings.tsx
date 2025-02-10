@@ -5,6 +5,7 @@ import {
     LemonButtonWithSideActionProps,
 } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonSwitch, LemonSwitchProps } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropsWithChildren } from 'react'
 
@@ -34,7 +35,7 @@ export function SettingsBar({ children, border, className }: SettingsBarProps): 
     return (
         <div
             className={clsx(
-                'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
+                'flex flex-row w-full overflow-hidden font-light text-xs bg-bg-3000 items-center',
                 className,
                 {
                     'border-b': ['bottom', 'all'].includes(border),
@@ -86,27 +87,46 @@ type SettingsButtonProps = (
     label: JSX.Element | string
 }
 
-type SettingsToggleProps = SettingsButtonProps & {
-    active: boolean
-}
-
-export function SettingsButton(props: SettingsButtonProps): JSX.Element {
-    return <SettingsToggle active={false} {...props} />
-}
-
-export function SettingsToggle({ title, icon, label, active, ...props }: SettingsToggleProps): JSX.Element {
+export function SettingsButton({ title, icon, label, ...props }: SettingsButtonProps): JSX.Element {
     const button = (
-        <LemonButton
-            className="rounded-[0px]"
-            icon={icon}
-            size="xsmall"
-            status={active ? 'danger' : 'default'}
-            {...props}
-        >
+        <LemonButton className="rounded-[0px]" icon={icon} size="xsmall" {...props}>
             {label}
         </LemonButton>
     )
 
     // otherwise the tooltip shows instead of the disabled reason
     return props.disabledReason ? button : <Tooltip title={title}>{button}</Tooltip>
+}
+
+type SettingsToggleProps = Omit<LemonSwitchProps, 'bordered' | 'checked'> & {
+    active: boolean
+    title?: string
+    icon?: JSX.Element | null
+}
+
+export function SettingsToggle({
+    title,
+    icon,
+    label,
+    active,
+    size = 'xsmall',
+    ...props
+}: SettingsToggleProps): JSX.Element {
+    // can we change styling when active or not
+    return (
+        <LemonSwitch
+            label={
+                <div className="flex flex-row items-center space-x-1">
+                    {icon}
+                    {typeof label === 'string' ? <span>{label}</span> : label}
+                </div>
+            }
+            tooltip={title}
+            className="rounded-[0px]"
+            size={size}
+            bordered={false}
+            {...props}
+            checked={active}
+        />
+    )
 }
