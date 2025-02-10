@@ -14,7 +14,6 @@ from posthog.schema import (
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
-    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import BaseTest
@@ -215,15 +214,12 @@ class TestSchemaGeneratorNode(BaseTest):
             AssistantState(
                 messages=[
                     HumanMessage(content="Question 1", id="0"),
-                    RouterMessage(content="trends", id="1"),
                     VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="0", id="2"),
                     AssistantMessage(content="Summary 1", id="3"),
                     HumanMessage(content="Question 2", id="4"),
-                    RouterMessage(content="funnel", id="5"),
                     VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator="4", id="6"),
                     AssistantMessage(content="Summary 2", id="7"),
                     HumanMessage(content="Question 3", id="8"),
-                    RouterMessage(content="funnel", id="9"),
                 ],
                 plan="Plan 3",
                 start_id="8",
@@ -259,15 +255,12 @@ class TestSchemaGeneratorNode(BaseTest):
         state = AssistantState(
             messages=[
                 HumanMessage(content="Question 1", id="0"),
-                RouterMessage(content="trends", id="1"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="0", id="2"),
                 AssistantMessage(content="Summary 1", id="3"),
                 HumanMessage(content="Question 2", id="4"),
-                RouterMessage(content="funnel", id="5"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator="4", id="6"),
                 AssistantMessage(content="Summary 2", id="7"),
                 HumanMessage(content="Question 3", id="8"),
-                RouterMessage(content="funnel", id="9"),
             ],
             plan="Plan 3",
             start_id="8",
@@ -416,6 +409,81 @@ class TestSchemaGeneratorNode(BaseTest):
             AssistantState(messages=[], intermediate_steps=[(AgentAction(tool="", tool_input="", log=""), None)])
         )
         self.assertEqual(state, "tools")
+
+    def test_injects_insight_description(self):
+        node = DummyGeneratorNode(self.team)
+        history = node._construct_messages(
+            AssistantState(
+                messages=[HumanMessage(content="Text", id="0")],
+                start_id="0",
+                root_tool_call_args={"query_description": "Foobar", "query_kind": "trends"},
+            )
+        )
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("group", history[0].content)
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("Foobar", history[1].content)
+        self.assertNotIn("{{question}}", history[1].content)
+
+    def test_injects_insight_description_and_keeps_original_question(self):
+        node = DummyGeneratorNode(self.team)
+        history = node._construct_messages(
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Original question", id="1"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="1", id="2"),
+                    HumanMessage(content="Second question", id="3"),
+                ],
+                start_id="3",
+                root_tool_call_args={"query_description": "Foobar", "query_kind": "trends"},
+            )
+        )
+        self.assertEqual(len(history), 5)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("group", history[0].content)
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("Plan 1", history[1].content)
+        self.assertNotIn("{{question}}", history[1].content)
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Original question", history[2].content)
+        self.assertNotIn("{{question}}", history[2].content)
+        self.assertEqual(history[3].type, "ai")
+        self.assertEqual(history[4].type, "human")
+        self.assertIn("Foobar", history[4].content)
+        self.assertNotIn("{{question}}", history[4].content)
+
+    def test_injects_multiple_insights_from_current_conversation(self):
+        node = DummyGeneratorNode(self.team)
+        history = node._construct_messages(
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Original question", id="1"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="1", id="2"),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator="1", id="3"),
+                    HumanMessage(content="Second question", id="4"),
+                ],
+                start_id="4",
+                root_tool_call_args={"query_description": "Foobar", "query_kind": "trends"},
+            )
+        )
+        self.assertEqual(len(history), 7)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("group", history[0].content)
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("Plan 1", history[1].content)
+        self.assertNotIn("{{question}}", history[1].content)
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Plan 2", history[2].content)
+        self.assertNotIn("{{question}}", history[2].content)
+        self.assertEqual(history[3].type, "human")
+        self.assertIn("Original question", history[3].content)
+        self.assertNotIn("{{question}}", history[3].content)
+        self.assertEqual(history[4].type, "ai")
+        self.assertEqual(history[5].type, "ai")
+        self.assertEqual(history[6].type, "human")
+        self.assertIn("Foobar", history[6].content)
+        self.assertNotIn("{{question}}", history[6].content)
 
 
 class TestSchemaGeneratorToolsNode(BaseTest):

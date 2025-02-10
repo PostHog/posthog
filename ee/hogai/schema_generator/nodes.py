@@ -143,11 +143,11 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         )
         return ET.tostring(root, encoding="unicode")
 
-    def _get_human_viz_message_mapping(self, messages: Sequence[AssistantMessageUnion]) -> dict[str, int]:
-        mapping: dict[str, int] = {}
+    def _get_human_viz_message_mapping(self, messages: Sequence[AssistantMessageUnion]) -> dict[str, set[int]]:
+        mapping: dict[str, set[int]] = {}
         for idx, msg in enumerate(messages):
             if isinstance(msg, VisualizationMessage) and msg.initiator is not None:
-                mapping[msg.initiator] = idx
+                mapping[msg.initiator] = mapping.get(msg.initiator, set()) | {idx}
         return mapping
 
     def _construct_messages(
@@ -179,15 +179,16 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             if message == initiator_message:
                 continue
             if isinstance(message, HumanMessage):
-                if message.id and (viz_message_idx := msg_mapping.get(message.id)):
+                if message.id and (viz_message_indexes := msg_mapping.get(message.id)):
                     # Plans go first.
-                    viz_message = messages[viz_message_idx]
-                    if isinstance(viz_message, VisualizationMessage):
-                        conversation.append(
-                            HumanMessagePromptTemplate.from_template(PLAN_PROMPT, template_format="mustache").format(
-                                plan=viz_message.plan or ""
+                    for viz_message_idx in viz_message_indexes:
+                        viz_message = messages[viz_message_idx]
+                        if isinstance(viz_message, VisualizationMessage):
+                            conversation.append(
+                                HumanMessagePromptTemplate.from_template(
+                                    PLAN_PROMPT, template_format="mustache"
+                                ).format(plan=viz_message.plan or "")
                             )
-                        )
 
                     # Augment with the prompt previous initiator messages.
                     conversation.append(
