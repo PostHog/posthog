@@ -169,14 +169,11 @@ class DeltaTableHelper:
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
     ) -> DeltaTable:
         table_size_mb = data.nbytes / (1024 * 1024)
-        repartitions = int(table_size_mb / 5)
-        if repartitions == 0:
-            repartitions = 1
 
-        self._logger.debug(f"PySpark: table_size_mb = {table_size_mb}. repartitions = {repartitions}")
+        self._logger.debug(f"PySpark: table_size_mb = {table_size_mb}")
 
         data_frame = self._spark.createDataFrame(data.to_pandas(), schema=arrow_to_spark_schema(data))
-        data_frame = data_frame.repartition(repartitions)
+        data_frame = data_frame.coalesce(1)
 
         delta_table = self.get_delta_table()
 
