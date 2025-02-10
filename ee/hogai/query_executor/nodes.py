@@ -41,7 +41,7 @@ from posthog.schema import (
 class QueryExecutorNode(AssistantNode):
     name = AssistantNodeName.QUERY_EXECUTOR
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
         if not isinstance(viz_message, VisualizationMessage):
             raise ValueError("Can only run summarization with a visualization message as the last one in the state")

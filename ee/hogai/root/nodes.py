@@ -86,6 +86,11 @@ class RootNode(AssistantNode):
         ).bind_tools([retrieve_data_for_question], strict=True)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
+        # `assistant` messages must be contiguous with the respective `tool` messages.
+        tool_result_messages = {
+            message.tool_call_id: message for message in state.messages if isinstance(message, AssistantToolCallMessage)
+        }
+
         history: list[BaseMessage] = []
         for message in state.messages:
             if isinstance(message, HumanMessage):
@@ -94,8 +99,16 @@ class RootNode(AssistantNode):
                 history.append(
                     LangchainAIMessage(content=message.content, tool_calls=message.model_dump()["tool_calls"] or [])
                 )
-            elif isinstance(message, AssistantToolCallMessage):
-                history.append(LangchainToolMessage(content=message.content, tool_call_id=message.tool_call_id))
+                for tool_call in message.tool_calls or []:
+                    if tool_call.id in tool_result_messages:
+                        history.append(
+                            LangchainToolMessage(
+                                content=tool_result_messages[tool_call.id].content,
+                                tool_call_id=tool_call.id,
+                                id=str(uuid4()),
+                            )
+                        )
+
         if state.messages and isinstance(state.messages[-1], AssistantMessage):
             history.append(LangchainHumanMessage(content=POST_QUERY_USER_PROMPT))
         return history

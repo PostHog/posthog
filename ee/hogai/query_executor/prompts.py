@@ -8,7 +8,7 @@ Here is the results table of the {query_kind} I created to answer your latest qu
 ```
 
 The current date and time is {utc_datetime_display} UTC, which is {project_datetime_display} in this project's timezone ({project_timezone}).
-It's expected that the data point for the current period can have a drop in value, as data collection is still ongoing for it. I will not point this out.
+It's expected that the data point for the current period can have a drop in value, as data collection is still ongoing for it. Do not point this out.
 """.strip()
 
 TRENDS_EXAMPLE_PROMPT = """
