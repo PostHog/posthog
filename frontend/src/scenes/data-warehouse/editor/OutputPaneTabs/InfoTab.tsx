@@ -1,7 +1,9 @@
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+
+import { DataWarehouseSyncInterval } from '~/types'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
@@ -24,21 +26,37 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                 </div>
                 <div>
                     {isEditingMaterializedView ? (
-                        <div>
-                            {editingView?.last_run_at ? (
-                                `Last run at ${humanFriendlyDetailedTime(editingView.last_run_at)}`
-                            ) : (
-                                <div>
-                                    <span>Materialization scheduled</span>
-                                </div>
-                            )}
-                            <LemonButton
-                                onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
-                                className="mt-2"
-                                type="secondary"
-                            >
-                                Run now
-                            </LemonButton>
+                        <div className="flex justify-between">
+                            <div>
+                                {editingView?.last_run_at ? (
+                                    `Last run at ${humanFriendlyDetailedTime(editingView.last_run_at)}`
+                                ) : (
+                                    <div>
+                                        <span>Materialization scheduled</span>
+                                    </div>
+                                )}
+                                <LemonButton
+                                    onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
+                                    className="mt-2"
+                                    type="secondary"
+                                >
+                                    Run now
+                                </LemonButton>
+                            </div>
+                            <LemonSelect
+                                className="my-1 h-9"
+                                value={editingView?.sync_frequency}
+                                options={[
+                                    { value: '5min' as DataWarehouseSyncInterval, label: '5 mins' },
+                                    { value: '30min' as DataWarehouseSyncInterval, label: '30 mins' },
+                                    { value: '1hour' as DataWarehouseSyncInterval, label: '1 hour' },
+                                    { value: '6hour' as DataWarehouseSyncInterval, label: '6 hours' },
+                                    { value: '12hour' as DataWarehouseSyncInterval, label: '12 hours' },
+                                    { value: '24hour' as DataWarehouseSyncInterval, label: 'Daily' },
+                                    { value: '7day' as DataWarehouseSyncInterval, label: 'Weekly' },
+                                    { value: '30day' as DataWarehouseSyncInterval, label: 'Monthly' },
+                                ]}
+                            />
                         </div>
                     ) : (
                         <div>

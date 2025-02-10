@@ -27,6 +27,7 @@ from posthog.warehouse.models import (
     clean_type,
 )
 import uuid
+from datetime import timedelta
 
 
 logger = structlog.get_logger(__name__)
@@ -35,6 +36,7 @@ logger = structlog.get_logger(__name__)
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
+    sync_frequency = serializers.SerializerMethodField()
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -45,6 +47,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "query",
             "created_by",
             "created_at",
+            "sync_frequency",
             "columns",
             "status",
             "last_run_at",
@@ -72,6 +75,26 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             )
             for field in fields
         ]
+
+    def get_sync_frequency(self, schema: DataWarehouseSavedQuery) -> str:
+        if schema.sync_frequency_interval == timedelta(minutes=5):
+            return "5min"
+        if schema.sync_frequency_interval == timedelta(minutes=30):
+            return "30min"
+        if schema.sync_frequency_interval == timedelta(hours=1):
+            return "1hour"
+        if schema.sync_frequency_interval == timedelta(hours=6):
+            return "6hour"
+        if schema.sync_frequency_interval == timedelta(hours=12):
+            return "12hour"
+        if schema.sync_frequency_interval == timedelta(hours=24):
+            return "24hour"
+        if schema.sync_frequency_interval == timedelta(days=7):
+            return "7day"
+        if schema.sync_frequency_interval == timedelta(days=30):
+            return "30day"
+
+        raise ValueError(f"Frequency interval {schema.sync_frequency_interval} is not supported")
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
