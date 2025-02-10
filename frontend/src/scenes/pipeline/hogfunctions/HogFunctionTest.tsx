@@ -221,25 +221,14 @@ export function HogFunctionTest(): JSX.Element {
                                                     )}
                                                 </LemonField>
                                                 <LemonDivider />
-                                                {type === 'transformation' ? (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={loadSampleGlobals}
-                                                        loading={sampleGlobalsLoading}
-                                                        tooltip="Load a real event from your system to test the transformation."
-                                                    >
-                                                        Fetch real event
-                                                    </LemonButton>
-                                                ) : (
-                                                    <LemonButton
-                                                        fullWidth
-                                                        onClick={loadSampleGlobals}
-                                                        loading={sampleGlobalsLoading}
-                                                        tooltip="Find the last event matching filters, and use it to populate the globals below."
-                                                    >
-                                                        Fetch new event
-                                                    </LemonButton>
-                                                )}
+                                                <LemonButton
+                                                    fullWidth
+                                                    onClick={loadSampleGlobals}
+                                                    loading={sampleGlobalsLoading}
+                                                    tooltip="Find the last event matching filters, and use it to populate the globals below."
+                                                >
+                                                    Fetch new event
+                                                </LemonButton>
                                                 <LemonDivider />
                                                 {savedGlobals.map(({ name, globals }, index) => (
                                                     <div className="flex justify-between w-full" key={index}>
