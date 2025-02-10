@@ -115,7 +115,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <LemonMarkdown
                                         key={substepIndex}
-                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-accent-3000 rounded w-fit"
+                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-primary rounded w-fit"
                                     >
                                         {substep}
                                     </LemonMarkdown>
@@ -157,7 +157,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
         >
             <div
                 className={twMerge(
-                    'border py-2 px-3 rounded-lg bg-bg-light',
+                    'border py-2 px-3 rounded-lg bg-surface-primary',
                     type === 'human' && 'font-medium',
                     boxClassName
                 )}
@@ -277,7 +277,7 @@ function VisualizationAnswer({
                       </div>
                       <div className="relative mb-1">
                           <LemonButton
-                              to={urls.insightNew(undefined, undefined, query)}
+                              to={urls.insightNew({ query })}
                               sideIcon={<IconOpenInNew />}
                               size="xsmall"
                               targetBlank

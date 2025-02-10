@@ -2,6 +2,8 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { Response, trackedFetch } from '~/src/utils/fetch'
 
+import { HogFunctionTemplate } from '../templates/types'
+
 export type LegacyPluginLogger = {
     debug: (...args: any[]) => void
     warn: (...args: any[]) => void
@@ -26,15 +28,13 @@ export type LegacyDestinationPluginMeta = LegacyTransformationPluginMeta & {
 }
 
 export type LegacyDestinationPlugin = {
-    id: string
-    metadata: any
+    template: HogFunctionTemplate
     onEvent(event: ProcessedPluginEvent, meta: LegacyDestinationPluginMeta): Promise<void>
     setupPlugin?: (meta: LegacyDestinationPluginMeta) => Promise<void>
 }
 
 export type LegacyTransformationPlugin = {
-    id: string
-    metadata: any
+    template: HogFunctionTemplate
     processEvent(event: PluginEvent, meta: LegacyTransformationPluginMeta): PluginEvent | undefined | null
     setupPlugin?: (meta: LegacyTransformationPluginMeta) => void
 }

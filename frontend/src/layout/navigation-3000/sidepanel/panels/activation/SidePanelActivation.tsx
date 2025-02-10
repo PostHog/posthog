@@ -46,7 +46,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                         <span className="font-medium text-muted-alt">{completionPercent}%</span>
                     </div>
                 </div>
-                <div className="divide-y divide-muted-alt">
+                <div className="divide-y">
                     {sections
                         .filter((section) => section.visible)
                         .map((section) => (
@@ -70,7 +70,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                                 <IconExpand className="h-5 w-5" />
                             )}
                         </button>
-                        <div className="divide-y divide-muted-alt">
+                        <div className="divide-y">
                             {showHiddenSections &&
                                 sections
                                     .filter((section) => !section.visible)

@@ -8,7 +8,7 @@ import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInpu
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { AccessLevel, AvailableFeature, FeatureFlagType, Resource, RoleType } from '~/types'
+import { AccessControlResourceType, AccessLevel, AvailableFeature, FeatureFlagType, Resource, RoleType } from '~/types'
 
 import { featureFlagPermissionsLogic } from './feature-flags/featureFlagPermissionsLogic'
 import { permissionsLogic } from './settings/organization/Permissions/permissionsLogic'
@@ -55,7 +55,7 @@ export function FeatureFlagPermissions({ featureFlag }: { featureFlag: FeatureFl
         if (!featureFlag.id) {
             return <p>Please save the feature flag before changing the access controls.</p>
         }
-        return <AccessControlPopoutCTA />
+        return <AccessControlPopoutCTA resourceType={AccessControlResourceType.FeatureFlag} />
     }
 
     return (

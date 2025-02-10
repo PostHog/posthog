@@ -21,7 +21,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
     return (
         <div className="flex flex-col space-y-2 pb-2">
             <h1 className="mb-0">{type || level}</h1>
-            {!exceptionWithStack && <div className="text-muted italic">{value}</div>}
+            {!exceptionWithStack && <div className="text-secondary italic">{value}</div>}
             <div className="flex flex-row gap-2 flex-wrap">
                 <TitledSnack
                     type="success"

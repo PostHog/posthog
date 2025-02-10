@@ -4,7 +4,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
-import { template as filterOutPluginTemplate } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
@@ -142,6 +142,56 @@ describe('HogTransformer', () => {
                   "$transformations_succeeded": [
                     "GeoIP (d77e792e-0f35-431b-a983-097534aa4767)",
                   ],
+                }
+            `)
+        })
+
+        it('only allow modifying certain properties', async () => {
+            // Setup the hog function
+            const fn = createHogFunction({
+                type: 'transformation',
+                name: 'Modifier',
+                team_id: teamId,
+                enabled: true,
+                bytecode: [],
+                execution_order: 1,
+                id: 'd77e792e-0f35-431b-a983-097534aa4767',
+                hog: `
+                    let returnEvent := event
+                    returnEvent.distinct_id := 'modified-distinct-id'
+                    returnEvent.event := 'modified-event'
+                    returnEvent.properties.test_property := 'modified-test-value'
+                    returnEvent.something_else := 'should not be allowed'
+                    returnEvent.timestamp := 'should not be allowed'
+                    return returnEvent
+                `,
+            })
+            fn.bytecode = await compileHog(fn.hog)
+            await insertHogFunction(hub.db.postgres, teamId, fn)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event: PluginEvent = createPluginEvent({}, teamId)
+            const result = await hogTransformer.transformEvent(event)
+
+            expect(result.event).toMatchInlineSnapshot(`
+                {
+                  "distinct_id": "modified-distinct-id",
+                  "event": "modified-event",
+                  "ip": "89.160.20.129",
+                  "now": "2024-06-07T12:00:00.000Z",
+                  "properties": {
+                    "$current_url": "https://example.com",
+                    "$ip": "89.160.20.129",
+                    "$transformations_failed": [],
+                    "$transformations_succeeded": [
+                      "Modifier (d77e792e-0f35-431b-a983-097534aa4767)",
+                    ],
+                    "test_property": "modified-test-value",
+                  },
+                  "site_url": "http://localhost",
+                  "team_id": 2,
+                  "timestamp": "2024-01-01T00:00:00Z",
+                  "uuid": "event-id",
                 }
             `)
         })
@@ -556,7 +606,7 @@ describe('HogTransformer', () => {
         beforeEach(async () => {
             const filterOutPlugin = createHogFunction({
                 type: 'transformation',
-                name: filterOutPluginTemplate.name,
+                name: posthogFilterOutPlugin.template.name,
                 template_id: 'plugin-posthog-filter-out-plugin',
                 inputs: {
                     eventsToDrop: {
@@ -565,8 +615,8 @@ describe('HogTransformer', () => {
                 },
                 team_id: teamId,
                 enabled: true,
-                hog: filterOutPluginTemplate.hog,
-                inputs_schema: filterOutPluginTemplate.inputs_schema,
+                hog: posthogFilterOutPlugin.template.hog,
+                inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
                 id: 'c342e9ae-9f76-4379-a465-d33b4826bc05',
             })
 

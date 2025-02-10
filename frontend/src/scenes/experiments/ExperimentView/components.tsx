@@ -14,13 +14,12 @@ import {
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -94,7 +93,7 @@ export function VariantTag({
                 }}
             />
             <span
-                className={`ml-2 font-semibold truncate ${muted ? 'text-[var(--text-secondary-3000)]' : ''}`}
+                className={`ml-2 font-semibold truncate ${muted ? 'text-[var(--text-tertiary)]' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -194,7 +193,7 @@ export function ExploreButton({
             size={size}
             type="primary"
             icon={<IconAreaChart />}
-            to={urls.insightNew(undefined, undefined, query)}
+            to={urls.insightNew({ query })}
             targetBlank
         >
             Explore as Insight
@@ -248,8 +247,8 @@ export function EllipsisAnimation(): JSX.Element {
 export function ExperimentLoadingAnimation(): JSX.Element {
     return (
         <div className="flex flex-col flex-1 justify-center items-center">
-            <Animation type={AnimationType.LaptopHog} />
-            <div className="text-xs text-muted w-44">
+            <LoadingBar />
+            <div className="text-xs text-secondary w-44">
                 <span className="mr-1">Fetching experiment results</span>
                 <EllipsisAnimation />
             </div>
@@ -336,7 +335,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Stop this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-secondary">
                                                     This action will end data collection. The experiment can be
                                                     restarted later if needed.
                                                 </div>
@@ -366,7 +365,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Archive this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-secondary">
                                                     This action will move the experiment to the archived tab. It can be
                                                     restored at any time.
                                                 </div>
@@ -499,11 +498,11 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
             title: 'Reset this experiment?',
             content: (
                 <>
-                    <div className="text-sm text-muted">
+                    <div className="text-sm text-secondary">
                         All data collected so far will be discarded and the experiment will go back to draft mode.
                     </div>
                     {experiment.archived && (
-                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                        <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
                     )}
                 </>
             ),

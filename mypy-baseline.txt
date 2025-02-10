@@ -184,7 +184,6 @@ posthog/hogql/resolver.py:0: error: Item "None" of "SelectQuery | SelectSetQuery
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Type | Any | None", variable has type "BaseTableType | SelectSetQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType | None")  [assignment]
 posthog/hogql/resolver.py:0: error: Argument 1 to "append" of "list" has incompatible type "BaseTableType | SelectSetQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType | None"; expected "SelectQueryType | SelectSetQueryType"  [arg-type]
 posthog/hogql/resolver.py:0: error: Statement is unreachable  [unreachable]
-posthog/hogql/resolver.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
 posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]
 posthog/hogql/resolver.py:0: error: Item "None" of "Type | None" has no attribute "resolve_constant_type"  [union-attr]

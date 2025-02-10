@@ -128,7 +128,8 @@ export class ReplayEventsIngester {
                 event.distinct_id,
                 event.session_id,
                 rrwebEvents,
-                event.snapshot_source
+                event.snapshot_source,
+                event.snapshot_library
             )
 
             try {

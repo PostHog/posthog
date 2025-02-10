@@ -6,7 +6,7 @@ use sha2::{Digest, Sha512};
 
 use crate::{
     error::UnhandledError,
-    langs::{js::RawJSFrame, python::RawPythonFrame},
+    langs::{js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
     metric_consts::PER_FRAME_TIME,
     symbol_store::Catalog,
 };
@@ -22,7 +22,9 @@ pub enum RawFrame {
     #[serde(rename = "python")]
     Python(RawPythonFrame),
     #[serde(rename = "web:javascript")]
-    JavaScript(RawJSFrame),
+    JavaScriptWeb(RawJSFrame),
+    #[serde(rename = "node:javascript")]
+    JavaScriptNode(RawNodeFrame),
     // TODO - remove once we're happy no clients are using this anymore
     #[serde(rename = "javascript")]
     LegacyJS(RawJSFrame),
@@ -32,10 +34,10 @@ impl RawFrame {
     pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
-            RawFrame::JavaScript(frame) | RawFrame::LegacyJS(frame) => {
+            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
-
+            RawFrame::JavaScriptNode(frame) => (Ok(frame.into()), "javascript"),
             RawFrame::Python(frame) => (Ok(frame.into()), "python"),
         };
 
@@ -58,16 +60,18 @@ impl RawFrame {
 
     pub fn symbol_set_ref(&self) -> Option<String> {
         match self {
-            RawFrame::JavaScript(frame) | RawFrame::LegacyJS(frame) => {
+            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
                 frame.source_url().map(String::from).ok()
             }
-            RawFrame::Python(_) => None, // Python frames don't have symbol sets
+            RawFrame::JavaScriptNode(_) => None, // Python frames don't have symbol sets
+            RawFrame::Python(_) => None,         // Python frames don't have symbol sets
         }
     }
 
     pub fn frame_id(&self) -> String {
         match self {
-            RawFrame::JavaScript(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
+            RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
+            RawFrame::JavaScriptNode(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
         }
     }

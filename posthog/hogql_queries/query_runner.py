@@ -7,8 +7,9 @@ from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_
 import structlog
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
-from sentry_sdk import capture_exception, get_traceparent, push_scope, set_tag
+from sentry_sdk import get_traceparent, push_scope, set_tag
 
+from posthog.exceptions_capture import capture_exception
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries

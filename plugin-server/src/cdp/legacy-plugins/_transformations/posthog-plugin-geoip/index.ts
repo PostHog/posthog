@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 const props = {
     city_name: null,
@@ -112,10 +111,4 @@ export const processEvent = (event: PluginEvent, { geoip }: LegacyTransformation
         }
     }
     return event
-}
-
-export const posthogPluginGeoip: LegacyTransformationPlugin = {
-    id: 'posthog-plugin-geoip',
-    metadata,
-    processEvent,
 }

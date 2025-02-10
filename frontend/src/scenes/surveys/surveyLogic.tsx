@@ -1216,7 +1216,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     },
                 }
 
-                return urls.insightNew(undefined, undefined, query)
+                return urls.insightNew({ query })
             },
         ],
     }),

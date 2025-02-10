@@ -66,12 +66,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     const teamCreatedAt = dayjs(currentTeam.created_at)
 
                     // Remove cutoff date condition after 2025-03-07
-                    if (teamCreatedAt.diff(dayjs(), 'day') < -1 && teamCreatedAt.isAfter(dayjs('2025-02-02'))) {
+                    if (dayjs().diff(teamCreatedAt, 'day') < 30 && teamCreatedAt.isAfter(dayjs('2025-02-02'))) {
                         tabs.push(SidePanelTab.Activation)
                     }
                 }
-
-                tabs.push(SidePanelTab.Activity)
 
                 if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)

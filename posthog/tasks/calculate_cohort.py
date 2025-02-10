@@ -10,10 +10,11 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import F, ExpressionWrapper, DurationField, Q
 from django.utils import timezone
 from prometheus_client import Gauge
-from sentry_sdk import capture_exception, set_tag
+from sentry_sdk import set_tag
 
 from datetime import timedelta
 
+from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
 from posthog.models.cohort import get_and_update_pending_version

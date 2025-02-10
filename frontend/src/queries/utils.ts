@@ -356,6 +356,13 @@ export const getYAxisScaleType = (query: InsightQueryNode): string | undefined =
     return undefined
 }
 
+export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showMultipleYAxes
+    }
+    return undefined
+}
+
 export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.resultCustomizationBy
