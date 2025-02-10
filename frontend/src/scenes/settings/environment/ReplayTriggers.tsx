@@ -40,7 +40,7 @@ function UrlConfigForm({
             className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-surface-primary gap-2"
         >
             <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
-                <AiRegexHelper />
+                <AiRegexHelper type={type} />
             </FlaggedFeature>
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
