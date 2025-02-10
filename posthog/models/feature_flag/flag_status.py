@@ -40,13 +40,13 @@ class FeatureFlagStatusChecker:
         self.stale_window = stale_window
 
     def get_status(self) -> tuple[FeatureFlagStatus, FeatureFlagStatusReason]:
-        flag = self.feature_flag
+        if not self.feature_flag_id and not self.feature_flag:
+            return FeatureFlagStatus.UNKNOWN, "Must provide feature flag or feature flag id"
 
-        if flag is None and self.feature_flag_id is not None:
-            try:
-                flag = FeatureFlag.objects.get(pk=self.feature_flag_id)
-            except FeatureFlag.DoesNotExist:
-                return FeatureFlagStatus.UNKNOWN, "Flag could not be found"
+        try:
+            flag = FeatureFlag.objects.get(pk=self.feature_flag_id) if self.feature_flag_id else self.feature_flag
+        except FeatureFlag.DoesNotExist:
+            return FeatureFlagStatus.UNKNOWN, "Flag could not be found"
 
         if flag.deleted:
             return FeatureFlagStatus.DELETED, "Flag has been deleted"
