@@ -7,14 +7,14 @@ import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/le
 import { useActions, useValues } from 'kea'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { AiConsentPopover } from '../AiConsentPopover'
 import { aiRegexHelperLogic } from './aiRegexHelperLogic'
 
 export function AiRegexHelper({ type }: { type: 'trigger' | 'blocklist' }): JSX.Element {
-    const logic = aiRegexHelperLogic()
-    const { isOpen, input, generatedRegex, error, isLoading } = useValues(logic)
-    const { setInput, handleGenerateRegex, handleApplyRegex, onClose, handleCopyToClipboard } = useActions(logic)
+    const { isOpen, input, generatedRegex, error, isLoading } = useValues(aiRegexHelperLogic)
+    const { setInput, handleGenerateRegex, handleApplyRegex, onClose, handleCopyToClipboard } =
+        useActions(aiRegexHelperLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
 
     const { preflight } = useValues(preflightLogic)
@@ -32,32 +32,34 @@ export function AiRegexHelper({ type }: { type: 'trigger' | 'blocklist' }): JSX.
                     value={input}
                     onChange={(value) => setInput(value)}
                 />
-                <AiConsentPopover />
                 <div className="flex justify-end mt-2 gap-2">
                     {!generatedRegex && (
                         <LemonButton type="secondary" onClick={onClose} tooltip="Close">
                             Cancel
                         </LemonButton>
                     )}
-                    <LemonButton
-                        type={generatedRegex ? 'secondary' : 'primary'}
-                        onClick={handleGenerateRegex}
-                        disabledReason={
-                            !aiAvailable
-                                ? 'To use AI features, set environment variable OPENAI_API_KEY for this instance of PostHog'
-                                : !dataProcessingAccepted
-                                ? dataProcessingApprovalDisabledReason ||
-                                  'You must accept the data processing agreement to use AI features'
-                                : isLoading
-                                ? 'Generating...'
-                                : !input.length
-                                ? 'Provide a prompt first'
-                                : null
-                        }
-                        loading={isLoading}
-                    >
-                        {generatedRegex ? 'Regenerate' : 'Generate Regex'}
-                    </LemonButton>
+
+                    <AIConsentPopoverWrapper>
+                        <LemonButton
+                            type={generatedRegex ? 'secondary' : 'primary'}
+                            onClick={handleGenerateRegex}
+                            disabledReason={
+                                !aiAvailable
+                                    ? 'To use AI features, set environment variable OPENAI_API_KEY for this instance of PostHog'
+                                    : !dataProcessingAccepted
+                                    ? dataProcessingApprovalDisabledReason ||
+                                      'You must accept the data processing agreement to use AI features'
+                                    : isLoading
+                                    ? 'Generating...'
+                                    : !input.length
+                                    ? 'Provide a prompt first'
+                                    : null
+                            }
+                            loading={isLoading}
+                        >
+                            {generatedRegex ? 'Regenerate' : 'Generate Regex'}
+                        </LemonButton>
+                    </AIConsentPopoverWrapper>
                 </div>
                 {generatedRegex && (
                     <div className="mt-2">
