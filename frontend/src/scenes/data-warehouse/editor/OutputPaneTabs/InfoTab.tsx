@@ -2,6 +2,7 @@ import { LemonButton, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { DataWarehouseSyncInterval } from '~/types'
 
@@ -16,6 +17,8 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
     const { editingView, isEditingMaterializedView } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery } = useActions(multitabEditorLogic)
+    const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
+    const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
     return (
         <div className="flex flex-col flex-1 m-4 gap-4">
@@ -45,7 +48,20 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                             </div>
                             <LemonSelect
                                 className="my-1 h-9"
-                                value={editingView?.sync_frequency}
+                                value={
+                                    editingView
+                                        ? dataWarehouseSavedQueryMapById[editingView.id]?.sync_frequency
+                                        : '24hour'
+                                }
+                                onChange={(newValue) => {
+                                    if (editingView && newValue) {
+                                        updateDataWarehouseSavedQuery({
+                                            id: editingView.id,
+                                            sync_frequency: newValue,
+                                            types: [[]],
+                                        })
+                                    }
+                                }}
                                 options={[
                                     { value: '5min' as DataWarehouseSyncInterval, label: '5 mins' },
                                     { value: '30min' as DataWarehouseSyncInterval, label: '30 mins' },

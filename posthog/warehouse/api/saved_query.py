@@ -26,6 +26,9 @@ from posthog.warehouse.models import (
     DataWarehouseSavedQuery,
     clean_type,
 )
+from posthog.warehouse.models.external_data_schema import (
+    sync_frequency_to_sync_frequency_interval,
+)
 import uuid
 from datetime import timedelta
 
@@ -135,6 +138,11 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        sync_frequency = self.context["request"].data.get("sync_frequency", None)
+        if sync_frequency:
+            sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
+            validated_data["sync_frequency_interval"] = sync_frequency_interval
+
         with transaction.atomic():
             view: DataWarehouseSavedQuery = super().update(instance, validated_data)
 
