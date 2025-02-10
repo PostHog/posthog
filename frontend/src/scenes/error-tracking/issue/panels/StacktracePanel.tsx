@@ -30,7 +30,10 @@ const Header = ({ active }: { active: boolean }): JSX.Element => {
             <span>Stack trace</span>
             {active && hasAnyInApp ? (
                 <LemonSegmentedButton
-                    onChange={(value) => setShowAllFrames(value === 'full')}
+                    onChange={(value, e) => {
+                        setShowAllFrames(value === 'full')
+                        e.stopPropagation()
+                    }}
                     value={showAllFrames ? 'full' : 'in-app'}
                     options={[
                         {

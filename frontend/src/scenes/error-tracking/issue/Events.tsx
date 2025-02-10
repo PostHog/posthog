@@ -1,7 +1,7 @@
 import { LemonCollapse, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import PanelLayout, { SettingsButton } from 'lib/components/PanelLayout/PanelLayout'
-import { useState } from 'react'
+import React, { useState } from 'react'
 
 import { errorTrackingIssueSceneLogic, EventsMode } from '../errorTrackingIssueSceneLogic'
 import { getExceptionAttributes, hasStacktrace } from '../utils'
