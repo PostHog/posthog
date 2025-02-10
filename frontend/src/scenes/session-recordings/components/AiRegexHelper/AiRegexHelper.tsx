@@ -30,9 +30,11 @@ export function AiRegexHelper({ type }: { type: 'trigger' | 'blocklist' }): JSX.
                 />
                 <AiConsentPopover />
                 <div className="flex justify-end mt-2 gap-2">
-                    <LemonButton type="secondary" onClick={onClose} tooltip="Close">
-                        Cancel
-                    </LemonButton>
+                    {!generatedRegex && (
+                        <LemonButton type="secondary" onClick={onClose} tooltip="Close">
+                            Cancel
+                        </LemonButton>
+                    )}
                     <LemonButton
                         type={generatedRegex ? 'secondary' : 'primary'}
                         onClick={handleGenerateRegex}
@@ -45,15 +47,22 @@ export function AiRegexHelper({ type }: { type: 'trigger' | 'blocklist' }): JSX.
                 {generatedRegex && (
                     <div className="mt-2">
                         <h3 className="text-sm font-bold">Your regex is:</h3>
-                        <LemonBanner type="info">{generatedRegex}</LemonBanner>
+                        <div className="flex flex-row gap-2 justify-between items-center">
+                            <LemonBanner type="info" className="w-full">
+                                {generatedRegex}
+                            </LemonBanner>
+                            <div>
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={handleCopyToClipboard}
+                                    tooltip="Copy to clipboard"
+                                    icon={<IconCopy />}
+                                />
+                            </div>
+                        </div>
                         <div className="flex flex-row gap-2 justify-end mt-2">
-                            <LemonButton
-                                type="secondary"
-                                onClick={handleCopyToClipboard}
-                                tooltip="Copy to clipboard"
-                                icon={<IconCopy />}
-                            >
-                                Copy to clipboard
+                            <LemonButton type="secondary" onClick={onClose} tooltip="Close">
+                                Cancel
                             </LemonButton>
                             <LemonButton
                                 type="primary"
