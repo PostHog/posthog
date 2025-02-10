@@ -58,7 +58,7 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                                                                 </>
                                                             ) : (
                                                                 <>
-                                                                    <strong className="text-primary">
+                                                                    <strong className="text-accent-primary">
                                                                         <IconAIText />
                                                                         Max AI:
                                                                     </strong>{' '}
