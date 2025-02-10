@@ -2,19 +2,21 @@ import {
     IconGraph,
     IconHome,
     IconMessage,
+    IconNotebook,
     IconRocket,
     IconShieldPeople,
     IconTarget,
     IconTestTube,
     IconToggle,
 } from '@posthog/icons'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 
@@ -56,12 +58,6 @@ const treeData: TreeDataItem[] = [
                 onClick: () => router.actions.push(urls.featureFlag('new')),
             },
             {
-                id: 'ssc_3d4e5j',
-                name: 'Hog Repl',
-                icon: <IconTarget />,
-                onClick: () => router.actions.push(urls.debugHog() + '#repl=[]&code='),
-            },
-            {
                 id: 'ob2_q5r6s4',
                 name: 'Insights',
                 children: [
@@ -90,6 +86,18 @@ const treeData: TreeDataItem[] = [
                         onClick: () => router.actions.push(urls.insightNew({ type: InsightType.LIFECYCLE })),
                     },
                 ],
+            },
+            {
+                id: 'ssc_3d4e5jb',
+                name: 'Notebook',
+                icon: <IconNotebook />,
+                onClick: () => router.actions.push(urls.notebook('new')),
+            },
+            {
+                id: 'ssc_3d4e5j',
+                name: 'Repl',
+                icon: <IconTarget />,
+                onClick: () => router.actions.push(urls.debugHog() + '#repl=[]&code='),
             },
             {
                 id: 'ssc_3d4e53r',
@@ -168,38 +176,47 @@ export const treeViewLogic = kea<treeViewLogicType>([
             ['experiments'],
             dashboardsLogic,
             ['dashboards'],
+            notebooksTableLogic,
+            ['notebooks'],
         ],
+        actions: [notebooksTableLogic, ['loadNotebooks']],
     })),
     actions({ setTreeData: (treeData: TreeDataItem[]) => ({ treeData }) }),
     reducers({ treeData: [treeData, { setTreeData: (_, { treeData }) => treeData }] }),
     selectors({
         unfilled: [
-            (s) => [s.featureFlags, s.insights, s.experiments, s.dashboards],
-            (featureFlags, insights, experiments, dashboards): TreeDataItem[] => {
+            (s) => [s.featureFlags, s.insights, s.experiments, s.dashboards, s.notebooks],
+            (featureFlags, insights, experiments, dashboards, notebooks): TreeDataItem[] => {
                 return [
                     ...featureFlags.results.map((f) => ({
                         id: `ff_${f.id}`,
-                        name: f.name,
+                        name: f.name || 'Untitled',
                         icon: <IconToggle />,
                         onClick: () => router.actions.push(urls.featureFlag(Number(f.id))),
                     })),
                     ...insights.results.map((i) => ({
                         id: `insight_${i.id}`,
-                        name: i.name,
+                        name: i.name || 'Untitled',
                         icon: <IconGraph />,
                         onClick: () => router.actions.push(urls.insightView(i.short_id)),
                     })),
                     ...experiments.map((e) => ({
                         id: `exp_${e.id}`,
-                        name: e.name,
+                        name: e.name || 'Untitled',
                         icon: <IconTestTube />,
                         onClick: () => router.actions.push(urls.experiment(e.id)),
                     })),
                     ...dashboards.map((d) => ({
                         id: `dash_${d.id}`,
-                        name: d.name,
+                        name: d.name || 'Untitled',
                         icon: <IconGraph />,
                         onClick: () => router.actions.push(urls.dashboard(d.id)),
+                    })),
+                    ...notebooks.map((n) => ({
+                        id: `nb_${n.id}`,
+                        name: n.title || 'Untitled',
+                        icon: <IconNotebook />,
+                        onClick: () => router.actions.push(urls.notebook(n.short_id)),
                     })),
                 ].sort((a, b) => a.name.localeCompare(b.name))
             },
@@ -217,4 +234,7 @@ export const treeViewLogic = kea<treeViewLogicType>([
             ])
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadNotebooks()
+    }),
 ])
