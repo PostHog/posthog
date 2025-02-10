@@ -27,6 +27,7 @@ import { OnboardingDashboardTemplateConfigureStep } from './productAnalyticsStep
 import { OnboardingDashboardTemplateSelectStep } from './productAnalyticsSteps/DashboardTemplateSelectStep'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
+import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SDKs } from './sdks/SDKs'
 import { sdksLogic } from './sdks/sdksLogic'
@@ -189,7 +190,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 
     return (
         <OnboardingWrapper>
-            <SDKs
+            <OnboardingInstallStep
                 usersAction="collecting events"
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
