@@ -146,7 +146,7 @@ export function onEvent({ inputs }) {
         HogFunctionMappingTemplate(
             name="Purchase",
             include_by_default=True,
-            filters={"events": [{"id": "Purchase", "name": "Purchase", "type": "events"}]},
+            filters={"events": [{"id": "Order Completed", "name": "Purchase", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -208,21 +208,21 @@ export function onEvent({ inputs }) {
                 *common_inputs,
             ],
         ),
-        HogFunctionMappingTemplate(
-            name="name",
-            include_by_default=True,
-            filters={"events": [{"id": "e.id", "name": "e.name", "type": "events"}]},
-            inputs_schema=[
-                {
-                    "key": "eventType",
-                    "type": "string",
-                    "label": "Event Type",
-                    "description": "Check out this page for possible event types: https://business.reddithelp.com/s/article/manual-conversion-events-with-the-reddit-pixel",
-                    "default": "default",
-                    "required": True,
-                },
-                *common_inputs,
-            ],
-        ),
+        # HogFunctionMappingTemplate(
+        #     name="name",
+        #     include_by_default=True,
+        #     filters={"events": [{"id": "e.id", "name": "e.name", "type": "events"}]},
+        #     inputs_schema=[
+        #         {
+        #             "key": "eventType",
+        #             "type": "string",
+        #             "label": "Event Type",
+        #             "description": "Check out this page for possible event types: https://business.reddithelp.com/s/article/manual-conversion-events-with-the-reddit-pixel",
+        #             "default": "default",
+        #             "required": True,
+        #         },
+        #         *common_inputs,
+        #     ],
+        # ),
     ],
 )
