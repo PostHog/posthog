@@ -466,11 +466,6 @@
     --color-graph-axis: var(--text-secondary); /* Line around a graph */
     --color-graph-crosshair: var(--primitive-neutral-cool-450); /* Crosshair line, horizontal or vertical */
 
-    // These are not used anywhere
-    --color-graph-tooltip-background: var(--bg-surface-tooltip-inverse); /* Background of a tooltip */
-    --color-graph-tooltip-title: var(--text-primary); /* Title of a tooltip */
-    --color-graph-tooltip-body: var(--bg-surface-tooltip-inverse); /* Body of a tooltip */
-
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
     --breakpoint-sm: 576px;
