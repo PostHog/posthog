@@ -54,10 +54,10 @@ function UrlConfigForm({
                 <div>
                     <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
                         <AiRegexHelper
-                            onApply={(generatedRegex) => {
+                            onApply={(regex) => {
                                 try {
                                     const payload: SessionReplayUrlTriggerConfig = {
-                                        url: generatedRegex,
+                                        url: regex,
                                         matching: 'regex',
                                     }
                                     if (type === 'trigger') {

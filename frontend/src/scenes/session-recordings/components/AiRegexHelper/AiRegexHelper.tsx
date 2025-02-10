@@ -88,6 +88,10 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 onClick={() => {
+                                    posthog.capture('path_cleaning_regex_ai_applied', {
+                                        prompt: input,
+                                        regex: generatedRegex,
+                                    })
                                     onApply(generatedRegex)
                                     onClose()
                                 }}
@@ -121,6 +125,7 @@ export function AiRegexHelperButton(): JSX.Element {
         <AIConsentPopoverWrapper showArrow>
             <LemonButton
                 type="tertiary"
+                size="small"
                 icon={<IconAI />}
                 onClick={() => {
                     setIsOpen(true)
