@@ -1,4 +1,4 @@
-from ee.hogai.utils.helpers import filter_messages
+from ee.hogai.utils.helpers import filter_and_merge_messages
 from posthog.schema import (
     AssistantMessage,
     AssistantTrendsQuery,
@@ -20,7 +20,7 @@ class TestTrendsUtils(BaseTest):
             HumanMessage(content="Text2"),
             VisualizationMessage(answer=None, plan="plan"),
         ]
-        messages = filter_messages(conversation)
+        messages = filter_and_merge_messages(conversation)
         self.assertEqual(len(messages), 4)
         self.assertEqual(
             [
@@ -33,7 +33,7 @@ class TestTrendsUtils(BaseTest):
         )
 
     def test_filters_typical_conversation(self):
-        messages = filter_messages(
+        messages = filter_and_merge_messages(
             [
                 HumanMessage(content="Question 1"),
                 RouterMessage(content="trends"),
@@ -59,7 +59,7 @@ class TestTrendsUtils(BaseTest):
         )
 
     def test_joins_human_messages(self):
-        messages = filter_messages(
+        messages = filter_and_merge_messages(
             [
                 HumanMessage(content="Question 1"),
                 HumanMessage(content="Question 2"),

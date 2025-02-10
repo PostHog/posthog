@@ -39,7 +39,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils.helpers import filter_messages, remove_line_breaks, slice_messages_to_conversation_start
+from ee.hogai.utils.helpers import filter_and_merge_messages, remove_line_breaks, slice_messages_to_conversation_start
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -204,8 +204,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
         start_id = state.start_id
-        filtered_messages = filter_messages(slice_messages_to_conversation_start(state.messages, start_id))
-        human_messages = filter_messages(filtered_messages, (HumanMessage,))
+        filtered_messages = filter_and_merge_messages(slice_messages_to_conversation_start(state.messages, start_id))
+        human_messages = [message for message in filtered_messages if isinstance(message, HumanMessage)]
         conversation = []
 
         for idx, message in enumerate(filtered_messages):

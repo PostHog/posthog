@@ -36,7 +36,7 @@ from ee.hogai.memory.prompts import (
     SCRAPING_VERIFICATION_MESSAGE,
     TOOL_CALL_ERROR_PROMPT,
 )
-from ee.hogai.utils.helpers import filter_messages, find_last_message_of_type
+from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -325,7 +325,7 @@ class MemoryCollectorNode(AssistantNode):
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []
 
-        filtered_messages = filter_messages(
+        filtered_messages = filter_and_merge_messages(
             state.messages, entity_filter=(HumanMessage, AssistantMessage, VisualizationMessage)
         )
         conversation: list[BaseMessage] = []
