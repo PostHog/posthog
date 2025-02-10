@@ -2252,13 +2252,6 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
             # Set up the mock to return our async iterator
             self.mock_client.astream_query_as_arrow.return_value = self._create_record_batch_iterator()
 
-        def expect_query_string(self, expected_query_string: str) -> None:
-            """Assert that the executed query contains the expected string."""
-            assert self.mock_client.astream_query_as_arrow.call_count == 1
-            call_args = self.mock_client.astream_query_as_arrow.call_args
-            query = call_args[0][0]  # First positional argument of the first call
-            assert expected_query_string in query
-
         def expect_select_from_table(self, table_name: str) -> None:
             """Assert that the executed query selects from the expected table.
 
