@@ -27,7 +27,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
         full: true,
     }
 
-    const insightUrl = urls.insightNew(InsightType.SQL, null, dataTableNode)
+    const insightUrl = urls.insightNew({ type: InsightType.SQL, query: dataTableNode })
 
     const canvasContent = {
         type: 'doc',

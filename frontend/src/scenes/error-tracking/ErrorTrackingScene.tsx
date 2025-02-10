@@ -8,6 +8,7 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
+import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -209,7 +210,7 @@ const Header = (): JSX.Element => {
                     {user?.is_staff ? (
                         <LemonButton
                             onClick={() => {
-                                throw Error('Oh my!')
+                                posthog.captureException(new Error('Oh my!'))
                             }}
                         >
                             Send an exception

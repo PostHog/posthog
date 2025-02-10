@@ -194,7 +194,7 @@ export function ExploreButton({
             size={size}
             type="primary"
             icon={<IconAreaChart />}
-            to={urls.insightNew(undefined, undefined, query)}
+            to={urls.insightNew({ query })}
             targetBlank
         >
             Explore as Insight

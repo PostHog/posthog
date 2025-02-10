@@ -75,7 +75,12 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
 
             teams_cache[plugin_config["team_id"]] = team
 
-            serializer_context = {"team": team, "get_team": (lambda t=team: t), "bypass_addon_check": True}
+            serializer_context = {
+                "team": team,
+                "get_team": (lambda t=team: t),
+                "bypass_addon_check": True,
+                "is_create": True,
+            }
 
             icon_url = (
                 plugin_config["plugin__icon"] or f"https://raw.githubusercontent.com/PostHog/{plugin_id}/main/logo.png"
@@ -177,6 +182,7 @@ def migrate_legacy_plugins(
         raise ValueError(f"Invalid kind: {kind}")
 
     if team_ids:
+        team_ids = [int(id) for id in team_ids.split(",")]
         legacy_plugins = legacy_plugins.filter(team_id__in=team_ids)
 
     if limit:

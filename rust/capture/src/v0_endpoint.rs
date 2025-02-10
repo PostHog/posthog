@@ -116,6 +116,7 @@ async fn handle_common(
         now: state.timesource.current_time(),
         client_ip: ip.to_string(),
         historical_migration,
+        user_agent: Some(user_agent.to_string()),
     };
 
     let billing_limited = state
@@ -365,6 +366,13 @@ pub async fn process_replay_events<'a>(
     let is_cookieless_mode = events[0]
         .extract_is_cookieless_mode()
         .ok_or(CaptureError::InvalidCookielessMode)?;
+    let snapshot_library = events[0]
+        .properties
+        .remove("$lib")
+        .and_then(|v| v.as_str().map(|v| v.to_string()))
+        // missing lib could be one of multiple libraries, so we try to fall back to user agent
+        .or_else(|| snapshot_library_fallback_from(context.user_agent.as_ref()))
+        .unwrap_or_else(|| String::from("unknown"));
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events {
@@ -406,6 +414,7 @@ pub async fn process_replay_events<'a>(
                 "$window_id": window_id,
                 "$snapshot_source": snapshot_source,
                 "$snapshot_items": snapshot_items,
+                "$lib": snapshot_library,
             }
         })
         .to_string(),
@@ -416,4 +425,13 @@ pub async fn process_replay_events<'a>(
     };
 
     sink.send(ProcessedEvent { metadata, event }).await
+}
+
+fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String> {
+    user_agent?
+        .split('/')
+        .next()
+        .map(|s| s.to_string())
+        .filter(|s| s.contains("posthog"))
+        .or(Some("web".to_string()))
 }
