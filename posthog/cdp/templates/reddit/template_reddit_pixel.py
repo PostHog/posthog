@@ -43,13 +43,30 @@ export function onLoad({ inputs }) {
     rdt('init', inputs.pixelId, userProperties);
 }
 export function onEvent({ inputs }) {
+    const builtInEvents = [
+        'PageVisit',
+        'Search',
+        'AddToCart',
+        'AddToWishlist',
+        'Purchase',
+        'ViewContent',
+        'Lead',
+        'SignUp',
+    ];
     let eventProperties = {};
     for (const [key, value] of Object.entries(inputs.eventProperties)) {
         if (value) {
             eventProperties[key] = value;
         }
     };
-    rdt('track', inputs.eventType, eventProperties);
+    if (builtInEvents.includes(inputs.eventType)) {
+        rdt('track', inputs.eventType, eventProperties);
+    } else {
+        rdt('track', 'Custom', {
+            customEventName: inputs.eventType,
+            ...eventProperties,
+        });
+    }
 }
 """.strip(),
     inputs_schema=[
