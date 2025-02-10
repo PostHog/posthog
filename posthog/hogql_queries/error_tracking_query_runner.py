@@ -214,6 +214,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         | {
                             "first_seen": result_dict.get("first_seen"),
                             "last_seen": result_dict.get("last_seen"),
+                            "earliest": result_dict.get("earliest") if self.query.issueId else None,
                             "aggregations": self.extract_aggregations(result_dict),
                         }
                     )

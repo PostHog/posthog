@@ -34,7 +34,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 
     actions({
-        loadIssue: true,
+        initIssue: true,
         setIssue: (issue: ErrorTrackingIssue) => ({ issue }),
         setEventsMode: (mode: EventsMode) => ({ mode }),
         updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>) => ({ issue }),
@@ -60,7 +60,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 loadClickHouseIssue: async (firstSeen: string, breakpoint) => {
                     breakpoint()
                     const dateRange = {
-                        date_from: dayjs(firstSeen).subtract(10, 'day').toISOString(),
+                        date_from: dayjs(firstSeen).subtract(10, 'minute').toISOString(),
                         date_to: values.issue?.last_seen || dayjs().toISOString(),
                     }
                     const response = await api.query(
@@ -124,28 +124,24 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 
     listeners(({ values, actions }) => {
-        const loadClickHouseIssue = (): void => {
-            if (values.issue?.first_seen) {
-                actions.loadClickHouseIssue(values.issue.first_seen)
+        const loadIssue = (): void => {
+            if (!values.issueLoading) {
+                const issue = values.issue
+                if (!issue) {
+                    actions.loadRelationalIssue()
+                } else if (!issue.last_seen) {
+                    actions.loadClickHouseIssue(issue.first_seen)
+                }
             }
         }
 
         return {
-            loadIssue: () => {
-                if (!values.issueLoading) {
-                    const issue = values.issue
-                    if (!issue) {
-                        actions.loadRelationalIssue()
-                    } else if (!issue.last_seen) {
-                        actions.loadClickHouseIssue(issue.first_seen)
-                    }
-                }
-            },
-            setIssueSuccess: () => actions.loadIssue(),
-            loadRelationalIssueSuccess: loadClickHouseIssue,
-            setDateRange: loadClickHouseIssue,
-            setFilterTestAccounts: loadClickHouseIssue,
-            setFilterGroup: loadClickHouseIssue,
+            setIssueSuccess: loadIssue,
+            initIssue: loadIssue,
+            loadRelationalIssueSuccess: loadIssue,
+            setDateRange: loadIssue,
+            setFilterTestAccounts: loadIssue,
+            setFilterGroup: loadIssue,
         }
     }),
 ])
