@@ -5,7 +5,7 @@ import { forwardRef, HTMLAttributes, useCallback, useRef, useState } from 'react
 
 import { LemonButton } from '../LemonButton'
 
-type TreeDataItem = {
+export type TreeDataItem = {
     /** The ID of the item. */
     id: string
     /** The name of the item. */
@@ -23,7 +23,7 @@ type TreeDataItem = {
     onClick?: (open?: boolean) => void
 }
 
-type LemonTreeNodeProps = LemonTreeProps & {
+export type LemonTreeNodeProps = LemonTreeProps & {
     /** The ID of the item. */
     selectedId?: string
     /** The ID of the focused item. */
