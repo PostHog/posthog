@@ -103,9 +103,7 @@ class RootNode(AssistantNode):
                     if tool_call.id in tool_result_messages:
                         history.append(
                             LangchainToolMessage(
-                                content=tool_result_messages[tool_call.id].content,
-                                tool_call_id=tool_call.id,
-                                id=str(uuid4()),
+                                content=tool_result_messages[tool_call.id].content, tool_call_id=tool_call.id
                             )
                         )
 
