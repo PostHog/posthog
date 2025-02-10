@@ -71,6 +71,19 @@ function truncateString(str: string, num: number): string {
     return str
 }
 
+function resolveVariableColor(color: string | undefined): string | undefined {
+    if (!color) {
+        return color
+    }
+
+    if (color.startsWith('var(--')) {
+        const replaced = color.replace('var(', '').replace(')', '')
+        return getComputedStyle(document.documentElement).getPropertyValue(replaced)
+    }
+
+    return color
+}
+
 export function onChartClick(
     event: ChartEvent,
     chart: Chart,
@@ -450,7 +463,7 @@ export function LineGraph_({
                     if (context.tick) {
                         for (const annotation of goalLinesWithColor) {
                             if (context.tick.value === annotation.value) {
-                                return annotation.borderColor
+                                return resolveVariableColor(annotation.borderColor)
                             }
                         }
                     }
@@ -609,7 +622,7 @@ export function LineGraph_({
                             type: 'line',
                             yMin: annotation.value,
                             yMax: annotation.value,
-                            borderColor: annotation.borderColor || 'rgb(255, 99, 132)',
+                            borderColor: resolveVariableColor(annotation.borderColor) || 'rgb(255, 99, 132)',
                             label: {
                                 content: annotation.label,
                                 display: annotation.displayLabel ?? true,
