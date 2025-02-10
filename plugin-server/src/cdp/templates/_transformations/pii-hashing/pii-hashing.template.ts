@@ -69,7 +69,7 @@ return returnEvent
             key: 'propertiesToHash',
             type: 'dictionary',
             label: 'Properties to Hash',
-            description: 'Add property paths to hash (use dot notation for nested properties, e.g. "user.email")',
+            description: 'Add property paths to hash (use dot notation for nested properties, e.g. "$set.$email")',
             default: {
                 Ip: '$ip',
             },
