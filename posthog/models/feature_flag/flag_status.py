@@ -43,10 +43,13 @@ class FeatureFlagStatusChecker:
         if not self.feature_flag_id and not self.feature_flag:
             return FeatureFlagStatus.UNKNOWN, "Must provide feature flag or feature flag id"
 
-        try:
-            flag = FeatureFlag.objects.get(pk=self.feature_flag_id) if self.feature_flag_id else self.feature_flag
-        except FeatureFlag.DoesNotExist:
-            return FeatureFlagStatus.UNKNOWN, "Flag could not be found"
+        flag = self.feature_flag
+
+        if not flag:
+            try:
+                flag = FeatureFlag.objects.get(pk=self.feature_flag_id)
+            except FeatureFlag.DoesNotExist:
+                return FeatureFlagStatus.UNKNOWN, "Flag could not be found"
 
         if flag.deleted:
             return FeatureFlagStatus.DELETED, "Flag has been deleted"
