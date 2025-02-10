@@ -17,6 +17,7 @@ describe('mergeIssues', () => {
                 users: 50,
                 volumeDay: [10, 5, 10, 20, 50],
                 volumeMonth: [0, 0, 10, 25, 95],
+                customVolume: [0, 0, 0, 0, 0],
             },
             status: 'active',
             earliest: '',
@@ -36,6 +37,7 @@ describe('mergeIssues', () => {
                     users: 1,
                     volumeDay: [1, 1, 2, 1, 2],
                     volumeMonth: [2, 7, 2, 6, 7],
+                    customVolume: [0, 0, 0, 0, 1],
                 },
                 status: 'active',
                 earliest: '',
@@ -53,6 +55,7 @@ describe('mergeIssues', () => {
                     users: 1,
                     volumeDay: [5, 10, 2, 3, 5],
                     volumeMonth: [16, 4, 2, 16, 25],
+                    customVolume: [0, 0, 0, 1, 0],
                 },
                 status: 'active',
                 earliest: '',
@@ -70,6 +73,7 @@ describe('mergeIssues', () => {
                     users: 50,
                     volumeDay: [10, 100, 200, 300, 700],
                     volumeMonth: [0, 500, 1500, 1000, 1310],
+                    customVolume: [0, 0, 1, 0, 0],
                 },
                 status: 'active',
                 earliest: '',
@@ -98,6 +102,7 @@ describe('mergeIssues', () => {
                 // sums volumes
                 volumeDay: [26, 116, 214, 324, 757],
                 volumeMonth: [18, 511, 1514, 1047, 1437],
+                customVolume: [0, 0, 1, 1, 1],
             },
         })
     })
