@@ -1,10 +1,11 @@
 import asyncio
+import multiprocessing
 import signal
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, Executor
 from datetime import timedelta
 
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker, SharedStateManager
 
 from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE, DATA_WAREHOUSE_TASK_QUEUE
 from posthog.temporal.common.client import connect
@@ -37,9 +38,7 @@ async def start_worker(
     )
 
     if task_queue == DATA_WAREHOUSE_TASK_QUEUE or task_queue == DATA_WAREHOUSE_COMPACTION_TASK_QUEUE:
-        activity_executor: Executor = ProcessPoolExecutor(
-            max_workers=max_concurrent_activities or 50, mp_context=None, max_tasks_per_child=5
-        )
+        activity_executor: Executor = ProcessPoolExecutor(max_workers=max_concurrent_activities or 50)
     else:
         activity_executor = ThreadPoolExecutor(max_workers=max_concurrent_activities or 50)
 
@@ -54,6 +53,7 @@ async def start_worker(
         activity_executor=activity_executor,
         max_concurrent_activities=max_concurrent_activities or 50,
         max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+        shared_state_manager=SharedStateManager.create_from_multiprocessing(mgr=multiprocessing.Manager()),
     )
 
     # catch the TERM signal, and stop the worker gracefully
