@@ -63,7 +63,7 @@ export class HogFunctionManagerService {
         await this.pubSub.start()
         await this.reloadAllHogFunctions()
 
-        // every 5 minutes all HogFunctionManagerService caches are reloaded for eventual consistency
+        // every 1 minute we reload all updated hog functions
         this.refreshJob = schedule.scheduleJob('*/1 * * * *', async () => {
             await this.reloadAllHogFunctions().catch((error) => {
                 status.error('🍿', 'Error reloading hog functions:', error)
