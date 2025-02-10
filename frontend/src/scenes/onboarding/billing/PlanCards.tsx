@@ -49,7 +49,7 @@ type PlanCardProps = {
 export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight, hogPosition = 'top-right' }) => {
     const { redirectPath, billingLoading } = useValues(billingLogic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const [isHovering, setIsHovering] = useState<boolean>(false)
+    const [isHovering, setIsHovering] = useState<boolean | undefined>(undefined)
     const { goToNextStep } = useActions(onboardingLogic)
 
     const hogPositionClass = hogPosition === 'top-right' ? 'CheekyHogTopRight' : 'CheekyHogTopLeft'
@@ -61,7 +61,8 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                 height="100"
                 className={clsx(
                     hogPositionClass,
-                    isHovering ? `${hogPositionClass}--peek` : `${hogPositionClass}--hide`
+                    isHovering === true && `${hogPositionClass}--peek`,
+                    isHovering === false && `${hogPositionClass}--hide`
                 )}
             />
             <div
