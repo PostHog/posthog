@@ -118,7 +118,9 @@ class HogQLQueryExecutor:
                     if self.limit_context == LimitContext.SAVED_QUERY:
                         self.context.limit_top_select = False
                     else:
-                        one_query.limit = ast.Constant(value=get_default_limit_for_context(self.limit_context))
+                        one_query.limit = ast.Constant(
+                            value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
+                        )
 
     def _generate_hogql(self):
         with self.timings.measure("hogql"):
