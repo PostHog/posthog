@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone, UTC
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 

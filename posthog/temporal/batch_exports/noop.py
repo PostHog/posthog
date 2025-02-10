@@ -7,7 +7,7 @@ from typing import Any
 from temporalio import activity, workflow
 
 from posthog.batch_exports.service import NoOpInputs
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 
 
 @dataclass
