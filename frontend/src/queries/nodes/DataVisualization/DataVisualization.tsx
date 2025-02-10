@@ -5,9 +5,8 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useCallback, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -166,7 +165,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
             <div className="flex flex-col flex-1 justify-center items-center border rounded bg-surface-primary">
-                <Animation type={AnimationType.LaptopHog} />
+                <LoadingBar />
             </div>
         )
     } else if (visualizationType === ChartDisplayType.ActionsTable) {
