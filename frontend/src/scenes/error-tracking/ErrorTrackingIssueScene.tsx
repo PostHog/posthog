@@ -31,15 +31,11 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateIssue, initIssue } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
-        // don't like doing this but scene logics do not unmount after being loaded
-        // so this refreshes the group on each page visit in case any changes occurred
-        if (!issueLoading) {
-            initIssue()
-        }
+        initIssue()
     }, [])
 
     return (

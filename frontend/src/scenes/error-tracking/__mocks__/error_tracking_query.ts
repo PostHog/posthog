@@ -1,6 +1,6 @@
 import { range, uuid } from 'lib/utils'
 
-import { ErrorTrackingQueryResponse } from '~/queries/schema'
+import { ErrorTrackingQueryResponse, ErrorTrackingRelationalIssue } from '~/queries/schema'
 
 const eventProperties = JSON.stringify({
     $os: 'Mac OS X',
@@ -87,19 +87,32 @@ const eventProperties = JSON.stringify({
     '$sentry_tags__PostHog Recording URL': 'https://us.posthog.com/project/:project_id/replay/:recording_id',
 })
 
+const errorTrackingTypeIssue: ErrorTrackingRelationalIssue = {
+    id: uuid(),
+    name: 'TypeError',
+    description: 'This is a TypeError',
+    assignee: null,
+    status: 'active',
+    first_seen: '2023-07-07T00:00:00.000000-00:00',
+}
+
+const errorTrackingGenericIssue: ErrorTrackingRelationalIssue = {
+    id: uuid(),
+    name: 'Error',
+    description: 'This is an Error',
+    assignee: null,
+    status: 'active',
+    first_seen: '2023-07-07T00:00:00.000000-00:00',
+}
+
 const errorTrackingQueryResponse: ErrorTrackingQueryResponse = {
     columns: ['occurrences', 'sessions', 'users', 'last_seen', 'first_seen', 'description', 'fingerprint', 'volume'],
     hasMore: false,
     results: [
-        { name: 'TypeError', occurrences: 1000, sessions: 750, users: 500 },
-        { name: 'Error', occurrences: 6, sessions: 3, users: 1 },
-    ].map(({ name, occurrences, sessions, users }) => ({
-        id: uuid(),
-        status: 'active',
-        assignee: null,
-        description: `This is a ${name} error`,
-        name: name,
-        first_seen: '2023-07-07T00:00:00.000000-00:00',
+        { ...errorTrackingTypeIssue, occurrences: 1000, sessions: 750, users: 500 },
+        { ...errorTrackingGenericIssue, occurrences: 6, sessions: 3, users: 1 },
+    ].map(({ occurrences, sessions, users, ...props }) => ({
+        ...props,
         last_seen: '2024-07-07T00:00:00.000000-00:00',
         aggregations: {
             occurrences: occurrences,
@@ -128,4 +141,4 @@ const errorTrackingEventsQueryResponse = {
     ]),
 }
 
-export { errorTrackingEventsQueryResponse, errorTrackingQueryResponse }
+export { errorTrackingEventsQueryResponse, errorTrackingQueryResponse, errorTrackingTypeIssue }
