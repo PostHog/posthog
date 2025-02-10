@@ -16,6 +16,17 @@ class AssistantNode(ABC):
     def __init__(self, team: Team):
         self._team = team
 
+    def __call__(self, state: AssistantState, config: RunnableConfig) -> dict | None:
+        """
+        Fixes the default LangGraph's behavior: Pydantic models are serialized without explicitly set None values,
+        which leads to a confusing behavior. The result must always have None values if the model field was set by the user.
+        """
+        new_state = self.run(state, config)
+        if new_state is not None:
+            new_state_dict = new_state.model_dump(exclude_unset=True)
+            return new_state_dict
+        return None
+
     @abstractmethod
     def run(cls, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NotImplementedError
