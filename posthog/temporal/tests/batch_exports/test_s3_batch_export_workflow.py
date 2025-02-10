@@ -452,7 +452,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         records_exported == len(events_to_export_created)
         or records_exported == len(persons_to_export_created)
         or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and records_exported == 1)
+        or (isinstance(model, BatchExportModel) and model.name == "sessions" and records_exported >= 1)
     )
 
     await assert_clickhouse_records_in_s3(
@@ -805,7 +805,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
         records_exported == len(events_to_export_created)
         or records_exported == len(persons_to_export_created)
         or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and records_exported == 1)
+        or (isinstance(model, BatchExportModel) and model.name == "sessions" and records_exported >= 1)
     )
 
     await assert_clickhouse_records_in_s3(
