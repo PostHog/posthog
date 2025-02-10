@@ -2993,7 +2993,7 @@
                 },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/PathsLink"
                     },
                     "type": "array"
                 },
@@ -9534,6 +9534,25 @@
             },
             "type": "object"
         },
+        "PathsLink": {
+            "additionalProperties": false,
+            "properties": {
+                "average_conversion_time": {
+                    "type": "number"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "target": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["source", "target", "value", "average_conversion_time"],
+            "type": "object"
+        },
         "PathsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -9624,7 +9643,7 @@
                 },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/PathsLink"
                     },
                     "type": "array"
                 },
@@ -11654,7 +11673,7 @@
                         },
                         "results": {
                             "items": {
-                                "type": "object"
+                                "$ref": "#/definitions/PathsLink"
                             },
                             "type": "array"
                         },

@@ -1100,6 +1100,16 @@ class PathsFilterLegacy(BaseModel):
     step_limit: Optional[int] = None
 
 
+class PathsLink(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    average_conversion_time: float
+    source: str
+    target: str
+    value: float
+
+
 class PersonType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3492,7 +3502,7 @@ class CachedPathsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[dict[str, Any]]
+    results: list[PathsLink]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -4724,7 +4734,7 @@ class PathsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[dict[str, Any]]
+    results: list[PathsLink]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5331,6 +5341,27 @@ class QueryResponseAlternative32(BaseModel):
 
 
 class QueryResponseAlternative34(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[PathsLink]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7359,6 +7390,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative32,
             QueryResponseAlternative33,
             QueryResponseAlternative34,
+            QueryResponseAlternative35,
             QueryResponseAlternative37,
             QueryResponseAlternative38,
             QueryResponseAlternative39,
@@ -7402,6 +7434,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative32,
         QueryResponseAlternative33,
         QueryResponseAlternative34,
+        QueryResponseAlternative35,
         QueryResponseAlternative37,
         QueryResponseAlternative38,
         QueryResponseAlternative39,

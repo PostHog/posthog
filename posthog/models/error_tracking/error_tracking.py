@@ -63,6 +63,7 @@ class ErrorTrackingIssueFingerprintV2(UUIDModel):
     fingerprint = models.TextField(null=False, blank=False)
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
     version = models.BigIntegerField(blank=True, default=0)
+    first_seen = models.DateTimeField(null=True, auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
