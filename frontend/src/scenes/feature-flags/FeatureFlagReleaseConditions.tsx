@@ -165,7 +165,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 border rounded p-4 bg-bg-light">
+                <div className="mb-4 border rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
@@ -430,7 +430,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 rounded p-4 bg-bg-light">
+                <div className="mb-4 rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <div>
@@ -496,7 +496,7 @@ export function FeatureFlagReleaseConditions({
                             {!excludeTitle && (
                                 <>
                                     <h3 className="l3">Release conditions</h3>
-                                    <div className="text-muted mb-4">
+                                    <div className="text-secondary mb-4">
                                         Specify {aggregationTargetName} for flag release. Condition sets roll out
                                         independently.
                                         {aggregationTargetName === 'users' && (

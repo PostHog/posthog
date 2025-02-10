@@ -24,8 +24,8 @@ from ee.hogai.retention.nodes import (
     RetentionPlannerNode,
     RetentionPlannerToolsNode,
 )
-from ee.hogai.router.nodes import RouterNode
-from ee.hogai.summarizer.nodes import SummarizerNode
+from ee.hogai.root.nodes import RootNode
+from ee.hogai.query_executor.nodes import QueryExecutorNode
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
     TrendsGeneratorToolsNode,
@@ -62,7 +62,7 @@ class AssistantGraph:
             raise ValueError("Start node not added to the graph")
         return self._graph.compile(checkpointer=checkpointer)
 
-    def add_router(
+    def add_root(
         self,
         path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
     ):
@@ -71,13 +71,12 @@ class AssistantGraph:
             "trends": AssistantNodeName.TRENDS_PLANNER,
             "funnel": AssistantNodeName.FUNNEL_PLANNER,
             "retention": AssistantNodeName.RETENTION_PLANNER,
+            "end": AssistantNodeName.END,
         }
-        router_node = RouterNode(self._team)
-        builder.add_node(AssistantNodeName.ROUTER, router_node.run)
+        root_node = RootNode(self._team)
+        builder.add_node(AssistantNodeName.ROOT, root_node.run)
         builder.add_conditional_edges(
-            AssistantNodeName.ROUTER,
-            router_node.router,
-            path_map=cast(dict[Hashable, str], path_map),
+            AssistantNodeName.ROOT, root_node.router, path_map=cast(dict[Hashable, str], path_map)
         )
         return self
 
@@ -107,7 +106,7 @@ class AssistantGraph:
 
         return self
 
-    def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
+    def add_trends_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         builder = self._graph
 
         trends_generator = TrendsGeneratorNode(self._team)
@@ -154,7 +153,7 @@ class AssistantGraph:
 
         return self
 
-    def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
+    def add_funnel_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         builder = self._graph
 
         funnel_generator = FunnelGeneratorNode(self._team)
@@ -201,7 +200,7 @@ class AssistantGraph:
 
         return self
 
-    def add_retention_generator(self, next_node: AssistantNodeName = AssistantNodeName.SUMMARIZER):
+    def add_retention_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         builder = self._graph
 
         retention_generator = RetentionGeneratorNode(self._team)
@@ -222,14 +221,14 @@ class AssistantGraph:
 
         return self
 
-    def add_summarizer(self, next_node: AssistantNodeName = AssistantNodeName.END):
+    def add_query_executor(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
         builder = self._graph
-        summarizer_node = SummarizerNode(self._team)
-        builder.add_node(AssistantNodeName.SUMMARIZER, summarizer_node.run)
-        builder.add_edge(AssistantNodeName.SUMMARIZER, next_node)
+        query_executor_node = QueryExecutorNode(self._team)
+        builder.add_node(AssistantNodeName.QUERY_EXECUTOR, query_executor_node.run)
+        builder.add_edge(AssistantNodeName.QUERY_EXECUTOR, next_node)
         return self
 
-    def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROUTER):
+    def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
         builder = self._graph
         self._has_start_node = True
 
@@ -290,13 +289,13 @@ class AssistantGraph:
             self.add_memory_initializer()
             .add_memory_collector()
             .add_memory_collector_tools()
-            .add_router()
+            .add_root()
             .add_trends_planner()
             .add_trends_generator()
             .add_funnel_planner()
             .add_funnel_generator()
             .add_retention_planner()
             .add_retention_generator()
-            .add_summarizer()
+            .add_query_executor()
             .compile()
         )

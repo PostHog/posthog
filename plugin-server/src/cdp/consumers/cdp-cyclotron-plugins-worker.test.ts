@@ -37,7 +37,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         return item
     }
 
-    const intercomPlugin = DESTINATION_PLUGINS_BY_ID['posthog-intercom-plugin']
+    const intercomPlugin = DESTINATION_PLUGINS_BY_ID['plugin-posthog-intercom-plugin']
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -204,7 +204,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
             expect(forSnapshot(getProducedKafkaMessagesForTopic('log_entries_test').map((m) => m.value.message)))
                 .toMatchInlineSnapshot(`
                 [
-                  "Executing plugin posthog-intercom-plugin",
+                  "Executing plugin plugin-posthog-intercom-plugin",
                   "Fetch called but mocked due to test function",
                   "Unable to search contact test@posthog.com in Intercom. Status Code: undefined. Error message: ",
                   "Execution successful",

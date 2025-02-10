@@ -87,7 +87,7 @@ export function Settings({
                       active={selectedLevel === level && !selectedSectionId}
                       onClick={() => selectLevel(level)}
                   >
-                      <span className="text-muted-alt">{capitalizeFirstLetter(level)}</span>
+                      <span className="text-secondary">{capitalizeFirstLetter(level)}</span>
                   </OptionButton>
               ),
               items: sections
@@ -190,7 +190,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                                 )}
                             </h2>
                         )}
-                        {x.description && <p>{x.description}</p>}
+                        {x.description && <p className="max-w-160">{x.description}</p>}
 
                         {x.component}
                     </div>

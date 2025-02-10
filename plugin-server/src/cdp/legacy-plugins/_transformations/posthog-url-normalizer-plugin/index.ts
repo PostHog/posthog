@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 function normalizeUrl(url: string): string {
     try {
@@ -24,10 +23,4 @@ export function processEvent(event: PluginEvent, { logger }: LegacyTransformatio
     }
 
     return event
-}
-
-export const posthogUrlNormalizerPlugin: LegacyTransformationPlugin = {
-    id: 'posthog-url-normalizer-plugin',
-    metadata,
-    processEvent,
 }

@@ -184,13 +184,13 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.ILike,
-            left=expr,
+            left=ast.Call(name="toString", args=[expr]),
             right=ast.Constant(value=f"%{value}%"),
         )
     elif operator == PropertyOperator.NOT_ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotILike,
-            left=expr,
+            left=ast.Call(name="toString", args=[expr]),
             right=ast.Constant(value=f"%{value}%"),
         )
     elif operator == PropertyOperator.REGEX:

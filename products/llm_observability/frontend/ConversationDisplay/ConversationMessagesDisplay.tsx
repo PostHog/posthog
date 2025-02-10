@@ -139,10 +139,10 @@ export const LLMMessageDisplay = React.memo(
                         <JSONViewer
                             src={additionalKwargsEntries}
                             name={null}
-                            // `collapsed` limits depth shown at first. 4 is chosen so that we do show
+                            // `collapsed` limits depth shown at first. 5 is chosen so that we do show
                             // function arguments in `tool_calls`, but if an argument is an object,
                             // its child objects are collapsed by default
-                            collapsed={4}
+                            collapsed={5}
                         />
                     </div>
                 )}

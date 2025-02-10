@@ -25,7 +25,7 @@ If the given website doesn't exist OR the URL is not a valid website OR the URL 
 Do NOT make speculative or assumptive statements, just output that sentence when lacking data.
 </format_instructions>
 
-The provided URL is "{{url}}".
+The provided URL is "{{{url}}}".
 """.strip()
 
 INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT = """
@@ -154,7 +154,7 @@ Do not return anything from the custom few shot example prompts provided above.
 - Reformulate user inputs into clear, factual statements about the product or company.
 - Save information the user explicitly asked to save using indicative verbs like "remember," "save," "note," etc even if it's not relevant to the product or company.
 - Do not use markdown or add notes.
-- Today's date is {{date}}.
+- Today's date is {{{date}}}.
 </remember>
 
 When you receive new information, begin your response with an information processing analysis, then proceed with the memory update if applicable, and conclude with "[Done]".

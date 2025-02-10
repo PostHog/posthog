@@ -9,9 +9,10 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
-import { buildIntegerMatcher, createCookielessConfig, defaultConfig } from '../../config/config'
+import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
+import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
 import {
@@ -24,7 +25,6 @@ import {
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
-import { CookielessSaltManager } from '../../worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -142,8 +142,7 @@ export async function createHub(
     const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
-    const cookielessConfig = createCookielessConfig(serverConfig)
-    const cookielessSaltManager = new CookielessSaltManager(db, cookielessConfig)
+    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
@@ -203,8 +202,7 @@ export async function createHub(
         ),
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
-        cookielessConfig,
-        cookielessSaltManager,
+        cookielessManager,
     }
 
     return hub as Hub
@@ -216,7 +214,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
-    hub.cookielessSaltManager.shutdown()
+    hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
         // Break circular references to allow the hub to be GCed when running unit tests

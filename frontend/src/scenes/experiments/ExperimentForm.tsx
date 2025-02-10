@@ -114,7 +114,7 @@ const ExperimentFormFields = (): JSX.Element => {
                 {webExperimentsAvailable && (
                     <div className="mt-10">
                         <h3 className="mb-1">Experiment type</h3>
-                        <div className="text-xs text-muted font-medium tracking-normal">
+                        <div className="text-xs text-secondary font-medium tracking-normal">
                             Select your experiment setup, this cannot be changed once saved.
                         </div>
                         <LemonDivider />
@@ -130,7 +130,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                     label: (
                                         <div className="translate-y-2">
                                             <div>Product experiment</div>
-                                            <div className="text-xs text-muted">
+                                            <div className="text-xs text-secondary">
                                                 Use custom code to manage how variants modify your product.
                                             </div>
                                         </div>
@@ -141,7 +141,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                     label: (
                                         <div className="translate-y-2">
                                             <div>No-code web experiment</div>
-                                            <div className="text-xs text-muted">
+                                            <div className="text-xs text-secondary">
                                                 Define variants on your website using the PostHog toolbar, no coding
                                                 required.
                                             </div>
@@ -155,7 +155,7 @@ const ExperimentFormFields = (): JSX.Element => {
                 {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
                     <div>
                         <h3 className="mt-10">Participant type</h3>
-                        <div className="text-xs text-muted">
+                        <div className="text-xs text-secondary">
                             The type on which to aggregate metrics. You can change this at any time during the
                             experiment.
                         </div>
@@ -208,7 +208,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     <>
                         <div className="mt-10">
                             <h3 className="mb-1">Variants</h3>
-                            <div className="text-xs text-muted">
+                            <div className="text-xs text-secondary">
                                 Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.
                             </div>
                             <LemonDivider />
@@ -281,7 +281,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                             </Group>
                                         )
                                     })}
-                                    <div className="text-muted text-xs ml-9 mr-20 mt-2">
+                                    <div className="text-secondary text-xs ml-9 mr-20 mt-2">
                                         Alphanumeric, hyphens and underscores only
                                     </div>
                                     {(experiment.parameters.feature_flag_variants.length ?? 0) <
