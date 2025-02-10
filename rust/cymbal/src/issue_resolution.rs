@@ -125,8 +125,8 @@ impl IssueFingerprintOverride {
         let res = sqlx::query_as!(
             IssueFingerprintOverride,
             r#"
-            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, created_at)
-            VALUES ($1, $2, $3, $4, 0, NOW())
+            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen, created_at)
+            VALUES ($1, $2, $3, $4, 0, NOW(), NOW())
             ON CONFLICT (team_id, fingerprint) DO NOTHING
             RETURNING id, team_id, issue_id, fingerprint, version
             "#,
