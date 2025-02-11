@@ -11,6 +11,8 @@ import { AvailableFeature, SurveyAppearance, SurveyAppearance as SurveyAppearanc
 import { defaultSurveyAppearance, WEB_SAFE_FONTS } from './constants'
 import { surveysLogic } from './surveysLogic'
 
+const IGNORE_ERROR_BORDER_CLASS = IGNORE_ERROR_BORDER_CLASS
+
 interface CustomizationProps {
     appearance: SurveyAppearanceType
     customizeRatingButtons: boolean
@@ -54,7 +56,9 @@ export function Customization({
                         value={appearance?.backgroundColor}
                         onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
                         disabled={!surveysStylingAvailable}
-                        className={clsx(validationErrors?.backgroundColor ? 'border-danger' : 'ignore-error-border')}
+                        className={clsx(
+                            validationErrors?.backgroundColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
+                        )}
                     />
                     {validationErrors?.backgroundColor && (
                         <LemonField.Error error={validationErrors?.backgroundColor} />
@@ -65,7 +69,7 @@ export function Customization({
                         value={appearance?.borderColor || defaultSurveyAppearance.borderColor}
                         onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
                         disabled={!surveysStylingAvailable}
-                        className={clsx(validationErrors?.borderColor ? 'border-danger' : 'ignore-error-border')}
+                        className={clsx(validationErrors?.borderColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS)}
                     />
                     {validationErrors?.borderColor && <LemonField.Error error={validationErrors?.borderColor} />}
                 </LemonField.Pure>
@@ -102,7 +106,7 @@ export function Customization({
                                 }
                                 disabled={!surveysStylingAvailable}
                                 className={clsx(
-                                    validationErrors?.ratingButtonColor ? 'border-danger' : 'ignore-error-border'
+                                    validationErrors?.ratingButtonColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
                                 )}
                             />
                             {validationErrors?.ratingButtonColor && (
@@ -117,7 +121,9 @@ export function Customization({
                                 }
                                 disabled={!surveysStylingAvailable}
                                 className={clsx(
-                                    validationErrors?.ratingButtonActiveColor ? 'border-danger' : 'ignore-error-border'
+                                    validationErrors?.ratingButtonActiveColor
+                                        ? 'border-danger'
+                                        : IGNORE_ERROR_BORDER_CLASS
                                 )}
                             />
                             {validationErrors?.ratingButtonActiveColor && (
@@ -131,7 +137,9 @@ export function Customization({
                         value={appearance?.submitButtonColor}
                         onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
                         disabled={!surveysStylingAvailable}
-                        className={clsx(validationErrors?.submitButtonColor ? 'border-danger' : 'ignore-error-border')}
+                        className={clsx(
+                            validationErrors?.submitButtonColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
+                        )}
                     />
                     {validationErrors?.submitButtonColor && (
                         <LemonField.Error error={validationErrors?.submitButtonColor} />
@@ -146,7 +154,7 @@ export function Customization({
                         }
                         disabled={!surveysStylingAvailable}
                         className={clsx(
-                            validationErrors?.submitButtonTextColor ? 'border-danger' : 'ignore-error-border'
+                            validationErrors?.submitButtonTextColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
                         )}
                     />
                     {validationErrors?.submitButtonTextColor && (
