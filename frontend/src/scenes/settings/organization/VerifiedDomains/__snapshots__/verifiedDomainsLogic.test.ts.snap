@@ -87,6 +87,10 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "live_events_columns": null,
         "live_events_token": "123",
         "name": "MockHog App + Marketing",
+        "onboarding_tasks": {
+          "ingest_first_event": "completed",
+          "setup_session_recordings": "completed",
+        },
         "organization": "ABCD",
         "path_cleaning_filters": [],
         "person_display_name_properties": [
