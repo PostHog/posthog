@@ -57,33 +57,6 @@ export interface CodeEditorValidation {
     decorations: string[]
 }
 
-const DUMMY_EVENT_DATA = {
-    event: '$web_vitals',
-    uuid: '0194f039-940d-787d-a6a2-9a3dafdd717a',
-    distinct_id: 'nXtTAAkoBZjuN0tYeuHe69od3oYa1ASx4GITyQjwR5U',
-    timestamp: '2025-02-10T14:18:12.884Z',
-    properties: {
-        $browser: 'Chrome',
-        $browser_version: 132,
-        $os_version: '10.15.7',
-        $device_type: 'Desktop',
-        $screen_width: 1512,
-        $screen_height: 982,
-        $viewport_width: 1321,
-        $viewport_height: 884,
-        $timezone: 'Europe/Berlin',
-        '$feature/web-vitals': true,
-        $web_vitals_LCP_value: 967.6,
-        $session_id: '0194f02e-733f-7efb-ba17-84d7928094a1',
-        $lib: 'web',
-        $lib_version: '1.215.6',
-        $host: 'localhost:8010',
-        $is_identified: true,
-        $user_id: 'nXtTAAkoBZjuN0tYeuHe69od3oYa1ASx4GITyQjwR5X',
-        $ip: '192.168.97.1',
-    },
-}
-
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
@@ -172,14 +145,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     }),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
-            if (values.type === 'transformation') {
-                if (values.expanded) {
-                    const event = convertToTransformationEvent(values.sampleGlobals?.event)
-                    actions.setTestInvocationValue('globals', JSON.stringify(event, null, 2))
-                }
-            } else {
-                actions.receiveExampleGlobals(values.sampleGlobals)
-            }
+            actions.receiveExampleGlobals(values.sampleGlobals)
         },
         setSampleGlobals: ({ sampleGlobals }) => {
             actions.receiveExampleGlobals(sampleGlobals)
@@ -191,12 +157,9 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             }
 
             if (values.type === 'transformation') {
-                if (globals === values.exampleInvocationGlobals) {
-                    const event = convertToTransformationEvent(globals.event)
-                    actions.setTestInvocationValue('globals', JSON.stringify(event, null, 2))
-                } else {
-                    actions.setTestInvocationValue('globals', JSON.stringify(DUMMY_EVENT_DATA, null, 2))
-                }
+                const event = convertToTransformationEvent(globals.event)
+                // Strip down to just the real values
+                actions.setTestInvocationValue('globals', JSON.stringify(event, null, 2))
             } else {
                 actions.setTestInvocationValue('globals', JSON.stringify(globals, null, 2))
             }
@@ -332,8 +295,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
 
     afterMount(({ actions, values }) => {
         if (values.type === 'transformation') {
-            actions.setTestInvocationValue('globals', JSON.stringify(DUMMY_EVENT_DATA, null, 2))
-        } else {
             actions.receiveExampleGlobals(values.exampleInvocationGlobals)
         }
     }),
