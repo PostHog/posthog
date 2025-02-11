@@ -574,7 +574,7 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
         # just make sure we never return a progress > 1
         total_runs = max(total_runs, finished_runs)
         return BatchExportBackfillProgress(
-            total_runs=total_runs, finished_runs=finished_runs, progress=finished_runs / total_runs
+            total_runs=total_runs, finished_runs=finished_runs, progress=round(finished_runs / total_runs, ndigits=1)
         )
 
 
