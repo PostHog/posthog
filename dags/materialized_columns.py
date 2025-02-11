@@ -1,7 +1,6 @@
 import concurrent.futures
 import datetime
 import itertools
-import operator
 from collections.abc import Iterator
 from typing import ClassVar
 
@@ -15,18 +14,16 @@ from posthog.clickhouse.cluster import ClickhouseCluster, MutationRunner
 
 
 class PartitionRange(dagster.Config):
-    start: str
-    stop: str
-    inclusive: bool = True
+    lower: str
+    upper: str
 
     FORMAT: ClassVar[str] = "%Y%m"
 
     def __iter__(self) -> Iterator[str]:
-        start_date = self.parse_date(self.start)
-        stop_date = self.parse_date(self.stop)
+        date_lower = self.parse_date(self.lower)
+        date_upper = self.parse_date(self.upper)
         seq = itertools.count()
-        cmp = operator.le if self.inclusive else operator.lt
-        while cmp(cur_date := start_date + relativedelta(months=next(seq)), stop_date):
+        while (cur_date := date_lower + relativedelta(months=next(seq))) <= date_upper:
             yield cur_date.strftime(self.FORMAT)
 
     @validator("start", "stop")
@@ -43,7 +40,7 @@ class PartitionRange(dagster.Config):
 class MaterializeColumnConfig(dagster.Config):
     table: str
     column: str  # TODO: maybe make this a list/set so we can minimize the number of mutations?
-    partitions: PartitionRange  # TODO: make optional
+    partitions: PartitionRange  # TODO: make optional for non-partitioned tables
 
 
 @dagster.op
