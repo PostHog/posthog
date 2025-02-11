@@ -6,6 +6,7 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { MetricModal } from '../Metrics/MetricModal'
+import { NewMetricModal } from '../Metrics/NewMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
@@ -119,8 +120,18 @@ export function ExperimentView(): JSX.Element {
                         <MetricSourceModal experimentId={experimentId} isSecondary={true} />
                         <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 
-                        <MetricModal experimentId={experimentId} isSecondary={true} />
-                        <MetricModal experimentId={experimentId} isSecondary={false} />
+                        {/* TODO: Replace with feature flag later */}
+                        {true ? (
+                            <>
+                                <NewMetricModal experimentId={experimentId} isSecondary={true} />
+                                <NewMetricModal experimentId={experimentId} isSecondary={false} />
+                            </>
+                        ) : (
+                            <>
+                                <MetricModal experimentId={experimentId} isSecondary={true} />
+                                <MetricModal experimentId={experimentId} isSecondary={false} />
+                            </>
+                        )}
 
                         <SharedMetricModal experimentId={experimentId} isSecondary={true} />
                         <SharedMetricModal experimentId={experimentId} isSecondary={false} />
