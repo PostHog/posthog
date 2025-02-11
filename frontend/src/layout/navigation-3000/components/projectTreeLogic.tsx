@@ -141,7 +141,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         actions: [notebooksTableLogic, ['loadNotebooks']],
     })),
-    actions({ loadProjectTree: true, addFolder: (folder: string) => ({ folder }) }),
+    actions({
+        loadProjectTree: true,
+        addFolder: (folder: string) => ({ folder }),
+        renameItem: (oldName: string, newName: string) => ({ oldName, newName }),
+    }),
     loaders({
         rawProjectTree: [
             [] as ProjectTreeItem[],
@@ -169,6 +173,28 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             meta: {},
                         },
                     ]
+                },
+                renameItem: (state, { oldName, newName }) => {
+                    return state.map((item) => {
+                        const itemName = (item.folder ? item.folder + '/' : '') + item.name
+                        if (itemName === oldName) {
+                            const splitName = newName.split('/')
+                            return {
+                                ...item,
+                                name: splitName[splitName.length - 1],
+                                folder: splitName.slice(0, -1).join('/'),
+                            }
+                        } else if (itemName.startsWith(oldName + '/')) {
+                            const fullNewName = newName + itemName.slice(oldName.length)
+                            const splitName = fullNewName.split('/')
+                            return {
+                                ...item,
+                                name: splitName[splitName.length - 1],
+                                folder: splitName.slice(0, -1).join('/'),
+                            }
+                        }
+                        return item
+                    })
                 },
             },
         ],

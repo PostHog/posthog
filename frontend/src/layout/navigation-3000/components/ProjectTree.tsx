@@ -18,7 +18,7 @@ export function TreeView(): JSX.Element {
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
     const { treeData, rawProjectTreeLoading } = useValues(projectTreeLogic)
-    const { addFolder } = useActions(projectTreeLogic)
+    const { addFolder, renameItem } = useActions(projectTreeLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -35,26 +35,42 @@ export function TreeView(): JSX.Element {
                             className="px-0 py-1"
                             data={treeData}
                             right={({ data }) =>
-                                data?.type === 'folder' || data?.type === 'project' ? (
+                                data?.type ? (
                                     <More
                                         size="xsmall"
                                         onClick={(e) => e.stopPropagation()}
                                         overlay={
                                             <>
+                                                {data?.type === 'folder' || data?.type === 'project' ? (
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            const folder = prompt(
+                                                                'Folder name?',
+                                                                (data.folder ? data.folder + '/' : '') +
+                                                                    (data.name ? data.name + '/' : '')
+                                                            )
+                                                            if (folder) {
+                                                                addFolder(folder)
+                                                            }
+                                                        }}
+                                                        fullWidth
+                                                    >
+                                                        New Folder
+                                                    </LemonButton>
+                                                ) : null}
                                                 <LemonButton
                                                     onClick={() => {
-                                                        const folder = prompt(
-                                                            'Folder name?',
+                                                        const oldName =
                                                             (data.folder ? data.folder + '/' : '') +
-                                                                (data.name ? data.name + '/' : '')
-                                                        )
-                                                        if (folder) {
-                                                            addFolder(folder)
+                                                            (data.name ? data.name : '')
+                                                        const folder = prompt('Folder name?', oldName)
+                                                        if (folder && folder !== oldName) {
+                                                            renameItem(oldName, folder)
                                                         }
                                                     }}
                                                     fullWidth
                                                 >
-                                                    New Folder
+                                                    Rename
                                                 </LemonButton>
                                             </>
                                         }
