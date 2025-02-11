@@ -29,6 +29,7 @@ enum Plan {
 type PlanData = {
     title: string
     plan: Plan
+    billingPlanKeyPrefix: 'free' | 'paid'
     subtitle: string
     pricePreface?: string
     price: string
@@ -47,10 +48,28 @@ type PlanCardProps = {
 }
 
 export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight, hogPosition = 'top-right' }) => {
-    const { redirectPath, billingLoading } = useValues(billingLogic)
+    const { redirectPath, billingLoading, billing } = useValues(billingLogic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const [isHovering, setIsHovering] = useState<boolean | undefined>(undefined)
     const { goToNextStep } = useActions(onboardingLogic)
+
+    const productPlan = product.plans.find((plan) => plan.plan_key?.startsWith(planData.billingPlanKeyPrefix))
+    const platformPlan = billing?.products
+        ?.find((p) => p.type === 'platform_and_support')
+        ?.plans.find((p) => p.plan_key?.startsWith(planData.billingPlanKeyPrefix))
+
+    const dataRetentionFeature = productPlan?.features.find(
+        (feature) => feature.key === `${product.type}_data_retention`
+    )
+    const projectLimitFeature = platformPlan?.features.find((feature) => feature.key === 'organizations_projects')
+
+    const features = [
+        ...(projectLimitFeature?.limit ? [{ name: `${projectLimitFeature.limit} projects`, available: true }] : []),
+        ...(dataRetentionFeature?.limit
+            ? [{ name: `${dataRetentionFeature.limit} year data retention`, available: true }]
+            : []),
+        ...planData.features,
+    ]
 
     const hogPositionClass = hogPosition === 'top-right' ? 'CheekyHogTopRight' : 'CheekyHogTopLeft'
 
@@ -96,7 +115,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                 </section>
                 <section className="flex-1 mb-3">
                     <ul className="space-y-2">
-                        {planData.features.map((feature) => (
+                        {features.map((feature) => (
                             <li key={feature.name} className="flex items-center">
                                 {feature.available ? (
                                     <IconCheck className="w-4 h-4 text-success mr-2" />
@@ -152,11 +171,10 @@ const PLANS_DATA: PlanData[] = [
     {
         title: 'Totally free',
         plan: Plan.TOTALLY_FREE,
+        billingPlanKeyPrefix: 'free',
         subtitle: 'No credit card required',
         price: 'Free',
         features: [
-            { name: '2 projects', available: true },
-            { name: '1-year data retention', available: true },
             { name: 'Community support', available: true },
             { name: 'Capped usage', available: false },
             { name: 'Group analytics + Data pipeline addons', available: false },
@@ -168,13 +186,12 @@ const PLANS_DATA: PlanData[] = [
     {
         title: 'Ridiculously cheap',
         plan: Plan.RIDICULOUSLY_CHEAP,
+        billingPlanKeyPrefix: 'paid',
         subtitle: 'Usage-based pricing after free tier',
         pricePreface: 'Starts at',
         price: '$0',
         priceSuffix: '/mo',
         features: [
-            { name: '6 projects', available: true },
-            { name: '7-year data retention', available: true },
             { name: 'Email support', available: true },
             { name: 'Unlimited usage', available: true },
             { name: 'Group analytics + Data pipeline addons', available: true },
