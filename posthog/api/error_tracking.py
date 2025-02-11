@@ -72,7 +72,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         fingerprint = self.request.GET.get("fingerprint")
         if fingerprint:
             fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue")
-            record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
+            record = fingerprint_queryset.get(fingerprint=fingerprint)
 
             if not record.issue.id == self.request.GET.get("pk"):
                 return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
@@ -105,13 +105,6 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             ErrorTrackingIssueAssignment.objects.filter(issue_id=self.get_object().id).delete()
 
         return Response({"success": True})
-
-    @action(methods=["GET"], detail=False)
-    def resolve_fingerprint(self, request, **kwargs):
-        fingerprint = ErrorTrackingIssueFingerprintV2.objects.filter(
-            fingerprint=self.request.GET.get("fingerprint")
-        ).first()
-        return Response({"issue_id": fingerprint.issue_id})
 
 
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
