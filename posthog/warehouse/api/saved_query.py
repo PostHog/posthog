@@ -84,7 +84,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             for field in fields
         ]
 
-    def get_sync_frequency(self, schema: DataWarehouseSavedQuery) -> str:
+    def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
         return sync_frequency_interval_to_sync_frequency(schema)
 
     def create(self, validated_data):
