@@ -339,9 +339,10 @@ class BatchExportBackfill(UUIDModel):
         b) some runs may have been cancelled or terminated (these are excluded since they may be retried manually and we
             don't want to double count them)
         """
-        return self.runs.filter(
+        return BatchExportRun.objects.filter(
+            backfill=self,
             status__in=[
                 BatchExportRun.Status.COMPLETED,
                 BatchExportRun.Status.FAILED,
-            ]
+            ],
         ).count()
