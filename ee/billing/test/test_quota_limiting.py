@@ -264,7 +264,7 @@ class TestQuotaLimiting(BaseTest):
             )
             assert org_action_call.kwargs.get("properties") == {
                 "quota_limited_events": 1612137599,
-                "quota_limited_recordings": 1612137599,
+                "quota_limited_recordings": None,
                 "quota_limited_rows_synced": None,
                 "quota_limited_feature_flags": None,
             }
