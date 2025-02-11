@@ -198,7 +198,9 @@ def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta:
     raise ValueError(f"Frequency {frequency} is not supported")
 
 
-def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta) -> str:
+def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta | None) -> str:
+    if sync_frequency_interval is None:
+        return "24hour"
     if sync_frequency_interval == timedelta(minutes=5):
         return "5min"
     if sync_frequency_interval == timedelta(minutes=30):
