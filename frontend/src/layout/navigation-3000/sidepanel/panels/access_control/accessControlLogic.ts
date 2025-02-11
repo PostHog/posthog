@@ -255,9 +255,14 @@ export const accessControlLogic = kea<accessControlLogicType>([
         accessControlMembers: [
             (s) => [s.accessControls, s.organizationAdminsAsAccessControlMembers],
             (accessControls, organizationAdminsAsAccessControlMembers): AccessControlTypeMember[] => {
-                const members = (accessControls?.access_controls || []).filter(
-                    (accessControl) => !!accessControl.organization_member
-                ) as AccessControlTypeMember[]
+                const members = (accessControls?.access_controls || [])
+                    .filter((accessControl) => !!accessControl.organization_member)
+                    .filter(
+                        (accessControl) =>
+                            !organizationAdminsAsAccessControlMembers.some(
+                                (admin) => admin.organization_member === accessControl.organization_member
+                            )
+                    ) as AccessControlTypeMember[]
                 return organizationAdminsAsAccessControlMembers.concat(members)
             },
         ],
