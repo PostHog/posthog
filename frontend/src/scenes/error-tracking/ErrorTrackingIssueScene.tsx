@@ -1,8 +1,9 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -10,9 +11,11 @@ import { ErrorTrackingIssue } from '~/queries/schema'
 
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
-import { errorTrackingIssueSceneLogic, IssueTab } from './errorTrackingIssueSceneLogic'
-import { EventsTab } from './issue/tabs/EventsTab'
-import { OverviewTab } from './issue/tabs/OverviewTab'
+import { ErrorTrackingFilters } from './ErrorTrackingFilters'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { Events } from './issue/Events'
+import { Metadata } from './issue/Metadata'
+import { SparklinePanel } from './issue/Sparkline'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -28,15 +31,11 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading, tab } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, loadIssue, setTab } = useActions(errorTrackingIssueSceneLogic)
+    const { issue } = useValues(errorTrackingIssueSceneLogic)
+    const { updateIssue, initIssue } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
-        // don't like doing this but scene logics do not unmount after being loaded
-        // so this refreshes the group on each page visit in case any changes occurred
-        if (!issueLoading) {
-            loadIssue()
-        }
+        initIssue()
     }, [])
 
     return (
@@ -81,23 +80,19 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     }
                 />
                 {issue ? (
-                    <LemonTabs
-                        activeKey={tab}
-                        tabs={[
-                            {
-                                key: IssueTab.Overview,
-                                label: 'Overview',
-                                content: <OverviewTab />,
-                            },
-
-                            {
-                                key: IssueTab.Events,
-                                label: 'Events',
-                                content: <EventsTab />,
-                            },
-                        ]}
-                        onChange={setTab}
-                    />
+                    <div className="ErrorTrackingIssue">
+                        <Metadata />
+                        <LemonDivider className="my-4" />
+                        <PanelLayout>
+                            <PanelLayout.Container column primary>
+                                <ErrorTrackingFilters />
+                                <SparklinePanel />
+                                <PanelLayout.Panel primary>
+                                    <Events />
+                                </PanelLayout.Panel>
+                            </PanelLayout.Container>
+                        </PanelLayout>
+                    </div>
                 ) : (
                     <Spinner />
                 )}

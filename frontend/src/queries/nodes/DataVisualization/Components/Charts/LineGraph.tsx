@@ -4,6 +4,7 @@ import './LineGraph.scss'
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
+import { lemonToast } from '@posthog/lemon-ui'
 import {
     ChartData,
     ChartType,
@@ -99,8 +100,16 @@ export const LineGraph = (): JSX.Element => {
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const { xData, yData, presetChartHeight, visualizationType, showEditingUI, chartSettings, dataVisualizationProps } =
-        useValues(dataVisualizationLogic)
+    const {
+        xData,
+        yData,
+        presetChartHeight,
+        visualizationType,
+        showEditingUI,
+        chartSettings,
+        dataVisualizationProps,
+        dashboardId,
+    } = useValues(dataVisualizationLogic)
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
@@ -131,6 +140,17 @@ export const LineGraph = (): JSX.Element => {
                 (!hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left'))
         } else {
             return
+        }
+
+        // Show warning and limit series if there are too many
+        const MAX_SERIES = 200
+        if (ySeriesData.length > MAX_SERIES) {
+            if (!dashboardId) {
+                lemonToast.warning(
+                    `This breakdown has too many series (${ySeriesData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
+                )
+            }
+            ySeriesData = ySeriesData.slice(0, MAX_SERIES)
         }
 
         const data: ChartData = {

@@ -21,6 +21,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import (
+    BackfillDetails,
     BatchExportModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
@@ -91,7 +92,7 @@ async def assert_clickhouse_records_in_bigquery(
     batch_export_model: BatchExportModel | BatchExportSchema | None = None,
     use_json_type: bool = False,
     sort_key: str = "event",
-    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
     expect_duplicates: bool = False,
     expected_fields: list[str] | None = None,
 ) -> None:
@@ -166,7 +167,7 @@ async def assert_clickhouse_records_in_bigquery(
             exclude_events=exclude_events,
             include_events=include_events,
             destination_default_fields=bigquery_default_fields(),
-            is_backfill=is_backfill,
+            backfill_details=backfill_details,
             use_latest_schema=True,
         ):
             for record in record_batch.select(schema_column_names).to_pylist():
@@ -1271,8 +1272,12 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        is_backfill=True,
-        is_earliest_backfill=True,
+        backfill_details=BackfillDetails(
+            backfill_id=str(uuid.uuid4()),
+            start_at=None,
+            end_at=data_interval_end.isoformat(),
+            is_earliest_backfill=True,
+        ),
         **bigquery_batch_export.destination.config,
     )
     _, persons = generate_test_data
