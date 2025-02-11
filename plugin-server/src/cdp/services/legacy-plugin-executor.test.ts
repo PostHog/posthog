@@ -60,6 +60,7 @@ describe('LegacyPluginExecutorService', () => {
         `,
         })
         pluginConfig = await createPluginConfig(hub.postgres, {
+            id: 10001,
             name: 'first-time-event-tracker',
             team_id: team.id,
             plugin_id: plugin.id,
