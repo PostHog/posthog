@@ -97,7 +97,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         LemonDialog.open({
                                                             title: 'Archive this survey?',
                                                             content: (
-                                                                <div className="text-sm text-muted">
+                                                                <div className="text-sm text-secondary">
                                                                     This action will remove the survey from your active
                                                                     surveys list. It can be restored at any time.
                                                                 </div>
@@ -128,7 +128,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     LemonDialog.open({
                                                         title: 'Delete this survey?',
                                                         content: (
-                                                            <div className="text-sm text-muted">
+                                                            <div className="text-sm text-secondary">
                                                                 This action cannot be undone. All survey data will be
                                                                 permanently removed.
                                                             </div>
@@ -161,7 +161,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Launch this survey?',
                                                 content: (
-                                                    <div className="text-sm text-muted">
+                                                    <div className="text-sm text-secondary">
                                                         The survey will immediately start displaying to users matching
                                                         the display conditions.
                                                     </div>
@@ -189,7 +189,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Resume this survey?',
                                                 content: (
-                                                    <div className="text-sm text-muted">
+                                                    <div className="text-sm text-secondary">
                                                         Once resumed, the survey will be visible to your users again.
                                                     </div>
                                                 ),
@@ -219,7 +219,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 LemonDialog.open({
                                                     title: 'Stop this survey?',
                                                     content: (
-                                                        <div className="text-sm text-muted">
+                                                        <div className="text-sm text-secondary">
                                                             The survey will no longer be displayed to users.
                                                         </div>
                                                     ),
@@ -484,7 +484,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                 {question.scale === 10 && (
                                     <>
                                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                        <div className="mb-2 font-semibold text-muted-alt">Latest NPS Score</div>
+                                        <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
                                         <SurveyNPSResults survey={survey as Survey} />
                                     </>
                                 )}

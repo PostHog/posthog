@@ -1,6 +1,3 @@
-@import '../../../styles/mixins';
-@import '../../../styles/vars';
-
 .Playlist {
     display: flex;
     flex-direction: row;
@@ -8,17 +5,17 @@
     justify-content: flex-start;
     height: 100%;
     overflow: hidden;
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-primary);
     border-radius: var(--radius);
 
     .Playlist__list {
         &:not(.Playlist__list--collapsed) {
-            width: 25%;
+            // width: 25%;
             min-width: 285px;
         }
 
         .text-link {
-            color: var(--text-3000) !important;
+            color: var(--text-primary) !important;
         }
     }
 
@@ -42,7 +39,7 @@
 }
 
 .NotebookNode__box .Playlist__list {
-    border-right: 1px solid var(--border);
+    border-right: 1px solid var(--border-primary);
 }
 
 .SessionRecordingPlaylistHeightWrapper {

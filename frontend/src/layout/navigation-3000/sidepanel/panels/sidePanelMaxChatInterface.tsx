@@ -141,9 +141,9 @@ function MaxChatInterfaceContent(): JSX.Element {
     return (
         <div className="flex flex-col h-full">
             <div className="flex-1 overflow-y-auto p-3 space-y-4 [overflow-anchor:none]">
-                <div className="bg-bg-light dark:bg-bg-transparent rounded p-1">
+                <div className="bg-surface-primary dark:bg-transparent rounded p-1">
                     <h4 className="mb-2">Tips for chatting with Max:</h4>
-                    <ul className="list-disc pl-4 space-y-2 text-muted">
+                    <ul className="list-disc pl-4 space-y-2 text-secondary">
                         <li>Max can't handle files or images (yet.)</li>
                         <li>
                             Max can't see what page you're on, or the contents. Copy/paste error messages or queries to
@@ -154,7 +154,7 @@ function MaxChatInterfaceContent(): JSX.Element {
                     </ul>
                 </div>
                 {isLoading ? (
-                    <div className="flex items-center gap-2 text-muted">
+                    <div className="flex items-center gap-2 text-secondary">
                         <span>Max is crawling out of his burrow and shaking off his quills...</span>
                         <Spinner className="text-lg" />
                     </div>
@@ -168,19 +168,21 @@ function MaxChatInterfaceContent(): JSX.Element {
                                         message.role === 'user' ? 'justify-end' : 'justify-start'
                                     }`}
                                 >
-                                    {message.role === 'user' && <div className="text-sm text-muted mr-2 mt-2">You</div>}
+                                    {message.role === 'user' && (
+                                        <div className="text-sm text-secondary mr-2 mt-2">You</div>
+                                    )}
 
                                     <div
                                         className={`${message.role === 'assistant' ? 'flex flex-col' : ''} max-w-full`}
                                     >
                                         {message.role === 'assistant' && (
-                                            <div className="text-sm text-muted mb-1">Max</div>
+                                            <div className="text-sm text-secondary mb-1">Max</div>
                                         )}
                                         <div
                                             className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
                                                 message.role === 'assistant'
-                                                    ? 'bg-bg-light dark:bg-bg-depth text-default'
-                                                    : 'bg-bg-light dark:bg-bg-side text-default'
+                                                    ? 'bg-surface-primary dark:bg-depth text-default'
+                                                    : 'bg-surface-primary dark:bg-side text-default'
                                             }`}
                                         >
                                             {message.role === 'assistant'
@@ -217,7 +219,7 @@ function MaxChatInterfaceContent(): JSX.Element {
                                                                             {
                                                                                 key: 'analysis',
                                                                                 header: (
-                                                                                    <span className="text-muted">
+                                                                                    <span className="text-secondary">
                                                                                         What was Max thinking?
                                                                                     </span>
                                                                                 ),
@@ -357,8 +359,8 @@ function MaxChatInterfaceContent(): JSX.Element {
                             displayMessages[displayMessages.length - 1].role === 'user' && (
                                 <div className="flex justify-start">
                                     <div className="flex flex-col">
-                                        <div className="text-sm text-muted mb-1">Max</div>
-                                        <div className="p-2 rounded-lg bg-bg-light dark:bg-bg-depth text-default">
+                                        <div className="text-sm text-secondary mb-1">Max</div>
+                                        <div className="p-2 rounded-lg bg-surface-primary dark:bg-depth text-default">
                                             <div className="flex items-center gap-2">
                                                 <span>
                                                     {hasServerError
@@ -393,7 +395,7 @@ function MaxChatInterfaceContent(): JSX.Element {
                             className="w-full"
                             data-attr="max-chat-input"
                         />
-                        <div className="px-0 text-xs text-muted mt-1 mb-2">
+                        <div className="px-0 text-xs text-secondary mt-1 mb-2">
                             `enter` to send, `shift+enter` for a new line
                         </div>
                         <LemonButton

@@ -1,7 +1,8 @@
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { SessionBatchFileWriter } from './session-batch-file-writer'
+import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionMetadataStore } from './session-metadata-store'
 
 jest.setTimeout(1000)
 jest.mock('./session-batch-recorder')
@@ -10,7 +11,9 @@ describe('SessionBatchManager', () => {
     let manager: SessionBatchManager
     let currentBatch: jest.Mocked<SessionBatchRecorder>
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
+    let mockFileStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
+    let mockMetadataStore: jest.Mocked<SessionMetadataStore>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -35,14 +38,24 @@ describe('SessionBatchManager', () => {
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
         mockWriter = {
-            open: jest.fn(),
+            writeSession: jest.fn().mockResolvedValue({ bytesWritten: 0, url: null }),
+            finish: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionBatchFileWriter>
+
+        mockFileStorage = {
+            newBatch: jest.fn().mockReturnValue(mockWriter),
+        } as unknown as jest.Mocked<SessionBatchFileStorage>
+
+        mockMetadataStore = {
+            storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionMetadataStore>
 
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
             offsetManager: mockOffsetManager,
-            writer: mockWriter,
+            fileStorage: mockFileStorage,
+            metadataStore: mockMetadataStore,
         })
     })
 
@@ -55,7 +68,7 @@ describe('SessionBatchManager', () => {
         await manager.flush()
 
         expect(firstBatch.flush).toHaveBeenCalled()
-        expect(SessionBatchRecorder).toHaveBeenCalledWith(mockOffsetManager, mockWriter)
+        expect(SessionBatchRecorder).toHaveBeenCalledWith(mockOffsetManager, mockFileStorage, mockMetadataStore)
 
         const secondBatch = manager.getCurrentBatch()
         expect(secondBatch).not.toBe(firstBatch)
@@ -119,12 +132,6 @@ describe('SessionBatchManager', () => {
             const batch = manager.getCurrentBatch()
             manager.discardPartitions([])
             expect(batch.discardPartition).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('constructor', () => {
-        it('should create a new batch recorder with the writer', () => {
-            expect(SessionBatchRecorder).toHaveBeenCalledWith(mockOffsetManager, mockWriter)
         })
     })
 })

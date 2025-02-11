@@ -6,6 +6,9 @@ import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { activeMilliseconds } from './snapshot-segmenter'
 
+// some properties are technically user submitted data so we'll do a little mild validation ahead of kafka
+const MAX_PROPERTY_LENGTH = 1000
+
 function sanitizeForUTF8(input: string): string {
     // the JS console truncates some logs...
     // when it does that it doesn't check if the output is valid UTF-8
@@ -44,6 +47,7 @@ export interface SummarizedSessionRecordingEvent {
     event_count: number
     message_count: number
     snapshot_source: string | null
+    snapshot_library: string | null
 }
 
 // this is of course way more complicated than you'd expect
@@ -255,7 +259,8 @@ export const createSessionReplayEvent = (
     distinct_id: string,
     session_id: string,
     events: RRWebEvent[],
-    snapshot_source: string | null
+    snapshot_source: string | null,
+    snapshot_library: string | null
 ): { event: SummarizedSessionRecordingEvent } => {
     const timestamps = getTimestampsFrom(events)
 
@@ -310,6 +315,15 @@ export const createSessionReplayEvent = (
     const activeTime = activeMilliseconds(events)
     const urlArray = Array.from(urls)
 
+    // do some simple validation to avoid unexpected values
+    let validSnapshotLibrary = snapshot_library
+    if (snapshot_library?.trim() === '') {
+        validSnapshotLibrary = null
+    }
+    if (validSnapshotLibrary && validSnapshotLibrary.length > MAX_PROPERTY_LENGTH) {
+        validSnapshotLibrary = validSnapshotLibrary.substring(0, MAX_PROPERTY_LENGTH)
+    }
+
     // NB forces types to be correct e.g. by truncating or rounding
     // to ensure we don't send floats when we should send an integer
     const data: SummarizedSessionRecordingEvent = {
@@ -332,6 +346,9 @@ export const createSessionReplayEvent = (
         event_count: Math.trunc(events.length),
         message_count: 1,
         snapshot_source: snapshot_source || 'web',
+        // we can't default this one, since we now have multiple libs in production
+        // so `null` means unexpected data
+        snapshot_library: validSnapshotLibrary,
     }
 
     return { event: data }

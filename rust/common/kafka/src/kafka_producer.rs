@@ -14,6 +14,12 @@ pub struct KafkaContext {
     liveness: HealthHandle,
 }
 
+impl From<HealthHandle> for KafkaContext {
+    fn from(value: HealthHandle) -> Self {
+        KafkaContext { liveness: value }
+    }
+}
+
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, _: rdkafka::Statistics) {
         // Signal liveness, as the main rdkafka loop is running and calling us
@@ -56,8 +62,7 @@ pub async fn create_kafka_producer(
     };
 
     debug!("rdkafka configuration: {:?}", client_config);
-    let api: FutureProducer<KafkaContext> =
-        client_config.create_with_context(KafkaContext { liveness })?;
+    let api: FutureProducer<KafkaContext> = client_config.create_with_context(liveness.into())?;
 
     // "Ping" the Kafka brokers by requesting metadata
     match api

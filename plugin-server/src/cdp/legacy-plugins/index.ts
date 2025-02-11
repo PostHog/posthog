@@ -13,8 +13,10 @@ import { pubsubPlugin } from './_destinations/pubsub/template'
 import { rudderstackPlugin } from './_destinations/rudderstack-posthog/template'
 import { salesforcePlugin } from './_destinations/salesforce/template'
 import { sendgridPlugin } from './_destinations/sendgrid/template'
+import { currencyNormalizationPlugin } from './_transformations/currency-normalization-plugin/template'
 import { downsamplingPlugin } from './_transformations/downsampling-plugin/template'
 import { dropEventsOnPropertyPlugin } from './_transformations/drop-events-on-property-plugin/template'
+import { firstTimeEventTrackerPlugin } from './_transformations/first-time-event-tracker/template'
 import { flattenPropertiesPlugin } from './_transformations/flatten-properties-plugin/template'
 import { languageUrlSplitterApp } from './_transformations/language-url-splitter-app/template'
 import { phShotgunProcessEventApp } from './_transformations/ph-shotgun-processevent-app/template'
@@ -34,6 +36,7 @@ import { propertyFilterPlugin } from './_transformations/property-filter-plugin/
 import { semverFlattenerPlugin } from './_transformations/semver-flattener-plugin/template'
 import { taxonomyPlugin } from './_transformations/taxonomy-plugin/template'
 import { timestampParserPlugin } from './_transformations/timestamp-parser-plugin/template'
+import { urlParserPlugin } from './_transformations/url-parser/template'
 import { userAgentPlugin } from './_transformations/user-agent-plugin/template'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from './types'
 
@@ -55,8 +58,10 @@ export const DESTINATION_PLUGINS: LegacyDestinationPlugin[] = [
     sendgridPlugin,
 ]
 export const TRANSFORMATION_PLUGINS: LegacyTransformationPlugin[] = [
+    currencyNormalizationPlugin,
     downsamplingPlugin,
     dropEventsOnPropertyPlugin,
+    firstTimeEventTrackerPlugin,
     flattenPropertiesPlugin,
     languageUrlSplitterApp,
     phShotgunProcessEventApp,
@@ -76,6 +81,7 @@ export const TRANSFORMATION_PLUGINS: LegacyTransformationPlugin[] = [
     semverFlattenerPlugin,
     taxonomyPlugin,
     timestampParserPlugin,
+    urlParserPlugin,
     userAgentPlugin,
 ]
 

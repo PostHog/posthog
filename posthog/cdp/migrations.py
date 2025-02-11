@@ -9,7 +9,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.core.paginator import Paginator
 
-# python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind transformation
+# python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind=transformation
 
 
 def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool):
@@ -46,48 +46,14 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 plugin_name = f"[CDP-TEST-HIDDEN] {plugin_name}"
 
             inputs = {}
-            inputs_schema = []
 
             # Iterate over the plugin config to build the inputs
 
-            for schema in plugin_config["plugin__config_schema"]:
-                if not schema.get("key"):
-                    continue
-
-                print("Converting schema", schema)  # noqa: T201
-
-                # Some hacky stuff to convert the schemas correctly
-                input_schema = {
-                    "key": schema["key"],
-                    "type": schema["type"],
-                    "label": schema.get("name", schema["key"]),
-                    "secret": schema.get("secret", False),
-                    "required": schema.get("required", False),
-                    "templating": False,
-                }
-
-                if schema.get("default"):
-                    input_schema["default"] = schema["default"]
-
-                if schema.get("hint"):
-                    input_schema["description"] = schema["hint"]
-
-                if schema["type"] == "choice":
-                    input_schema["choices"] = [
-                        {
-                            "label": choice,
-                            "value": choice,
-                        }
-                        for choice in schema["choices"]
-                    ]
-                elif schema["type"] == "attachment":
-                    input_schema["secret"] = schema["key"] == "googleCloudKeyJson"
-                    input_schema["type"] = "json"
-
-                inputs_schema.append(input_schema)
-
             for key, value in plugin_config["config"].items():
                 inputs[key] = {"value": value}
+
+            if plugin_id == "first-time-event-tracker":
+                inputs["legacy_plugin_config_id"] = {"value": str(plugin_config["id"])}
 
             if len(plugin_config["config"]) > 0:
                 # Load all attachments for this plugin config if there is some config
@@ -109,7 +75,12 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
 
             teams_cache[plugin_config["team_id"]] = team
 
-            serializer_context = {"team": team, "get_team": (lambda t=team: t)}
+            serializer_context = {
+                "team": team,
+                "get_team": (lambda t=team: t),
+                "bypass_addon_check": True,
+                "is_create": True,
+            }
 
             icon_url = (
                 plugin_config["plugin__icon"] or f"https://raw.githubusercontent.com/PostHog/{plugin_id}/main/logo.png"
@@ -122,7 +93,6 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 "description": "This is a legacy destination migrated from our old plugin system.",
                 "filters": {},
                 "inputs": inputs,
-                "inputs_schema": inputs_schema,
                 "enabled": True,
                 "hog": "return event",
                 "icon_url": icon_url,
@@ -192,7 +162,8 @@ def migrate_legacy_plugins(
             # Order by order asc but with nulls last
         )
         .filter(enabled=True)
-        .order_by("order", "team_id")
+        # Order by id descending. Makes it easier to re run and quickly pick up the latest added plugins
+        .order_by("-id")
     )
 
     if kind == "destination":
@@ -206,6 +177,7 @@ def migrate_legacy_plugins(
         raise ValueError(f"Invalid kind: {kind}")
 
     if team_ids:
+        team_ids = [int(id) for id in team_ids.split(",")]
         legacy_plugins = legacy_plugins.filter(team_id__in=team_ids)
 
     if limit:

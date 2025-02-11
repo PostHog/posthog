@@ -34,10 +34,30 @@ class ObjectStorageUnavailable(Exception):
     pass
 
 
+class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
+    id = serializers.SerializerMethodField()
+    type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ErrorTrackingIssueAssignment
+        fields = ["id", "type"]
+
+    def get_id(self, obj):
+        return obj.user_id or obj.user_group_id
+
+    def get_type(self, obj):
+        return "user_group" if obj.user_group else "user"
+
+
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
+    # Might not be entirely accurate if an issue is merged but it's a good
+    # approximation to use in absence of doing a ClickHouse query
+    first_seen = serializers.DateTimeField(source="created_at")
+    assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
+
     class Meta:
         model = ErrorTrackingIssue
-        fields = ["status"]
+        fields = ["id", "status", "name", "description", "first_seen", "assignee"]
 
 
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):

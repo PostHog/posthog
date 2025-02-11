@@ -1,6 +1,4 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import ErrorTrackingFilters from 'scenes/error-tracking/ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
 import { Query } from '~/queries/Query/Query'
@@ -18,18 +16,12 @@ export const EventsTab = (): JSX.Element => {
         columns: {
             'recording_button(properties.$session_id)': {
                 title: 'Recording',
-                width: '132px',
+                width: '134px',
             },
         },
         showOpenEditorButton: false,
         insightProps: insightProps,
     }
 
-    return (
-        <>
-            <ErrorTrackingFilters.FilterGroup />
-            <LemonDivider className="my-2" />
-            <Query query={eventsQuery} context={context} />
-        </>
-    )
+    return <Query query={eventsQuery} context={context} />
 }

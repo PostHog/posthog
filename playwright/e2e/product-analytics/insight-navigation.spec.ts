@@ -33,7 +33,7 @@ typeTestCases.forEach(({ type, selector }) => {
 // commented out because the query spec is incorrect
 // test.skip('can navigate to insight by query', async ({ page }) => {
 //     const insight = new InsightPage(page)
-//     const url = urls.insightNew(undefined, undefined, {
+//     const url = urls.insightNew({query: {
 //         kind: NodeKind.InsightVizNode,
 //         source: {
 //             kind: 'TrendsQuery',
@@ -51,7 +51,7 @@ typeTestCases.forEach(({ type, selector }) => {
 //             },
 //         },
 //         full: true,
-//     })
+//     }})
 //
 //     await page.goto(url)
 //

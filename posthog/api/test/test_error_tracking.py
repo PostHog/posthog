@@ -2,7 +2,7 @@ import os
 from boto3 import resource
 
 from rest_framework import status
-
+from freezegun import freeze_time
 
 from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -63,6 +63,23 @@ class TestErrorTracking(APIBaseTest):
         assert response.json() == {"status": "resolved"}
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
 
+    @freeze_time("2025-01-01")
+    def test_issue_fetch(self):
+        issue = self.create_issue()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "id": str(issue.id),
+            "name": None,
+            "description": None,
+            "status": "active",
+            "assignee": None,
+            "first_seen": "2025-01-01T00:00:00Z",
+        }
+
+    @freeze_time("2025-01-01")
     def test_issue_update(self):
         issue = self.create_issue()
 
@@ -72,7 +89,14 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
 
         assert response.status_code == 200
-        assert response.json() == {"status": "resolved"}
+        assert response.json() == {
+            "id": str(issue.id),
+            "name": None,
+            "description": None,
+            "status": "resolved",
+            "assignee": None,
+            "first_seen": "2025-01-01T00:00:00Z",
+        }
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
 
     def test_issue_merge(self):

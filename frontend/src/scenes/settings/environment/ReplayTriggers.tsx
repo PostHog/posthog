@@ -1,15 +1,20 @@
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconAI, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import posthog from 'posthog-js'
+import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
+import { aiRegexHelperLogic } from 'scenes/session-recordings/components/AiRegexHelper/aiRegexHelperLogic'
 import { replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
 
@@ -24,13 +29,19 @@ function UrlConfigForm({
     onCancel: () => void
     isSubmitting: boolean
 }): JSX.Element {
+    const filterLogic = aiRegexHelperLogic()
+    const { setIsOpen } = useActions(filterLogic)
+
     return (
         <Form
             logic={replayTriggersLogic}
             formKey={type === 'trigger' ? 'proposedUrlTrigger' : 'proposedUrlBlocklist'}
             enableFormOnSubmit
-            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-bg-light gap-2"
+            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-surface-primary gap-2"
         >
+            <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
+                <AiRegexHelper type={type} />
+            </FlaggedFeature>
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
                     We always wrap the URL regex with anchors to avoid unexpected behavior (if you do not). This is
@@ -44,18 +55,34 @@ function UrlConfigForm({
                     </LemonField>
                 </LemonLabel>
             </div>
-            <div className="flex justify-end gap-2 w-full">
-                <LemonButton type="secondary" onClick={onCancel}>
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    htmlType="submit"
-                    type="primary"
-                    disabledReason={isSubmitting ? `Saving url in progress` : undefined}
-                    data-attr="url-save"
-                >
-                    Save
-                </LemonButton>
+            <div className="flex justify-between gap-2 w-full">
+                <div>
+                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
+                        <LemonButton
+                            type="tertiary"
+                            icon={<IconAI />}
+                            onClick={() => {
+                                setIsOpen(true)
+                                posthog.capture('ai_regex_helper_open')
+                            }}
+                        >
+                            Help me with Regex
+                        </LemonButton>
+                    </FlaggedFeature>
+                </div>
+                <div className="flex gap-2">
+                    <LemonButton type="secondary" onClick={onCancel}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        htmlType="submit"
+                        type="primary"
+                        disabledReason={isSubmitting ? `Saving url in progress` : undefined}
+                        data-attr="url-save"
+                    >
+                        Save
+                    </LemonButton>
+                </div>
             </div>
         </Form>
     )
@@ -78,16 +105,17 @@ function UrlConfigRow({
 }): JSX.Element {
     if (editIndex === index) {
         return (
-            <div className="border rounded p-2 bg-bg-light">
+            <div className="border rounded p-2 bg-surface-primary">
                 <UrlConfigForm type={type} onCancel={() => onEdit(-1)} isSubmitting={false} />
             </div>
         )
     }
 
     return (
-        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
+        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
             <span title={trigger.url} className="flex-1 truncate">
-                {trigger.matching === 'regex' ? 'Matches regex: ' : ''} {trigger.url}
+                <span>{trigger.matching === 'regex' ? 'Matches regex: ' : ''}</span>
+                <span>{trigger.url}</span>
             </span>
             <div className="Actions flex space-x-1 shrink-0">
                 <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center />

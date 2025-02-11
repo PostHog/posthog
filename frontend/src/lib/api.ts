@@ -4,6 +4,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
+import { ChatCompletionUserMessageParam } from 'openai/resources/chat/completions'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -14,6 +15,7 @@ import {
     DashboardFilter,
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
+    ErrorTrackingRelationalIssue,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -1993,10 +1995,14 @@ const api = {
     },
 
     errorTracking: {
+        async getIssue(id: ErrorTrackingIssue['id']): Promise<ErrorTrackingRelationalIssue> {
+            return await new ApiRequest().errorTrackingIssue(id).get()
+        },
+
         async updateIssue(
             id: ErrorTrackingIssue['id'],
             data: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>
-        ): Promise<ErrorTrackingIssue> {
+        ): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
 
@@ -2182,6 +2188,14 @@ const api = {
                 .withAction('recordings')
                 .withAction(session_recording_id)
                 .delete()
+        },
+
+        async aiFilters(messages: ChatCompletionUserMessageParam[]): Promise<{ result: string; data: any }> {
+            return await new ApiRequest().recordings().withAction('ai/filters').create({ data: { messages } })
+        },
+
+        async aiRegex(regex: string): Promise<{ result: string; data: any }> {
+            return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
         },
     },
 
