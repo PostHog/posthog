@@ -596,7 +596,9 @@ class FeatureFlagViewSet(
                 .prefetch_related("surveys_linked_flag")
                 .prefetch_related(
                     Prefetch(
-                        "team__cohort_set", queryset=Cohort.objects.filter(deleted=False), to_attr="available_cohorts"
+                        "team__cohort_set",
+                        queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
+                        to_attr="available_cohorts",
                     )
                 )
             )
