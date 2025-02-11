@@ -21,7 +21,6 @@ import {
     FeatureFlagFilters,
     MultipleSurveyQuestion,
     PropertyFilterType,
-    PropertyFilterValue,
     PropertyOperator,
     RatingSurveyQuestion,
     Survey,
@@ -123,39 +122,6 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
         targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
-}
-
-function isPropertyValueValid(value?: PropertyFilterValue): boolean {
-    if (!value) {
-        return false
-    }
-
-    if (Array.isArray(value)) {
-        return value.length > 0
-    }
-
-    return value !== undefined && value !== null && value !== ''
-}
-
-function getPropertyFiltersSQL(propertyFilters?: AnyPropertyFilter[]): string {
-    if (!propertyFilters || propertyFilters.length === 0) {
-        return ''
-    }
-
-    const filtersWithValues = propertyFilters.filter((filter) => isPropertyValueValid(filter.value))
-
-    if (filtersWithValues.length === 0) {
-        return ''
-    }
-
-    return `AND ${filtersWithValues
-        .map((filter) => {
-            if (filter.type === 'person') {
-                return `person.properties['${filter.key}'] = '${filter.value}'`
-            }
-            return `properties['${filter.key}'] = '${filter.value}'`
-        })
-        .join(' AND ')}`
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -312,24 +278,31 @@ export const surveyLogic = kea<surveyLogicType>([
                         SELECT
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
-                                WHERE event = 'survey shown' ${getPropertyFiltersSQL(values.propertyFilters)}
+                                WHERE event = 'survey shown'
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate}),
+                                    AND timestamp <= ${endDate}
+                                    AND {filters}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
-                                WHERE event = 'survey dismissed' ${getPropertyFiltersSQL(values.propertyFilters)}
+                                WHERE event = 'survey dismissed'
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate}),
+                                    AND timestamp <= ${endDate}
+                                    AND {filters}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
-                                WHERE event = 'survey sent' ${getPropertyFiltersSQL(values.propertyFilters)}
+                                WHERE event = 'survey sent'
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate})
+                                    AND timestamp <= ${endDate}
+                                    AND {filters})
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
+
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
                 if (results && results[0]) {
@@ -359,11 +332,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
-                let iterationCondition = ''
-                if (iteration && iteration > 0) {
-                    iterationCondition = ` AND properties.$survey_iteration='${iteration}' `
-                }
-
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -373,13 +341,17 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = 'survey sent'
                             AND properties.$survey_id = '${props.id}'
-                            ${iterationCondition}
+                            ${iteration && iteration > 0 ? ` AND properties.$survey_iteration='${iteration}' ` : ''}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${getPropertyFiltersSQL(values.propertyFilters)}
+                            AND {filters}
                         GROUP BY survey_response
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
+
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
 
@@ -425,9 +397,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${getPropertyFiltersSQL(values.propertyFilters)}
+                            AND {filters}
                         GROUP BY survey_response, survey_iteration
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
 
                 const responseJSON = await api.query(query)
@@ -494,17 +469,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
-                const propertyFiltersSQL = values.propertyFilters?.length
-                    ? `AND ${values.propertyFilters
-                          .map((filter) => {
-                              if (filter.type === 'person') {
-                                  return `person.properties['${filter.key}'] = '${filter.value}'`
-                              }
-                              return `properties['${filter.key}'] = '${filter.value}'`
-                          })
-                          .join(' AND ')}`
-                    : ''
-
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -516,10 +480,14 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${propertyFiltersSQL}
+                            AND {filters}
                         GROUP BY survey_response
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
+
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
 
@@ -558,11 +526,15 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id == '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                           ${getPropertyFiltersSQL(values.propertyFilters)}
+                            AND {filters}
                         GROUP BY choice
                         ORDER BY count() DESC
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
+
                 const responseJSON = await api.query(query)
                 let { results } = responseJSON
 
@@ -612,9 +584,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND trim(JSONExtractString(properties, '${getResponseField(questionIndex)}')) != ''
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${getPropertyFiltersSQL(values.propertyFilters)}
+                            AND {filters}
                         LIMIT 20
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
 
                 const responseJSON = await api.query(query)
