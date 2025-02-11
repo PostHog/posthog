@@ -26,7 +26,7 @@ export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JS
             <PageHeader
                 buttons={
                     <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                        Backfill batch export
+                        Start backfill
                     </LemonButton>
                 }
             />
@@ -171,7 +171,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         <div>No backfills in this time range.</div>
                         {canEnableNewDestinations && (
                             <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                Backfill batch export
+                                Start backfill
                             </LemonButton>
                         )}
                     </div>

@@ -176,7 +176,7 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                         </div>
                         {canEnableNewDestinations && (
                             <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                Backfill batch export
+                                Start backfill
                             </LemonButton>
                         )}
                     </div>
@@ -317,7 +317,7 @@ export function BatchExportRunsGrouped({
                         </div>
                         {canEnableNewDestinations && (
                             <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                Backfill batch export
+                                Start backfill
                             </LemonButton>
                         )}
                     </div>

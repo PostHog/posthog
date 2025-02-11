@@ -1,11 +1,4 @@
-import {
-    CookielessConfig,
-    LogLevel,
-    PluginLogLevel,
-    PluginsServerConfig,
-    stringToPluginServerMode,
-    ValueMatcher,
-} from '../types'
+import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -335,17 +328,5 @@ export function buildStringMatcher(config: string | undefined, allowStar: boolea
         return (v: string) => {
             return values.has(v)
         }
-    }
-}
-
-export const createCookielessConfig = (config: PluginsServerConfig): CookielessConfig => {
-    return {
-        disabled: config.COOKIELESS_DISABLED,
-        forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
-        deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
-        sessionTtlSeconds: config.COOKIELESS_SESSION_TTL_SECONDS,
-        saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
-        sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
-        identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
     }
 }

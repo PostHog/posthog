@@ -37,6 +37,8 @@ function jsonParse (str) {
             const obj = {}; for (const key in x) { obj[key] = convert(x[key]) }; return obj }
         return x }
     return convert(JSON.parse(str)) }
+function arrayMap (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }
+function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }
 function __toHogDateTime(timestamp, zone) {
     if (__isHogDate(timestamp)) {
         const date = new Date(Date.UTC(timestamp.year, timestamp.month - 1, timestamp.day));
@@ -124,3 +126,6 @@ print(b);
 print(jsonStringify(b));
 let c = jsonParse(jsonStringify(b));
 print(c);
+print("--------");
+let arrayMapObjects = arrayMap(__lambda((a) => ({"a": a})), [1, 2, 3]);
+print(arrayMapObjects);

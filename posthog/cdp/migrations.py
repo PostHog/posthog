@@ -1,6 +1,7 @@
 import json
 from typing import Any
 from posthog.api.hog_function import HogFunctionSerializer
+from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.constants import AvailableFeature
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginAttachment, PluginConfig
@@ -75,27 +76,29 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
 
             teams_cache[plugin_config["team_id"]] = team
 
-            serializer_context = {"team": team, "get_team": (lambda t=team: t), "bypass_addon_check": True}
+            serializer_context = {
+                "team": team,
+                "get_team": (lambda t=team: t),
+                "bypass_addon_check": True,
+                "is_create": True,
+            }
 
-            icon_url = (
-                plugin_config["plugin__icon"] or f"https://raw.githubusercontent.com/PostHog/{plugin_id}/main/logo.png"
-            )
+            template = HogFunctionTemplates.template(f"plugin-{plugin_id}")
 
-            # Check it doesn't already exist
-            if HogFunction.objects.filter(template_id=f"plugin-{plugin_id}", type=kind, team_id=team.id).exists():
-                print(f"Skipping plugin {plugin_name} as it already exists as a hog function")  # noqa: T201
-                continue
+            if not template:
+                raise Exception(f"Template not found for plugin {plugin_id}")
 
             data = {
-                "template_id": f"plugin-{plugin_id}",
+                "template_id": template.id,
                 "type": kind,
                 "name": plugin_name,
-                "description": "This is a legacy destination migrated from our old plugin system.",
-                "filters": {},
+                "description": template.description,
+                "filters": template.filters,
+                "hog": template.hog,
                 "inputs": inputs,
                 "enabled": True,
-                "hog": "return event",
-                "icon_url": icon_url,
+                "icon_url": template.icon_url,
+                "inputs_schema": template.inputs_schema,
                 "execution_order": plugin_config["order"],
             }
 
@@ -177,6 +180,7 @@ def migrate_legacy_plugins(
         raise ValueError(f"Invalid kind: {kind}")
 
     if team_ids:
+        team_ids = [int(id) for id in team_ids.split(",")]
         legacy_plugins = legacy_plugins.filter(team_id__in=team_ids)
 
     if limit:

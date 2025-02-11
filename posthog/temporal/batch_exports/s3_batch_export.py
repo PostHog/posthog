@@ -19,11 +19,12 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     S3BatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -91,8 +92,8 @@ COMPRESSION_EXTENSIONS = {
 }
 
 
-@dataclasses.dataclass
-class S3InsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports."""
 
     # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
@@ -102,25 +103,15 @@ class S3InsertInputs:
     bucket_name: str
     region: str
     prefix: str
-    team_id: int
-    data_interval_start: str | None
-    data_interval_end: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     compression: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
     endpoint_url: str | None = None
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -776,7 +767,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
-            is_backfill=inputs.is_backfill,
+            is_backfill=inputs.get_is_backfill(),
+            backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
@@ -843,8 +835,10 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -853,7 +847,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -892,7 +886,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             file_format=inputs.file_format,
             max_file_size_mb=inputs.max_file_size_mb,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,

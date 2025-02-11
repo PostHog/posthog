@@ -27,7 +27,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
 
     return (
         <LemonModal
-            title="Re-authenticate account"
+            title="Re-authenticate for security"
             isOpen={showAuthenticationModal}
             onClose={() => setDismissedReauthentication(true)}
             maxWidth="30rem"
@@ -53,7 +53,10 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                 ) : undefined
             }
         >
-            <p>You are accessing a sensitive part of PostHog. For your security we require you to re-authenticate.</p>
+            <p>
+                Before accessing and changing sensitive settings, we ask you to&nbsp;re-authenticate. Just to ensure you
+                are you!
+            </p>
 
             {showPassword ? (
                 <Form
@@ -122,7 +125,7 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
         <div className="flex-1 bg-primary border border-border rounded flex flex-col items-center p-6 text-center w-full">
             <h2>Re-authentication required</h2>
 
-            <p>For security purposes, this area requires that you re-authenticate</p>
+            <p>This area requires that you re-authenticate.</p>
 
             <LemonButton type="primary" onClick={() => setDismissedReauthentication(false)}>
                 Re-authenticate
