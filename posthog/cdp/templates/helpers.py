@@ -162,6 +162,9 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
             const globals = {json.dumps(js_globals)};
             const posthog = {{
                 get_property: (key) => key === '$stored_person_properties' ? globals.person.properties : null,
+                config: {{
+                    debug: true,
+                }}
             }};
 
             const initFn = {self._transpiled}().init;

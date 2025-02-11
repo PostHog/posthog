@@ -40,9 +40,12 @@ export function onLoad({ inputs }) {
             userProperties[key] = value;
         }
     };
+    if (posthog.config.debug) {
+        console.log('[PostHog.js] rdt init', inputs.pixelId, userProperties);
+    }
     rdt('init', inputs.pixelId, userProperties);
 }
-export function onEvent({ inputs }) {
+export function onEvent({ inputs, posthog }) {
     const builtInEvents = [
         'PageVisit',
         'Search',
@@ -59,14 +62,17 @@ export function onEvent({ inputs }) {
             eventProperties[key] = value;
         }
     };
+    let eventName;
     if (builtInEvents.includes(inputs.eventType)) {
-        rdt('track', inputs.eventType, eventProperties);
+        eventName = inputs.eventType;
     } else {
-        rdt('track', 'Custom', {
-            customEventName: inputs.eventType,
-            ...eventProperties,
-        });
+        eventName = 'Custom';
+        eventProperties.customEventName = inputs.eventType;
     }
+    if (posthog.config.debug) {
+        console.log('[PostHog.js] rdt track', eventName, eventProperties);
+    }
+    rdt('track', eventName, eventProperties);
 }
 """.strip(),
     inputs_schema=[
