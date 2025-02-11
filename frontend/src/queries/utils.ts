@@ -366,6 +366,8 @@ export const getYAxisScaleType = (query: InsightQueryNode): string | undefined =
 export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showMultipleYAxes
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.showMultipleYAxes
     }
     return undefined
 }
