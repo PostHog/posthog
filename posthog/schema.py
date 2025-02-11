@@ -236,7 +236,7 @@ class AssistantTrendsFilter(BaseModel):
             " `$geoip_country_name`, and only then."
         ),
     )
-    formula: Optional[str] = Field(default=None, description="If the formula is provided, apply it here.")
+    formulas: Optional[list[str]] = Field(default=None, description="If the formula is provided, apply it here.")
     showLegend: Optional[bool] = Field(
         default=False, description="Whether to show the legend describing series and breakdowns."
     )
@@ -630,6 +630,18 @@ class Status(StrEnum):
     ACTIVE = "active"
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
+
+
+class ErrorTrackingIssueAggregations(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    customVolume: Optional[list[float]] = None
+    occurrences: float
+    sessions: float
+    users: float
+    volumeDay: list[float]
+    volumeMonth: list[float]
 
 
 class Type1(StrEnum):
@@ -2093,6 +2105,18 @@ class ErrorTrackingIssueAssignee(BaseModel):
     type: Type1
 
 
+class ErrorTrackingRelationalIssue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignee: Optional[ErrorTrackingIssueAssignee] = None
+    description: Optional[str] = None
+    first_seen: AwareDatetime
+    id: str
+    name: Optional[str] = None
+    status: Status
+
+
 class ErrorTrackingSparklineConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2758,6 +2782,10 @@ class TrendsFilter(BaseModel):
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
+    formulas: Optional[list[str]] = Field(
+        default=None,
+        description="List of formulas to apply to the data. Takes precedence over formula if both are set.",
+    )
     goalLines: Optional[list[GoalLine]] = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: Optional[list[int]] = None
     resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
@@ -4234,20 +4262,15 @@ class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
-    customVolume: Optional[list[float]] = None
     description: Optional[str] = None
     earliest: Optional[str] = None
     first_seen: AwareDatetime
     id: str
-    last_seen: AwareDatetime
+    last_seen: Optional[AwareDatetime] = None
     name: Optional[str] = None
-    occurrences: float
-    sessions: float
     status: Status
-    users: float
-    volumeDay: list[float]
-    volumeMonth: list[float]
 
 
 class ErrorTrackingQueryResponse(BaseModel):

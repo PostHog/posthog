@@ -131,9 +131,12 @@ def match_property(property: Property, override_property_values: dict[str, Any])
         return str(value).lower() not in str(override_value).lower()
 
     if operator in ("regex", "not_regex"):
+        pattern = sanitize_regex_pattern(str(value))
         try:
-            pattern = re.compile(str(value))
-            match = pattern.search(str(override_value))
+            # Make the pattern more flexible by using DOTALL flag to allow . to match newlines
+            # Added IGNORECASE for more flexibility
+            compiled_pattern = re.compile(pattern, re.DOTALL | re.IGNORECASE)
+            match = compiled_pattern.search(str(override_value))
 
             if operator == "regex":
                 return match is not None
@@ -513,3 +516,51 @@ def sanitize_property_key(key: Any) -> str:
     # This is because we don't want to overwrite the value of key1 when we're trying to read key2
     hash_value = hashlib.sha1(string_key.encode("utf-8")).hexdigest()[:15]
     return f"{substitute}_{hash_value}"
+
+
+def sanitize_regex_pattern(pattern: str) -> str:
+    # If it doesn't look like a property match pattern, return it as-is
+    if not ('"' in pattern or "'" in pattern or ":" in pattern):
+        return pattern
+
+    # First, temporarily replace escaped quotes with markers
+    pattern = pattern.replace(r"\"", "__ESCAPED_DOUBLE_QUOTE__")
+    pattern = pattern.replace(r"\'", "__ESCAPED_SINGLE_QUOTE__")
+
+    # Replace unescaped quotes with a pattern that matches either quote type
+    pattern = pattern.replace('"', "['\"]")
+
+    # Add optional whitespace around colons to handle Python dict format
+    pattern = pattern.replace(":", r"\s*:\s*")
+
+    # Now restore the escaped quotes, but convert them to also match either quote type
+    pattern = pattern.replace("__ESCAPED_DOUBLE_QUOTE__", "['\"]")
+    pattern = pattern.replace("__ESCAPED_SINGLE_QUOTE__", "['\"]")
+
+    # If the pattern looks like a property match (key:value), convert it to use lookaheads
+    if "['\"]" in pattern:
+        # Split the pattern if it's trying to match multiple properties
+        parts = pattern.split("[^}]*")
+        converted_parts = []
+        for part in parts:
+            if "['\"]" in part:
+                # Extract the key and value from patterns like ['"]key['"]\s*:\s*['"]value['"]
+                try:
+                    # Use a non-capturing group for quotes and match the exact key name
+                    # This ensures we don't match partial keys or keys that are substrings of others
+                    key = re.search(r'\[\'"\]((?:[^\'"\s:}]+))\[\'"\]\\s\*:\\s\*\[\'"\](.*?)\[\'"\]', part)
+                    if key:
+                        key_name, value = key.groups()
+                        # Escape special regex characters in the key name
+                        escaped_key_name = re.escape(key_name)
+                        # Convert to a positive lookahead that matches the exact key-value pair
+                        converted = f"(?=.*['\"]?{escaped_key_name}['\"]?\\s*:\\s*['\"]?{value}['\"]?)"
+                        converted_parts.append(converted)
+                except Exception:
+                    # If we can't parse it, use the original pattern
+                    converted_parts.append(part)
+            else:
+                converted_parts.append(part)
+        pattern = "".join(converted_parts)
+
+    return pattern

@@ -47,34 +47,36 @@ export const errorTrackingQuery = ({
 export const errorTrackingIssueQuery = ({
     issueId,
     dateRange,
-    filterTestAccounts,
-    filterGroup,
+    customVolume,
 }: {
     issueId: string
     dateRange: DateRange
-    filterTestAccounts: boolean
-    filterGroup: UniversalFiltersGroup
+    customVolume?: ErrorTrackingSparklineConfig | null
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
-        issueId: issueId,
-        dateRange: dateRange,
-        filterGroup: filterGroup as PropertyGroupFilter,
-        filterTestAccounts: filterTestAccounts,
+        issueId,
+        dateRange,
+        filterTestAccounts: false,
+        customVolume,
     }
 }
 
 export const errorTrackingIssueEventsQuery = ({
-    issueId,
-    dateRange,
+    issue,
     filterTestAccounts,
     filterGroup,
+    dateRange,
 }: {
-    issueId: ErrorTrackingIssue['id']
-    dateRange: DateRange
+    issue: ErrorTrackingIssue | null
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
-}): DataTableNode => {
+    dateRange: DateRange
+}): DataTableNode | null => {
+    if (!issue) {
+        return null
+    }
+
     // const select = ['person', 'timestamp', 'recording_button(properties.$session_id)']
     // row expansion only works when you fetch the entire event with '*'
     const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
@@ -84,7 +86,7 @@ export const errorTrackingIssueEventsQuery = ({
 
     // TODO: fix this where clause. It does not take into account the events
     // associated with issues that have been merged into this primary issue
-    const where = [`'${issueId}' == properties.$exception_issue_id`]
+    const where = [`'${issue.id}' == properties.$exception_issue_id`]
 
     const eventsQuery: EventsQuery = {
         kind: NodeKind.EventsQuery,
@@ -93,13 +95,8 @@ export const errorTrackingIssueEventsQuery = ({
         where,
         properties,
         filterTestAccounts: filterTestAccounts,
-    }
-
-    if (dateRange.date_from) {
-        eventsQuery.after = dateRange.date_from
-    }
-    if (dateRange.date_to) {
-        eventsQuery.before = dateRange.date_to
+        after: dateRange.date_from || issue.first_seen,
+        before: dateRange.date_to || undefined,
     }
 
     return {
@@ -109,6 +106,7 @@ export const errorTrackingIssueEventsQuery = ({
         showTimings: false,
         columns: columns,
         expandable: true,
+        embedded: true,
     }
 }
 

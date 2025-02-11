@@ -3,7 +3,7 @@ import uuid
 import json
 import time
 import asyncio
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -196,56 +196,81 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         set_tag("client_query_id", query_id)
 
 
-ASYNC_FALLBACK_TO_POLLING_TIMEOUT = 20
+MAX_QUERY_TIMEOUT = 600
 
 
-async def query_awaited(request: Request, *args, **kwargs) -> HttpResponse:
-    """Async endpoint for handling event source queries."""
+async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpResponse:
+    """Async endpoint for handling event source queries using Server-Sent Events (SSE)."""
 
-    # Call the create method on QueryViewSet
+    # Call the create method on QueryViewSet, with the right accept header
+    request.META["HTTP_ACCEPT"] = "application/json"
     view = await sync_to_async(QueryViewSet.as_view)({"post": "create"}, **kwargs)
     response = await sync_to_async(view)(request)
 
-    if (
-        response.status_code != 202
-    ):  # 202 means accepted, which means we're calculating async. Anything else means we can just return immediately
-        return response
+    if response.status_code != 202:  # Non-202 means we can return immediately
+        response.render()
+        content = response.rendered_content.decode("utf-8")
+        return StreamingHttpResponse(
+            [f"data: {content}\n\n".encode()],
+            status=response.status_code,
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     response.render()
     data = json.loads(response.rendered_content)
 
-    # For async responses, poll until complete or timeout
-    async def check_query_status():
+    async def event_stream():
         assert kwargs.get("team_id") is not None
         manager = QueryStatusManager(data["query_status"]["id"], cast(int, kwargs["team_id"]))
         start_time = time.time()
-        sleep_time = 0.1  # Start with 100ms
-        max_sleep_time = 1.0  # Don't wait more than 1 second between checks
+        last_update_time: float = start_time
 
-        while time.time() - start_time < ASYNC_FALLBACK_TO_POLLING_TIMEOUT:
+        # For things to feel snappy we want to frequently check initially, then back off so we don't overload redis
+        FAST_POLL_DURATION = 3.0  # First 3 seconds
+        MEDIUM_POLL_DURATION = 15.0  # Until 15 seconds
+        FAST_POLL_INTERVAL = 0.05
+        MEDIUM_POLL_INTERVAL = 0.1
+        SLOW_POLL_INTERVAL = 1.0
+        UPDATE_INTERVAL = 1.0  # How often to send updates to client
+
+        while time.time() - start_time < MAX_QUERY_TIMEOUT:
             try:
                 status = await sync_to_async(manager.get_query_status)(show_progress=True)
-                if status.complete:
-                    return status
+                current_time = time.time()
+
+                if isinstance(status, BaseModel) and getattr(status, "results", None):
+                    yield f"data: {json.dumps(status.results)}\n\n".encode()
+                    break
+                elif isinstance(status, BaseModel):
+                    # Only yield status updates every UPDATE_INTERVAL seconds
+                    if current_time - last_update_time >= UPDATE_INTERVAL:
+                        yield f"data: {status.model_dump_json(by_alias=True)}\n\n".encode()
+                        # Force flush by yielding an empty bytes object
+                        yield b""
+                        last_update_time = current_time
+
             except Exception:
-                pass
+                capture_exception()
+                yield f"data: {json.dumps({'error': 'Server error'})}\n\n".encode()
+                break
 
-            await asyncio.sleep(sleep_time)
-            sleep_time = min(sleep_time * 1.5, max_sleep_time)
+            elapsed_time = time.time() - start_time
+            if elapsed_time < FAST_POLL_DURATION:
+                await asyncio.sleep(FAST_POLL_INTERVAL)
+            elif elapsed_time < MEDIUM_POLL_DURATION:
+                await asyncio.sleep(MEDIUM_POLL_INTERVAL)
+            else:
+                await asyncio.sleep(SLOW_POLL_INTERVAL)
 
-        return None
-
-    status = await check_query_status()
-
-    if status is None:
-        # If we timeout on responding syncronously, return the original response so the client can continue to poll
-        return response
-    elif isinstance(status, BaseModel) and hasattr(status, "results"):
-        response_data = json.dumps(status.results)
-    else:
-        response_data = json.dumps(status)
-
-    return HttpResponse(
-        response_data,
-        content_type="application/json",
+    return StreamingHttpResponse(
+        event_stream(),
+        content_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )

@@ -1501,9 +1501,12 @@
                     ],
                     "type": "string"
                 },
-                "formula": {
+                "formulas": {
                     "description": "If the formula is provided, apply it here.",
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "showLegend": {
                     "default": false,
@@ -5951,6 +5954,9 @@
         "ErrorTrackingIssue": {
             "additionalProperties": false,
             "properties": {
+                "aggregations": {
+                    "$ref": "#/definitions/ErrorTrackingIssueAggregations"
+                },
                 "assignee": {
                     "anyOf": [
                         {
@@ -5960,12 +5966,6 @@
                             "type": "null"
                         }
                     ]
-                },
-                "customVolume": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -5987,15 +5987,35 @@
                 "name": {
                     "type": ["string", "null"]
                 },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "type": "string"
+                }
+            },
+            "required": ["assignee", "description", "first_seen", "id", "name", "status"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueAggregations": {
+            "additionalProperties": false,
+            "properties": {
+                "customVolume": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "occurrences": {
                     "type": "number"
                 },
                 "sessions": {
                     "type": "number"
-                },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release"],
-                    "type": "string"
                 },
                 "users": {
                     "type": "number"
@@ -6013,20 +6033,7 @@
                     "type": "array"
                 }
             },
-            "required": [
-                "id",
-                "name",
-                "description",
-                "first_seen",
-                "last_seen",
-                "occurrences",
-                "sessions",
-                "users",
-                "volumeDay",
-                "volumeMonth",
-                "assignee",
-                "status"
-            ],
+            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeMonth", "customVolume"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -6162,6 +6169,40 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "ErrorTrackingRelationalIssue": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "first_seen": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
         "ErrorTrackingSparklineConfig": {
@@ -13845,6 +13886,13 @@
                 },
                 "formula": {
                     "type": "string"
+                },
+                "formulas": {
+                    "description": "List of formulas to apply to the data. Takes precedence over formula if both are set.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "goalLines": {
                     "description": "Goal Lines",
