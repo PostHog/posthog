@@ -25,7 +25,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
     iter_model_records,
@@ -66,6 +70,9 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "created_at",
     "_inserted_at",
 ]
+
+
+TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 class FakeSnowflakeCursor:
@@ -420,7 +427,7 @@ async def test_snowflake_export_workflow_exports_events(
     It should update the batch export run status to completed, as well as updating the record
     count.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_end_str = data_interval_end.strftime("%Y-%m-%d_%H-%M-%S")
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
@@ -512,7 +519,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(snowflake_batch_export.id),
-        data_interval_end="2023-03-20 14:40:00.000000",
+        data_interval_end=dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
         interval=interval,
         **snowflake_batch_export.destination.config,
     )
@@ -577,7 +584,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
 async def test_snowflake_export_workflow_raises_error_on_put_fail(
     clickhouse_client, ateam, snowflake_batch_export, interval
 ):
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     _ = await generate_test_events_in_clickhouse(
@@ -643,7 +650,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
 async def test_snowflake_export_workflow_raises_error_on_copy_fail(
     clickhouse_client, ateam, snowflake_batch_export, interval
 ):
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     _ = await generate_test_events_in_clickhouse(
@@ -859,7 +866,7 @@ async def assert_clickhouse_records_in_snowflake(
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     batch_export_model: BatchExportModel | BatchExportSchema | None = None,
-    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
     sort_key: str = "event",
     expected_fields: list[str] | None = None,
 ):
@@ -923,7 +930,7 @@ async def assert_clickhouse_records_in_snowflake(
         exclude_events=exclude_events,
         include_events=include_events,
         destination_default_fields=snowflake_default_fields(),
-        is_backfill=is_backfill,
+        backfill_details=backfill_details,
         use_latest_schema=True,
     ):
         for record in record_batch.to_pylist():
@@ -1455,9 +1462,9 @@ async def test_snowflake_export_workflow_with_many_files(
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
 @pytest.mark.parametrize(
     "data_interval_start",
-    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
-    # passed to `generate_test_data` to determine the timestamp for the generated data.
-    [dt.datetime(2023, 4, 24, 15, 0, 0, tzinfo=dt.UTC)],
+    # This is set to 24 hours before the `data_interval_end` to ensure that the data created is outside the batch
+    # interval.
+    [TEST_TIME - dt.timedelta(hours=24)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -1485,8 +1492,12 @@ async def test_snowflake_export_workflow_backfill_earliest_persons(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        is_backfill=True,
-        is_earliest_backfill=True,
+        backfill_details=BackfillDetails(
+            backfill_id=str(uuid.uuid4()),
+            is_earliest_backfill=True,
+            start_at=None,
+            end_at=data_interval_end.isoformat(),
+        ),
         **snowflake_batch_export.destination.config,
     )
     _, persons = generate_test_data

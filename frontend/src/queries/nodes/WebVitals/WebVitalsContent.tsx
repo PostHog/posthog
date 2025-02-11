@@ -1,6 +1,5 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -87,7 +86,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
                 </Tooltip>
 
                 <span>
-                    <Icon className={clsx('inline-block mr-1', `text-${color}`)} />
+                    <Icon className="inline-block mr-1" style={{ color }} />
                     {positioning} {values}
                 </span>
             </div>

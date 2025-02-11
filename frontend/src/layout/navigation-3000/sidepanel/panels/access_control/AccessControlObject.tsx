@@ -8,6 +8,8 @@ import {
     LemonSelect,
     LemonSelectProps,
     LemonTable,
+    LemonTag,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -136,8 +138,12 @@ function AccessControlObjectUsers(): JSX.Element | null {
             key: 'level',
             title: 'Level',
             width: 0,
-            render: function LevelRender(_, { access_level, organization_member }) {
-                return (
+            render: function LevelRender(_, { access_level, organization_member, resource }) {
+                return resource === 'organization' ? (
+                    <Tooltip title="Organization owners and admins have access to all resources in the organization">
+                        <LemonTag type="muted">Organization admin</LemonTag>
+                    </Tooltip>
+                ) : (
                     <div className="my-1">
                         <SimplLevelComponent
                             size="small"
@@ -154,8 +160,8 @@ function AccessControlObjectUsers(): JSX.Element | null {
         {
             key: 'remove',
             width: 0,
-            render: (_, { organization_member }) => {
-                return (
+            render: (_, { organization_member, resource }) => {
+                return resource === 'organization' ? null : (
                     <RemoveAccessButton
                         subject="member"
                         onConfirm={() =>
