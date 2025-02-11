@@ -155,6 +155,12 @@ const treeData: TreeDataItem[] = [
                         icon: <IconPlug />,
                         onClick: () => router.actions.push(urls.pipelineNodeNew(PipelineStage.Transformation)),
                     },
+                    {
+                        id: 'Scene.PipelineSite',
+                        name: 'Site App',
+                        icon: <IconPlug />,
+                        onClick: () => router.actions.push(urls.pipelineNodeNew(PipelineStage.SiteApp)),
+                    },
                 ],
             },
         ].sort((a, b) => a.name.localeCompare(b.name)),
