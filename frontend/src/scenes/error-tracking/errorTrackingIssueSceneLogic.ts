@@ -141,7 +141,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             initIssue: loadIssue,
             loadRelationalIssueSuccess: loadIssue,
             loadRelationalIssueFailure: ({ errorObject: { status, data } }) => {
-                if (status == 404 && 'issue_id' in data) {
+                if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
                 }
             },

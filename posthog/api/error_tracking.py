@@ -4,7 +4,7 @@ import hashlib
 
 from rest_framework import serializers, viewsets, status
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError, NotFound
+from rest_framework.exceptions import ValidationError
 
 from django.http import JsonResponse
 from django.conf import settings
@@ -70,18 +70,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")
-        print("Got here")
-        try:
-            instance = self.get_object()
-        except NotFound:
-            print("Got loloo")
-            if fingerprint:
-                print("Got boomer")
-                record = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint=fingerprint).first()
-                return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_404_NOT_FOUND)
+        if fingerprint:
+            fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue")
+            record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
 
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data)
+            if not record.issue.id == self.request.GET.get("pk"):
+                return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
+
+            serializer = self.get_serializer(record.issue)
+            return Response(serializer.data)
+
+        super().retrieve(request, *args, **kwargs)
 
     @action(methods=["POST"], detail=True)
     def merge(self, request, **kwargs):

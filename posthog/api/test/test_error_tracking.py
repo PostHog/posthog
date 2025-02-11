@@ -53,22 +53,25 @@ class TestErrorTracking(APIBaseTest):
 
     def test_issue_not_found_fingerprint_redirect(self):
         deleted_issue_id = uuid7()
-        issue = self.create_issue()
-        fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue)
+        merged_fingerprint = "merged_fingerprint"
 
-        # # no fingerprint
-        # response = self.client.get(
-        #     f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}",
-        # )
-        # assert response.status_code == 404
+        merged_issue = self.create_issue()
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue=merged_issue, fingerprint=merged_fingerprint
+        )
+
+        # no fingerprint
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}",
+        )
+        assert response.status_code == 404
 
         # with fingerprint hint
         response = self.client.get(
-            f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}?fingerprint={fingerprint.fingerprint}",
+            f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}?fingerprint={merged_fingerprint}",
         )
-        assert response.status_code == 404
-        assert response.json()
-        assert response.json() == {"status": "resolved"}
+        assert response.status_code == 308
+        assert response.json() == {"issue_id": str(merged_issue.id)}
 
     @freeze_time("2025-01-01")
     def test_issue_fetch(self):
