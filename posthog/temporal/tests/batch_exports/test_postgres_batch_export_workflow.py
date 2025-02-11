@@ -661,8 +661,8 @@ async def test_postgres_export_workflow_without_events(
 
 @pytest.mark.parametrize(
     "data_interval_start",
-    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
-    # passed to `generate_test_data` to determine the timestamp for the generated data.
+    # This is set to 24 hours before the `data_interval_end` to ensure that the data created is outside the batch
+    # interval.
     [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(hours=24)],
     indirect=True,
 )

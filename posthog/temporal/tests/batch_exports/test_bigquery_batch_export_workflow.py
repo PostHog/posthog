@@ -59,7 +59,7 @@ SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
 
 pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio, pytest.mark.django_db]
 
-TEST_TIME = dt.datetime.now(dt.UTC)
+TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "team_id",
@@ -1239,9 +1239,9 @@ async def test_bigquery_export_workflow_without_events(
 
 @pytest.mark.parametrize(
     "data_interval_start",
-    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
-    # passed to `generate_test_data` to determine the timestamp for the generated data.
-    [dt.datetime(2023, 4, 24, 15, 0, 0, tzinfo=dt.UTC)],
+    # This is set to 24 hours before the `data_interval_end` to ensure that the data created is outside the batch
+    # interval.
+    [TEST_TIME - dt.timedelta(hours=24)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
