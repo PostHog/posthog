@@ -70,7 +70,12 @@ export function DestinationsFilters({
                         onChange={(e) => setFilters({ kind: e ?? null })}
                     />
                 )}
-                {hideAddDestinationButton ? null : <NewButton stage={PipelineStage.Destination} size="small" />}
+                {hideAddDestinationButton ? null : (
+                    <NewButton
+                        stage={isTransformationsOnly ? PipelineStage.Transformation : PipelineStage.Destination}
+                        size="small"
+                    />
+                )}
             </div>
         </div>
     )
