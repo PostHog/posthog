@@ -159,10 +159,6 @@ describe('CDP API', () => {
             logs: [
                 {
                     level: 'debug',
-                    message: 'Executing function',
-                },
-                {
-                    level: 'debug',
                     message:
                         "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                 },
@@ -206,10 +202,6 @@ describe('CDP API', () => {
         expect(res.body).toMatchObject({
             errors: [],
             logs: [
-                {
-                    level: 'debug',
-                    message: 'Executing function',
-                },
                 {
                     level: 'debug',
                     message:
@@ -264,10 +256,6 @@ describe('CDP API', () => {
             logs: [
                 {
                     level: 'debug',
-                    message: 'Executing function',
-                },
-                {
-                    level: 'debug',
                     message:
                         "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                 },
@@ -301,10 +289,6 @@ describe('CDP API', () => {
         expect(res.status).toEqual(200)
         expect(res.body).toMatchObject({
             logs: [
-                {
-                    level: 'debug',
-                    message: 'Executing function',
-                },
                 {
                     level: 'debug',
                     message:
@@ -373,7 +357,6 @@ describe('CDP API', () => {
                 message:
                     'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
             },
-            { level: 'debug', message: 'Executing function' },
             {
                 level: 'debug',
                 message:
@@ -413,10 +396,6 @@ describe('CDP API', () => {
         expect(res.status).toEqual(200)
         expect(res.body).toMatchObject({
             logs: [
-                {
-                    level: 'debug',
-                    message: 'Executing function',
-                },
                 {
                     level: 'debug',
                     message:
@@ -475,7 +454,6 @@ describe('CDP API', () => {
 
             expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin plugin-posthog-filter-out-plugin",
                   "Execution successful",
                 ]
             `)
@@ -514,7 +492,6 @@ describe('CDP API', () => {
 
             expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin plugin-posthog-filter-out-plugin",
                   "Execution successful",
                 ]
             `)

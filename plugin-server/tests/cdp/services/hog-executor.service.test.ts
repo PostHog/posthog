@@ -127,7 +127,6 @@ describe('Hog Executor', () => {
 
             expect(result.logs.map((x) => x.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
                   "test",
                   "{"nested":{"foo":"***REDACTED***","null":null,"bool":false}}",
                   "{"foo":"***REDACTED***","null":null,"bool":false}",
@@ -192,7 +191,6 @@ describe('Hog Executor', () => {
             expect(secondResult.error).toBeUndefined()
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Resuming function",
                   "Fetch response:, {"status":200,"body":"success"}",
@@ -211,7 +209,6 @@ describe('Hog Executor', () => {
 
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Resuming function",
                   "Fetch response:, {"status":200,"body":{"foo":"bar"}}",
@@ -242,7 +239,6 @@ describe('Hog Executor', () => {
 
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Fetch failed after 1 attempts",
                   "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
