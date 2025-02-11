@@ -20,6 +20,7 @@ import { isEventsQuery } from '~/queries/utils'
 
 import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
+import { LLMObservabilityUsers } from './LLMObservabilityUsers'
 
 export const scene: SceneExport = {
     component: LLMObservabilityScene,
@@ -185,6 +186,12 @@ export function LLMObservabilityScene(): JSX.Element {
                             <LLMObservabilityNoEvents />
                         ),
                         link: combineUrl(urls.llmObservabilityGenerations(), searchParams).url,
+                    },
+                    {
+                        key: 'users',
+                        label: 'Users',
+                        content: hasSentAiGenerationEvent ? <LLMObservabilityUsers /> : <LLMObservabilityNoEvents />,
+                        link: combineUrl(urls.llmObservabilityUsers(), searchParams).url,
                     },
                 ]}
             />
