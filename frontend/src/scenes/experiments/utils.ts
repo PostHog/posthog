@@ -2,6 +2,7 @@ import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import merge from 'lodash.merge'
+import { objectClean } from 'lib/utils'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import {
@@ -26,7 +27,11 @@ import {
     type QueryBasedInsightModel,
     TrendResult,
     UniversalFiltersGroupValue,
+    ActionFilter,
+    EntityTypes,
+    FilterType,
 } from '~/types'
+import { ExperimentEventMetricConfig, ExperimentQuery } from '~/queries/schema/schema-general'
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -335,4 +340,55 @@ export function getExperimentMetricFromInsight(
     }
 
     return undefined
+}
+
+export const metricQueryToFilter = (query: ExperimentQuery): Partial<FilterType> => {
+    console.log('metricQueryToFilter: ', query)
+    const entity: ActionFilter = {
+        type: EntityTypes.EVENTS,
+        id: "$pageview",
+        name: "$pageview",
+        math: "total",
+        order: 0,
+    }
+    const filters: Partial<FilterType> = {
+        events: [entity],
+    }
+    return filters
+    // if (!query.metric) {
+    //     return {}
+    // }
+
+    // const filters: Partial<FilterType> = objectClean({
+    //     filter_test_accounts: query.metric.filterTestAccounts,
+    // })
+
+    // Convert metric config to events/actions
+    // if (query.metric.metric_config.kind === 'ExperimentEventMetricConfig') {
+    //     const config = query.metric.metric_config
+    //     const entity: ActionFilter = {
+    //         type: EntityTypes.EVENTS,
+    //         id: config.event,
+    //         name: config.event,
+    //         math: config.math,
+    //         math_property: config.math_property,
+    //         math_hogql: config.math_hogql,
+    //         order: 0,
+    //     }
+    //     filters.events = [entity]
+    // } else if (query.metric.metric_config.kind === 'ExperimentDataWarehouseMetricConfig') {
+    //     const config = query.metric.metric_config
+    //     const entity: ActionFilter = {
+    //         type: EntityTypes.DATA_WAREHOUSE,
+    //         id: config.table_name,
+    //         name: config.table_name,
+    //         math: config.math,
+    //         math_property: config.math_property,
+    //         math_hogql: config.math_hogql,
+    //         order: 0,
+    //     }
+    //     filters.data_warehouse = [entity]
+    // }
+
+    // return filters
 }
