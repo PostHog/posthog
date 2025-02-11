@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     BaseMathType,
     Breadcrumb,
     FeatureFlagFilters,
@@ -179,12 +180,12 @@ export const surveyLogic = kea<surveyLogicType>([
         setSurveyTemplateValues: (template: any) => ({ template }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
-
         setSchedule: (schedule: ScheduleType) => ({ schedule }),
         resetTargeting: true,
         resetSurveyAdaptiveSampling: true,
         resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
+        setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -617,7 +618,6 @@ export const surveyLogic = kea<surveyLogicType>([
         resetSurveyResponseLimits: () => {
             actions.setSurveyValue('responses_limit', null)
         },
-
         resetSurveyAdaptiveSampling: () => {
             actions.setSurveyValues({
                 response_sampling_interval: null,
@@ -675,7 +675,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 setDataCollectionType: (_, { dataCollectionType }) => dataCollectionType,
             },
         ],
-
+        propertyFilters: [
+            [] as AnyPropertyFilter[],
+            {
+                setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
+            },
+        ],
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
@@ -965,8 +970,8 @@ export const surveyLogic = kea<surveyLogicType>([
             ],
         ],
         dataTableQuery: [
-            (s) => [s.survey],
-            (survey): DataTableNode | null => {
+            (s) => [s.survey, s.propertyFilters],
+            (survey, propertyFilters): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
                 }
@@ -1006,13 +1011,14 @@ export const surveyLogic = kea<surveyLogicType>([
                                 operator: PropertyOperator.Exact,
                                 value: survey.id,
                             },
+                            ...propertyFilters,
                         ],
                     },
                     propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,
                     showEventFilter: false,
-                    showPropertyFilter: true,
+                    showPropertyFilter: false,
                     showTimings: false,
                 }
             },
@@ -1068,7 +1074,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
         ],
-
         getBranchingDropdownValue: [
             (s) => [s.survey],
             (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {

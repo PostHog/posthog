@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -471,11 +472,20 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResultsReady,
         surveyNPSScore,
         surveyAsInsightURL,
+        propertyFilters,
     } = useValues(surveyLogic)
+    const { setPropertyFilters } = useActions(surveyLogic)
 
     return (
         <div className="space-y-4">
             <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+            <div className="mb-4">
+                <PropertyFilters
+                    propertyFilters={propertyFilters}
+                    onChange={setPropertyFilters}
+                    pageKey="survey-results"
+                />
+            </div>
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
