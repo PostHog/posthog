@@ -26,7 +26,7 @@ def test_handle_large_integers():
 
 def test_string_infinity_in_decimal():
     # Test data with infinity in decimal field which should be converted to None
-    rows = [(decimal.Decimal("Infinity"),)]
+    rows = [(decimal.Decimal("Infinity"),), (decimal.Decimal("-Infinity"),)]
     columns = {"value": {"name": "value", "data_type": "decimal", "nullable": True}}
 
     # Convert to arrow table - should handle infinity by converting to None
