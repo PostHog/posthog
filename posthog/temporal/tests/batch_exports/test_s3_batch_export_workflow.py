@@ -299,7 +299,6 @@ async def assert_clickhouse_records_in_s3(
     producer_task = await producer.start(
         queue=queue,
         model_name=model_name,
-        is_backfill=is_backfill,
         team_id=team_id,
         full_range=(data_interval_start, data_interval_end),
         done_ranges=[],
@@ -308,8 +307,9 @@ async def assert_clickhouse_records_in_s3(
         destination_default_fields=s3_default_fields(),
         exclude_events=exclude_events,
         include_events=include_events,
-        destination_default_fields=s3_default_fields(),
+        is_backfill=backfill_details is not None,
         backfill_details=backfill_details,
+        extra_query_parameters=extra_query_parameters,
         use_latest_schema=True,
     )
     while not queue.empty() or not producer_task.done():

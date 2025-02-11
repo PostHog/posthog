@@ -7,6 +7,7 @@ import pyarrow as pa
 import pytest
 
 from posthog.batch_exports.service import BackfillDetails
+from posthog.hogql.hogql import ast
 from posthog.temporal.batch_exports.spmc import (
     Producer,
     RecordBatchQueue,

@@ -19,10 +19,8 @@ from posthog.batch_exports.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     PostgresBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -54,6 +52,7 @@ from posthog.temporal.batch_exports.utils import (
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 

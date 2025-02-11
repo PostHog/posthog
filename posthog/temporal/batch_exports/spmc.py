@@ -10,14 +10,16 @@ import pyarrow as pa
 import temporalio.common
 from django.conf import settings
 
-from posthog.batch_exports.service import BackfillDetails
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
+from posthog.models import Team
 from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.temporal.batch_exports import sql
 from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
     DateRange,
@@ -703,6 +705,8 @@ class Producer:
         queue: RecordBatchQueue,
         full_range: tuple[dt.datetime | None, dt.datetime],
         done_ranges: list[tuple[dt.datetime, dt.datetime]],
+        is_backfill: bool,
+        backfill_details: BackfillDetails | None,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
         **kwargs,
@@ -723,6 +727,8 @@ class Producer:
                 min_records_per_batch=min_records_per_batch,
                 full_range=full_range,
                 done_ranges=done_ranges,
+                is_backfill=is_backfill,
+                backfill_details=backfill_details,
                 **kwargs,
             )
 

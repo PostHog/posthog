@@ -19,10 +19,8 @@ from posthog.batch_exports.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     BigQueryBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -50,6 +48,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
 

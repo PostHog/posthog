@@ -303,6 +303,7 @@ async def generate_test_data(
     data_interval_end,
     test_properties,
     test_person_properties,
+    insert_sessions,
 ):
     """Generate test data in ClickHouse."""
     if data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):

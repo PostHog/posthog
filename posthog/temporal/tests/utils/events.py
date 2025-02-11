@@ -174,6 +174,7 @@ async def generate_test_events_in_clickhouse(
     duplicate: bool = False,
     batch_size: int = 10000,
     table: str = "events_recent",
+    insert_sessions: bool = False,
 ) -> tuple[list[EventValues], list[EventValues], list[EventValues]]:
     """Insert test events into the given table.
 
