@@ -842,6 +842,7 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     value: number
     /** @default 'in' */
     operator: PropertyOperator
+    cohort_name?: string
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
