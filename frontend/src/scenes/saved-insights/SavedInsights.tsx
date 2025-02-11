@@ -337,6 +337,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.ExperimentDataWarehouseMetricConfig]: {
+        name: 'Experiment Data Warehouse Metric Config',
+        description: 'Configuration for experiment data warehouse metrics.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.TeamTaxonomyQuery]: {
         name: 'Team Taxonomy',
         icon: IconHogQL,

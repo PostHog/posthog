@@ -102,6 +102,7 @@ export enum NodeKind {
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
+    ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
 
@@ -1794,7 +1795,7 @@ export enum ExperimentMetricType {
 export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
 
 export interface ExperimentMetric {
-    kind: 'ExperimentMetric'
+    kind: NodeKind.ExperimentMetric
     name?: string
     metric_type: ExperimentMetricType
     filterTestAccounts?: boolean
@@ -1803,7 +1804,7 @@ export interface ExperimentMetric {
 }
 
 export interface ExperimentEventMetricConfig {
-    kind: 'ExperimentEventMetricConfig'
+    kind: NodeKind.ExperimentEventMetricConfig
     event: string
     math?: ExperimentMetricMath
     math_hogql?: string
@@ -1811,7 +1812,7 @@ export interface ExperimentEventMetricConfig {
 }
 
 export interface ExperimentDataWarehouseMetricConfig {
-    kind: 'ExperimentDataWarehouseMetricConfig'
+    kind: NodeKind.ExperimentDataWarehouseMetricConfig
     table_name: string
     id_field: string
     distinct_id_field: string
