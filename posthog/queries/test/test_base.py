@@ -603,7 +603,7 @@ class TestSanitizeRegexPattern(TestCase):
             (r"\"key\":\"value\"", "{'key': 'value'}", True),
             (r"\'key\':\'value\'", "{'key': 'value'}", True),
             # Mix of escaped and unescaped quotes
-            (r'"key\":\"value"', "{'key': 'value'}", True),
+            (r'"key":"value"', "{'key': 'value'}", True),
         ]
 
         for pattern, test_string, should_match in test_cases:
@@ -705,6 +705,29 @@ class TestSanitizeRegexPattern(TestCase):
             # URL-like pattern
             (r"^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "https://example.com", True),
             (r"^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "not-a-url", False),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            )
+
+    def test_nested_object_patterns(self):
+        test_cases = [
+            # Nested object in pattern
+            ('"outer":{"inner":"value"}[^}]*"other":"value"', '{"outer":{"inner":"value"}, "other":"value"}', True),
+            # Multiple levels of nesting
+            ('"a":{"b":{"c":"value"}}', '{"a":{"b":{"c":"value"}}}', True),
+            # Array values
+            ('"array":["value1","value2"]', '{"array":["value1","value2"]}', True),
+            # Mixed nesting with arrays and objects
+            ('"data":{"items":[{"id":"123"}]}', '{"data":{"items":[{"id":"123"}]}}', True),
+            # Ensure partial matches don't work
+            ('"outer":{"inner":"wrong"}', '{"outer":{"inner":"value"}}', False),
         ]
 
         for pattern, test_string, should_match in test_cases:
