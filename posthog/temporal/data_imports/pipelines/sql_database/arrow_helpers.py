@@ -92,6 +92,13 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
                 py_type = type(val)
                 break
 
+        # Handle infinity in decimal fields
+        if pa.types.is_decimal(field.type) and issubclass(py_type, decimal.Decimal):
+            values = columnar_known_types[field.name]
+            columnar_known_types[field.name] = np.array(
+                [None if isinstance(x, decimal.Decimal) and x.is_infinite() else x for x in values]
+            )
+
         # cast double / float ndarrays to decimals if type mismatch, looks like decimals and floats are often mixed up in dialects
         if pa.types.is_decimal(field.type) and issubclass(py_type, str | float):
             logger.warning(
