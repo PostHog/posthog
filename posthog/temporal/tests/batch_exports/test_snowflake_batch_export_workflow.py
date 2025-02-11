@@ -1127,6 +1127,13 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
 
     await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
@@ -1136,7 +1143,7 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
         batch_export_model=model,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
@@ -1479,6 +1486,13 @@ async def test_snowflake_export_workflow(
     run = runs[0]
     assert run.status == "Completed"
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
@@ -1488,7 +1502,7 @@ async def test_snowflake_export_workflow(
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
         batch_export_model=model,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
@@ -1564,6 +1578,13 @@ async def test_snowflake_export_workflow_with_many_files(
     run = runs[0]
     assert run.status == "Completed"
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
@@ -1573,7 +1594,7 @@ async def test_snowflake_export_workflow_with_many_files(
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
         batch_export_model=model,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
