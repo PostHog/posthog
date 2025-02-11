@@ -93,6 +93,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         ] => {
             const searchParams: Params = {
                 orderBy: values.orderBy,
+                status: values.status,
                 filterTestAccounts: values.filterTestAccounts,
             }
 
@@ -120,6 +121,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
         return {
             setOrderBy: () => buildURL(),
+            setStatus: () => buildURL(),
             setDateRange: () => buildURL(),
             setFilterGroup: () => buildURL(),
             setSearchQuery: () => buildURL(),
@@ -131,6 +133,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         const urlToAction = (_: any, params: Params): void => {
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
+            }
+            if (params.status && !equal(params.status, values.status)) {
+                actions.setStatus(params.status)
             }
             if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
                 actions.setDateRange(params.dateRange)
