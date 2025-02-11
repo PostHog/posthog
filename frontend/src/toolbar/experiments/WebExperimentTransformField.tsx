@@ -43,7 +43,7 @@ export function WebExperimentTransformField({
                     }}
                 >
                     {inspectingElement === transformIndex && selectedVariant === variant
-                        ? 'Selecting ...'
+                        ? 'Selecting…'
                         : 'Select element'}
                 </LemonButton>
                 <LemonSelect
