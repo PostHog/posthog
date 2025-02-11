@@ -197,18 +197,27 @@ def get_decide(request: HttpRequest):
         api_version_string = request.GET.get("v")
         api_version = int(api_version_string) if api_version_string else 1
     except ValueError:
-        # Handle legacy clients (posthog-js 1.19.0) by defaulting to v2
+        # default value added because of bug in posthog-js 1.19.0
+        # see https://sentry.io/organizations/posthog2/issues/2738865125/?project=1899813
+        # as a tombstone if the below statsd counter hasn't seen errors for N days
+        # then it is likely that no clients are running posthog-js 1.19.0
+        # and this defaulting could be removed
         statsd.incr(
             f"posthog_cloud_decide_defaulted_api_version_on_value_error",
             tags={"endpoint": "decide", "api_version_string": api_version_string},
         )
         api_version = 2
-    except (UnspecifiedCompressionFallbackParsingError, RequestParsingError) as error:
-        # Return error for malformed requests
+    except UnspecifiedCompressionFallbackParsingError as error:
+        # Notably don't capture this exception as it's not caused by buggy behavior,
+        # it's just a fallback for when we can't parse the request due to a missing header
+        # that we attempted to kludge by manually setting the compression type to gzip
+        # If this kludge fails, though all we need to do is return a 400 and move on
         return cors_response(
             request,
             generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
         )
+    except RequestParsingError as error:
+        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
 
     # --- 3. Authenticate the request ---
     token = get_token(data, request)
@@ -276,6 +285,9 @@ def get_decide(request: HttpRequest):
         # --- 6. Build and return full response from the base config and the flags response ---
         response = get_base_config(token, team, request, skip_db=flags_response.get("errorsWhileComputingFlags", False))
         response.update(flags_response)
+        # NOTE: Whenever you add something to decide response, update this test:
+        # `test_decide_doesnt_error_out_when_database_is_down`
+        # which ensures that decide doesn't error out when the database is down
 
     else:
         # No valid authentication provided
