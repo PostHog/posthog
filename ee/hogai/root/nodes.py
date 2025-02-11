@@ -135,19 +135,16 @@ class RootNodeTools(AssistantNode):
         tool_call = parsed_tool_calls[0]
         return PartialAssistantState(
             root_tool_call_id=last_message.tool_calls[-1].id,
-            root_tool_call_args={
-                "query_kind": tool_call.query_kind,
-                "query_description": tool_call.query_description,
-            },
+            root_tool_insight_plan=tool_call.query_description,
+            root_tool_insight_type=tool_call.query_kind,
         )
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"
-        if state.root_tool_call_id is not None and state.root_tool_call_args:
-            if query_kind := state.root_tool_call_args.get("query_kind"):
-                return query_kind
+        if state.root_tool_call_id is not None and state.root_tool_insight_type:
+            return state.root_tool_insight_type
         return "end"
 
     def _construct_ai_message(self, message: AssistantMessage):

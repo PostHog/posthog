@@ -196,7 +196,8 @@ class TestRootNodeTools(BaseTest):
         state_2 = AssistantState(
             messages=[AssistantMessage(content="Hello")],
             root_tool_call_id="xyz",
-            root_tool_call_args={"query_kind": "trends", "query_description": "Foobar"},
+            root_tool_insight_plan="Foobar",
+            root_tool_insight_type="trends",
         )
         self.assertEqual(node.router(state_2), "trends")
 
@@ -258,10 +259,8 @@ class TestRootNodeTools(BaseTest):
         result = node.run(state, {})
         self.assertIsInstance(result, PartialAssistantState)
         self.assertEqual(result.root_tool_call_id, "xyz")
-        self.assertEqual(
-            result.root_tool_call_args,
-            {"query_kind": "trends", "query_description": "test query"},
-        )
+        self.assertEqual(result.root_tool_insight_plan, "test query")
+        self.assertEqual(result.root_tool_insight_type, "trends")
 
     def test_run_multiple_tool_calls_raises(self):
         node = RootNodeTools(self.team)

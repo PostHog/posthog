@@ -7,7 +7,6 @@ from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
-from typing_extensions import TypedDict
 
 from posthog.schema import (
     AssistantMessage,
@@ -22,11 +21,6 @@ AIMessageUnion = Union[
     AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
-
-
-class QueryToolCall(TypedDict):
-    query_kind: Literal["funnel", "retention", "trends"]
-    query_description: str
 
 
 class _SharedAssistantState(BaseModel):
@@ -56,7 +50,11 @@ class _SharedAssistantState(BaseModel):
     """
     The ID of the tool call from the root node.
     """
-    root_tool_call_args: Optional[QueryToolCall] = Field(default=None)
+    root_tool_insight_plan: Optional[str] = Field(default=None)
+    """
+    The insight plan to generate.
+    """
+    root_tool_insight_type: Optional[Literal["trends", "funnel", "retention"]] = Field(default=None)
     """
     The type of insight to generate.
     """

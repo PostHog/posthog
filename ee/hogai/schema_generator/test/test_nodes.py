@@ -416,7 +416,8 @@ class TestSchemaGeneratorNode(BaseTest):
             AssistantState(
                 messages=[HumanMessage(content="Text", id="0")],
                 start_id="0",
-                root_tool_call_args={"query_description": "Foobar", "query_kind": "trends"},
+                root_tool_insight_plan="Foobar",
+                root_tool_insight_type="trends",
             )
         )
         self.assertEqual(len(history), 2)
@@ -436,7 +437,8 @@ class TestSchemaGeneratorNode(BaseTest):
                     HumanMessage(content="Second question", id="3"),
                 ],
                 start_id="3",
-                root_tool_call_args={"query_description": "Foobar", "query_kind": "trends"},
+                root_tool_insight_plan="Foobar",
+                root_tool_insight_type="trends",
             )
         )
         self.assertEqual(len(history), 5)
@@ -464,7 +466,8 @@ class TestSchemaGeneratorNode(BaseTest):
                     HumanMessage(content="Second question", id="4"),
                 ],
                 start_id="4",
-                root_tool_call_args={"query_description": "Foobar", "query_kind": "trends"},
+                root_tool_insight_plan="Foobar",
+                root_tool_insight_type="trends",
             )
         )
         self.assertEqual(len(history), 7)

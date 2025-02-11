@@ -215,7 +215,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 if idx == 0:
                     # If there's only one human message, it's the initial question. Replace the initial question with the one from the tool call if it exists.
                     human_question = (
-                        self._get_tool_insight_description(state) if len(human_messages) == 1 else None
+                        state.root_tool_insight_plan if len(human_messages) == 1 else None
                     ) or message.content
 
                     conversation.append(
@@ -227,7 +227,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 # Add follow-up instructions only for the human message that initiated a generation.
                 elif message.id == start_id:
                     # follow-ups are always coming from the tool call
-                    human_question = self._get_tool_insight_description(state) or message.content
+                    human_question = state.root_tool_insight_plan or message.content
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(
                             REACT_FOLLOW_UP_PROMPT,
@@ -257,11 +257,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 continue
             actions.append((action, observation))
         return format_log_to_str(actions)
-
-    def _get_tool_insight_description(self, state: AssistantState) -> str | None:
-        if not state.root_tool_call_args:
-            return None
-        return state.root_tool_call_args.get("query_description")
 
 
 class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):

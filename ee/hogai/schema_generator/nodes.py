@@ -207,7 +207,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 conversation.append(LangchainAssistantMessage(content=message.answer.model_dump_json()))
         # Add the initiator message and the generated plan to the end, so instructions are clear.
         if isinstance(initiator_message, HumanMessage):
-            insight_plan = self._get_insight_plan(state) or initiator_message.content
+            insight_plan = state.root_tool_insight_plan or initiator_message.content
             if generated_plan:
                 plan_prompt = PLAN_PROMPT if messages[0] == initiator_message else NEW_PLAN_PROMPT
                 conversation.append(
@@ -230,11 +230,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
 
         return conversation
-
-    def _get_insight_plan(self, state: AssistantState) -> str | None:
-        if not state.root_tool_call_args:
-            return None
-        return state.root_tool_call_args.get("query_description")
 
 
 class SchemaGeneratorToolsNode(AssistantNode):

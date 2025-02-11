@@ -119,8 +119,9 @@ class QueryExecutorNode(AssistantNode):
             messages=[
                 AssistantToolCallMessage(content=formatted_query_result, id=str(uuid4()), tool_call_id=tool_call_id)
             ],
-            root_tool_call_id=None,
-            root_tool_call_args=None,
+            root_tool_call_id="",
+            root_tool_insight_plan="",
+            root_tool_insight_type="",
         )
 
     def _compress_results(self, viz_message: VisualizationMessage, results: list[dict]) -> str:

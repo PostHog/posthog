@@ -257,7 +257,8 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                     AssistantMessage(content="test", id="2"),
                 ],
                 start_id="0",
-                root_tool_call_args={"query_description": "Foobar", "query_kind": "trends"},
+                root_tool_insight_plan="Foobar",
+                root_tool_insight_type="trends",
             )
         )
         self.assertEqual(len(history), 1)
@@ -276,7 +277,8 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                     AssistantMessage(content="test", id="4"),
                 ],
                 start_id="3",
-                root_tool_call_args={"query_description": "Foobar", "query_kind": "trends"},
+                root_tool_insight_plan="Foobar",
+                root_tool_insight_type="trends",
             )
         )
         self.assertEqual(len(history), 3)
