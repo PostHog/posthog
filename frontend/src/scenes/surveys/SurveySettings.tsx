@@ -5,7 +5,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useState } from 'react'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
-import { validateColor } from 'scenes/surveys/utils'
+import { sanitizeSurveyAppearance, validateColor } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SurveyAppearance } from '~/types'
@@ -34,23 +34,24 @@ export function SurveySettings(): JSX.Element {
     }
 
     const updateSurveySettings = (): void => {
+        const sanitizedAppearance = sanitizeSurveyAppearance(editableSurveyConfig)
         const errors = {
-            backgroundColor: validateColor(editableSurveyConfig.backgroundColor, 'background color'),
-            borderColor: validateColor(editableSurveyConfig.borderColor, 'border color'),
+            backgroundColor: validateColor(sanitizedAppearance?.backgroundColor, 'background color'),
+            borderColor: validateColor(sanitizedAppearance?.borderColor, 'border color'),
             ratingButtonActiveColor: validateColor(
-                editableSurveyConfig.ratingButtonActiveColor,
+                sanitizedAppearance?.ratingButtonActiveColor,
                 'rating button active color'
             ),
-            ratingButtonColor: validateColor(editableSurveyConfig.ratingButtonColor, 'rating button color'),
-            submitButtonColor: validateColor(editableSurveyConfig.submitButtonColor, 'button color'),
-            submitButtonTextColor: validateColor(editableSurveyConfig.submitButtonTextColor, 'button text color'),
+            ratingButtonColor: validateColor(sanitizedAppearance?.ratingButtonColor, 'rating button color'),
+            submitButtonColor: validateColor(sanitizedAppearance?.submitButtonColor, 'button color'),
+            submitButtonTextColor: validateColor(sanitizedAppearance?.submitButtonTextColor, 'button text color'),
         }
 
         // Check if there are any validation errors
         const hasErrors = Object.values(errors).some((error) => error !== undefined)
         setValidationErrors(errors)
 
-        if (hasErrors) {
+        if (hasErrors || !sanitizedAppearance) {
             return
         }
 
@@ -58,7 +59,7 @@ export function SurveySettings(): JSX.Element {
         updateCurrentTeam({
             survey_config: {
                 ...currentTeam?.survey_config,
-                appearance: editableSurveyConfig,
+                appearance: sanitizedAppearance,
             },
         })
     }

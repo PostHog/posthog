@@ -32,7 +32,7 @@ import {
 import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
-import { sanitizeHTML, validateColor } from './utils'
+import { sanitizeHTML, sanitizeSurveyAppearance, validateColor } from './utils'
 
 export enum SurveyEditSection {
     Steps = 'steps',
@@ -1223,6 +1223,7 @@ export const surveyLogic = kea<surveyLogicType>([
         survey: {
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
             errors: ({ name, questions, appearance }) => {
+                const sanitizedAppearance = sanitizeSurveyAppearance(appearance)
                 return {
                     name: !name && 'Please enter a name.',
                     questions: questions.map((question) => {
@@ -1256,16 +1257,19 @@ export const surveyLogic = kea<surveyLogicType>([
                     targeting_flag_filters: values.flagPropertyErrors,
                     // controlled using a PureField in the form
                     urlMatchType: values.urlMatchTypeValidationError,
-                    appearance: appearance && {
-                        backgroundColor: validateColor(appearance.backgroundColor, 'background color'),
-                        borderColor: validateColor(appearance.borderColor, 'border color'),
+                    appearance: sanitizedAppearance && {
+                        backgroundColor: validateColor(sanitizedAppearance.backgroundColor, 'background color'),
+                        borderColor: validateColor(sanitizedAppearance.borderColor, 'border color'),
                         ratingButtonActiveColor: validateColor(
-                            appearance.ratingButtonActiveColor,
+                            sanitizedAppearance.ratingButtonActiveColor,
                             'rating button active color'
                         ),
-                        ratingButtonColor: validateColor(appearance.ratingButtonColor, 'rating button color'),
-                        submitButtonColor: validateColor(appearance.submitButtonColor, 'button color'),
-                        submitButtonTextColor: validateColor(appearance.submitButtonTextColor, 'button text color'),
+                        ratingButtonColor: validateColor(sanitizedAppearance.ratingButtonColor, 'rating button color'),
+                        submitButtonColor: validateColor(sanitizedAppearance.submitButtonColor, 'button color'),
+                        submitButtonTextColor: validateColor(
+                            sanitizedAppearance.submitButtonTextColor,
+                            'button text color'
+                        ),
                     },
                 }
             },
@@ -1278,12 +1282,17 @@ export const surveyLogic = kea<surveyLogicType>([
                     )
                 }
 
+                const payload = {
+                    ...surveyPayload,
+                    appearance: sanitizeSurveyAppearance(surveyPayload.appearance),
+                }
+
                 // when the survey is being submitted, we should turn off editing mode
                 actions.editingSurvey(false)
                 if (props.id && props.id !== 'new') {
-                    actions.updateSurvey(surveyPayload)
+                    actions.updateSurvey(payload)
                 } else {
-                    actions.createSurvey(surveyPayload)
+                    actions.createSurvey(payload)
                 }
             },
         },
