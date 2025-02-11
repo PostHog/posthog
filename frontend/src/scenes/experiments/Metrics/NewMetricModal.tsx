@@ -6,7 +6,7 @@ import { ExperimentMetricType, ExperimentQuery } from '~/queries/schema/schema-g
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getDefaultTrendsMetric } from '../utils'
+import { getDefaultCountMetric } from '../utils'
 import { NewMetricForm } from './NewMetricForm'
 
 export function NewMetricModal({
@@ -118,10 +118,11 @@ export function NewMetricModal({
                             ...experiment,
                             [metricsField]: [
                                 ...metrics.slice(0, metricIdx),
-                                getDefaultTrendsMetric(),
+                                getDefaultCountMetric(),
                                 ...metrics.slice(metricIdx + 1),
                             ],
                         })
+                        console.log('experiment', experiment)
                     }}
                     options={[
                         { value: ExperimentMetricType.COUNT, label: 'Count' },
