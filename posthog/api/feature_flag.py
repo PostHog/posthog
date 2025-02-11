@@ -106,6 +106,7 @@ class FeatureFlagSerializer(
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
 
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
@@ -163,6 +164,7 @@ class FeatureFlagSerializer(
             "creation_context",
             "is_remote_configuration",
             "has_encrypted_payloads",
+            "status",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -464,6 +466,11 @@ class FeatureFlagSerializer(
         active = validated_data.get("active", None)
         if active:
             validated_data["performed_rollback"] = False
+
+    def get_status(self, feature_flag: FeatureFlag) -> str:
+        checker = FeatureFlagStatusChecker(feature_flag=feature_flag)
+        flag_status, _ = checker.get_status()
+        return flag_status.name
 
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):

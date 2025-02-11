@@ -165,11 +165,6 @@ const deprecatedColors = {
     'lifecycle-resurrecting-hover': 'var(--lifecycle-resurrecting-hover)',
     'lifecycle-dormant-hover': 'var(--lifecycle-dormant-hover)',
 
-    // Funnels
-    // TODO: unify with lib/colors.ts, getGraphColors()
-    'funnel-axis': 'var(--funnel-axis)',
-    'funnel-grid': 'var(--funnel-grid)',
-
     // Z-indexes
     'z-bottom-notice': 'var(--z-bottom-notice)',
     'z-command-palette': 'var(--z-command-palette)',

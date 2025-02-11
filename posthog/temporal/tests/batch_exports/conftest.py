@@ -232,12 +232,16 @@ def data_interval_start(request, data_interval_end, interval):
 
 @pytest.fixture
 def data_interval_end(request, interval):
-    """Set a test data interval end."""
+    """Set a test data interval end.
+
+    This defaults to the current day at 00:00 UTC. This is done because event data is only available in events_recent
+    for the last 7 days, so if we try to insert data further in the past, it may be deleted and lead to flaky tests.
+    """
     try:
         return request.param
     except AttributeError:
         pass
-    return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
+    return dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 @pytest.fixture
@@ -260,14 +264,6 @@ def test_person_properties(request):
     return {"utm_medium": "referral", "$initial_os": "Linux"}
 
 
-@pytest.fixture
-def use_distributed_events_recent_table(request):
-    try:
-        return request.param
-    except AttributeError:
-        return False
-
-
 @pytest_asyncio.fixture
 async def generate_test_data(
     ateam,
@@ -275,13 +271,11 @@ async def generate_test_data(
     exclude_events,
     data_interval_start,
     data_interval_end,
-    interval,
     test_properties,
     test_person_properties,
-    use_distributed_events_recent_table,
 ):
     """Generate test data in ClickHouse."""
-    if interval == "every 5 minutes" or use_distributed_events_recent_table:
+    if data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
         table = "events_recent"
     else:
         table = "sharded_events"

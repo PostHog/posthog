@@ -105,6 +105,7 @@ const NEW_FLAG: FeatureFlagType = {
     tags: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
+    status: 'ACTIVE',
 }
 const NEW_VARIANT = {
     key: '',

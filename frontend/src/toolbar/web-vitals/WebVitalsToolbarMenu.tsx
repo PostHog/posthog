@@ -1,5 +1,4 @@
 import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -126,7 +125,11 @@ const MetricCard = ({ metric, value }: { metric: WebVitalsMetric; value: number 
             >
                 {metric}:
             </DottedTooltip>
-            <span className={clsx('text-sm', `text-${color}`)}>
+            <span
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ color }}
+                className="text-sm"
+            >
                 {' '}
                 {value === undefined ? <WebVitalsToolbarSpinner /> : value === null ? 'N/A' : `${valueWithUnit}${unit}`}
             </span>

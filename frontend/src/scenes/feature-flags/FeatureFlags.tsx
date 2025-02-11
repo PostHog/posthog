@@ -153,7 +153,7 @@ export function OverViewTab({
             width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
-                    <>
+                    <div className="flex justify-start gap-1">
                         {featureFlag.performed_rollback ? (
                             <LemonTag type="warning" className="uppercase">
                                 Rolled Back
@@ -167,7 +167,27 @@ export function OverViewTab({
                                 Disabled
                             </LemonTag>
                         )}
-                    </>
+                        {featureFlag.status === 'STALE' && (
+                            <Tooltip
+                                title={
+                                    <>
+                                        <div className="text-sm">Flag at least 30 days old and fully rolled out</div>
+                                        <div className="text-xs">
+                                            Make sure to remove any references to this flag in your code before deleting
+                                            it.
+                                        </div>
+                                    </>
+                                }
+                                placement="left"
+                            >
+                                <span>
+                                    <LemonTag type="warning" className="uppercase cursor-default">
+                                        Stale
+                                    </LemonTag>
+                                </span>
+                            </Tooltip>
+                        )}
+                    </div>
                 )
             },
         },

@@ -34,6 +34,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     surveys: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
+    status: 'ACTIVE',
 }
 
 const GROUP_FEATURE_FLAG: FeatureFlagType = {

@@ -21,6 +21,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import (
+    BackfillDetails,
     BatchExportModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
@@ -58,7 +59,7 @@ SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
 
 pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio, pytest.mark.django_db]
 
-TEST_TIME = dt.datetime.now(dt.UTC)
+TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "team_id",
@@ -91,7 +92,7 @@ async def assert_clickhouse_records_in_bigquery(
     batch_export_model: BatchExportModel | BatchExportSchema | None = None,
     use_json_type: bool = False,
     sort_key: str = "event",
-    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
     expect_duplicates: bool = False,
     expected_fields: list[str] | None = None,
 ) -> None:
@@ -166,7 +167,7 @@ async def assert_clickhouse_records_in_bigquery(
             exclude_events=exclude_events,
             include_events=include_events,
             destination_default_fields=bigquery_default_fields(),
-            is_backfill=is_backfill,
+            backfill_details=backfill_details,
             use_latest_schema=True,
         ):
             for record in record_batch.select(schema_column_names).to_pylist():
@@ -1238,9 +1239,9 @@ async def test_bigquery_export_workflow_without_events(
 
 @pytest.mark.parametrize(
     "data_interval_start",
-    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
-    # passed to `generate_test_data` to determine the timestamp for the generated data.
-    [dt.datetime(2023, 4, 24, 15, 0, 0, tzinfo=dt.UTC)],
+    # This is set to 24 hours before the `data_interval_end` to ensure that the data created is outside the batch
+    # interval.
+    [TEST_TIME - dt.timedelta(hours=24)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -1271,8 +1272,12 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        is_backfill=True,
-        is_earliest_backfill=True,
+        backfill_details=BackfillDetails(
+            backfill_id=str(uuid.uuid4()),
+            start_at=None,
+            end_at=data_interval_end.isoformat(),
+            is_earliest_backfill=True,
+        ),
         **bigquery_batch_export.destination.config,
     )
     _, persons = generate_test_data
