@@ -218,12 +218,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
                             "aggregations": self.extract_aggregations(result_dict),
                         }
                     )
-                else:
-                    logger.error(
-                        "error tracking issue not found",
-                        issue_id=result_dict["id"],
-                        exc_info=True,
-                    )
 
         return results
 
@@ -256,12 +250,14 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
     def error_tracking_issues(self, ids):
+        status = self.query.status
         queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team, id__in=ids)
-        queryset = (
-            queryset.filter(id=self.query.issueId)
-            if self.query.issueId
-            else queryset.filter(status__in=[ErrorTrackingIssue.Status.ACTIVE])
-        )
+
+        if self.query.issueId:
+            queryset = queryset.filter(id=self.query.issueId)
+        elif status and not status == "all":
+            queryset = queryset.filter(status=status)
+
         if self.query.assignee:
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)

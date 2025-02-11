@@ -1652,6 +1652,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     issueId?: ErrorTrackingIssue['id']
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
+    status?: ErrorTrackingIssue['status'] | 'all'
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
