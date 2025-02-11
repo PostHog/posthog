@@ -307,6 +307,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconVideoCamera,
         inMenu: false,
     },
+    [NodeKind.ExperimentQuery]: {
+        name: 'Experiment Result',
+        description: 'View experiment result.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.ExperimentTrendsQuery]: {
         name: 'Experiment Trends Result',
         description: 'View experiment trend result.',
@@ -316,6 +322,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.ExperimentFunnelsQuery]: {
         name: 'Experiment Funnels Result',
         description: 'View experiment funnel result.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentMetric]: {
+        name: 'Experiment Metric',
+        description: 'Experiment metric configuration.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentEventMetricConfig]: {
+        name: 'Experiment Event Metric Config',
+        description: 'Configuration for experiment event metrics.',
         icon: IconFlask,
         inMenu: false,
     },

@@ -153,21 +153,24 @@ export function getViewRecordingFilters(
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
     if (metric.kind === NodeKind.ExperimentQuery) {
-        return [
-            {
-                id: metric.metric.metric_config.event,
-                name: metric.metric.metric_config.event,
-                type: 'events',
-                properties: [
-                    {
-                        key: `$feature/${featureFlagKey}`,
-                        type: PropertyFilterType.Event,
-                        value: [variantKey],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-        ]
+        if (metric.metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+            return [
+                {
+                    id: metric.metric.metric_config.event,
+                    name: metric.metric.metric_config.event,
+                    type: 'events',
+                    properties: [
+                        {
+                            key: `$feature/${featureFlagKey}`,
+                            type: PropertyFilterType.Event,
+                            value: [variantKey],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ]
+        }
+        return []
     } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
             const exposure_filter = seriesToFilter(metric.exposure_query.series[0], featureFlagKey, variantKey)

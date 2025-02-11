@@ -19,6 +19,7 @@ import {
     BaseMathType,
     ChartDisplayType,
     Experiment,
+    FeatureFlagBasicType,
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
     PropertyFilterType,
@@ -272,7 +273,7 @@ const EXPERIMENT: Experiment = {
     },
 }
 
-const FEATURE_FLAG_163_RESPONSE: FeatureFlag = {
+const FEATURE_FLAG_163_RESPONSE: FeatureFlagBasicType = {
     id: 163,
     team_id: 1,
     name: 'Feature Flag for Experiment storybook-experiment-3',
