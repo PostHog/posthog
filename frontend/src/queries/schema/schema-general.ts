@@ -1671,23 +1671,30 @@ export type ErrorTrackingSparklineConfig = {
     interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
 }
 
-export interface ErrorTrackingIssue {
-    id: string
-    name: string | null
-    description: string | null
-    /**  @format date-time */
-    first_seen: string
-    /**  @format date-time */
-    last_seen: string
-    earliest?: string
+export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
     volumeDay: number[]
     volumeMonth: number[]
-    customVolume?: number[]
+    customVolume: number[] | null
+}
+
+export interface ErrorTrackingRelationalIssue {
+    id: string
+    name: string | null
+    description: string | null
     assignee: ErrorTrackingIssueAssignee | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
+    /**  @format date-time */
+    first_seen: string
+}
+
+export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
+    /**  @format date-time */
+    last_seen?: string
+    earliest?: string
+    aggregations?: ErrorTrackingIssueAggregations
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {

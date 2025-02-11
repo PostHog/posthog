@@ -632,6 +632,18 @@ class Status(StrEnum):
     PENDING_RELEASE = "pending_release"
 
 
+class ErrorTrackingIssueAggregations(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    customVolume: Optional[list[float]] = None
+    occurrences: float
+    sessions: float
+    users: float
+    volumeDay: list[float]
+    volumeMonth: list[float]
+
+
 class Type1(StrEnum):
     USER_GROUP = "user_group"
     USER = "user"
@@ -2090,6 +2102,18 @@ class ErrorTrackingIssueAssignee(BaseModel):
     )
     id: Union[str, int]
     type: Type1
+
+
+class ErrorTrackingRelationalIssue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assignee: Optional[ErrorTrackingIssueAssignee] = None
+    description: Optional[str] = None
+    first_seen: AwareDatetime
+    id: str
+    name: Optional[str] = None
+    status: Status
 
 
 class ErrorTrackingSparklineConfig(BaseModel):
@@ -4237,20 +4261,15 @@ class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
-    customVolume: Optional[list[float]] = None
     description: Optional[str] = None
     earliest: Optional[str] = None
     first_seen: AwareDatetime
     id: str
-    last_seen: AwareDatetime
+    last_seen: Optional[AwareDatetime] = None
     name: Optional[str] = None
-    occurrences: float
-    sessions: float
     status: Status
-    users: float
-    volumeDay: list[float]
-    volumeMonth: list[float]
 
 
 class ErrorTrackingQueryResponse(BaseModel):

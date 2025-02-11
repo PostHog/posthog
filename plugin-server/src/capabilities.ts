@@ -149,6 +149,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_api:
             return {
                 cdpApi: true,
+                mmdb: true,
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
                 ...sharedCapabilities,
