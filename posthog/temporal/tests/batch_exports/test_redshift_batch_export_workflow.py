@@ -1,3 +1,4 @@
+import ast
 import datetime as dt
 import json
 import operator
@@ -117,6 +118,7 @@ async def assert_clickhouse_records_in_redshfit(
         expected_fields: The expected fields to be exported.
     """
     super_columns = ["properties", "set", "set_once", "person_properties"]
+    array_super_columns = ["urls"]
 
     inserted_records = []
     async with redshift_connection.cursor() as cursor:
@@ -134,6 +136,17 @@ async def assert_clickhouse_records_in_redshfit(
                 # properties_data_type set to SUPER, thus they are both dicts.
                 if column in event and event.get(column, None) is not None:
                     event[column] = json.loads(event[column])
+
+            for column in array_super_columns:
+                # Arrays stored in SUPER are dumped like Python sets: '{"value", "value1"}'
+                # But we expect these to come as lists from ClickHouse.
+                # So, since they are read as strings, we first `json.loads` them and
+                # then pass the resulting string to `literal_eval`, which will produce
+                # either a dict or a set (depending if it's empty or not). Either way
+                # we can cast them to list.
+                if column in event and event.get(column, None) is not None:
+                    value = ast.literal_eval(json.loads(event[column]))
+                    event[column] = list(value)
 
             inserted_records.append(event)
 
@@ -416,6 +429,13 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
 
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_redshfit(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
@@ -426,7 +446,7 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         batch_export_model=model,
         exclude_events=exclude_events,
         properties_data_type=properties_data_type,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
@@ -763,9 +783,19 @@ async def test_redshift_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
-    assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
-        persons_to_export_created
+    assert (
+        run.records_completed == len(events_to_export_created)
+        or run.records_completed == len(persons_to_export_created)
+        or (isinstance(model, BatchExportModel) and model.name == "sessions" and run.records_completed == 1)
     )
+
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_redshfit(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
@@ -775,7 +805,7 @@ async def test_redshift_export_workflow(
         date_ranges=[(data_interval_start, data_interval_end)],
         batch_export_model=model,
         exclude_events=exclude_events,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
@@ -1003,7 +1033,7 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
     if MISSING_REQUIRED_ENV_VARS:
         pytest.skip("Sessions batch export cannot be tested in PostgreSQL")
 
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportModel(name="sessions", schema=None)
     table_name = f"test_insert_activity_mutability_table_sessions_{ateam.pk}"
 
     insert_inputs = RedshiftInsertInputs(

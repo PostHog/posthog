@@ -133,7 +133,7 @@ class RedshiftClient(PostgreSQLClient):
 
         or_separator = sql.SQL(" OR ")
         delete_extra_conditions = or_separator.join(
-            sql.SQL("{stage_field} > {final_field}").format(
+            sql.SQL("{stage_field} < {final_field}").format(
                 final_field=sql.Identifier("final", field[0]),
                 stage_field=sql.Identifier(schema, stage_table_name, field[0]),
             )
