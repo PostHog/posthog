@@ -9658,6 +9658,7 @@
                 "ExperimentMetric",
                 "ExperimentQuery",
                 "ExperimentEventMetricConfig",
+                "ExperimentDataWarehouseMetricConfig",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
                 "DatabaseSchemaQuery",

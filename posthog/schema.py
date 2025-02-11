@@ -1072,6 +1072,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
+    EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
