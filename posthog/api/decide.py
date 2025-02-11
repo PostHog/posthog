@@ -347,7 +347,7 @@ def compute_feature_flags(request, data, team, token, api_version, is_request_sa
                 {
                     "quotaLimited": ["feature_flags"],
                     "featureFlags": {},
-                    "errorsWhileComputingFlags": True,
+                    "errorsWhileComputingFlags": False,
                     "featureFlagPayloads": {},
                 }
             )
