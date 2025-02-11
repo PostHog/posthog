@@ -29,7 +29,7 @@ def test_row_tuples_to_arrow_string_column_with_dict():
     columns = {"string_col": {"name": "string_col", "data_type": "text", "nullable": True}}
 
     # This should now succeed and serialize the dictionary to JSON
-    table = row_tuples_to_arrow(rows, columns, "UTC")
+    table = row_tuples_to_arrow(rows, columns, "UTC")  # type: ignore
 
     # Verify the results
     assert table.column("string_col")[0].as_py() == ""
