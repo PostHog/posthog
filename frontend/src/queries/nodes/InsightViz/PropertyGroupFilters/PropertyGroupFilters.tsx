@@ -1,6 +1,6 @@
 import './PropertyGroupFilters.scss'
 
-import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -138,7 +138,7 @@ export function PropertyGroupFilters({
                 data-attr={`${pageKey}-add-filter-group`}
                 type="secondary"
                 onClick={addFilterGroup}
-                icon={<IconPlusSmall color="var(--accent-primary)" />}
+                icon={<IconPlus />}
                 sideIcon={null}
                 disabledReason={disabledReason}
             >

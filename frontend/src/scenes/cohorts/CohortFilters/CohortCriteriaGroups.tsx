@@ -1,6 +1,6 @@
 import './CohortCriteriaGroups.scss'
 
-import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
@@ -91,7 +91,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                         data-attr="cohort-add-filter-group-criteria"
                                                         type="secondary"
                                                         onClick={() => addFilter(groupIndex)}
-                                                        icon={<IconPlusSmall color="var(--accent-primary)" />}
+                                                        icon={<IconPlus />}
                                                     >
                                                         Add criteria
                                                     </LemonButton>
@@ -110,7 +110,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                 className="mb-4 mt-4"
                 type="secondary"
                 onClick={() => addFilter()}
-                icon={<IconPlusSmall color="var(--accent-primary)" />}
+                icon={<IconPlus />}
                 fullWidth
             >
                 Add criteria group
