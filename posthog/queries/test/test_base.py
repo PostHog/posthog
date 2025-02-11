@@ -631,6 +631,36 @@ class TestSanitizeRegexPattern(TestCase):
             ),
             # Properties with special characters
             ('"user-name":"john.doe"', "{'user-name': 'john.doe', 'email': 'john@example.com'}", True),
+            # Failing cases - incorrect nesting level
+            (
+                '"lang":"en"[^}]*"slug":"web"',
+                "{'data': {'lang': 'en'}, 'slug': 'mobile'}",
+                False,
+            ),
+            # Failing cases - partial property name matches
+            (
+                '"language":"en"',
+                "{'data': {'lang': 'en'}}",
+                False,
+            ),
+            # Failing cases - missing required property
+            (
+                '"lang":"en"[^}]*"slug":"web"',
+                "{'lang': 'en', 'url': 'web'}",
+                False,
+            ),
+            # Failing cases - incorrect property value
+            (
+                '"status":"active"',
+                "{'status': 'inactive'}",
+                False,
+            ),
+            # Failing cases - case mismatch in value (should fail because we want exact match)
+            (
+                '"type":"User"',
+                "{'type': 'user'}",
+                False,
+            ),
         ]
 
         for pattern, test_string, should_match in test_cases:
@@ -741,10 +771,10 @@ class TestSanitizeRegexPattern(TestCase):
 
     def test_property_name_patterns(self):
         test_cases = [
-            # Basic word characters (currently supported)
+            # Basic word characters
             ('"key123":"value"', "{'key123': 'value'}", True),
             ('"KEY":"value"', "{'key': 'value'}", True),
-            # Special characters in property names (currently failing)
+            # Special characters in property names
             ('"user-id":"123"', "{'user-id': '123'}", True),
             ('"@timestamp":"2023-01-01"', "{'@timestamp': '2023-01-01'}", True),
             ('"$ref":"#/definitions/user"', "{'$ref': '#/definitions/user'}", True),
