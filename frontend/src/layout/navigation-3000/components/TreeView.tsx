@@ -23,15 +23,12 @@ export function TreeView(): JSX.Element {
         <>
             <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
                 <div
-                    className="Navbar3000__content max-w-80"
+                    className="Navbar3000__content w-[17rem]"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={theme?.sidebarStyle}
                 >
                     <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
-                        <div className="border border-danger-lighter bg-danger-highlight m-2 p-2 min-w-0">
-                            Turn off the <code>tree-view</code> flag to go back.
-                        </div>
-                        <LemonTree data={treeData} />
+                        <LemonTree className="px-0 py-1" data={treeData} />
                     </ScrollableShadows>
                     <NavbarBottom />
                 </div>
