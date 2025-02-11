@@ -887,6 +887,8 @@ export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
     formula?: TrendsFilterLegacy['formula']
+    /** List of formulas to apply to the data. Takes precedence over formula if both are set. */
+    formulas?: string[]
     /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
     /** @default false */
