@@ -6,7 +6,6 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { WebExperimentTransform } from '~/toolbar/types'
 
 import { experimentsLogic } from './experimentsLogic'
 import { experimentsTabLogic } from './experimentsTabLogic'
@@ -21,7 +20,6 @@ const web_experiments = [
                     {
                         html: '',
                         selector: 'h1',
-                        text: '',
                     },
                 ],
             },
@@ -39,7 +37,6 @@ const web_experiments = [
                     {
                         html: '<b> Hello world! </b>',
                         selector: 'h1',
-                        text: 'Hello world',
                     },
                 ],
             },
@@ -48,7 +45,6 @@ const web_experiments = [
                     {
                         html: '<b> Goodbye world! </b>',
                         selector: 'h1',
-                        text: 'Goodbye world',
                     },
                 ],
             },
@@ -142,11 +138,7 @@ describe('experimentsTabLogic', () => {
                             },
                             test: {
                                 is_new: true,
-                                transforms: [
-                                    {
-                                        text: '',
-                                    } as unknown as WebExperimentTransform,
-                                ],
+                                transforms: [{}],
                                 rollout_percentage: 50,
                             },
                         },
@@ -169,7 +161,7 @@ describe('experimentsTabLogic', () => {
                                 is_new: true,
                                 conditions: null,
                                 rollout_percentage: 100,
-                                transforms: [{ html: '', text: '' }],
+                                transforms: [{}],
                             },
                         },
                         original_html_state: {},
@@ -211,11 +203,7 @@ describe('experimentsTabLogic', () => {
                             },
                             test: {
                                 is_new: true,
-                                transforms: [
-                                    {
-                                        text: '',
-                                    } as unknown as WebExperimentTransform,
-                                ],
+                                transforms: [{}],
                                 rollout_percentage: 50,
                             },
                         },
@@ -225,22 +213,6 @@ describe('experimentsTabLogic', () => {
                 .toDispatchActions(['newExperiment', 'setExperimentFormValue', 'submitExperimentForm'])
         })
     })
-
-    const createTestDocument = (): HTMLSpanElement => {
-        const elTarget = document.createElement('img')
-        elTarget.id = 'primary_button'
-
-        const elParent = document.createElement('span')
-        elParent.innerText = 'original'
-        elParent.className = 'original'
-        elParent.appendChild(elTarget)
-
-        document.querySelectorAll = function () {
-            return [elParent] as unknown as NodeListOf<Element>
-        }
-
-        return elParent
-    }
 
     describe('selecting html elements', () => {
         it('can highlight all elements on a page', async () => {
@@ -308,9 +280,7 @@ describe('experimentsTabLogic', () => {
                 .delay(0)
                 .then(() => {
                     theExperimentsTabLogic.actions.selectExperiment(2)
-                    const element = createTestDocument()
                     theExperimentsTabLogic.actions.applyVariant('test')
-                    expect(element.innerText).toEqual('Hello world')
                 })
         })
 
@@ -321,11 +291,8 @@ describe('experimentsTabLogic', () => {
                 .delay(0)
                 .then(() => {
                     theExperimentsTabLogic.actions.selectExperiment(2)
-                    const element = createTestDocument()
                     theExperimentsTabLogic.actions.applyVariant('test')
-                    expect(element.innerText).toEqual('Hello world')
                     theExperimentsTabLogic.actions.applyVariant('test2')
-                    expect(element.innerText).toEqual('Goodbye world')
                 })
         })
     })

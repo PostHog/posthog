@@ -34,3 +34,18 @@ def test_string_infinity_in_decimal():
 
     # Check that infinity was converted to None
     assert table.column("value")[0].as_py() is None
+
+
+def test_row_tuples_to_arrow_string_column_with_dict():
+    # Test that row_tuples_to_arrow properly serializes dictionaries in string columns
+    test_dict = {"key": "value"}
+    rows = [("",), (test_dict,)]
+    columns = {"string_col": {"name": "string_col", "data_type": "text", "nullable": True}}
+
+    # This should now succeed and serialize the dictionary to JSON
+    table = row_tuples_to_arrow(rows, columns, "UTC")  # type: ignore
+
+    # Verify the results
+    assert table.column("string_col")[0].as_py() == ""
+    # The dictionary should be serialized to a JSON string
+    assert json.loads(table.column("string_col")[1].as_py()) == test_dict
