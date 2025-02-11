@@ -169,6 +169,21 @@ runs:
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
+        - name: Run Core tests on ClickHouse HTTP
+          id: run-core-tests-clickhouse-http
+          if: ${{ inputs.segment == 'Core' }}
+          env:
+              PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
+              CLICKHOUSE_USE_HTTP: 1
+          shell: bash
+          run: | # async_migrations covered in ci-async-migrations.yml
+              pytest $(grep -rIl "ClickhouseTestMixin" --include="test_*.py" .) ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
+                  --ignore=posthog/temporal \
+                  --ignore=common/hogvm/python/test \
+                  --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
+                  --durations=100 --durations-min=1.0 --store-durations \
+                  $PYTEST_ARGS
+
         # Uncomment this code to create an ssh-able console so you can debug issues with github actions
         # (Consider changing the timeout in ci-backend.yml to have more time)
         # - name: Setup tmate session

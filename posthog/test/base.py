@@ -29,7 +29,7 @@ from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ch_pool
+from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
@@ -946,7 +946,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
     @contextmanager
     def capture_queries(self, query_filter: Callable[[str], bool]):
         queries = []
-        original_get_client = ch_pool.get_client
+        original_get_client = get_client_from_pool
 
         # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
         # a roundabout way to handle this, but it seems tricky to spy on the
@@ -964,7 +964,8 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 with patch.object(client, "execute", wraps=execute_wrapper) as _:
                     yield client
 
-        with patch("posthog.clickhouse.client.connection.ch_pool.get_client", wraps=get_client) as _:
+        # posthog.clickhouse.client.connection.ch_pool.get_client
+        with patch("posthog.clickhouse.client.connection.get_client_from_pool", wraps=get_client) as _:
             yield queries
 
 
