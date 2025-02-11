@@ -11,7 +11,7 @@ import { AvailableFeature, SurveyAppearance, SurveyAppearance as SurveyAppearanc
 import { defaultSurveyAppearance, WEB_SAFE_FONTS } from './constants'
 import { surveysLogic } from './surveysLogic'
 
-const IGNORE_ERROR_BORDER_CLASS = IGNORE_ERROR_BORDER_CLASS
+const IGNORE_ERROR_BORDER_CLASS = 'ignore-error-border'
 
 interface CustomizationProps {
     appearance: SurveyAppearanceType
