@@ -251,8 +251,9 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                         yield b""
                         last_update_time = current_time
 
-            except Exception as e:
-                yield f"data: {json.dumps({'error': str(e)})}\n\n".encode()
+            except Exception:
+                capture_exception()
+                yield f"data: {json.dumps({'error': 'Server error'}\n\n".encode()
                 break
 
             elapsed_time = time.time() - start_time
