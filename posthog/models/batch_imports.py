@@ -37,7 +37,7 @@ class BatchImport(UUIDModel):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._config_builder = BatchImportConfigBuilder(self)
+        self._config_builder = BatchImportConfigBuilder(self, initialize_empty=not self.import_config)
 
     @property
     def config(self) -> "BatchImportConfigBuilder":
@@ -46,10 +46,11 @@ class BatchImport(UUIDModel):
 
 # Mostly used for manual job creation
 class BatchImportConfigBuilder:
-    def __init__(self, batch_import: BatchImport):
+    def __init__(self, batch_import: BatchImport, initialize_empty: bool = True):
         self.batch_import = batch_import
-        self.batch_import.import_config = {}
-        self.batch_import.secrets = {}
+        if initialize_empty:
+            self.batch_import.import_config = {}
+            self.batch_import.secrets = {}
 
     def json_lines(self, content_type: ContentType, skip_blanks: bool = True) -> Self:
         self.batch_import.import_config["data_format"] = {
@@ -75,6 +76,28 @@ class BatchImportConfigBuilder:
         self.batch_import.secrets[urls_key] = urls
         return self
 
+    def from_s3(
+        self,
+        bucket: str,
+        prefix: str,
+        region: str,
+        access_key_id: str,
+        secret_access_key: str,
+        access_key_id_key: str = "aws_access_key_id",
+        secret_access_key_key: str = "aws_secret_access_key",
+    ) -> Self:
+        self.batch_import.import_config["source"] = {
+            "type": "s3",
+            "bucket": bucket,
+            "prefix": prefix,
+            "region": region,
+            "access_key_id_key": access_key_id_key,
+            "secret_access_key_key": secret_access_key_key,
+        }
+        self.batch_import.secrets[access_key_id_key] = access_key_id
+        self.batch_import.secrets[secret_access_key_key] = secret_access_key
+        return self
+
     def to_stdout(self, as_json: bool = True) -> Self:
         self.batch_import.import_config["sink"] = {"type": "stdout", "as_json": as_json}
         return self
@@ -90,4 +113,8 @@ class BatchImportConfigBuilder:
             "send_rate": send_rate,
             "transaction_timeout_seconds": transaction_timeout_seconds,
         }
+        return self
+
+    def to_noop(self) -> Self:
+        self.batch_import.import_config["sink"] = {"type": "noop"}
         return self
