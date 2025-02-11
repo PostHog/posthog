@@ -30,7 +30,7 @@ def test_string_infinity_in_decimal():
     columns = {"value": {"name": "value", "data_type": "decimal", "nullable": True}}
 
     # Convert to arrow table - should handle infinity by converting to None
-    table = row_tuples_to_arrow(rows, columns, "UTC")
+    table = row_tuples_to_arrow(rows, columns, "UTC")  # type: ignore
 
     # Check that infinity was converted to None
     assert table.column("value")[0].as_py() is None
