@@ -11,15 +11,15 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleState,
 )
+import temporalio
 from temporalio.common import RetryPolicy
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-from posthog.temporal.common.client import async_connect, sync_connect
+from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     create_schedule,
     update_schedule,
     schedule_exists,
-    a_create_schedule,
-    a_update_schedule,
+    delete_schedule,
 )
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -81,18 +81,15 @@ def sync_saved_query_workflow(
     return saved_query
 
 
-async def a_sync_saved_query_workflow(
-    saved_query: "DataWarehouseSavedQuery", create: bool = False
-) -> "DataWarehouseSavedQuery":
-    temporal = await async_connect()
-    schedule = get_saved_query_schedule(saved_query)
-
-    if create:
-        await a_create_schedule(temporal, id=str(saved_query.id), schedule=schedule, trigger_immediately=True)
-    else:
-        await a_update_schedule(temporal, id=str(saved_query.id), schedule=schedule)
-
-    return saved_query
+def delete_saved_query_schedule(schedule_id: str):
+    temporal = sync_connect()
+    try:
+        delete_schedule(temporal, schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
 
 
 def saved_query_workflow_exists(id: str) -> bool:

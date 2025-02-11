@@ -32,6 +32,7 @@ from posthog.warehouse.models.external_data_schema import (
 from posthog.warehouse.data_load.saved_query_service import (
     saved_query_workflow_exists,
     sync_saved_query_workflow,
+    delete_saved_query_schedule,
 )
 import uuid
 from datetime import timedelta
@@ -108,6 +109,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         validated_data["created_by"] = self.context["request"].user
 
         view = DataWarehouseSavedQuery(**validated_data)
+
+        sync_saved_query_workflow(view, create=True)
+
         # The columns will be inferred from the query
         try:
             client_types = self.context["request"].data.get("types", [])
@@ -226,6 +230,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
+
+        delete_saved_query_schedule(str(instance.id))
 
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
