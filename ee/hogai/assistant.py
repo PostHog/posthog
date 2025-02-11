@@ -158,7 +158,7 @@ class Assistant:
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
-            "recursion_limit": 24,
+            "recursion_limit": 40,
             "callbacks": callbacks,
             "configurable": {"thread_id": self._conversation.id},
         }
