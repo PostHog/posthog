@@ -57,8 +57,12 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         self.assertIn(
             "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
         )
-        self.assertEqual(msg.type, "ai")
+        self.assertEqual(msg.type, "tool")
+        self.assertEqual(msg.tool_call_id, "tool1")
         self.assertIsNotNone(msg.id)
+        self.assertFalse(new_state.root_tool_call_id)
+        self.assertFalse(new_state.root_tool_insight_plan)
+        self.assertFalse(new_state.root_tool_insight_type)
 
     @patch(
         "ee.hogai.query_executor.nodes.process_query_dict",
@@ -196,5 +200,5 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             self.assertIn(
                 "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
             )
-            self.assertEqual(msg.type, "ai")
+            self.assertEqual(msg.type, "tool")
             self.assertIsNotNone(msg.id)
