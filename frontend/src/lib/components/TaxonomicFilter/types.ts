@@ -21,7 +21,9 @@ export interface SimpleOption {
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
-    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
+    // sometimes the filter searches for a different value than provided e.g. a URL will be searched as $current_url
+    // in that case the original value is returned here as well as the property that the user chose
+    onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any, originalQuery?: string) => void
     onClose?: () => void
     filter?: LocalFilter
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -122,7 +124,11 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 
 export interface ListStorage {
     results: TaxonomicDefinitionTypes[]
-    searchQuery?: string // Query used for the results currently in state
+    // Query used for the results currently in state
+    searchQuery?: string
+    // some list logics alter the query to make it more useful
+    // the original query might be different to the search query
+    originalQuery?: string
     count: number
     expandedCount?: number
     queryChanged?: boolean

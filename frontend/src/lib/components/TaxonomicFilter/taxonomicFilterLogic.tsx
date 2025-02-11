@@ -99,10 +99,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => ({
+        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any, originalQuery) => ({
             group,
             value,
             item,
+            originalQuery,
         }),
         infiniteListResultsReceived: (groupType: TaxonomicFilterGroupType, results: ListStorage) => ({
             groupType,
@@ -627,9 +628,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ group, value, item }) => {
+        selectItem: ({ group, value, item, originalQuery }) => {
             if (item || group.type === TaxonomicFilterGroupType.HogQLExpression) {
-                props.onChange?.(group, value, item)
+                props.onChange?.(group, value, item, originalQuery)
             }
             actions.setSearchQuery('')
         },
