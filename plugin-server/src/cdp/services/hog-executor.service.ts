@@ -332,6 +332,15 @@ export class HogExecutorService {
         invocation: HogFunctionInvocation,
         options: { functions?: Record<string, (args: unknown[]) => unknown> } = {}
     ): HogFunctionInvocationResult {
+        const loggingContext = {
+            invocationId: invocation.id,
+            hogFunctionId: invocation.hogFunction.id,
+            hogFunctionName: invocation.hogFunction.name,
+            hogFunctionUrl: invocation.globals.source?.url,
+        }
+
+        status.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
+
         const result: HogFunctionInvocationResult = {
             invocation,
             finished: false,
