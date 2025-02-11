@@ -11,7 +11,12 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.property import Property
-from posthog.queries.base import match_property, relative_date_parse_for_feature_flag_matching, sanitize_property_key
+from posthog.queries.base import (
+    match_property,
+    relative_date_parse_for_feature_flag_matching,
+    sanitize_property_key,
+    sanitize_regex_pattern,
+)
 from posthog.test.base import APIBaseTest
 
 
@@ -554,4 +559,122 @@ class TestRelativeDateParsing(unittest.TestCase):
             )
             assert relative_date_parse_for_feature_flag_matching("8y") == datetime.datetime(
                 2012, 1, 1, 12, 1, 20, 134000, tzinfo=tz.gettz("UTC")
+            )
+
+
+class TestSanitizeRegexPattern(TestCase):
+    def test_basic_property_matching(self):
+        test_cases = [
+            # Simple key-value match
+            ('"key":"value"', "{'key': 'value'}", True),
+            # Python vs JSON quote styles
+            ("'key':'value'", "{'key': 'value'}", True),
+            ('"key":"value"', "{'key': 'value'}", True),
+            # Whitespace handling
+            ('"key" : "value"', "{'key':'value'}", True),
+            ('"key":"value"', "{'key': 'value'}", True),
+            # Nested dictionary
+            ('"key":"value"', "{'parent': {'key': 'value'}}", True),
+            # Multiple properties in any order
+            ('"lang":"en"[^}]*"slug":"web"', "{'slug': 'web', 'lang': 'en'}", True),
+            ('"lang":"en"[^}]*"slug":"web"', "{'lang': 'en', 'slug': 'web'}", True),
+            # Properties with other data in between
+            ('"lang":"en"[^}]*"slug":"web"', "{'name': 'test', 'lang': 'en', 'other': 123, 'slug': 'web'}", True),
+            # Nested dictionary with multiple properties
+            ('"lang":"en"[^}]*"slug":"web"', "{'data': {'name': 'test', 'lang': 'en', 'slug': 'web'}}", True),
+            # Non-matching cases
+            ('"key":"value"', "{'key': 'different'}", False),
+            ('"lang":"en"[^}]*"slug":"web"', "{'lang': 'es', 'slug': 'web'}", False),
+            ('"lang":"en"[^}]*"slug":"web"', "{'lang': 'en', 'slug': 'mobile'}", False),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            )
+
+    def test_escaped_quotes_handling(self):
+        test_cases = [
+            # Test escaped quotes are preserved
+            (r"\"key\":\"value\"", "{'key': 'value'}", True),
+            (r"\'key\':\'value\'", "{'key': 'value'}", True),
+            # Mix of escaped and unescaped quotes
+            (r'"key\":\"value"', "{'key': 'value'}", True),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            )
+
+    def test_complex_patterns(self):
+        test_cases = [
+            # Complex nested dictionary test
+            (
+                '"lang":"en"[^}]*"slug":"web"',
+                "{'200102248': {'name': 'Software Engineer', 'slug': 'web', 'lang': 'en', 'is_paid': False}}",
+                True,
+            ),
+            # Multiple properties with various data types
+            (
+                '"lang":"en"[^}]*"slug":"web"',
+                "{'id': 123, 'data': {'lang': 'en', 'meta': {'slug': 'web'}, 'active': true}}",
+                True,
+            ),
+            # Properties with special characters
+            ('"user-name":"john.doe"', "{'user-name': 'john.doe', 'email': 'john@example.com'}", True),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            )
+
+    def test_edge_cases(self):
+        test_cases = [
+            # Partial key matching should not work
+            ('"lang":"en"', "{'language': 'en'}", False),
+            # Keys with similar prefixes
+            ('"key":"value"', "{'key2': 'value'}", False),
+            ('"key2":"value"', "{'key': 'value'}", False),
+            # Nested structures with newlines
+            (
+                '"lang":"en"[^}]*"slug":"web"',
+                """
+                {
+                    'data': {
+                        'lang': 'en',
+                        'slug': 'web'
+                    }
+                }
+                """,
+                True,
+            ),
+            # Case insensitivity
+            ('"LANG":"EN"', "{'lang': 'en'}", True),
+            ('"lang":"en"', "{'LANG': 'EN'}", True),
+            # Special characters in values
+            ('"key":"value.with.dots"', "{'key': 'value.with.dots'}", True),
+            ('"key":"value-with-dashes"', "{'key': 'value-with-dashes'}", True),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
             )
