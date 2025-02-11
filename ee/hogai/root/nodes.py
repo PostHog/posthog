@@ -1,5 +1,5 @@
 import datetime
-from typing import Literal
+from typing import Literal, cast
 from uuid import uuid4
 
 from langchain_core.messages import (
@@ -144,7 +144,7 @@ class RootNodeTools(AssistantNode):
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"
         if state.root_tool_call_id is not None and state.root_tool_insight_type:
-            return state.root_tool_insight_type
+            return cast(RouteName, state.root_tool_insight_type)
         return "end"
 
     def _construct_ai_message(self, message: AssistantMessage):
