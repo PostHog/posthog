@@ -1,6 +1,6 @@
 import {
     LemonButton,
-    LemonCalendar,
+    LemonCalendarSelectInput,
     LemonInput,
     LemonInputSelect,
     LemonModal,
@@ -8,9 +8,11 @@ import {
     LemonSelect,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useState } from 'react'
 
-import { Variable, VariableType } from '../../types'
+import { DateVariable, Variable, VariableType } from '../../types'
 import { variableModalLogic } from './variableModalLogic'
 
 const renderVariableSpecificFields = (
@@ -95,19 +97,34 @@ const renderVariableSpecificFields = (
     if (variable.type === 'Date') {
         return (
             <LemonField.Pure label="Default value" className="gap-1">
-                <LemonCalendar
-                    onDateClick={(date) => updateVariable({ ...variable, default_value: date.format('YYYY-MM-DD') })}
-                    getLemonButtonProps={({ date, props }) => ({
-                        ...props,
-                        active: date.format('YYYY-MM-DD') === variable.default_value,
-                        type: date.format('YYYY-MM-DD') === variable.default_value ? 'primary' : undefined,
-                    })}
-                />
+                <NewVariableCalendar variable={variable} updateVariable={updateVariable} />
             </LemonField.Pure>
         )
     }
 
     throw new Error(`Unsupported variable type: ${(variable as Variable).type}`)
+}
+
+const NewVariableCalendar = ({
+    variable,
+    updateVariable,
+}: {
+    variable: DateVariable
+    updateVariable: (variable: DateVariable) => void
+}): JSX.Element => {
+    const [calendarTime, setCalendarTime] = useState(false)
+
+    return (
+        <LemonCalendarSelectInput
+            value={variable.default_value ? dayjs(variable.default_value) : null}
+            onChange={(date) =>
+                updateVariable({ ...variable, default_value: date?.format('YYYY-MM-DD HH:mm:00') ?? '' })
+            }
+            showTimeToggle={true}
+            granularity={calendarTime ? 'minute' : 'day'}
+            onToggleTime={(value) => setCalendarTime(value)}
+        />
+    )
 }
 
 export const NewVariableModal = (): JSX.Element => {
