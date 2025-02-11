@@ -4,8 +4,9 @@ import hashlib
 
 from rest_framework import serializers, viewsets, status
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, NotFound
 
+from django.http import JsonResponse
 from django.conf import settings
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -20,7 +21,6 @@ from posthog.models.error_tracking import (
 )
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
-from django.shortcuts import redirect
 
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
@@ -68,17 +68,20 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
-    def safely_get_object(self, queryset):
-        issue = queryset.filter(id=self.kwargs["pk"]).first()
-        if not issue and self.request.GET.get("fingerprint"):
-            fingerprint = ErrorTrackingIssueFingerprintV2.objects.filter(
-                fingerprint=self.request.GET.get("fingerprint")
-            ).first()
-
+    def retrieve(self, request, *args, **kwargs):
+        fingerprint = self.request.GET.get("fingerprint")
+        print("Got here")
+        try:
+            instance = self.get_object()
+        except NotFound:
+            print("Got loloo")
             if fingerprint:
-                return redirect("/error_tracking/{fingerprint.issue_id}")
+                print("Got boomer")
+                record = ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint=fingerprint).first()
+                return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_404_NOT_FOUND)
 
-        return issue
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
     @action(methods=["POST"], detail=True)
     def merge(self, request, **kwargs):

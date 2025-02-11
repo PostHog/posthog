@@ -212,9 +212,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             pass
 
         queryset = self.filter_queryset(self.get_queryset())
+        print("wat")
 
         try:
             obj = self.safely_get_object(queryset)
+            print("wat")
             if not obj:
                 raise NotFound()
         except NotImplementedError:

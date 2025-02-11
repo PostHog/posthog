@@ -3,7 +3,6 @@ from boto3 import resource
 
 from rest_framework import status
 from freezegun import freeze_time
-
 from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 
@@ -15,6 +14,7 @@ from posthog.models import (
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
 )
+from posthog.models.utils import uuid7
 from botocore.config import Config
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
@@ -52,16 +52,23 @@ class TestErrorTracking(APIBaseTest):
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
     def test_issue_not_found_fingerprint_redirect(self):
+        deleted_issue_id = uuid7()
         issue = self.create_issue()
+        fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue)
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}", data={"status": "resolved"}
+        # # no fingerprint
+        # response = self.client.get(
+        #     f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}",
+        # )
+        # assert response.status_code == 404
+
+        # with fingerprint hint
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}?fingerprint={fingerprint.fingerprint}",
         )
-        issue.refresh_from_db()
-
-        assert response.status_code == 200
+        assert response.status_code == 404
+        assert response.json()
         assert response.json() == {"status": "resolved"}
-        assert issue.status == ErrorTrackingIssue.Status.RESOLVED
 
     @freeze_time("2025-01-01")
     def test_issue_fetch(self):
