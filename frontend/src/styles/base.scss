@@ -973,7 +973,9 @@ body {
 
     h1,
     h2,
-    h3:not(.thank-you-message), // to prevent the survey thank you message to be styled, as these styles are only for PostHog main app
+    // Note: .thank-you-message is excluded in h3 below to prevent the survey thank you message to be styled,
+    // as these styles are only for PostHog main app. It's important to use :where() to avoid increased specificity
+    h3:where(:not(.thank-you-message)),
     h4,
     h5 {
         margin-top: 0;
