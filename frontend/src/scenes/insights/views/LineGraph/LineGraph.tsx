@@ -321,7 +321,7 @@ export function LineGraph_({
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
-    const colors = getGraphColors(isDarkModeOn)
+    const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
     const isPie = type === GraphType.Pie
     if (isPie) {
