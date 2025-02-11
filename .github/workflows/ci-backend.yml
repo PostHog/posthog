@@ -69,7 +69,7 @@ jobs:
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
                         - 'common/hogvm/**/*'
-                        - 'posthog/!(temporal/**)/**'
+                        - 'posthog/**/*'
                         - 'bin/*.py'
                         - requirements.txt
                         - requirements-dev.txt
