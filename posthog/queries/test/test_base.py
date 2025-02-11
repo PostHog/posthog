@@ -738,3 +738,38 @@ class TestSanitizeRegexPattern(TestCase):
                 should_match,
                 f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
             )
+
+    def test_property_name_patterns(self):
+        test_cases = [
+            # Basic word characters (currently supported)
+            ('"key123":"value"', "{'key123': 'value'}", True),
+            ('"KEY":"value"', "{'key': 'value'}", True),
+            # Special characters in property names (currently failing)
+            ('"user-id":"123"', "{'user-id': '123'}", True),
+            ('"@timestamp":"2023-01-01"', "{'@timestamp': '2023-01-01'}", True),
+            ('"$ref":"#/definitions/user"', "{'$ref': '#/definitions/user'}", True),
+            ('"special.key":"value"', "{'special.key': 'value'}", True),
+            ('"snake_case_key":"value"', "{'snake_case_key': 'value'}", True),
+            ('"kebab-case-key":"value"', "{'kebab-case-key': 'value'}", True),
+            ('"spaces in key":"value"', "{'spaces in key': 'value'}", True),
+            # Unicode characters in property names
+            ('"über":"value"', "{'über': 'value'}", True),
+            ('"emoji🔑":"value"', "{'emoji🔑': 'value'}", True),
+            # Empty or special-only property names
+            ('"-":"value"', "{'-': 'value'}", True),
+            ('"_":"value"', "{'_': 'value'}", True),
+            # Multiple special characters
+            ('"$special@key.name-here":"value"', "{'$special@key.name-here': 'value'}", True),
+            # Ensure non-matches still work
+            ('"user-id":"123"', "{'different-id': '123'}", False),
+            ('"@timestamp":"2023"', "{'@timestamp': '2024'}", False),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            )

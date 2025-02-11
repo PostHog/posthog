@@ -519,6 +519,10 @@ def sanitize_property_key(key: Any) -> str:
 
 
 def sanitize_regex_pattern(pattern: str) -> str:
+    # If it doesn't look like a property match pattern, return it as-is
+    if not ('"' in pattern or "'" in pattern or ":" in pattern):
+        return pattern
+
     # First, temporarily replace escaped quotes with markers
     pattern = pattern.replace(r"\"", "__ESCAPED_DOUBLE_QUOTE__")
     pattern = pattern.replace(r"\'", "__ESCAPED_SINGLE_QUOTE__")
@@ -542,11 +546,15 @@ def sanitize_regex_pattern(pattern: str) -> str:
             if "['\"]" in part:
                 # Extract the key and value from patterns like ['"]key['"]\s*:\s*['"]value['"]
                 try:
-                    key = re.search(r'\[\'"\](\w+)\[\'"\]\\s\*:\\s\*\[\'"\](.*?)\[\'"\]', part)
+                    # Use a non-capturing group for quotes and match the exact key name
+                    # This ensures we don't match partial keys or keys that are substrings of others
+                    key = re.search(r'\[\'"\]((?:[^\'"\s:}]+))\[\'"\]\\s\*:\\s\*\[\'"\](.*?)\[\'"\]', part)
                     if key:
                         key_name, value = key.groups()
-                        # Convert to a positive lookahead that matches the key-value pair anywhere
-                        converted = f"(?=.*['\"]?{key_name}['\"]?\\s*:\\s*['\"]?{value}['\"]?)"
+                        # Escape special regex characters in the key name
+                        escaped_key_name = re.escape(key_name)
+                        # Convert to a positive lookahead that matches the exact key-value pair
+                        converted = f"(?=.*['\"]?{escaped_key_name}['\"]?\\s*:\\s*['\"]?{value}['\"]?)"
                         converted_parts.append(converted)
                 except Exception:
                     # If we can't parse it, use the original pattern
