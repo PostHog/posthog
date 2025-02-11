@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 import { useEffect } from 'react'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -15,7 +15,6 @@ import {
     humanMessage,
 } from './__mocks__/chatResponse.mocks'
 import { MaxInstance } from './Max'
-import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 
 const meta: Meta = {
@@ -24,6 +23,15 @@ const meta: Meta = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
+            },
+            get: {
+                '/api/organizations/@current/': () => [
+                    200,
+                    {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        is_ai_data_processing_approved: true,
+                    },
+                ],
             },
         }),
     ],
@@ -36,12 +44,6 @@ const meta: Meta = {
 export default meta
 
 const Template = ({ conversationId: CONVERSATION_ID }: { conversationId: string }): JSX.Element => {
-    const { acceptDataProcessing } = useActions(maxGlobalLogic)
-
-    useEffect(() => {
-        acceptDataProcessing()
-    }, [])
-
     return (
         <div className="relative flex flex-col h-fit">
             <BindLogic logic={maxLogic} props={{ conversationId: CONVERSATION_ID }}>
@@ -66,12 +68,17 @@ export const Welcome: StoryFn = () => {
                 },
             ],
         },
+        get: {
+            '/api/organizations/@current/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    // We override data processing opt-in to false, so that we see the welcome screen as a first-time user would
+                    is_ai_data_processing_approved: false,
+                },
+            ],
+        },
     })
-    const { acceptDataProcessing } = useActions(maxGlobalLogic)
-    useEffect(() => {
-        // We override data processing opt-in to false, so that wee see the welcome screen as a first-time user would
-        acceptDataProcessing(false)
-    }, [])
 
     return <Template conversationId={CONVERSATION_ID} />
 }

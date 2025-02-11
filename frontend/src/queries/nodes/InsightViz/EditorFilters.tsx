@@ -103,7 +103,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           },
                           hasPathsHogQL && {
                               key: 'hogql',
-                              label: 'HogQL Expression',
+                              label: 'SQL Expression',
                               component: PathsHogQL,
                           },
                           hasPathsAdvanced && {
