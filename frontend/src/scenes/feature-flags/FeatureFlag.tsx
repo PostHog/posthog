@@ -783,7 +783,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             title: 'Reset payload?',
             description: 'The existing payload will not be deleted until the feature flag is saved.',
             primaryButton: {
-                children: 'Confirm',
+                children: 'Reset',
                 onClick: resetEncryptedPayload,
                 size: 'small',
                 status: 'danger',
