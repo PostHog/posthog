@@ -149,6 +149,9 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
             "person": {"properties": person_properties or {}},
             "groups": {},
         }
+        # This makes a couple of assumptions, which hold in the example I've seen but might not hold forever:
+        # - the template's init code adds a track function to the window object / global scope
+        # - if the track function already exists, the template's init code (which typically adds an html script element) will not be run
         js = f"""
             {JS_STDLIB}
 
@@ -171,12 +174,15 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
 
         with STPyV8.JSContext() as ctxt:
             ctxt.eval(js)
-            calls_json = ctxt.eval("JSON.stringify(calls)")
+            calls_json = ctxt.eval(
+                "JSON.stringify(calls)"
+            )  # send a string type over the bridge as complex types can cause crashes
             calls = json.loads(calls_json)
             assert isinstance(calls, list)
             return event_id, calls
 
 
+# STPyV8 doesn't provide a window or document object, so set these up with a minimal implementation
 JS_STDLIB = """
 const document = {};
 const window = {};
