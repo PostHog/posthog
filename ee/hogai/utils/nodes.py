@@ -7,7 +7,6 @@ from langchain_core.runnables import RunnableConfig
 from ee.models.assistant import CoreMemory
 from posthog.models.team.team import Team
 
-from .helpers import dump_model_with_literals
 from .types import AssistantState, PartialAssistantState
 
 
@@ -16,19 +15,6 @@ class AssistantNode(ABC):
 
     def __init__(self, team: Team):
         self._team = team
-
-    def __call__(self, state: AssistantState, config: RunnableConfig) -> dict | None:
-        """
-        Fixes the default LangGraph's behavior: Pydantic models are serialized without explicitly set None values,
-        which leads to a confusing behavior. The result must always have None values if the model field was set by the user.
-
-        Additionally, preserves Literal fields that would otherwise be excluded by exclude_unset=True.
-        """
-        new_state = self.run(state, config)
-        if new_state is not None:
-            new_state_dict = dump_model_with_literals(new_state)
-            return new_state_dict
-        return None
 
     @abstractmethod
     def run(cls, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
