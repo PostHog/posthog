@@ -13,10 +13,22 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM EXIT
 
-python3 -m memray run --trace-python-allocators --native manage.py start_temporal_worker "$@" &
+python3 -m memray run --trace-python-allocators --native --output /tmp/capture.bin manage.py start_temporal_worker "$@" &
 
 worker_pid=$!
 
 wait $worker_pid
 
+echo "Running memray flamegraph..."
+
+memray flamegraph -o /tmp/capture.html --leaks /tmp/capture.bin
+
+echo "Copying file to S3..."
+AWS_ACCESS_KEY_ID=$AIRBYTE_BUCKET_KEY AWS_SECRET_ACCESS_KEY=$AIRBYTE_BUCKET_SECRET aws s3 cp /tmp/capture.html s3://posthog-s3-datawarehouse-us-east-1-dev/tom-test/capture.html
+
+
+echo "Cleanup..."
+
 cleanup
+
+
