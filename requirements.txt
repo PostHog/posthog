@@ -597,7 +597,7 @@ psycopg2-binary==2.9.7
     #   dagster-postgres
 py==1.11.0
     # via retry
-pyarrow==19.0.0
+pyarrow==18.1.0
     # via
     #   -r requirements.in
     #   deltalake

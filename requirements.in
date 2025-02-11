@@ -75,7 +75,7 @@ psycopg2-binary==2.9.7
 pymssql==2.3.1
 PyMySQL==1.1.1
 psycopg[binary]==3.1.20
-pyarrow==19.0.0
+pyarrow==18.1.0
 pydantic==2.9.2
 pyjwt==2.4.0
 pyodbc==5.1.0

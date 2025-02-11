@@ -417,7 +417,7 @@ protobuf==4.22.1
     #   deepeval
     #   googleapis-common-protos
     #   opentelemetry-proto
-pyarrow==19.0.0
+pyarrow==18.1.0
     # via
     #   -c requirements.txt
     #   -r requirements-dev.in
