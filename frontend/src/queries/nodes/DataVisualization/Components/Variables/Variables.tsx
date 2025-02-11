@@ -1,15 +1,7 @@
 import './Variables.scss'
 
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCalendarSelect,
-    LemonDivider,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSelect,
-    Popover,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton, LemonSelect, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -24,6 +16,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { Variable } from '../../types'
 import { NewVariableModal } from './NewVariableModal'
+import { VariableCalendar } from './VariableCalendar'
 import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
@@ -102,7 +95,6 @@ const VariableInput = ({
     onRemove,
     variableSettingsOnClick,
 }: VariableInputProps): JSX.Element => {
-    const [calendarTime, setCalendarTime] = useState<boolean>(false)
     const [localInputValue, setLocalInputValue] = useState<string>(() => {
         const val = variable.value ?? variable.default_value
 
@@ -186,20 +178,11 @@ const VariableInput = ({
                     />
                 )}
                 {variable.type === 'Date' && (
-                    <LemonCalendarSelect
-                        value={localInputValue ? dayjs(localInputValue) : null}
-                        onChange={(date) => {
-                            date && onChange(variable.id, date.format('YYYY-MM-DD HH:mm:00'))
+                    <VariableCalendar
+                        variable={variable}
+                        updateVariable={(date) => {
+                            onChange(variable.id, date)
                             closePopover()
-                        }}
-                        granularity={calendarTime ? 'minute' : 'day'}
-                        showTimeToggle={true}
-                        onToggleTime={(includeTime) => {
-                            setCalendarTime(includeTime)
-                            const date = dayjs(localInputValue)
-                            setLocalInputValue(
-                                includeTime ? date.format('YYYY-MM-DD HH:mm:00') : date.format('YYYY-MM-DD 00:00:00')
-                            )
                         }}
                     />
                 )}
