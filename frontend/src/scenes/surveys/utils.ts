@@ -8,7 +8,7 @@ export function sanitizeHTML(html: string): string {
     return DOMPurify.sanitize(html, sanitizeConfig)
 }
 
-function sanitizeColor(color: string | undefined): string | undefined {
+export function sanitizeColor(color: string | undefined): string | undefined {
     if (!color) {
         return undefined
     }
@@ -19,6 +19,15 @@ function sanitizeColor(color: string | undefined): string | undefined {
     }
 
     return color
+}
+
+export function validateColor(color: string | undefined, fieldName: string): string | undefined {
+    if (!color) {
+        return undefined
+    }
+    // Test if the color value is valid using CSS.supports
+    const isValidColor = CSS.supports('color', color)
+    return !isValidColor ? `Invalid color value for ${fieldName}. Please use a valid CSS color.` : undefined
 }
 
 export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): SurveyAppearance | null {
@@ -35,13 +44,4 @@ export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): S
         submitButtonColor: sanitizeColor(appearance.submitButtonColor),
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
     }
-}
-
-export function validateColor(color: string | undefined, fieldName: string): string | undefined {
-    if (!color) {
-        return undefined
-    }
-    // Test if the color value is valid using CSS.supports
-    const isValidColor = CSS.supports('color', color)
-    return !isValidColor ? `Invalid color value for ${fieldName}. Please use a valid CSS color.` : undefined
 }
