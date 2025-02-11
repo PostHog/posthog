@@ -814,3 +814,20 @@ class TestQuotaLimiting(BaseTest):
             f"quota_limiting: No team tokens found for organization: {self.organization.id}",
             str(mock_capture.call_args[0][0]),
         )
+
+    def test_feature_flags_quota_limiting(self):
+        with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
+            self.organization.usage = {
+                "events": {"usage": 10, "limit": 100},
+                "recordings": {"usage": 10, "limit": 100},
+                "feature_flags": {"usage": 110, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = {"events": 0, "recordings": 0, "feature_flags": 0}
+            self.organization.save()
+
+            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+
+            assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                f"@posthog/quota-limits/feature_flags", 0, -1
+            )

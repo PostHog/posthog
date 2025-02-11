@@ -45,6 +45,7 @@ class QuotaResource(Enum):
     EVENTS = "events"
     RECORDINGS = "recordings"
     ROWS_SYNCED = "rows_synced"
+    FEATURE_FLAGS = "feature_flags"
 
 
 class QuotaLimitingCaches(Enum):
@@ -56,6 +57,7 @@ OVERAGE_BUFFER = {
     QuotaResource.EVENTS: 0,
     QuotaResource.RECORDINGS: 1000,
     QuotaResource.ROWS_SYNCED: 0,
+    QuotaResource.FEATURE_FLAGS: 0,  # TODO: should we have a buffer here?
 }
 
 

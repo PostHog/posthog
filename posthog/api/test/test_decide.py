@@ -3604,6 +3604,37 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertTrue("defaultIdentifiedOnly" in response.json())
         self.assertTrue(response.json()["defaultIdentifiedOnly"])
 
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_quota_limited_feature_flags_disabled(self, _fake_token_limiting, *args):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.FEATURE_FLAGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._post_decide().json()
+            assert response["featureFlags"] == {}
+            assert response["errorsWhileComputingFlags"] is True
+            assert "feature_flags" in response["quotaLimited"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_quota_limited_feature_flags_other_token(self, _fake_token_limiting, *args):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token + "a"] if args[0] == QuotaResource.FEATURE_FLAGS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._post_decide().json()
+            assert isinstance(response["featureFlags"], dict)
+            assert "feature_flags" not in response.get("quotaLimited", [])
+
 
 class TestDecideRemoteConfig(TestDecide):
     use_remote_config = True
