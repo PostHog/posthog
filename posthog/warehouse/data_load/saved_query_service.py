@@ -29,12 +29,14 @@ if TYPE_CHECKING:
 
 
 def get_sync_frequency(saved_query: "DataWarehouseSavedQuery") -> tuple[timedelta, timedelta]:
-    if saved_query.sync_frequency_interval <= timedelta(hours=1):
-        return (saved_query.sync_frequency_interval, timedelta(minutes=1))
-    if saved_query.sync_frequency_interval <= timedelta(hours=12):
-        return (saved_query.sync_frequency_interval, timedelta(minutes=30))
+    interval = saved_query.sync_frequency_interval or timedelta(hours=24)
 
-    return (saved_query.sync_frequency_interval, timedelta(hours=1))
+    if interval <= timedelta(hours=1):
+        return (interval, timedelta(minutes=1))
+    if interval <= timedelta(hours=12):
+        return (interval, timedelta(minutes=30))
+
+    return (interval, timedelta(hours=1))
 
 
 def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule:

@@ -15,11 +15,13 @@ interface InfoTabProps {
 
 export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
-    const { editingView, isEditingMaterializedView } = useValues(multitabEditorLogic)
+    const { editingView } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery } = useActions(multitabEditorLogic)
+
     const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
+    // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
     return (
@@ -30,9 +32,9 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                     <LemonTag type="warning">BETA</LemonTag>
                 </div>
                 <div>
-                    {isEditingMaterializedView ? (
+                    {savedQuery ? (
                         <div>
-                            {editingView?.last_run_at ? (
+                            {savedQuery?.last_run_at ? (
                                 `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
                             ) : (
                                 <div>
