@@ -925,7 +925,8 @@ class FeatureFlagViewSet(
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         if not feature_flag.has_encrypted_payloads:
-            return Response(feature_flag.filters["payloads"]["true"] or None)
+            payloads = feature_flag.filters.get("payloads", {})
+            return Response(payloads.get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads will also check the authentication
