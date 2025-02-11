@@ -8,13 +8,14 @@ pub mod kafka;
 
 #[async_trait]
 pub trait Emitter: Send + Sync {
-    async fn begin_write(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
+    async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error>;
+}
 
+#[async_trait]
+pub trait Transaction<'a>: Send + Sync {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error>;
 
-    async fn commit_write(&mut self) -> Result<(), Error> {
+    async fn commit_write(self: Box<Self>) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -25,6 +26,14 @@ pub struct StdoutEmitter {
 
 #[async_trait]
 impl Emitter for StdoutEmitter {
+    async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error> {
+        let to_store: &'a Self = self;
+        Ok(Box::new(to_store))
+    }
+}
+
+#[async_trait]
+impl<'a> Transaction<'a> for &'a StdoutEmitter {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
         for event in data {
             if self.as_json {
@@ -41,6 +50,14 @@ pub struct NoOpEmitter;
 
 #[async_trait]
 impl Emitter for NoOpEmitter {
+    async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error> {
+        let to_store: &'a Self = self;
+        Ok(Box::new(to_store))
+    }
+}
+
+#[async_trait]
+impl<'a> Transaction<'a> for &'a NoOpEmitter {
     async fn emit(&self, _data: &[InternallyCapturedEvent]) -> Result<(), Error> {
         Ok(())
     }
@@ -63,6 +80,14 @@ impl FileEmitter {
 
 #[async_trait]
 impl Emitter for FileEmitter {
+    async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error> {
+        let to_store: &'a Self = self;
+        Ok(Box::new(to_store))
+    }
+}
+
+#[async_trait]
+impl<'a> Transaction<'a> for &'a FileEmitter {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
         info!("Writing {} events to file {}", data.len(), self.path);
         let mut file = tokio::fs::OpenOptions::new()

@@ -207,8 +207,17 @@ class ErrorTrackingQueryRunner(QueryRunner):
         with self.timings.measure("issue_resolution"):
             for result_dict in mapped_results:
                 issue = issues.get(result_dict["id"])
+
                 if issue:
-                    results.append(result_dict | issue)
+                    results.append(
+                        issue
+                        | {
+                            "first_seen": result_dict.get("first_seen"),
+                            "last_seen": result_dict.get("last_seen"),
+                            "earliest": result_dict.get("earliest") if self.query.issueId else None,
+                            "aggregations": self.extract_aggregations(result_dict),
+                        }
+                    )
                 else:
                     logger.error(
                         "error tracking issue not found",
@@ -217,6 +226,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     )
 
         return results
+
+    def extract_aggregations(self, result):
+        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay", "volumeMonth")}
+        aggregations["customVolume"] = result.get("customVolume") if "customVolume" in result else None
+        return aggregations
 
     def volume(self, config: ErrorTrackingSparklineConfig):
         toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)

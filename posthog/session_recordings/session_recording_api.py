@@ -58,7 +58,7 @@ from posthog.session_recordings.ai_data.ai_filter_schema import AiFilterSchema
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_filter_prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
-from posthog.settings.session_replay import SESSION_REPLAY_AI_MODEL
+from posthog.settings.session_replay import SESSION_REPLAY_AI_DEFAULT_MODEL, SESSION_REPLAY_AI_REGEX_MODEL
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionSystemMessageParam,
@@ -888,7 +888,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         client = _get_openai_client()
 
         completion = client.beta.chat.completions.parse(
-            model=SESSION_REPLAY_AI_MODEL,
+            model=SESSION_REPLAY_AI_DEFAULT_MODEL,
             messages=messages,
             response_format=AiFilterSchema,
         )
@@ -922,7 +922,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         client = _get_openai_client()
 
         completion = client.beta.chat.completions.parse(
-            model=SESSION_REPLAY_AI_MODEL,
+            model=SESSION_REPLAY_AI_REGEX_MODEL,
             messages=messages,
             response_format=AiRegexSchema,
         )

@@ -1,7 +1,7 @@
 use std::{future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
-use common_kafka::{kafka_consumer::RecvErr, kafka_producer::send_keyed_iter_to_kafka};
+use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::ClickHouseEvent;
 use cymbal::{
@@ -10,7 +10,6 @@ use cymbal::{
     handle_event,
     metric_consts::{ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
 };
-use envconfig::Envconfig;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -53,7 +52,7 @@ async fn main() {
     setup_tracing();
     info!("Starting up...");
 
-    let config = Config::init_from_env().unwrap();
+    let config = Config::init_with_defaults().unwrap();
     let context = Arc::new(AppContext::new(&config).await.unwrap());
 
     start_health_liveness_server(&config, context.clone());
@@ -73,6 +72,17 @@ async fn main() {
 
         let mut output = Vec::with_capacity(received.len());
         let mut offsets = Vec::with_capacity(received.len());
+
+        let mut producer = context.kafka_producer.lock().await;
+
+        let txn = match producer.begin() {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!("Failed to start kafka transaction, {:?}", e);
+                panic!("Failed to start kafka transaction: {:?}", e);
+            }
+        };
+
         for message in received {
             let (event, offset) = match message {
                 Ok(r) => r,
@@ -106,8 +116,7 @@ async fn main() {
             offsets.push(offset);
         }
 
-        send_keyed_iter_to_kafka(
-            &context.kafka_producer,
+        txn.send_keyed_iter_to_kafka(
             &context.config.events_topic,
             |ev| Some(ev.uuid.to_string()),
             &output,
@@ -115,8 +124,31 @@ async fn main() {
         .await
         .expect("Failed to send event to Kafka");
 
-        for offset in offsets {
-            offset.store().unwrap();
+        let metadata = context.kafka_consumer.metadata();
+
+        // TODO - probably being over-explicit with the error handling here, and could instead
+        // let main return an error and use the question mark operator, but it's good
+        // to be explicit about places we drop things at the top level, so
+        match txn.associate_offsets(offsets, &metadata) {
+            Ok(_) => {}
+            Err(e) => {
+                error!(
+                    "Failed to associate offsets with kafka transaction, {:?}",
+                    e
+                );
+                panic!(
+                    "Failed to associate offsets with kafka transaction, {:?}",
+                    e
+                );
+            }
+        }
+
+        match txn.commit() {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Failed to commit kafka transaction, {:?}", e);
+                panic!("Failed to commit kafka transaction, {:?}", e);
+            }
         }
 
         whole_loop.label("finished", "true").fin();
