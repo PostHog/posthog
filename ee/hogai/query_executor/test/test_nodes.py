@@ -32,7 +32,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                         tool_calls=[
                             {
                                 "id": "tool1",
-                                "name": "retrieve_data_for_question",
+                                "name": "create_and_query_insight",
                                 "args": {"query_kind": "trends", "query_description": "test query"},
                             }
                         ],

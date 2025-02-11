@@ -28,10 +28,9 @@ RouteName = Literal["trends", "funnel", "retention", "root", "end"]
 
 
 # Lower casing matters here. Do not change it.
-class retrieve_data_for_question(BaseModel):
+class create_and_query_insight(BaseModel):
     """
-    Retrieve results for a specific data question by creating a query, or iterate on a previous query.
-
+    Retrieve results for a specific data question by creating a query or iterate on a previous query.
     This tool only retrieves data for a single insight at a time.
     The `trends` insight type is the only insight that can display multiple trends insights in one request.
     All other insight types strictly return data for a single insight.
@@ -41,8 +40,8 @@ class retrieve_data_for_question(BaseModel):
     query_kind: Literal["trends", "funnel", "retention"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
-RootToolCall = retrieve_data_for_question
-root_tools_parser = PydanticToolsParser(tools=[retrieve_data_for_question])
+RootToolCall = create_and_query_insight
+root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight])
 
 
 class RootNode(AssistantNode):
@@ -87,7 +86,7 @@ class RootNode(AssistantNode):
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
         return ChatOpenAI(
             model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True, parallel_tool_calls=False
-        ).bind_tools([retrieve_data_for_question], strict=True)
+        ).bind_tools([create_and_query_insight], strict=True)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         # `assistant` messages must be contiguous with the respective `tool` messages.

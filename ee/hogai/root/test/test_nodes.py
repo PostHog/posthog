@@ -48,7 +48,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         {
                             "id": "xyz",
-                            "name": "retrieve_data_for_question",
+                            "name": "create_and_query_insight",
                             "args": {"query_description": "Foobar", "query_kind": insight_type},
                         }
                     ],
@@ -69,7 +69,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 assistant_message.tool_calls[0],
                 AssistantToolCall(
                     id="xyz",
-                    name="retrieve_data_for_question",
+                    name="create_and_query_insight",
                     args={"query_description": "Foobar", "query_kind": insight_type},
                 ),
             )
@@ -90,7 +90,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         {
                             "id": "xyz",
-                            "name": "retrieve_data_for_question",
+                            "name": "create_and_query_insight",
                             "args": {"query_description": "Foobar", "query_kind": insight_type},
                         }
                     ],
@@ -111,7 +111,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 assistant_message.tool_calls[0],
                 AssistantToolCall(
                     id="xyz",
-                    name="retrieve_data_for_question",
+                    name="create_and_query_insight",
                     args={"query_description": "Foobar", "query_kind": insight_type},
                 ),
             )
@@ -148,7 +148,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         {
                             "id": "xyz",
-                            "name": "retrieve_data_for_question",
+                            "name": "create_and_query_insight",
                             "args": {},
                         }
                     ],
@@ -167,7 +167,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         {
                             "id": "xyz",
-                            "name": "retrieve_data_for_question",
+                            "name": "create_and_query_insight",
                             "args": {},
                         }
                     ],
@@ -225,7 +225,7 @@ class TestRootNodeTools(BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="xyz",
-                            name="retrieve_data_for_question",
+                            name="create_and_query_insight",
                             args={"invalid_field": "should fail validation"},
                         )
                     ],
@@ -249,7 +249,7 @@ class TestRootNodeTools(BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="xyz",
-                            name="retrieve_data_for_question",
+                            name="create_and_query_insight",
                             args={"query_kind": "trends", "query_description": "test query"},
                         )
                     ],
@@ -272,12 +272,12 @@ class TestRootNodeTools(BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="xyz1",
-                            name="retrieve_data_for_question",
+                            name="create_and_query_insight",
                             args={"query_kind": "trends", "query_description": "test query 1"},
                         ),
                         AssistantToolCall(
                             id="xyz2",
-                            name="retrieve_data_for_question",
+                            name="create_and_query_insight",
                             args={"query_kind": "funnel", "query_description": "test query 2"},
                         ),
                     ],

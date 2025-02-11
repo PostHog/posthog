@@ -455,7 +455,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_calls=[
                             {
                                 "id": "xyz",
-                                "name": "retrieve_data_for_question",
+                                "name": "create_and_query_insight",
                                 "args": {"query_description": "Foobar", "query_kind": "trends"},
                             }
                         ],
@@ -493,7 +493,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     tool_calls=[
                         {
                             "id": "xyz",
-                            "name": "retrieve_data_for_question",
+                            "name": "create_and_query_insight",
                             "args": {"query_description": "Foobar", "query_kind": "trends"},
                         }
                     ],
@@ -531,7 +531,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_calls=[
                             {
                                 "id": "xyz",
-                                "name": "retrieve_data_for_question",
+                                "name": "create_and_query_insight",
                                 "args": {"query_description": "Foobar", "query_kind": "funnel"},
                             }
                         ],
@@ -574,7 +574,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     tool_calls=[
                         {
                             "id": "xyz",
-                            "name": "retrieve_data_for_question",
+                            "name": "create_and_query_insight",
                             "args": {"query_description": "Foobar", "query_kind": "funnel"},
                         }
                     ],
