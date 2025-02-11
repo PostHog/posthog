@@ -112,6 +112,10 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
+
+            if (values.surveys.some((survey) => survey.start_date)) {
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+            }
         },
         loadResponsesCountSuccess: () => {
             if (Object.values(values.surveysResponsesCount).some((count) => count > 0)) {

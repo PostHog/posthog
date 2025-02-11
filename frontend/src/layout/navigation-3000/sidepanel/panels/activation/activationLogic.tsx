@@ -15,6 +15,7 @@ import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/rev
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
+import type { ReactNode } from 'react'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -178,7 +179,7 @@ export const activationLogic = kea<activationLogicType>([
         ],
         visibleTasks: [
             (s) => [s.tasks, s.sections],
-            (tasks, sections) => {
+            (tasks, sections): ActivationTaskType[] => {
                 return tasks.filter((task) => sections.find((s) => s.key === task.section)?.visible)
             },
         ],
@@ -224,7 +225,7 @@ export const activationLogic = kea<activationLogicType>([
                         open: currentTeamOpenSections.includes(sectionKey as ActivationSection),
                         visible:
                             sectionKey === ActivationSection.QuickStart ||
-                            productsWithIntent?.includes(sectionKey as ProductKey),
+                            Boolean(productsWithIntent?.includes(sectionKey as ProductKey)),
                     }
                 })
             },
@@ -417,7 +418,7 @@ export enum ActivationSection {
     Surveys = 'surveys',
 }
 
-export const ACTIVATION_SECTIONS = {
+export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: ReactNode }> = {
     [ActivationSection.QuickStart]: {
         title: 'Get Started',
         icon: <IconFeatures className="h-5 w-5 text-accent-primary" />,

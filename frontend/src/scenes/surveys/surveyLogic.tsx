@@ -12,8 +12,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
@@ -602,7 +601,6 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
-            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
             actions.loadSurveys()
         },
         stopSurveySuccess: () => {
@@ -616,6 +614,10 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         loadSurveySuccess: () => {
             actions.loadSurveyUserStats()
+
+            if (values.survey.start_date) {
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+            }
         },
         resetSurveyResponseLimits: () => {
             actions.setSurveyValue('responses_limit', null)
