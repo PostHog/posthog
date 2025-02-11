@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
@@ -86,34 +86,47 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
             },
         ],
     })),
-
-    listeners(({ actions }) => ({
-        urlChanged: () => {
-            actions.resetLocalWebVitals()
-            actions.getWebVitals()
-        },
-    })),
     afterMount(({ values, actions }) => {
+        // Keep track of the current pathname across navigation events
+        let previousPathname = window.location.pathname
+
         // Listen to history state changes for SPA navigation
+        // Only actually reset if pathname changed, don't care about the state
         window.addEventListener('popstate', () => {
-            actions.resetLocalWebVitals()
-            actions.getWebVitals()
+            const currentPathname = window.location.pathname
+
+            if (currentPathname !== previousPathname) {
+                actions.resetLocalWebVitals()
+                actions.getWebVitals()
+                previousPathname = currentPathname
+            }
         })
 
         // Listen to pushState and replaceState calls
+        // Similarly, only actually reset if pathname changed, don't care about the state
         const originalPushState = window.history.pushState.bind(window.history)
         const originalReplaceState = window.history.replaceState.bind(window.history)
 
         window.history.pushState = function (...args) {
             originalPushState(...args)
-            actions.resetLocalWebVitals()
-            actions.getWebVitals()
+
+            const currentPathname = window.location.pathname
+            if (currentPathname !== previousPathname) {
+                actions.resetLocalWebVitals()
+                actions.getWebVitals()
+                previousPathname = currentPathname
+            }
         }
 
         window.history.replaceState = function (...args) {
             originalReplaceState(...args)
-            actions.resetLocalWebVitals()
-            actions.getWebVitals()
+
+            const currentPathname = window.location.pathname
+            if (currentPathname !== previousPathname) {
+                actions.resetLocalWebVitals()
+                actions.getWebVitals()
+                previousPathname = currentPathname
+            }
         }
 
         // Listen to posthog events and capture them
