@@ -4197,6 +4197,9 @@
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
             "properties": {
+                "cohort_name": {
+                    "type": "string"
+                },
                 "key": {
                     "const": "id",
                     "type": "string"
