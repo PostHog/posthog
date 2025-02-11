@@ -94,10 +94,11 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 "name": plugin_name,
                 "description": template.description,
                 "filters": template.filters,
+                "hog": template.hog,
                 "inputs": inputs,
                 "enabled": True,
-                "hog": template.hog,
                 "icon_url": template.icon_url,
+                "inputs_schema": template.inputs_schema,
                 "execution_order": plugin_config["order"],
             }
 
