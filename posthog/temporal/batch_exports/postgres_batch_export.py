@@ -17,6 +17,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     PostgresBatchExportInputs,
@@ -68,27 +69,18 @@ class MissingPrimaryKeyError(Exception):
         super().__init__(f"An operation could not be completed as '{table}' is missing a primary key on {primary_key}")
 
 
-@dataclasses.dataclass
-class PostgresInsertInputs:
-    """Inputs for Postgres insert activity."""
+@dataclasses.dataclass(kw_only=True)
+class PostgresInsertInputs(BatchExportInsertInputs):
+    """Inputs for Postgres."""
 
-    team_id: int
     user: str
     password: str
     host: str
-    database: str
-    table_name: str
-    data_interval_start: str | None
-    data_interval_end: str
-    has_self_signed_cert: bool = False
-    schema: str = "public"
     port: int = 5432
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
+    database: str
+    schema: str = "public"
+    table_name: str
+    has_self_signed_cert: bool = False
 
 
 class PostgreSQLClient:
@@ -614,7 +606,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
-            is_backfill=inputs.is_backfill,
+            is_backfill=inputs.get_is_backfill(),
+            backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
@@ -770,8 +763,10 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: PostgresBatchExportInputs):
         """Workflow implementation to export data to Postgres."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -780,7 +775,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -816,7 +811,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
         )

@@ -17,12 +17,12 @@ interface WebExperimentVariantProps {
 export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JSX.Element {
     const { experimentForm, selectedExperimentId } = useValues(experimentsTabLogic)
     const [localTentativeValue, setLocalTentativeValue] = useState(variant)
-    const { addNewElement, setExperimentFormValue } = useActions(experimentsTabLogic)
+    const { addNewTransformation, setExperimentFormValue } = useActions(experimentsTabLogic)
     return (
         <div className="space-y-4">
             {selectedExperimentId === 'new' && experimentForm.variants && experimentForm.variants[variant].is_new && (
                 <div>
-                    <LemonLabel>Variant name</LemonLabel>
+                    <LemonLabel>Variant key</LemonLabel>
                     <LemonInput
                         key="variant-name-small"
                         className="mb-2"
@@ -58,7 +58,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                             icon={<IconPlus />}
                             onClick={(e) => {
                                 e.stopPropagation()
-                                addNewElement(variant)
+                                addNewTransformation(variant)
                             }}
                         >
                             Add transformation
