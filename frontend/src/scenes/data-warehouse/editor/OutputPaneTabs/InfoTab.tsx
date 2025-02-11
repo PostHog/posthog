@@ -20,6 +20,8 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
     const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
+    const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
+
     return (
         <div className="flex flex-col flex-1 m-4 gap-4">
             <div>
@@ -29,50 +31,56 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                 </div>
                 <div>
                     {isEditingMaterializedView ? (
-                        <div className="flex justify-between">
-                            <div>
-                                {editingView?.last_run_at ? (
-                                    `Last run at ${humanFriendlyDetailedTime(editingView.last_run_at)}`
-                                ) : (
-                                    <div>
-                                        <span>Materialization scheduled</span>
-                                    </div>
-                                )}
+                        <div>
+                            {editingView?.last_run_at ? (
+                                `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
+                            ) : (
+                                <div>
+                                    <span>Materialization scheduled</span>
+                                </div>
+                            )}
+                            <div className="flex gap-4 mt-2">
                                 <LemonButton
+                                    loading={savedQuery?.status === 'Running'}
+                                    disabledReason={
+                                        savedQuery?.status === 'Running' ? 'Query is already running' : false
+                                    }
                                     onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
-                                    className="mt-2"
                                     type="secondary"
                                 >
-                                    Run now
+                                    Sync now
                                 </LemonButton>
-                            </div>
-                            <LemonSelect
-                                className="my-1 h-9"
-                                value={
-                                    editingView
-                                        ? dataWarehouseSavedQueryMapById[editingView.id]?.sync_frequency
-                                        : '24hour'
-                                }
-                                onChange={(newValue) => {
-                                    if (editingView && newValue) {
-                                        updateDataWarehouseSavedQuery({
-                                            id: editingView.id,
-                                            sync_frequency: newValue,
-                                            types: [[]],
-                                        })
+                                <LemonSelect
+                                    className="h-9"
+                                    value={
+                                        editingView
+                                            ? dataWarehouseSavedQueryMapById[editingView.id]?.sync_frequency
+                                            : '24hour'
                                     }
-                                }}
-                                options={[
-                                    { value: '5min' as DataWarehouseSyncInterval, label: '5 mins' },
-                                    { value: '30min' as DataWarehouseSyncInterval, label: '30 mins' },
-                                    { value: '1hour' as DataWarehouseSyncInterval, label: '1 hour' },
-                                    { value: '6hour' as DataWarehouseSyncInterval, label: '6 hours' },
-                                    { value: '12hour' as DataWarehouseSyncInterval, label: '12 hours' },
-                                    { value: '24hour' as DataWarehouseSyncInterval, label: 'Daily' },
-                                    { value: '7day' as DataWarehouseSyncInterval, label: 'Weekly' },
-                                    { value: '30day' as DataWarehouseSyncInterval, label: 'Monthly' },
-                                ]}
-                            />
+                                    onChange={(newValue) => {
+                                        if (editingView && newValue) {
+                                            updateDataWarehouseSavedQuery({
+                                                id: editingView.id,
+                                                sync_frequency: newValue,
+                                                types: [[]],
+                                            })
+                                        }
+                                    }}
+                                    options={[
+                                        { value: '5min' as DataWarehouseSyncInterval, label: ' Resync every 5 mins' },
+                                        { value: '30min' as DataWarehouseSyncInterval, label: ' Resync every 30 mins' },
+                                        { value: '1hour' as DataWarehouseSyncInterval, label: ' Resync every 1 hour' },
+                                        { value: '6hour' as DataWarehouseSyncInterval, label: ' Resync every 6 hours' },
+                                        {
+                                            value: '12hour' as DataWarehouseSyncInterval,
+                                            label: ' Resync every 12 hours',
+                                        },
+                                        { value: '24hour' as DataWarehouseSyncInterval, label: ' Resync every Daily' },
+                                        { value: '7day' as DataWarehouseSyncInterval, label: ' Resync every Weekly' },
+                                        { value: '30day' as DataWarehouseSyncInterval, label: ' Resync every Monthly' },
+                                    ]}
+                                />
+                            </div>
                         </div>
                     ) : (
                         <div>
