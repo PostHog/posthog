@@ -1686,7 +1686,7 @@ export interface ErrorTrackingRelationalIssue {
     name: string | null
     description: string | null
     assignee: ErrorTrackingIssueAssignee | null
-    status: 'active' | 'resolved'
+    status: 'archived' | 'active' | 'resolved' | 'pending_release'
     /**  @format date-time */
     first_seen: string
 }

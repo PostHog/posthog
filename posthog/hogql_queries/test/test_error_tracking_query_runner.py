@@ -488,7 +488,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_status(self):
-        resolved_issue = ErrorTrackingIssue.objects.filter(id=self.issue_id_one).first()
+        resolved_issue = ErrorTrackingIssue.objects.get(id=self.issue_id_one)
         resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
         resolved_issue.save()
 
