@@ -28,14 +28,15 @@ export const scene: SceneExport = {
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
-    const { editingSurvey } = useActions(surveyLogic)
+    const { editingSurvey, setSelectedPageIndex } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
 
     useEffect(() => {
         return () => {
             editingSurvey(false)
+            setSelectedPageIndex(0)
         }
-    }, [editingSurvey])
+    }, [editingSurvey, setSelectedPageIndex])
 
     if (surveyMissing) {
         return <NotFound object="survey" />
