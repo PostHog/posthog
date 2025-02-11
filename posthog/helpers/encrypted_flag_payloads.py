@@ -35,4 +35,7 @@ def encrypt_flag_payloads(validated_data: dict):
     codec = EncryptionCodec(settings)
 
     for key, value in payloads.items():
-        payloads[key] = codec.encrypt(value.encode("utf-8")).decode("utf-8")
+        try:
+            payloads[key] = codec.encrypt(value.encode("utf-8")).decode("utf-8")
+        except Exception as e:
+            raise ValueError(f"Failed to encrypt payload for key {key}") from e

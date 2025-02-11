@@ -59,9 +59,9 @@ export function CodeInstructions({
 }: CodeInstructionsProps): JSX.Element {
     const encryptedPayload = featureFlag?.has_encrypted_payloads
 
-    const [defaultSelectedOption] = encryptedPayload
+    const [defaultSelectedOption] = (encryptedPayload
         ? options.filter((option) => option.key === SDKKey.NODE_JS)
-        : options
+        : options) || [options[0]]
 
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
     const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
