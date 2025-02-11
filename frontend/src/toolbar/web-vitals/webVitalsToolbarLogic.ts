@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { encodeParams } from 'kea-router'
+import { encodeParams, router, urlToAction } from 'kea-router'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
@@ -86,49 +86,19 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
             },
         ],
     })),
+
+    urlToAction(({ actions, cache }) => ({
+        '*': () => {
+            const { pathname } = router.values.location
+            if (!cache.previousURL || cache.previousURL !== pathname) {
+                actions.resetLocalWebVitals()
+                actions.getWebVitals()
+                cache.previousURL = pathname
+            }
+        },
+    })),
+
     afterMount(({ values, actions }) => {
-        // Keep track of the current pathname across navigation events
-        let previousPathname = window.location.pathname
-
-        // Listen to history state changes for SPA navigation
-        // Only actually reset if pathname changed, don't care about the state
-        window.addEventListener('popstate', () => {
-            const currentPathname = window.location.pathname
-
-            if (currentPathname !== previousPathname) {
-                actions.resetLocalWebVitals()
-                actions.getWebVitals()
-                previousPathname = currentPathname
-            }
-        })
-
-        // Listen to pushState and replaceState calls
-        // Similarly, only actually reset if pathname changed, don't care about the state
-        const originalPushState = window.history.pushState.bind(window.history)
-        const originalReplaceState = window.history.replaceState.bind(window.history)
-
-        window.history.pushState = function (...args) {
-            originalPushState(...args)
-
-            const currentPathname = window.location.pathname
-            if (currentPathname !== previousPathname) {
-                actions.resetLocalWebVitals()
-                actions.getWebVitals()
-                previousPathname = currentPathname
-            }
-        }
-
-        window.history.replaceState = function (...args) {
-            originalReplaceState(...args)
-
-            const currentPathname = window.location.pathname
-            if (currentPathname !== previousPathname) {
-                actions.resetLocalWebVitals()
-                actions.getWebVitals()
-                previousPathname = currentPathname
-            }
-        }
-
         // Listen to posthog events and capture them
         // Guarantee that we won't even attempt to show web vitals data if the feature is disabled
         if (!values.posthog?.webVitalsAutocapture?.isEnabled && !inStorybook() && !inStorybookTestRunner()) {
@@ -153,7 +123,7 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
             })
         }
 
-        // Collect the web vitals metrics from the server
+        // Collect the web vitals metrics from the server when the page is loaded
         actions.getWebVitals()
     }),
     permanentlyMount(),
