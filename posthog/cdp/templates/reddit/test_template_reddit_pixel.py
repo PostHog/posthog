@@ -3,13 +3,14 @@ from posthog.cdp.templates.reddit.template_reddit_pixel import template_reddit_p
 
 TEST_EMAIL = "test@example.com"
 TEST_PRODUCT_ID = "product12345"
+TEST_PIXEL_ID = "pixel12345"
 
 
 class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
     template = template_reddit_pixel
     inputs = {
         "pixelId": {
-            "value": "pixel12345",
+            "value": TEST_PIXEL_ID,
         },
         "userProperties": {
             "value": {"email": "{person.properties.email}"},
@@ -21,7 +22,7 @@ class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
         event_id, calls = self._process_event("$pageview", {}, {"email": TEST_EMAIL})
 
         assert len(calls) == 2
-        assert calls[0] == ["init", "pixel12345", {"email": TEST_EMAIL}]
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
         assert calls[1] == ["track", "PageVisit", {"conversion_id": event_id}]
 
     def test_products_searched(self):
@@ -32,7 +33,8 @@ class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
             },
             {"email": TEST_EMAIL},
         )
-
+        assert len(calls) == 2
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
         assert calls[1] == ["track", "Search", {"conversion_id": event_id, "products": [{"id": TEST_PRODUCT_ID}]}]
 
     def test_product_added(self):
@@ -45,7 +47,8 @@ class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
             },
             {"email": TEST_EMAIL},
         )
-
+        assert len(calls) == 2
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
         assert calls[1] == [
             "track",
             "AddToCart",
@@ -62,7 +65,8 @@ class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
             },
             {"email": TEST_EMAIL},
         )
-
+        assert len(calls) == 2
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
         assert calls[1] == [
             "track",
             "AddToWishlist",
@@ -79,7 +83,8 @@ class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
             },
             {"email": TEST_EMAIL},
         )
-
+        assert len(calls) == 2
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
         assert calls[1] == [
             "track",
             "Purchase",
@@ -90,3 +95,4 @@ class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
         event_id, calls = self._process_event("Event Not In Spec", {}, {"email": TEST_EMAIL})
 
         assert len(calls) == 1  # Only init call
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
