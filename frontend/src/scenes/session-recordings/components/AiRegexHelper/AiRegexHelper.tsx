@@ -24,67 +24,65 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const aiAvailable = preflight?.openai_available
 
+    const disabledReason = !aiAvailable
+        ? 'To use AI features, set environment variable OPENAI_API_KEY for this instance of PostHog'
+        : !dataProcessingAccepted
+        ? dataProcessingApprovalDisabledReason || 'You must accept the data processing agreement to use AI features'
+        : isLoading
+        ? 'Generating...'
+        : !input.length
+        ? 'Provide a prompt first'
+        : null
+
     return (
         <>
             <LemonModal isOpen={isOpen} onClose={onClose} title="Max AI Regex Helper">
                 Explain your regex in natural language:
                 <LemonTextArea
-                    placeholder="I want an regex that covers all urls that include 'app.posthog.com/auth/*'"
+                    placeholder="I want a regex that covers all urls that include 'app.posthog.com/auth/*'"
                     className="w-full my-2"
                     maxRows={4}
                     minRows={2}
                     value={input}
                     onChange={(value) => setInput(value)}
                 />
-                <div className="flex justify-end mt-2 gap-2">
-                    {!generatedRegex && (
-                        <LemonButton type="secondary" onClick={onClose} tooltip="Close">
-                            Cancel
-                        </LemonButton>
-                    )}
-
-                    <AIConsentPopoverWrapper>
-                        <LemonButton
-                            type={generatedRegex ? 'secondary' : 'primary'}
-                            onClick={handleGenerateRegex}
-                            disabledReason={
-                                !aiAvailable
-                                    ? 'To use AI features, set environment variable OPENAI_API_KEY for this instance of PostHog'
-                                    : !dataProcessingAccepted
-                                    ? dataProcessingApprovalDisabledReason ||
-                                      'You must accept the data processing agreement to use AI features'
-                                    : isLoading
-                                    ? 'Generating...'
-                                    : !input.length
-                                    ? 'Provide a prompt first'
-                                    : null
-                            }
-                            loading={isLoading}
-                        >
-                            {generatedRegex ? 'Regenerate' : 'Generate Regex'}
-                        </LemonButton>
-                    </AIConsentPopoverWrapper>
-                </div>
-                {generatedRegex && (
-                    <div className="mt-2">
-                        <h3 className="text-sm font-bold">Your regex is:</h3>
-                        <div className="flex flex-row gap-2 justify-between items-center">
-                            <LemonBanner type="info" className="w-full">
-                                {generatedRegex}
-                            </LemonBanner>
-                            <div>
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={handleCopyToClipboard}
-                                    tooltip="Copy to clipboard"
-                                    icon={<IconCopy />}
-                                />
+                <div className="flex flex-col gap-2 mt-2">
+                    {generatedRegex && (
+                        <div>
+                            <h3 className="text-sm font-bold">Your regex is:</h3>
+                            <div className="flex flex-row gap-2 justify-between items-center">
+                                <LemonBanner type="info" className="w-full">
+                                    {generatedRegex}
+                                </LemonBanner>
+                                <div>
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={handleCopyToClipboard}
+                                        tooltip="Copy to clipboard"
+                                        icon={<IconCopy />}
+                                    />
+                                </div>
                             </div>
                         </div>
-                        <div className="flex flex-row gap-2 justify-end mt-2">
-                            <LemonButton type="secondary" onClick={onClose} tooltip="Close">
-                                Cancel
+                    )}
+
+                    <div className="flex justify-end gap-2">
+                        <LemonButton type="secondary" onClick={onClose} tooltip="Close">
+                            Close
+                        </LemonButton>
+
+                        <AIConsentPopoverWrapper>
+                            <LemonButton
+                                type={generatedRegex ? 'secondary' : 'primary'}
+                                onClick={handleGenerateRegex}
+                                disabledReason={disabledReason}
+                                loading={isLoading}
+                            >
+                                {generatedRegex ? 'Regenerate' : 'Generate Regex'}
                             </LemonButton>
+                        </AIConsentPopoverWrapper>
+
+                        {generatedRegex && (
                             <LemonButton
                                 type="primary"
                                 onClick={() => {
@@ -100,14 +98,11 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
                             >
                                 Apply
                             </LemonButton>
-                        </div>
+                        )}
                     </div>
-                )}
-                {error && (
-                    <LemonBanner type="error" className="mt-2">
-                        {error}
-                    </LemonBanner>
-                )}
+
+                    {error && <LemonBanner type="error">{error}</LemonBanner>}
+                </div>
             </LemonModal>
         </>
     )
@@ -122,7 +117,7 @@ export function AiRegexHelperButton(): JSX.Element {
         : null
 
     return (
-        <AIConsentPopoverWrapper showArrow>
+        <AIConsentPopoverWrapper>
             <LemonButton
                 type="tertiary"
                 size="small"
