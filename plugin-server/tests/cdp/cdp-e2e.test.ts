@@ -163,9 +163,29 @@ describe('CDP Consumer loop', () => {
                         level: 'debug',
                         log_source: 'hog_function',
                         log_source_id: fnFetchNoFilters.id.toString(),
+                        message: 'Executing function',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
                         message: expect.stringContaining(
                             "Suspending function due to async function call 'fetch'. Payload:"
                         ),
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: 'Resuming function',
                         team_id: 2,
                     },
                 },
