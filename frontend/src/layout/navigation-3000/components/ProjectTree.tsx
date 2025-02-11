@@ -9,13 +9,13 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { NavbarBottom } from './NavbarBottom'
-import { treeViewLogic } from './treeViewLogic'
+import { projectTreeLogic } from './projectTreeLogic'
 
 export function TreeView(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData } = useValues(treeViewLogic)
+    const { treeData } = useValues(projectTreeLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
 

@@ -73,6 +73,7 @@ export enum NodeKind {
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ProjectTreeQuery = 'ProjectTreeQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -138,6 +139,7 @@ export type AnyDataNode =
     | ExperimentTrendsQuery
     | RecordingsQuery
     | TracesQuery
+    | ProjectTreeQuery
 
 /**
  * @discriminator kind
@@ -161,6 +163,7 @@ export type QuerySchema =
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
+    | ProjectTreeQuery
 
     // Web Analytics + Web Vitals
     | WebOverviewQuery
@@ -224,6 +227,7 @@ export type AnyResponseType =
     | EventsNode['response']
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
+    | ProjectTreeQueryResponse
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -654,6 +658,7 @@ export interface DataTableNode
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
+                    | ProjectTreeQuery
                 )['response']
             >
         >,
@@ -677,6 +682,7 @@ export interface DataTableNode
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | TracesQuery
+        | ProjectTreeQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1704,6 +1710,25 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
     columns?: string[]
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
+
+export interface ProjectTreeQuery extends DataNode<ProjectTreeQueryResponse> {
+    kind: NodeKind.ProjectTreeQuery
+    path?: string[]
+    searchQuery?: string
+}
+
+// Keep this compatible with LemonTree's TreeDataItem
+export interface ProjectTreeItem {
+    id: string
+    name: string
+    type?: string
+    href?: string
+    children?: ProjectTreeItem[]
+}
+
+export interface ProjectTreeQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
+    tree: ProjectTreeItem[]
+}
 
 export type InsightQueryNode =
     | TrendsQuery
