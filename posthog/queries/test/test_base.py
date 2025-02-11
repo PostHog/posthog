@@ -153,7 +153,7 @@ class TestMatchProperties(TestCase):
             mock_compile.return_value = pattern
             self.assertTrue(match_property(property_e, {"key": "5"}))
 
-        mock_compile.assert_called_once_with("5")
+        mock_compile.assert_called_once_with("5", re.IGNORECASE | re.DOTALL)
 
     def test_match_properties_math_operators(self):
         property_a = Property(key="key", value=1, operator="gt")
