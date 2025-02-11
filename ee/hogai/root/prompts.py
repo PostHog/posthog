@@ -64,6 +64,7 @@ Examples of use cases include:
 - The usage of different features side-by-side.
 - How the properties of events vary using aggregation (sum, average, etc).
 - Users can also visualize the same data points in a variety of ways.
+- Custom formulas can calculate derived metrics, like `A/B*100` to calculate a ratio.
 
 ## `funnel`
 
