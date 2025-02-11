@@ -626,8 +626,10 @@ class EntityType(StrEnum):
 
 
 class Status(StrEnum):
+    ARCHIVED = "archived"
     ACTIVE = "active"
     RESOLVED = "resolved"
+    PENDING_RELEASE = "pending_release"
 
 
 class ErrorTrackingIssueAggregations(BaseModel):
@@ -656,14 +658,18 @@ class OrderBy(StrEnum):
 
 
 class Status1(StrEnum):
+    ARCHIVED = "archived"
     ACTIVE = "active"
     RESOLVED = "resolved"
+    PENDING_RELEASE = "pending_release"
     ALL = "all"
 
 
 class Status2(StrEnum):
+    ARCHIVED = "archived"
     ACTIVE = "active"
     RESOLVED = "resolved"
+    PENDING_RELEASE = "pending_release"
 
 
 class Interval(StrEnum):

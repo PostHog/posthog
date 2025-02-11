@@ -5985,7 +5985,7 @@
                     "type": ["string", "null"]
                 },
                 "status": {
-                    "enum": ["active", "resolved"],
+                    "enum": ["archived", "active", "resolved", "pending_release"],
                     "type": "string"
                 }
             },
@@ -6114,7 +6114,7 @@
                     "type": "string"
                 },
                 "status": {
-                    "enum": ["active", "resolved", "all"],
+                    "enum": ["archived", "active", "resolved", "pending_release", "all"],
                     "type": "string"
                 }
             },
@@ -6199,7 +6199,7 @@
                     "type": ["string", "null"]
                 },
                 "status": {
-                    "enum": ["active", "resolved"],
+                    "enum": ["archived", "active", "resolved", "pending_release"],
                     "type": "string"
                 }
             },
