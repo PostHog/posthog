@@ -13,6 +13,9 @@ const meta: Meta<typeof PathRegexModal> = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        testOptions: {
+            snapshotTargetSelector: '[data-attr="path-regex-modal-content"]',
+        },
     },
 }
 export default meta
