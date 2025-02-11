@@ -21,7 +21,7 @@ let body := {
     'conversions': [
         {
             'gclid': inputs.gclid,
-            'conversion_action': f'customers/{replaceAll(inputs.customerId, '-', '')}/conversionActions/{inputs.conversionActionId}',
+            'conversion_action': f'customers/{splitByString('/', inputs.customerId)[1]}/conversionActions/{inputs.conversionActionId}',
             'conversion_date_time': inputs.conversionDateTime
         }
     ],
@@ -38,11 +38,12 @@ if (not empty(inputs.orderId)) {
     body.conversions[1].order_id := inputs.orderId
 }
 
-let res := fetch(f'https://googleads.googleapis.com/v18/customers/{replaceAll(inputs.customerId, '-', '')}:uploadClickConversions', {
+let res := fetch(f'https://googleads.googleapis.com/v18/customers/{splitByString('/', inputs.customerId)[1]}:uploadClickConversions', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'login-customer-id': splitByString('/', inputs.customerId)[2]
     },
     'body': body
 })

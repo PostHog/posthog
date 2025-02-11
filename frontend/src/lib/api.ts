@@ -817,12 +817,13 @@ class ApiRequest {
     public integrationGoogleAdsConversionActions(
         id: IntegrationType['id'],
         customerId: string,
+        parentId: string,
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.integrations(teamId)
             .addPathComponent(id)
             .addPathComponent('google_conversion_actions')
-            .withQueryString({ customerId })
+            .withQueryString({ customerId, parentId })
     }
 
     public integrationLinkedInAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -2612,9 +2613,10 @@ const api = {
         },
         async googleAdsConversionActions(
             id: IntegrationType['id'],
-            customerId: string
+            customerId: string,
+            parentId: string
         ): Promise<{ conversionActions: GoogleAdsConversionActionType[] }> {
-            return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId).get()
+            return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId, parentId).get()
         },
         async linkedInAdsAccounts(id: IntegrationType['id']): Promise<{ adAccounts: LinkedInAdsAccountType[] }> {
             return await new ApiRequest().integrationLinkedInAdsAccounts(id).get()

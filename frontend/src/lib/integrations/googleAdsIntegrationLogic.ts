@@ -11,15 +11,21 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
     key((props) => props.id),
     path((key) => ['lib', 'integrations', 'googleAdsIntegrationLogic', key]),
     actions({
-        loadGoogleAdsConversionActions: (customerId: string) => customerId,
+        loadGoogleAdsConversionActions: (customerId: string, parentId: string) => ({ customerId, parentId }),
         loadGoogleAdsAccessibleAccounts: true,
     }),
     loaders(({ props }) => ({
         googleAdsConversionActions: [
             null as GoogleAdsConversionActionType[] | null,
             {
-                loadGoogleAdsConversionActions: async (customerId: string) => {
-                    const res = await api.integrations.googleAdsConversionActions(props.id, customerId)
+                loadGoogleAdsConversionActions: async ({
+                    customerId,
+                    parentId,
+                }: {
+                    customerId: string
+                    parentId: string
+                }) => {
+                    const res = await api.integrations.googleAdsConversionActions(props.id, customerId, parentId)
                     return res.conversionActions
                 },
             },
