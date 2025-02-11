@@ -119,7 +119,7 @@ class RootNodeTools(AssistantNode):
             return None
 
         try:
-            langchain_msg = self._construct_ai_message(last_message)
+            langchain_msg = self._construct_langchain_ai_message(last_message)
             parsed_tool_calls: list[RootToolCall] = root_tools_parser.invoke(langchain_msg)
         except ValidationError as e:
             content = (
@@ -147,5 +147,5 @@ class RootNodeTools(AssistantNode):
             return cast(RouteName, state.root_tool_insight_type)
         return "end"
 
-    def _construct_ai_message(self, message: AssistantMessage):
+    def _construct_langchain_ai_message(self, message: AssistantMessage):
         return LangchainAIMessage(content=message.content, tool_calls=message.model_dump()["tool_calls"] or [])
