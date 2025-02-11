@@ -124,7 +124,7 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
         if issubclass(py_type, bytes) or issubclass(py_type, str):
             # For bytes/str columns, ensure any dict values are serialized to JSON strings
             columnar_known_types[field.name] = [
-                None if x is None else json_dumps(x) if isinstance(x, (dict, list)) else x
+                None if x is None else json_dumps(x) if isinstance(x, dict | list) else x
                 for x in columnar_known_types[field.name]
             ]
 
