@@ -73,6 +73,7 @@ export default function SurveyEdit(): JSX.Element {
         dataCollectionType,
         surveyUsesLimit,
         surveyUsesAdaptiveLimit,
+        surveyErrors,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -561,6 +562,7 @@ export default function SurveyEdit(): JSX.Element {
                                                           isCustomFontsEnabled={
                                                               !!featureFlags[FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS]
                                                           }
+                                                          validationErrors={surveyErrors?.appearance}
                                                       />
                                                   </>
                                               )}

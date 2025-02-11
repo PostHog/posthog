@@ -158,9 +158,9 @@ async def generate_test_events_in_clickhouse(
     distinct_ids: list[str] | None = None,
     duplicate: bool = False,
     batch_size: int = 10000,
-    table: str = "sharded_events",
+    table: str = "events_recent",
 ) -> tuple[list[EventValues], list[EventValues], list[EventValues]]:
-    """Insert test events into the sharded_events table.
+    """Insert test events into the given table.
 
     These events are used in most batch exports tests, so we have a function here to generate
     multiple events with different characteristics.
@@ -182,6 +182,9 @@ async def generate_test_events_in_clickhouse(
         properties: A properties dictionary for events.
         person_properties: A person_properties for events.
         duplicate: Generate and insert duplicate events.
+        batch_size: The number of events to insert in a single query.
+        table: The table to insert the events into (defaults to events_recent, since this is used by the majority of
+            batch exports, except for backfills older than 6 days).
     """
     possible_datetimes = list(date_range(start_time, end_time, dt.timedelta(minutes=1)))
 
