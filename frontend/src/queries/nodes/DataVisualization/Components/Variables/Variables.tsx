@@ -3,7 +3,7 @@ import './Variables.scss'
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
-    LemonCalendar,
+    LemonCalendarSelect,
     LemonDivider,
     LemonInput,
     LemonSegmentedButton,
@@ -102,6 +102,7 @@ const VariableInput = ({
     onRemove,
     variableSettingsOnClick,
 }: VariableInputProps): JSX.Element => {
+    const [calendarTime, setCalendarTime] = useState<boolean>(false)
     const [localInputValue, setLocalInputValue] = useState<string>(() => {
         const val = variable.value ?? variable.default_value
 
@@ -185,80 +186,22 @@ const VariableInput = ({
                     />
                 )}
                 {variable.type === 'Date' && (
-                    <div className="flex flex-col gap-2">
-                        <div>
-                            <LemonCalendar
-                                granularity="minute"
-                                onDateClick={(date) => setLocalInputValue(date.format('YYYY-MM-DD HH:mm:00'))}
-                                getLemonButtonProps={({ date, props }) => ({
-                                    ...props,
-                                    active: date.format('YYYY-MM-DD') === localInputValue.split(' ')[0],
-                                    type:
-                                        date.format('YYYY-MM-DD') === localInputValue.split(' ')[0]
-                                            ? 'primary'
-                                            : undefined,
-                                })}
-                                getLemonButtonTimeProps={(opts) => {
-                                    const currentTime = localInputValue.split(' ')[1]?.split(':') || ['00', '00']
-                                    const hours = parseInt(currentTime[0])
-                                    const minutes = parseInt(currentTime[1])
-                                    const isPM = hours >= 12
-                                    const hour12 = hours % 12 || 12
-
-                                    return {
-                                        active:
-                                            opts.unit === 'h'
-                                                ? String(hour12) === String(opts.value)
-                                                : opts.unit === 'm'
-                                                ? String(minutes).padStart(2, '0') ===
-                                                  String(opts.value).padStart(2, '0')
-                                                : opts.unit === 'a'
-                                                ? (isPM ? 'pm' : 'am') === opts.value
-                                                : false,
-                                        onClick: () => {
-                                            const currentDate = localInputValue.split(' ')[0]
-                                            let newHours = hours
-                                            let newMinutes = minutes
-
-                                            if (opts.unit === 'h') {
-                                                newHours = parseInt(String(opts.value)) + (isPM ? 12 : 0)
-                                                if (newHours === 24) {
-                                                    newHours = 12
-                                                }
-                                                if (newHours === 12 && !isPM) {
-                                                    newHours = 0
-                                                }
-                                            } else if (opts.unit === 'm') {
-                                                newMinutes = parseInt(String(opts.value))
-                                            } else if (opts.unit === 'a') {
-                                                if (opts.value === 'am' && hours >= 12) {
-                                                    newHours -= 12
-                                                }
-                                                if (opts.value === 'pm' && hours < 12) {
-                                                    newHours += 12
-                                                }
-                                            }
-
-                                            setLocalInputValue(
-                                                `${currentDate} ${String(newHours).padStart(2, '0')}:${String(
-                                                    newMinutes
-                                                ).padStart(2, '0')}:00`
-                                            )
-                                        },
-                                    }
-                                }}
-                            />
-                        </div>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                onChange(variable.id, localInputValue)
-                                closePopover()
-                            }}
-                        >
-                            {showEditingUI ? 'Save' : 'Update'}
-                        </LemonButton>
-                    </div>
+                    <LemonCalendarSelect
+                        value={localInputValue ? dayjs(localInputValue) : null}
+                        onChange={(date) => {
+                            date && onChange(variable.id, date.format('YYYY-MM-DD HH:mm:00'))
+                            closePopover()
+                        }}
+                        granularity={calendarTime ? 'minute' : 'day'}
+                        showTimeToggle={true}
+                        onToggleTime={(includeTime) => {
+                            setCalendarTime(includeTime)
+                            const date = dayjs(localInputValue)
+                            setLocalInputValue(
+                                includeTime ? date.format('YYYY-MM-DD HH:mm:00') : date.format('YYYY-MM-DD 00:00:00')
+                            )
+                        }}
+                    />
                 )}
                 {variable.type !== 'Date' && (
                     <LemonButton
@@ -381,6 +324,7 @@ const VariableComponent = ({
                     }}
                 />
             }
+            fallbackPlacements={['top-end', 'top-start', 'bottom-end', 'bottom-start']}
             visible={isPopoverOpen}
             onClickOutside={() => setPopoverOpen(false)}
             className="DataVizVariable_Popover"
