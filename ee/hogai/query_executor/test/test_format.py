@@ -137,9 +137,9 @@ class TestCompression(BaseTest):
             },
         }
 
-        self.assertEqual(_extract_series_label(series), "Custom Name (breakdown)")
+        self.assertEqual(_extract_series_label(series), "Custom Name breakdown for the value `0`")
         series.pop("action")
-        self.assertEqual(_extract_series_label(series), "$pageview (breakdown)")
+        self.assertEqual(_extract_series_label(series), "$pageview breakdown for the value `0`")
 
     def test_funnels_single_series(self):
         results = [
