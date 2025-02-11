@@ -1,3 +1,4 @@
+from posthog.api.shared import UserBasicSerializer
 from posthog.models import Team, User, FeatureFlag, Experiment, Insight, Dashboard, Notebook
 from posthog.schema import ProjectTreeQuery, ProjectTreeQueryResponse, ProjectTreeItem, ProjectTreeItemType
 from posthog.models.utils import uuid7
@@ -14,11 +15,12 @@ class ProjectTreeBuilder:
             ProjectTreeItem(
                 id=str(uuid7()),
                 name=flag.name,
-                folder="Unfiled",
+                folder="Unfiled/Feature Flags",
                 type=ProjectTreeItemType.FEATURE_FLAG,
                 href="/feature_flags/" + str(flag.id),
                 meta={
                     "created_at": str(flag.created_at),
+                    "created_by": UserBasicSerializer(instance=flag.created_by).data if flag.created_by else None,
                 },
             )
             for flag in flags
@@ -30,11 +32,14 @@ class ProjectTreeBuilder:
             ProjectTreeItem(
                 id=str(uuid7()),
                 name=experiment.name,
-                folder="Unfiled",
+                folder="Unfiled/Experiments",
                 type=ProjectTreeItemType.EXPERIMENT,
                 href="/experiments/" + str(experiment.id),
                 meta={
                     "created_at": str(experiment.created_at),
+                    "created_by": UserBasicSerializer(instance=experiment.created_by).data
+                    if experiment.created_by
+                    else None,
                 },
             )
             for experiment in experiments
@@ -46,11 +51,12 @@ class ProjectTreeBuilder:
             ProjectTreeItem(
                 id=str(uuid7()),
                 name=insight.name,
-                folder="Unfiled",
+                folder="Unfiled/Insights",
                 type=ProjectTreeItemType.INSIGHT,
                 href="/insights/" + str(insight.id),
                 meta={
                     "created_at": str(insight.created_at),
+                    "created_by": UserBasicSerializer(instance=insight.created_by).dat if insight.created_by else None,
                 },
             )
             for insight in insights
@@ -62,11 +68,14 @@ class ProjectTreeBuilder:
             ProjectTreeItem(
                 id=str(uuid7()),
                 name=dashboard.name,
-                folder="Unfiled",
+                folder="Unfiled/Dashboards",
                 type=ProjectTreeItemType.DASHBOARD,
                 href="/dashboard/" + str(dashboard.id),
                 meta={
                     "created_at": str(dashboard.created_at),
+                    "created_by": UserBasicSerializer(instance=dashboard.created_by).data
+                    if dashboard.created_by
+                    else None,
                 },
             )
             for dashboard in dashboards
@@ -78,11 +87,14 @@ class ProjectTreeBuilder:
             ProjectTreeItem(
                 id=str(uuid7()),
                 name=notebook.title or "Untitled",
-                folder="Unfiled",
+                folder="Unfiled/Notebooks",
                 type=ProjectTreeItemType.NOTEBOOK,
                 href="/notebooks/" + str(notebook.id),
                 meta={
                     "created_at": str(notebook.created_at),
+                    "created_by": UserBasicSerializer(instance=notebook.created_by).data
+                    if notebook.created_by
+                    else None,
                 },
             )
             for notebook in notebooks

@@ -345,6 +345,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconAI,
         inMenu: false,
     },
+    [NodeKind.ProjectTreeQuery]: {
+        name: 'Project Tree',
+        icon: IconHogQL,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {

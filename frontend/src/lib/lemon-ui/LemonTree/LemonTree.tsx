@@ -10,6 +10,10 @@ export type TreeDataItem = {
     id: string
     /** The name of the item. */
     name: string
+    /** Passthrough data */
+    data?: any
+    /** The name of the item. */
+    right?: React.ReactNode
     /** The icon to use for the item. */
     icon?: React.ReactNode
     /** The children of the item. */
@@ -48,6 +52,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             setExpandedItemIds,
             defaultNodeIcon,
             showFolderActiveState,
+            right,
         },
         ref
     ): JSX.Element => {
@@ -123,6 +128,18 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     >
                                         {item.name}
                                     </span>
+                                    {(() => {
+                                        if (item.right) {
+                                            return <span className="ml-auto pl-1">{item.right}</span>
+                                        }
+                                        if (right) {
+                                            const element = right(item)
+                                            if (element) {
+                                                return <span className="ml-auto pl-1">{element}</span>
+                                            }
+                                        }
+                                        return null
+                                    })()}
                                 </LemonButton>
                             </AccordionPrimitive.Trigger>
 
@@ -137,6 +154,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         setExpandedItemIds={setExpandedItemIds}
                                         defaultNodeIcon={defaultNodeIcon}
                                         showFolderActiveState={showFolderActiveState}
+                                        right={right}
                                         className="ml-4 space-y-px"
                                     />
                                 </AccordionPrimitive.Content>
@@ -169,6 +187,7 @@ export type LemonTreeProps = HTMLAttributes<HTMLDivElement> & {
      * @param node - the node that was clicked
      */
     onNodeClick?: (node: TreeDataItem | undefined) => void
+    right?: (item: TreeDataItem) => React.ReactNode
 
     /** The ref of the content to focus when the tree is clicked. TODO: make non-optional. */
     contentRef?: React.RefObject<HTMLDivElement>
@@ -186,6 +205,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             className,
             showFolderActiveState = false,
             contentRef,
+            right,
             ...props
         },
         ref
@@ -566,6 +586,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     setExpandedItemIds={setExpandedItemIds}
                     defaultNodeIcon={defaultNodeIcon}
                     showFolderActiveState={showFolderActiveState}
+                    right={right}
                     className="space-y-px"
                     {...props}
                 />

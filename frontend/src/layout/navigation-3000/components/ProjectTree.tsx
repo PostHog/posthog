@@ -1,7 +1,9 @@
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { useRef } from 'react'
 
@@ -15,7 +17,8 @@ export function TreeView(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData } = useValues(projectTreeLogic)
+    const { treeData, rawProjectTreeLoading } = useValues(projectTreeLogic)
+    const { addFolder } = useActions(projectTreeLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -23,12 +26,43 @@ export function TreeView(): JSX.Element {
         <>
             <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
                 <div
-                    className="Navbar3000__content w-[17rem]"
+                    className="Navbar3000__content w-80"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={theme?.sidebarStyle}
                 >
                     <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
-                        <LemonTree className="px-0 py-1" data={treeData} />
+                        <LemonTree
+                            className="px-0 py-1"
+                            data={treeData}
+                            right={({ data }) =>
+                                data?.type === 'folder' || data?.type === 'project' ? (
+                                    <More
+                                        size="xsmall"
+                                        onClick={(e) => e.stopPropagation()}
+                                        overlay={
+                                            <>
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        const folder = prompt(
+                                                            'Folder name?',
+                                                            (data.folder ? data.folder + '/' : '') +
+                                                                (data.name ? data.name + '/' : '')
+                                                        )
+                                                        if (folder) {
+                                                            addFolder(folder)
+                                                        }
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    New Folder
+                                                </LemonButton>
+                                            </>
+                                        }
+                                    />
+                                ) : null
+                            }
+                        />
+                        {rawProjectTreeLoading ? <Spinner /> : null}
                     </ScrollableShadows>
                     <NavbarBottom />
                 </div>

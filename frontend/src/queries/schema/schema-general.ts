@@ -1730,6 +1730,7 @@ export type ProjectTreeItemType =
     | 'destination'
     | 'site_app'
     | 'transformation'
+    | 'folder'
 
 export interface ProjectTreeItem {
     /** Unique UUID for tree entry */
