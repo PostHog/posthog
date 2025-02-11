@@ -84,8 +84,9 @@ const PersonProperties = ({ onChange }: { onChange: ReplayTaxonomicFiltersProps[
     return (
         <section>
             <Tooltip title="Pin person properties to this list to let you quickly filter by the properties you care about. Changes here only affect the list you see.">
-                <h5 className="mt-1 mb-0">
-                    Pinned person properties <IconInfo />
+                <h5 className="mt-1 mb-0 flex items-center space-x-1">
+                    <IconInfo className="text-lg" />
+                    <span>Pinned person properties</span>
                 </h5>
             </Tooltip>
             <ul className="space-y-px">
