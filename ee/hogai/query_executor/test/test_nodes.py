@@ -6,6 +6,7 @@ from ee.hogai.query_executor.nodes import QueryExecutorNode
 from ee.hogai.utils.types import AssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.schema import (
+    AssistantMessage,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
     HumanMessage,
@@ -25,15 +26,29 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             AssistantState(
                 messages=[
                     HumanMessage(content="Text", id="test"),
+                    AssistantMessage(
+                        content="Text",
+                        id="test2",
+                        tool_calls=[
+                            {
+                                "id": "tool1",
+                                "name": "retrieve_data_for_question",
+                                "args": {"query_kind": "trends", "query_description": "test query"},
+                            }
+                        ],
+                    ),
                     VisualizationMessage(
                         answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
                         plan="Plan",
-                        id="test2",
+                        id="test3",
                         initiator="test",
                     ),
                 ],
                 plan="Plan",
                 start_id="test",
+                root_tool_call_id="tool1",
+                root_tool_insight_plan="test query",
+                root_tool_insight_type="trends",
             ),
             {},
         )
@@ -64,6 +79,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                 ],
                 plan="Plan",
                 start_id="test",
+                root_tool_call_id="tool1",
+                root_tool_insight_plan="test query",
+                root_tool_insight_type="trends",
             ),
             {},
         )
@@ -94,6 +112,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                 ],
                 plan="Plan",
                 start_id="test",
+                root_tool_call_id="tool1",
+                root_tool_insight_plan="test query",
+                root_tool_insight_type="trends",
             ),
             {},
         )
@@ -119,6 +140,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                     ],
                     plan="Plan",
                     start_id="test",
+                    root_tool_call_id="tool1",
+                    root_tool_insight_plan="test query",
+                    root_tool_insight_type="trends",
                 ),
                 {},
             )
@@ -134,6 +158,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                     ],
                     plan="Plan",
                     start_id="test",
+                    root_tool_call_id="tool1",
+                    root_tool_insight_plan="test query",
+                    root_tool_insight_type="trends",
                 ),
                 {},
             )
@@ -158,6 +185,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                     ],
                     plan="Plan",
                     start_id="test",
+                    root_tool_call_id="tool1",
+                    root_tool_insight_plan="test query",
+                    root_tool_insight_type="trends",
                 ),
                 {},
             )

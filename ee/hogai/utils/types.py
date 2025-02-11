@@ -1,7 +1,7 @@
 import operator
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, Optional, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
@@ -54,7 +54,7 @@ class _SharedAssistantState(BaseModel):
     """
     The insight plan to generate.
     """
-    root_tool_insight_type: Optional[Literal["trends", "funnel", "retention"]] = Field(default=None)
+    root_tool_insight_type: Optional[str] = Field(default=None)
     """
     The type of insight to generate.
     """
