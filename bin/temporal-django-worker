@@ -11,6 +11,9 @@ cleanup() {
     # fi
 }
 
+apt update
+apt install -y awscli
+
 trap cleanup SIGINT SIGTERM EXIT
 
 python3 -m memray run --trace-python-allocators --native --output ./capture.bin manage.py start_temporal_worker "$@" &
