@@ -201,7 +201,9 @@ MAX_QUERY_TIMEOUT = 600
 
 async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpResponse:
     """Async endpoint for handling event source queries using Server-Sent Events (SSE)."""
-    # Call the create method on QueryViewSet
+
+    # Call the create method on QueryViewSet, with the right accept header
+    request.META["HTTP_ACCEPT"] = "application/json"
     view = await sync_to_async(QueryViewSet.as_view)({"post": "create"}, **kwargs)
     response = await sync_to_async(view)(request)
 
@@ -253,7 +255,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
 
             except Exception:
                 capture_exception()
-                yield f"data: {json.dumps({'error': 'Server error'}\n\n".encode()
+                yield f"data: {json.dumps({'error': 'Server error'})}\n\n".encode()
                 break
 
             elapsed_time = time.time() - start_time

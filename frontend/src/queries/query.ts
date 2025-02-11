@@ -113,7 +113,7 @@ async function executeQuery<N extends DataNode>(
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        Accept: '*/*',
+                        Accept: 'text/event-stream',
                         'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                     },
                     body: JSON.stringify({
