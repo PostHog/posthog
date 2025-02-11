@@ -49,6 +49,12 @@ export class HogFunctionManagerService {
                 const { integrationIds, teamId } = JSON.parse(message)
                 await this.reloadIntegrations(teamId, integrationIds)
             },
+            'reload-hog-functions': async () => {
+                await this.reloadAllHogFunctions()
+            },
+            'reload-all-hog-functions': async () => {
+                await this.reloadAllHogFunctions()
+            },
         })
     }
 
