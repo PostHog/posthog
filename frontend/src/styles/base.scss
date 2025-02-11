@@ -458,13 +458,13 @@
 
     // Graph colors
     // //////////////////////////////////////////////////////////
-    --color-graph-axis-label: var(--text-secondary);
-    --color-graph-axis-line: var(--primitive-neutral-cool-50);
-    --color-graph-axis: var(--text-secondary);
-    --color-graph-crosshair: var(--primitive-neutral-cool-450);
-    --color-graph-tooltip-background: var(--bg-surface-tooltip);
-    --color-graph-tooltip-title: var(--text-primary);
-    --color-graph-tooltip-body: var(--bg-surface-tooltip);
+    --color-graph-axis-label: var(--text-secondary); /* Labels around graph */
+    --color-graph-axis-line: var(
+        --primitive-neutral-cool-100
+    ); /* Background lines in a graph, horizontal and vertical */
+
+    --color-graph-axis: var(--text-secondary); /* Line around a graph */
+    --color-graph-crosshair: var(--primitive-neutral-cool-450); /* Crosshair line, horizontal or vertical */
 
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
@@ -475,12 +475,14 @@
     --breakpoint-xxl: 1600px;
 
     // Brand colors
+    // //////////////////////////////////////////////////////////
     --brand-blue: #1d4aff;
     --brand-red: #f54e00;
     --brand-yellow: #f9bd2b;
     --brand-key: #000;
 
     // Shadows
+    // //////////////////////////////////////////////////////////
     --shadow-elevation-3000: 0 3px 0 var(--border-3000-light);
 
     // Non-color vars
@@ -505,7 +507,7 @@
     --green: var(--success);
     --black: var(--text-3000);
 
-    //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
+    // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-color-1: #1d4aff;
     --data-color-1-hover: #1a3cf6;
     --data-color-2: #621da6;
@@ -532,11 +534,6 @@
     --lifecycle-returning-hover: rgb(13.37313 32 0);
     --lifecycle-resurrecting-hover: rgb(101.68966 8 255);
     --lifecycle-dormant-hover: rgb(120.15929 30.17699 3.84071);
-
-    // Funnels
-    // TODO: unify with lib/colors.ts, getGraphColors()
-    --funnel-axis: var(--border);
-    --funnel-grid: #ddd;
 
     // Z-indexes
     --z-bottom-notice: 1450;
@@ -737,11 +734,13 @@
 // We specifically override the brand colors for dark mode here
 // Because we can't do light-dark for the individual hue/saturation/lightness
 [theme='dark'] {
+    // Brand colors (dark mode)
+    // //////////////////////////////////////////////////////////
     --brand-primary-hue: var(--primitive-posthog-brand-yellow-hue);
     --brand-primary-saturation: var(--primitive-posthog-brand-yellow-saturation);
     --brand-primary-lightness: var(--primitive-posthog-brand-yellow-lightness);
 
-    // Accent colors
+    // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
     --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
     --accent-primary-hover: hsl(
@@ -782,7 +781,7 @@
         10%
     );
 
-    // Backgrounds
+    // Backgrounds (dark mode)
     // //////////////////////////////////////////////////////////
     --bg-primary: var(--primitive-neutral-cool-950);
     --bg-surface-primary: var(--primitive-neutral-cool-850);
@@ -793,7 +792,7 @@
     --bg-surface-popover: var(--primitive-neutral-cool-850);
     --bg-surface-popover-inverse: var(--primitive-neutral-cool-950);
 
-    // Fills
+    // Fills (dark mode)
     // Small colourful areas: banners, pills, buttons, etc.
     // //////////////////////////////////////////////////////////
     --bg-fill-primary: var(--primitive-neutral-cool-900);
@@ -813,7 +812,7 @@
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
 
-    // Content (text, icons)
+    // Content (text, icons) (dark mode)
     // //////////////////////////////////////////////////////////
     --text-primary: var(--primitive-neutral-100);
     --text-primary-inverse: var(--primitive-neutral-950);
@@ -823,7 +822,7 @@
     --text-warning: var(--color-yellow-400);
     --text-error: var(--color-red-400);
 
-    // Content on fills
+    // Content on fills (dark mode)
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
     --text-info-on-fill: var(--color-blue-50); /* On-fill text for info */
@@ -831,7 +830,7 @@
     --text-error-on-fill: var(--color-red-50); /* On-fill text for error */
     --text-success-on-fill: var(--color-green-50); /* On-fill text for success */
 
-    // Borders
+    // Borders (dark mode)
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
     // //////////////////////////////////////////////////////////
     --border-primary: var(--primitive-neutral-cool-800);
@@ -841,15 +840,12 @@
     --border-error: var(--color-red-900); /* Border for error */
     --border-success: var(--color-green-900); /* Border for success */
 
-    // Graph colors
+    // Graph colors (dark mode)
     // //////////////////////////////////////////////////////////
     --color-graph-axis-label: var(--text-secondary);
     --color-graph-axis-line: var(--primitive-neutral-cool-750);
     --color-graph-axis: var(--text-secondary);
     --color-graph-crosshair: var(--primitive-neutral-cool-650);
-    --color-graph-tooltip-background: var(--bg-surface-tooltip-inverse);
-    --color-graph-tooltip-title: var(--text-primary);
-    --color-graph-tooltip-body: var(--bg-surface-tooltip-inverse);
 
     // Deprecated colors (Dark mode)
     --text-3000: var(--text-3000-dark);
@@ -977,7 +973,9 @@ body {
 
     h1,
     h2,
-    h3:not(.thank-you-message), // to prevent the survey thank you message to be styled, as these styles are only for PostHog main app
+    // Note: .thank-you-message is excluded in h3 below to prevent the survey thank you message to be styled,
+    // as these styles are only for PostHog main app. It's important to use :where() to avoid increased specificity
+    h3:where(:not(.thank-you-message)),
     h4,
     h5 {
         margin-top: 0;

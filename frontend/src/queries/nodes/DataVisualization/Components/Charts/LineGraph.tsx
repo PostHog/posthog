@@ -28,7 +28,6 @@ import { hexToRGBA } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChartSettings, YAxisSettings } from '~/queries/schema'
 import { ChartDisplayType, GraphType } from '~/types'
 
@@ -97,8 +96,7 @@ const getYAxisSettings = (
 // LineGraph displays a graph using either x and y data or series breakdown data
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const { isDarkModeOn } = useValues(themeLogic)
-    const colors = getGraphColors(isDarkModeOn)
+    const colors = getGraphColors()
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component

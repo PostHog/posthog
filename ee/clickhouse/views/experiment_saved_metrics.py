@@ -1,4 +1,5 @@
 import pydantic
+from django.db.models.functions import Lower
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
@@ -82,6 +83,5 @@ class ExperimentSavedMetricSerializer(TaggedItemSerializerMixin, serializers.Mod
 
 class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
-    queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").all()
+    queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).all()
     serializer_class = ExperimentSavedMetricSerializer
-    ordering = "-created_at"
