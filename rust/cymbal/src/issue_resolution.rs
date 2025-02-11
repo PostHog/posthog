@@ -130,7 +130,7 @@ impl Issue {
         .fetch_all(executor)
         .await?;
 
-        let reopened = res.len() > 0;
+        let reopened = !res.is_empty();
         if reopened {
             metrics::counter!(ISSUE_REOPENED).increment(1);
         }
