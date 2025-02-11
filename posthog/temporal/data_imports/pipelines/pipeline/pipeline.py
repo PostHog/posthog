@@ -133,6 +133,7 @@ class PipelineNonDLT:
         finally:
             # Help reduce the memory footprint of each job
             delta_table = self._delta_table_helper.get_delta_table()
+            self._delta_table_helper.get_delta_table.cache_clear()
             if delta_table:
                 del delta_table
 
