@@ -678,3 +678,40 @@ class TestSanitizeRegexPattern(TestCase):
                 should_match,
                 f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
             )
+
+    def test_simple_regex_patterns(self):
+        test_cases = [
+            # Basic regex patterns
+            (r"^test$", "test", True),
+            (r"^test$", "test123", False),
+            (r"test\d+", "test123", True),
+            (r"test\d+", "test", False),
+            # Wildcards
+            (r".*\.com$", "example.com", True),
+            (r".*\.com$", "example.org", False),
+            # Character classes
+            (r"[a-z]+", "abc", True),
+            (r"[a-z]+", "123", False),
+            # Groups and alternation
+            (r"(foo|bar)", "foo", True),
+            (r"(foo|bar)", "bar", True),
+            (r"(foo|bar)", "baz", False),
+            # Quantifiers
+            (r"\d{3}-\d{2}-\d{4}", "123-45-6789", True),
+            (r"\d{3}-\d{2}-\d{4}", "12-34-567", False),
+            # Email-like pattern
+            (r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "test@example.com", True),
+            (r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "invalid-email", False),
+            # URL-like pattern
+            (r"^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "https://example.com", True),
+            (r"^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "not-a-url", False),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            )
