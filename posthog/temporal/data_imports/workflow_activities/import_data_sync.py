@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from dateutil import parser
 from typing import Any, Optional
-
+import tracemalloc
 from django.db import close_old_connections
 from django.db.models import Prefetch
 
@@ -511,6 +511,24 @@ def _run(
     schema: ExternalDataSchema,
     reset_pipeline: bool,
 ):
+    tracemalloc.start()
+    snapshot1 = tracemalloc.take_snapshot()
+
     pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental, reset_pipeline)
     pipeline.run()
     del pipeline
+
+    snapshot2 = tracemalloc.take_snapshot()
+    stats = snapshot2.compare_to(snapshot1, "lineno")
+    print("======= SNAPSHOT COMPARE =======")  # noqa: T201
+    for stat in stats[:50]:
+        print(stat)  # noqa: T201
+
+    top_stats = snapshot2.statistics("traceback")
+
+    print("======= TOP STATS =======")  # noqa: T201
+    for stat2 in top_stats[:10]:  # Show top 10 memory allocations with traceback
+        print("\n".join(stat2.traceback.format()))  # noqa: T201
+        print(f"Memory allocated: {stat2.size / 1024/1024:.1f} MB\n")  # noqa: T201
+
+    tracemalloc.stop()
