@@ -252,9 +252,11 @@ class Assistant:
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
                     message = node_val.messages[0]
-                    is_assistant_message = isinstance(message, AssistantMessage)
+                    # Filter out tool calls and empty assistant messages
                     if not isinstance(message, AssistantToolCallMessage) and (
-                        not is_assistant_message or is_assistant_message and message.content
+                        not isinstance(message, AssistantMessage)
+                        or isinstance(message, AssistantMessage)
+                        and message.content
                     ):
                         return message
 
@@ -292,7 +294,7 @@ class Assistant:
             output += f"event: {AssistantEventType.STATUS}\n"
         else:
             output += f"event: {AssistantEventType.MESSAGE}\n"
-        return output + f"data: {message.model_dump_json(exclude_none=True, exclude=['tool_calls'])}\n\n"
+        return output + f"data: {message.model_dump_json(exclude_none=True, exclude={'tool_calls'})}\n\n"
 
     def _serialize_conversation(self) -> str:
         output = f"event: {AssistantEventType.CONVERSATION}\n"
