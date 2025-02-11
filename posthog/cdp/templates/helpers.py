@@ -11,6 +11,8 @@ from posthog.test.base import BaseTest, APIBaseTest
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now
 
+import STPyV8
+
 
 class BaseHogFunctionTemplateTest(BaseTest):
     template: HogFunctionTemplate
@@ -168,7 +170,6 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
 
             processEvent(globals, posthog);;
             """
-        import STPyV8
 
         with STPyV8.JSContext() as ctxt:
             ctxt.eval(js)
