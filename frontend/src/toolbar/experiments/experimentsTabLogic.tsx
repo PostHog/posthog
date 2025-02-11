@@ -315,10 +315,10 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     if (previousSelector) {
                         const originalHtmlState = values.experimentForm.original_html_state?.[previousSelector]
                         if (originalHtmlState) {
-                            const element = document.querySelector(previousSelector) as HTMLElement
-                            element.innerHTML = originalHtmlState.html
+                            const previousElement = document.querySelector(previousSelector) as HTMLElement
+                            previousElement.innerHTML = originalHtmlState.html
                             if (originalHtmlState.css) {
-                                element.setAttribute('style', originalHtmlState.css)
+                                previousElement.setAttribute('style', originalHtmlState.css)
                             }
                         }
                     }
