@@ -10,7 +10,6 @@ import {
     IconPieChart,
     IconPlug,
     IconRewindPlay,
-    IconRocket,
     IconServer,
     IconSparkles,
     IconTarget,
@@ -36,60 +35,6 @@ import { NodeKind, ProjectTreeItem, ProjectTreeItemType, ProjectTreeQuery } from
 import { InsightType, PipelineStage, ReplayTabs } from '~/types'
 
 import type { projectTreeLogicType } from './projectTreeLogicType'
-
-const testTreeData: TreeDataItem[] = [
-    {
-        id: 'gt_7d8f9j',
-        name: 'Team DevEx',
-        children: [
-            {
-                id: 'ssc_3d4e5jh',
-                name: 'Hog Pivot Table',
-                icon: <IconRocket />,
-                onClick: () => router.actions.push(urls.debugHog()),
-            },
-            {
-                id: 'ssc_3d4e5j4',
-                name: 'Sparklines',
-                icon: <IconTarget />,
-                onClick: () => router.actions.push(urls.debugHog()),
-            },
-        ],
-    },
-    {
-        id: 'gt_7d8f9',
-        name: 'Team Growth',
-        children: [
-            {
-                id: 'ssc_3d4e5',
-                name: 'Self-serve credits',
-                icon: <IconGraph />,
-                disabledReason: "you're not cool enough",
-            },
-            {
-                id: 'ot_f6g7h',
-                name: 'Onboarding things',
-                children: [
-                    {
-                        id: 'cf_8i9j0',
-                        name: 'Conversion funnel',
-                        icon: <IconGraph />,
-                    },
-                    {
-                        id: 'mpu_k1l2m',
-                        name: 'Multi-product usage',
-                        icon: <IconGraph />,
-                    },
-                    {
-                        id: 'pis_n3o4p',
-                        name: 'Post-install survey',
-                        icon: <IconGraph />,
-                    },
-                ],
-            },
-        ],
-    },
-]
 
 export function iconForType(type?: ProjectTreeItemType): JSX.Element {
     switch (type) {
@@ -502,7 +447,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         name: '-----------',
                     },
                     ...projectRow,
-                    ...testTreeData,
                     ...projectTree,
                 ]
             },
