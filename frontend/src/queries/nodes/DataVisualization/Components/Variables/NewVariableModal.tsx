@@ -1,5 +1,6 @@
 import {
     LemonButton,
+    LemonCalendar,
     LemonInput,
     LemonInputSelect,
     LemonModal,
@@ -9,7 +10,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { Variable } from '../../types'
+import { Variable, VariableType } from '../../types'
 import { variableModalLogic } from './variableModalLogic'
 
 const renderVariableSpecificFields = (
@@ -91,11 +92,26 @@ const renderVariableSpecificFields = (
         )
     }
 
+    if (variable.type === 'Date') {
+        return (
+            <LemonField.Pure label="Default value" className="gap-1">
+                <LemonCalendar
+                    onDateClick={(date) => updateVariable({ ...variable, default_value: date.format('YYYY-MM-DD') })}
+                    getLemonButtonProps={({ date, props }) => ({
+                        ...props,
+                        active: date.format('YYYY-MM-DD') === variable.default_value,
+                        type: date.format('YYYY-MM-DD') === variable.default_value ? 'primary' : undefined,
+                    })}
+                />
+            </LemonField.Pure>
+        )
+    }
+
     throw new Error(`Unsupported variable type: ${(variable as Variable).type}`)
 }
 
 export const NewVariableModal = (): JSX.Element => {
-    const { closeModal, updateVariable, save } = useActions(variableModalLogic)
+    const { closeModal, updateVariable, save, openNewVariableModal } = useActions(variableModalLogic)
     const { isModalOpen, variable, modalType } = useValues(variableModalLogic)
 
     const title = modalType === 'new' ? `New ${variable.type} variable` : `Editing ${variable.name}`
@@ -123,6 +139,34 @@ export const NewVariableModal = (): JSX.Element => {
                         placeholder="Name"
                         value={variable.name}
                         onChange={(value) => updateVariable({ ...variable, name: value })}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Type" className="gap-1">
+                    <LemonSelect
+                        value={variable.type}
+                        onChange={(value) => openNewVariableModal(value as VariableType)}
+                        options={[
+                            {
+                                value: 'String',
+                                label: 'String',
+                            },
+                            {
+                                value: 'Number',
+                                label: 'Number',
+                            },
+                            {
+                                value: 'Boolean',
+                                label: 'Boolean',
+                            },
+                            {
+                                value: 'List',
+                                label: 'List',
+                            },
+                            {
+                                value: 'Date',
+                                label: 'Date',
+                            },
+                        ]}
                     />
                 </LemonField.Pure>
                 {renderVariableSpecificFields(variable, updateVariable)}

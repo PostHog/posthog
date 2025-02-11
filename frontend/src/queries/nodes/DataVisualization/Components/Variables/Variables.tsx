@@ -1,9 +1,18 @@
 import './Variables.scss'
 
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton, LemonSelect, Popover } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCalendar,
+    LemonDivider,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    Popover,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -93,14 +102,22 @@ const VariableInput = ({
     onRemove,
     variableSettingsOnClick,
 }: VariableInputProps): JSX.Element => {
-    const [localInputValue, setLocalInputValue] = useState(() => {
+    const [localInputValue, setLocalInputValue] = useState<string>(() => {
         const val = variable.value ?? variable.default_value
 
         if (variable.type === 'Number' && !val) {
-            return 0
+            return '0'
         }
 
-        return val ?? ''
+        if (variable.type === 'Boolean') {
+            return val ? 'true' : 'false'
+        }
+
+        if (variable.type === 'Date' && !val) {
+            return dayjs().format('YYYY-MM-DD HH:mm:00')
+        }
+
+        return String(val ?? '')
     })
 
     const inputRef = useRef<HTMLInputElement>(null)
@@ -120,7 +137,7 @@ const VariableInput = ({
                         inputRef={inputRef}
                         placeholder="Value..."
                         className="flex flex-1"
-                        value={localInputValue.toString()}
+                        value={localInputValue}
                         onChange={(value) => setLocalInputValue(value)}
                         onPressEnter={() => {
                             onChange(variable.id, localInputValue)
@@ -135,9 +152,9 @@ const VariableInput = ({
                         placeholder="Value..."
                         className="flex flex-1"
                         value={Number(localInputValue)}
-                        onChange={(value) => setLocalInputValue(value ?? 0)}
+                        onChange={(value) => setLocalInputValue(String(value ?? 0))}
                         onPressEnter={() => {
-                            onChange(variable.id, localInputValue)
+                            onChange(variable.id, Number(localInputValue))
                             closePopover()
                         }}
                     />
@@ -145,8 +162,8 @@ const VariableInput = ({
                 {variable.type === 'Boolean' && (
                     <LemonSegmentedButton
                         className="grow"
-                        value={localInputValue ? 'true' : 'false'}
-                        onChange={(value) => setLocalInputValue(value === 'true')}
+                        value={localInputValue}
+                        onChange={(value) => setLocalInputValue(value)}
                         options={[
                             {
                                 value: 'true',
@@ -163,19 +180,100 @@ const VariableInput = ({
                     <LemonSelect
                         className="grow"
                         value={localInputValue}
-                        onChange={(value) => setLocalInputValue(value)}
+                        onChange={(value) => setLocalInputValue(String(value))}
                         options={variable.values.map((n) => ({ label: n, value: n }))}
                     />
                 )}
-                <LemonButton
-                    type="primary"
-                    onClick={() => {
-                        onChange(variable.id, localInputValue)
-                        closePopover()
-                    }}
-                >
-                    {showEditingUI ? 'Save' : 'Update'}
-                </LemonButton>
+                {variable.type === 'Date' && (
+                    <div className="flex flex-col gap-2">
+                        <div>
+                            <LemonCalendar
+                                granularity="minute"
+                                onDateClick={(date) => setLocalInputValue(date.format('YYYY-MM-DD HH:mm:00'))}
+                                getLemonButtonProps={({ date, props }) => ({
+                                    ...props,
+                                    active: date.format('YYYY-MM-DD') === localInputValue.split(' ')[0],
+                                    type:
+                                        date.format('YYYY-MM-DD') === localInputValue.split(' ')[0]
+                                            ? 'primary'
+                                            : undefined,
+                                })}
+                                getLemonButtonTimeProps={(opts) => {
+                                    const currentTime = localInputValue.split(' ')[1]?.split(':') || ['00', '00']
+                                    const hours = parseInt(currentTime[0])
+                                    const minutes = parseInt(currentTime[1])
+                                    const isPM = hours >= 12
+                                    const hour12 = hours % 12 || 12
+
+                                    return {
+                                        active:
+                                            opts.unit === 'h'
+                                                ? String(hour12) === String(opts.value)
+                                                : opts.unit === 'm'
+                                                ? String(minutes).padStart(2, '0') ===
+                                                  String(opts.value).padStart(2, '0')
+                                                : opts.unit === 'a'
+                                                ? (isPM ? 'pm' : 'am') === opts.value
+                                                : false,
+                                        onClick: () => {
+                                            const currentDate = localInputValue.split(' ')[0]
+                                            let newHours = hours
+                                            let newMinutes = minutes
+
+                                            if (opts.unit === 'h') {
+                                                newHours = parseInt(String(opts.value)) + (isPM ? 12 : 0)
+                                                if (newHours === 24) {
+                                                    newHours = 12
+                                                }
+                                                if (newHours === 12 && !isPM) {
+                                                    newHours = 0
+                                                }
+                                            } else if (opts.unit === 'm') {
+                                                newMinutes = parseInt(String(opts.value))
+                                            } else if (opts.unit === 'a') {
+                                                if (opts.value === 'am' && hours >= 12) {
+                                                    newHours -= 12
+                                                }
+                                                if (opts.value === 'pm' && hours < 12) {
+                                                    newHours += 12
+                                                }
+                                            }
+
+                                            setLocalInputValue(
+                                                `${currentDate} ${String(newHours).padStart(2, '0')}:${String(
+                                                    newMinutes
+                                                ).padStart(2, '0')}:00`
+                                            )
+                                        },
+                                    }
+                                }}
+                            />
+                        </div>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                onChange(variable.id, localInputValue)
+                                closePopover()
+                            }}
+                        >
+                            {showEditingUI ? 'Save' : 'Update'}
+                        </LemonButton>
+                    </div>
+                )}
+                {variable.type !== 'Date' && (
+                    <LemonButton
+                        type="primary"
+                        onClick={() => {
+                            onChange(
+                                variable.id,
+                                variable.type === 'Number' ? Number(localInputValue) : localInputValue
+                            )
+                            closePopover()
+                        }}
+                    >
+                        {showEditingUI ? 'Save' : 'Update'}
+                    </LemonButton>
+                )}
             </div>
             {showEditingUI && (
                 <>
