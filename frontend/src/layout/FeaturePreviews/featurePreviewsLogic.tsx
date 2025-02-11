@@ -1,9 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { combineUrl } from 'kea-router'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { EarlyAccessFeature, posthog } from 'posthog-js'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
@@ -27,15 +30,63 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         beginEarlyAccessFeatureFeedback: (flagKey: string) => ({ flagKey }),
         cancelEarlyAccessFeatureFeedback: true,
         submitEarlyAccessFeatureFeedback: (message: string) => ({ message }),
+        copyExternalFeaturePreviewLink: (flagKey: string) => ({ flagKey }),
     }),
     loaders(({ values }) => ({
         rawEarlyAccessFeatures: [
             [] as EarlyAccessFeature[],
             {
                 loadEarlyAccessFeatures: async () => {
-                    return await new Promise((resolve) =>
-                        posthog.getEarlyAccessFeatures((features) => resolve(features), true)
-                    )
+                    return [
+                        {
+                            name: 'Feature 1',
+                            description:
+                                'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                            stage: 'beta',
+                            documentationUrl: 'https://docs.example.com',
+                            flagKey: 'feature-1',
+                        },
+                        {
+                            name: 'Feature 2',
+                            description:
+                                'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                            stage: 'beta',
+                            documentationUrl: 'https://docs.example.com',
+                            flagKey: 'feature-2',
+                        },
+                        {
+                            name: 'Feature 3',
+                            description:
+                                'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                            stage: 'beta',
+                            documentationUrl: 'https://docs.example.com',
+                            flagKey: 'feature-3',
+                        },
+                        {
+                            name: 'Feature 4',
+                            description:
+                                'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                            stage: 'beta',
+                            documentationUrl: 'https://docs.example.com',
+                            flagKey: 'feature-4',
+                        },
+                        {
+                            name: 'Feature 5',
+                            description:
+                                'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                            stage: 'beta',
+                            documentationUrl: 'https://docs.example.com',
+                            flagKey: 'feature-5',
+                        },
+                        {
+                            name: 'Not enabled',
+                            description:
+                                'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                            stage: 'beta',
+                            documentationUrl: 'https://docs.example.com',
+                            flagKey: 'not-enabled',
+                        },
+                    ]
                 },
             },
         ],
@@ -72,6 +123,9 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     listeners(() => ({
         updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled }) => {
             posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled)
+        },
+        copyExternalFeaturePreviewLink: ({ flagKey }) => {
+            void copyToClipboard(urls.absolute(combineUrl('/', undefined, `panel=feature-previews%3A${flagKey}`).url))
         },
     })),
     selectors({

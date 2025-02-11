@@ -62,10 +62,6 @@ export const SidePanelNotebooks: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Notebooks} />
 }
 
-export const SidePanelSupportNoEmail: StoryFn = () => {
-    return <BaseTemplate panel={SidePanelTab.Support} />
-}
-
 export const SidePanelFeaturePreviews: StoryFn = () => {
     useStorybookMocks({
         get: {
@@ -125,6 +121,10 @@ export const SidePanelFeaturePreviews: StoryFn = () => {
     })
     setFeatureFlags(['feature-1', 'feature-2', 'feature-3', 'feature-4', 'feature-5'])
     return <BaseTemplate panel={SidePanelTab.FeaturePreviews} />
+}
+
+export const SidePanelSupportNoEmail: StoryFn = () => {
+    return <BaseTemplate panel={SidePanelTab.Support} />
 }
 
 export const SidePanelSupportWithEmail: StoryFn = () => {
