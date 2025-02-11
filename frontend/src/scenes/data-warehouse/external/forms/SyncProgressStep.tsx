@@ -73,8 +73,8 @@ export const SyncProgressStep = (): JSX.Element => {
                         <LemonButton
                             className="my-1"
                             type="primary"
-                            onClick={() => cancelWizard()}
-                            to={urls.insightNew(undefined, undefined, query)}
+                            onClick={cancelWizard}
+                            to={urls.insightNew({ query })}
                         >
                             Query
                         </LemonButton>

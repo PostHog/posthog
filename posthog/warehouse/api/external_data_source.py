@@ -206,6 +206,27 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schema",
             "ssh-tunnel",
             "use_ssl",
+            # vitally
+            "payload",
+            "prefix",
+            "regionsubdomain",
+            "source_type",
+            # chargebee
+            "site_name",
+            # zendesk
+            "subdomain",
+            "email_address",
+            # hubspot
+            "redirect_uri",
+            # snowflake
+            "account_id",
+            "warehouse",
+            "role",
+            # bigquery
+            "dataset_id",
+            "project_id",
+            "client_email",
+            "token_uri",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):

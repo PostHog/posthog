@@ -17,6 +17,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { editor as monacoEditor, MarkerSeverity } from 'monaco-editor'
+import { useRef } from 'react'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from './hogFunctionTestLogic'
@@ -28,14 +30,83 @@ const HogFunctionTestEditor = ({
     value: string
     onChange?: (value?: string) => void
 }): JSX.Element => {
+    const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null)
+    const decorationsRef = useRef<string[]>([]) // Track decoration IDs
+
+    const handleValidation = (newValue: string): void => {
+        if (!editorRef.current?.getModel()) {
+            return
+        }
+        const model = editorRef.current.getModel()!
+
+        // First clear everything
+        monacoEditor.setModelMarkers(model, 'owner', [])
+
+        // Clear existing decorations and get new empty array of IDs
+        decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, [])
+
+        // Now validate with clean state
+        try {
+            JSON.parse(newValue)
+            // Valid JSON - keep decorations cleared
+        } catch (err: any) {
+            // Invalid JSON - add new decoration
+            const match = err.message.match(/position (\d+)/)
+            if (match) {
+                const position = parseInt(match[1], 10)
+                const pos = model.getPositionAt(position)
+
+                // Set error marker
+                monacoEditor.setModelMarkers(model, 'owner', [
+                    {
+                        startLineNumber: pos.lineNumber,
+                        startColumn: pos.column,
+                        endLineNumber: pos.lineNumber,
+                        endColumn: pos.column + 1,
+                        message: err.message,
+                        severity: MarkerSeverity.Error,
+                    },
+                ])
+
+                // Set new decoration and store the IDs
+                decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, [
+                    {
+                        range: {
+                            startLineNumber: pos.lineNumber,
+                            startColumn: 1,
+                            endLineNumber: pos.lineNumber,
+                            endColumn: model.getLineLength(pos.lineNumber) + 1,
+                        },
+                        options: {
+                            isWholeLine: true,
+                            className: 'bg-danger-highlight',
+                            glyphMarginClassName: 'text-danger flex items-center justify-center',
+                            glyphMarginHoverMessage: { value: err.message },
+                        },
+                    },
+                ])
+
+                // Scroll to error
+                editorRef.current.revealLineInCenter(pos.lineNumber)
+            }
+        }
+    }
+
     return (
         <CodeEditorResizeable
             language="json"
             value={value}
             height={400}
-            onChange={onChange}
+            onChange={(newValue) => {
+                onChange?.(newValue)
+                handleValidation(newValue ?? '')
+            }}
+            onMount={(editor) => {
+                editorRef.current = editor
+                handleValidation(value)
+            }}
             options={{
-                lineNumbers: 'off',
+                lineNumbers: 'on',
                 minimap: {
                     enabled: false,
                 },
@@ -49,10 +120,11 @@ const HogFunctionTestEditor = ({
                     showKeywords: false,
                 },
                 scrollbar: {
-                    vertical: 'hidden',
-                    verticalScrollbarSize: 0,
+                    vertical: 'auto',
+                    verticalScrollbarSize: 14,
                 },
                 folding: true,
+                glyphMargin: true,
             }}
         />
     )
@@ -71,6 +143,7 @@ export function HogFunctionTest(): JSX.Element {
         testInvocation,
         testResultMode,
         sortedTestsResult,
+        jsonError,
     } = useValues(hogFunctionTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -353,6 +426,8 @@ export function HogFunctionTest(): JSX.Element {
                     </>
                 )}
             </div>
+
+            {jsonError && <LemonBanner type="error">JSON Error: {jsonError}</LemonBanner>}
         </Form>
     )
 }

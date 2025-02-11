@@ -60,6 +60,7 @@ impl FallbackSink {
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
         let primary_is_healthy = Arc::new(AtomicBool::new(true));
         let thread_healthy = primary_is_healthy.clone();
+        gauge!("capture_primary_sink_health").set(1.0);
 
         // Asynchronously update primary health status every 10 seconds
         // this means if the primary starts failing we'll stop trying to send to it until it recovers.
