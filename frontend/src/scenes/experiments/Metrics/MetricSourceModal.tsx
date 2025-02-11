@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getDefaultFunnelsMetric } from '../utils'
+import { getDefaultMetric } from '../utils'
 
 export function MetricSourceModal({
     experimentId,
@@ -40,7 +40,7 @@ export function MetricSourceModal({
                     onClick={() => {
                         closeCurrentModal()
 
-                        const newMetrics = [...experiment[metricsField], getDefaultFunnelsMetric()]
+                        const newMetrics = [...experiment[metricsField], getDefaultMetric()]
                         setExperiment({
                             [metricsField]: newMetrics,
                         })

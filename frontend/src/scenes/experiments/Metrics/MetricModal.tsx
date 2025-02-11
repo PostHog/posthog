@@ -5,7 +5,7 @@ import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
+import { getDefaultMetric, getDefaultTrendsMetric } from '../utils'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
 
@@ -123,9 +123,7 @@ export function MetricModal({
                             ...experiment,
                             [metricsField]: [
                                 ...metrics.slice(0, metricIdx),
-                                newMetricType === InsightType.TRENDS
-                                    ? getDefaultTrendsMetric()
-                                    : getDefaultFunnelsMetric(),
+                                newMetricType === InsightType.TRENDS ? getDefaultTrendsMetric() : getDefaultMetric(),
                                 ...metrics.slice(metricIdx + 1),
                             ],
                         })

@@ -8,12 +8,12 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
-import { ExperimentQuery, NodeKind, ExperimentMetricType } from '~/queries/schema/schema-general'
+import { ExperimentQuery, NodeKind, ExperimentMetricType, ExperimentMetric } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
-import { metricQueryToFilter } from '../utils'
+import { metricToFilter } from '../utils'
 
 export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { experiment, isExperimentRunning, editingPrimaryMetricIndex, editingSecondaryMetricIndex } =
@@ -30,7 +30,7 @@ export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }
     }
 
     // Cast to unknown first to avoid type errors when transitioning to the new ExperimentQuery type
-    const currentMetric = metrics[metricIdx] as unknown as ExperimentQuery
+    const currentMetric = metrics[metricIdx] as unknown as ExperimentMetric
 
     return (
         <>
@@ -41,8 +41,10 @@ export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }
                     onChange={(newName) => {
                         setMetric({
                             metricIdx,
-                            name: newName,
-                            metric: currentMetric.metric,
+                            metric: {
+                                ...currentMetric,
+                                name: newName,
+                            },
                             isSecondary,
                         })
                     }}
@@ -50,17 +52,15 @@ export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }
             </div>
             <ActionFilter
                 bordered
-                filters={metricQueryToFilter(currentMetric)}
+                filters={metricToFilter(currentMetric)}
                 setFilters={({ actions, events }: Partial<FilterType>): void => {
                     // We only support one event/action for experiment metrics
                     const entity = events?.[0] || actions?.[0]
                     if (entity) {
                         setMetric({
                             metricIdx,
-                            name: currentMetric.name,
                             metric: {
-                                kind: 'ExperimentMetric',
-                                metric_type: ExperimentMetricType.COUNT,
+                                ...currentMetric,
                                 metric_config: {
                                     kind: 'ExperimentEventMetricConfig',
                                     event: entity.id as string,

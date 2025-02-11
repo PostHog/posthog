@@ -443,15 +443,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                     }
                 },
-                setMetric: (state, { metricIdx, name, metric, isSecondary }) => {
+                setMetric: (state, { metricIdx, metric, isSecondary }) => {
+                    console.log('setMetric', metric)
                     const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
                     const metrics = [...(state?.[metricsKey] || [])]
 
-                    metrics[metricIdx] = {
-                        kind: NodeKind.ExperimentQuery,
-                        name,
-                        metric,
-                    }
+                    metrics[metricIdx] = metric
 
                     return {
                         ...state,
@@ -1368,8 +1365,8 @@ export const experimentLogic = kea<experimentLogicType>([
         getNewMetricType: [
             () => [],
             () =>
-                (metric: ExperimentQuery | undefined): ExperimentMetricType => {
-                    return metric?.metric?.metric_type || ExperimentMetricType.COUNT
+                (metric: ExperimentMetric | undefined): ExperimentMetricType => {
+                    return metric?.metric_type || ExperimentMetricType.COUNT
                 },
         ],
         isExperimentRunning: [

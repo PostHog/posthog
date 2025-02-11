@@ -2,7 +2,7 @@ import { LemonButton, LemonDialog, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { ExperimentMetricType, ExperimentQuery } from '~/queries/schema/schema-general'
+import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -41,13 +41,15 @@ export function NewMetricModal({
     }
 
     const metrics = experiment[metricsField]
-    const metric = metrics[metricIdx] as ExperimentQuery
+    const metric = metrics[metricIdx] as ExperimentMetric
     const metricType = getNewMetricType(metric)
 
     const onClose = (): void => {
         restoreUnmodifiedExperiment()
         isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
     }
+
+    console.log('experiment', experiment)
 
     return (
         <LemonModal
@@ -122,7 +124,6 @@ export function NewMetricModal({
                                 ...metrics.slice(metricIdx + 1),
                             ],
                         })
-                        console.log('experiment', experiment)
                     }}
                     options={[
                         { value: ExperimentMetricType.COUNT, label: 'Count' },
