@@ -473,6 +473,7 @@ markdown-it-py==3.0.0
     #   mdit-py-plugins
     #   rich
     #   textual
+    #   rich
 markupsafe==3.0.2
     # via
     #   jinja2
@@ -516,7 +517,6 @@ numpy==1.23.3
     #   langchain
     #   langchain-community
     #   pandas
-    #   pyarrow
     #   scikit-learn
     #   scipy
 oauthlib==3.1.0
@@ -611,7 +611,7 @@ psycopg2-binary==2.9.7
     #   dagster-postgres
 py==1.11.0
     # via retry
-pyarrow==17.0.0
+pyarrow==18.1.0
     # via
     #   -r requirements.in
     #   deltalake

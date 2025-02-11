@@ -606,9 +606,10 @@ def get_event(request):
     try:
         if replay_events:
             lib_version = lib_version_from_query_params(request)
+            user_agent = request.headers.get("User-Agent", "")
 
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
-                replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
+                replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES, user_agent
             )
 
             replay_futures: list[tuple[FutureRecordMetadata, tuple, dict]] = []

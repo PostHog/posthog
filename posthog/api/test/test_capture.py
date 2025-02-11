@@ -201,6 +201,7 @@ def make_processed_recording_event(
             # as well as at the top-level
             "distinct_id": distinct_id,
             "$snapshot_source": "web",
+            "$lib": "web",
         },
         "timestamp": timestamp,
         "distinct_id": distinct_id,
@@ -524,7 +525,7 @@ class TestCapture(BaseTest):
                             "error_message": "MESSAGE_SIZE_TOO_LARGE",
                             "kafka_size": None,  # none here because we're not really throwing MessageSizeTooLargeError
                             "lib_version": "1.2.3",
-                            "posthog_calculation": 425,
+                            "posthog_calculation": 440,
                             "size_difference": "unknown",
                         },
                     },
@@ -1827,6 +1828,7 @@ class TestCapture(BaseTest):
                         "data": {"data": event_data, "source": snapshot_source},
                     }
                 ],
+                "$lib": "web",
                 "$snapshot_source": "web",
                 "$session_id": session_id,
                 "$window_id": window_id,

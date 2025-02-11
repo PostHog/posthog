@@ -386,10 +386,9 @@ class TrendsQueryRunner(QueryRunner):
             elif isinstance(result, dict):
                 returned_results.append([result])
 
-        if (
-            self.query.trendsFilter is not None
-            and self.query.trendsFilter.formula is not None
-            and self.query.trendsFilter.formula != ""
+        if self.query.trendsFilter is not None and (
+            (self.query.trendsFilter.formulas is not None and len(self.query.trendsFilter.formulas) > 0)
+            or (self.query.trendsFilter.formula is not None and self.query.trendsFilter.formula != "")
         ):
             with self.timings.measure("apply_formula"):
                 has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
@@ -397,11 +396,31 @@ class TrendsQueryRunner(QueryRunner):
                     current_results = returned_results[: len(returned_results) // 2]
                     previous_results = returned_results[len(returned_results) // 2 :]
 
-                    final_result = self.apply_formula(
-                        self.query.trendsFilter.formula, current_results
-                    ) + self.apply_formula(self.query.trendsFilter.formula, previous_results)
+                    if self.query.trendsFilter.formulas is not None and len(self.query.trendsFilter.formulas) > 0:
+                        final_result = []
+                        for formula in self.query.trendsFilter.formulas:
+                            current_formula_results = self.apply_formula(formula, current_results)
+                            previous_formula_results = self.apply_formula(formula, previous_results)
+                            # Create a new list for each formula's results
+                            formula_results = []
+                            formula_results.extend(current_formula_results)
+                            formula_results.extend(previous_formula_results)
+                            final_result.extend(formula_results)
+                    else:
+                        assert isinstance(self.query.trendsFilter.formula, str)  # help mypy understand the type
+                        final_result = self.apply_formula(
+                            self.query.trendsFilter.formula, current_results
+                        ) + self.apply_formula(self.query.trendsFilter.formula, previous_results)
                 else:
-                    final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
+                    if self.query.trendsFilter.formulas is not None and len(self.query.trendsFilter.formulas) > 0:
+                        final_result = []
+                        for formula in self.query.trendsFilter.formulas:
+                            formula_results = self.apply_formula(formula, returned_results)
+                            # Create a new list for each formula's results
+                            final_result.extend(formula_results)
+                    else:
+                        assert isinstance(self.query.trendsFilter.formula, str)  # help mypy understand the type
+                        final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
         else:
             final_result = []
             for result in returned_results:
@@ -801,7 +820,8 @@ class TrendsQueryRunner(QueryRunner):
                 for result in results:
                     matching_result = [item for item in result if itemgetter(*keys)(item) == breakdown_value]
                     if matching_result:
-                        row_results.append(matching_result[0])
+                        # Create a deep copy of the matching result to avoid modifying shared data
+                        row_results.append(deepcopy(matching_result[0]))
                     else:
                         row_results.append(
                             {
@@ -839,9 +859,9 @@ class TrendsQueryRunner(QueryRunner):
                 reverse=True,
             )
         else:
-            return [
-                self.apply_formula_to_results_group([r[0] for r in results], formula, aggregate_values=is_total_value)
-            ]
+            # Create a deep copy of the results to avoid modifying shared data
+            copied_results = [[deepcopy(r[0]) for r in results]]
+            return [self.apply_formula_to_results_group(copied_results[0], formula, aggregate_values=is_total_value)]
 
     @staticmethod
     def apply_formula_to_results_group(

@@ -380,9 +380,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
-        actions.loadPlugins()
-        actions.loadPluginConfigs()
         if (props.types.includes('destination')) {
+            actions.loadPlugins()
+            actions.loadPluginConfigs()
             actions.loadBatchExports()
         }
         actions.loadHogFunctions()
