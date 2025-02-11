@@ -1,4 +1,4 @@
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -24,7 +24,7 @@ export function TaxonomicBreakdownButton({
         <TaxonomicBreakdownPopover open={open} setOpen={setOpen}>
             <LemonButton
                 type="secondary"
-                icon={<IconPlusSmall color="var(--accent-primary)" />}
+                icon={<IconPlus />}
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 sideIcon={null}
