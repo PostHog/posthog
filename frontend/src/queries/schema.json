@@ -13304,6 +13304,9 @@
                 "showLegend": {
                     "type": "boolean"
                 },
+                "showMultipleYAxes": {
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },
@@ -13350,6 +13353,9 @@
                     "type": "object"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_multiple_y_axes": {
                     "type": "boolean"
                 },
                 "show_values_on_series": {

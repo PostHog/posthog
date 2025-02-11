@@ -2348,6 +2348,7 @@ export interface StickinessFilterType extends FilterType {
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     show_values_on_series?: boolean
+    show_multiple_y_axes?: boolean
 
     // persons only
     stickiness_days?: number
