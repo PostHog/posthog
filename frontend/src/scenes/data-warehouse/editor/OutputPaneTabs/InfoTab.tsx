@@ -150,7 +150,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                             ),
                         },
                     ]}
-                    dataSource={editingView?.columns || []}
+                    dataSource={savedQuery?.columns || []}
                 />
                 <div>
                     <h3>Dependencies</h3>
