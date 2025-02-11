@@ -114,13 +114,6 @@ impl Issue {
         Ok(did_insert)
     }
 
-    // TODO - this is horribly inefficient - it would be much better
-    // to have our issue resolution code be able to return the resolved
-    // issue row, without fetching it, and then we could check the issue
-    // of that returned row. As it stands, we hit the DB 3 times for every
-    // event just for issue resolution - once to insert the "dummy" issue, once
-    // to try insert the fingerprint override, and once more here to possibly
-    // update the issue status.
     pub async fn maybe_reopen<'c, E>(&self, executor: E) -> Result<bool, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
