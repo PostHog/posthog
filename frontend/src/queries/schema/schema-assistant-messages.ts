@@ -7,7 +7,6 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
-    Router = 'ai/router',
 }
 
 export interface BaseAssistantMessage {
@@ -63,18 +62,12 @@ export interface FailureMessage extends BaseAssistantMessage {
     content?: string
 }
 
-export interface RouterMessage extends BaseAssistantMessage {
-    type: AssistantMessageType.Router
-    content: string
-}
-
 export type RootAssistantMessage =
     | VisualizationMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage
-    | RouterMessage
 
 export enum AssistantEventType {
     Status = 'status',

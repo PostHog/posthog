@@ -1214,7 +1214,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/router"],
+            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -12748,28 +12748,8 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
-                },
-                {
-                    "$ref": "#/definitions/RouterMessage"
                 }
             ]
-        },
-        "RouterMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "type": {
-                    "const": "ai/router",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "content"],
-            "type": "object"
         },
         "SamplingRate": {
             "additionalProperties": false,

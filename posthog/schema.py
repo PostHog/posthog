@@ -142,7 +142,6 @@ class AssistantMessageType(StrEnum):
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
-    AI_ROUTER = "ai/router"
 
 
 class RetentionReference(StrEnum):
@@ -1284,15 +1283,6 @@ class RevenueTrackingEventItem(BaseModel):
     )
     eventName: str
     revenueProperty: str
-
-
-class RouterMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["ai/router"] = "ai/router"
 
 
 class SamplingRate(BaseModel):
@@ -7137,11 +7127,9 @@ class RetentionQuery(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[
-        Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
-    ]
+    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
 ):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):

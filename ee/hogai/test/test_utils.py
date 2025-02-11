@@ -4,7 +4,6 @@ from posthog.schema import (
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
-    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import BaseTest
@@ -36,11 +35,9 @@ class TestTrendsUtils(BaseTest):
         messages = filter_and_merge_messages(
             [
                 HumanMessage(content="Question 1"),
-                RouterMessage(content="trends"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
                 AssistantMessage(content="Summary 1"),
                 HumanMessage(content="Question 2"),
-                RouterMessage(content="funnel"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
                 AssistantMessage(content="Summary 2"),
             ]
