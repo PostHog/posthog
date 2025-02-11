@@ -33,7 +33,9 @@ export function WebExperimentTransformHeader({
                 )}
             </div>
 
-            {transform.selector && <SelectorCount selector={transform.selector} />}
+            {transform.selector && (
+                <SelectorCount selector={transform.selector} variant={variant} transformIndex={transformIndex} />
+            )}
 
             {experimentForm?.variants && (
                 <LemonButton
