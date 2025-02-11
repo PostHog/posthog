@@ -2,7 +2,6 @@ import json
 from typing import Any, Optional, cast
 from unittest.mock import MagicMock
 
-from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.cdp.validation import compile_hog
@@ -107,8 +106,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
     def setUp(self):
         super().setUp()
 
-        HogFunctionTemplates._load_templates()
-        # use the API to create a HogFunction based on the template
+        # TODO do this without calling the API. There's a lot of logic in the endpoint which would need to be extracted
         payload = {
             "description": self.template.description,
             "enabled": True,
@@ -149,9 +147,9 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
             "person": {"properties": person_properties or {}},
             "groups": {},
         }
-        # This makes a couple of assumptions, which hold in the example I've seen but might not hold forever:
-        # - the template's init code adds a track function to the window object / global scope
-        # - if the track function already exists, the template's init code (which typically adds an html script element) will not be run
+        # We rely on the fact that most tracking scripts have idempotent init functions.
+        # This means that we can add our own tracking function first, and the regular init code (which typically adds an HTML script element) won't run.
+        # This lets us run the processEvent code in a minimal JS environment, and capture the outputs for given inputs.
         js = f"""
             {JS_STDLIB}
 

@@ -176,11 +176,10 @@ export function onEvent({ inputs }) {
                 *common_inputs,
             ],
         ),
-        # Some events not in our spec:
         HogFunctionMappingTemplate(
-            name="View Content",
+            name="Product Viewed",
             include_by_default=True,
-            filters={"events": [{"id": "View Content", "name": "ViewContent", "type": "events"}]},
+            filters={"events": [{"id": "Product Viewed", "name": "Product Viewed", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -194,9 +193,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Lead",
+            name="Lead Generated",
             include_by_default=True,
-            filters={"events": [{"id": "Lead", "name": "Lead", "type": "events"}]},
+            filters={"events": [{"id": "Lead Generated", "name": "Lead Generated", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",
@@ -210,9 +209,9 @@ export function onEvent({ inputs }) {
             ],
         ),
         HogFunctionMappingTemplate(
-            name="Sign Up",
+            name="Signed Up",
             include_by_default=True,
-            filters={"events": [{"id": "Sign Up", "name": "Sign Up", "type": "events"}]},
+            filters={"events": [{"id": "Signed Up", "name": "Signed Up", "type": "events"}]},
             inputs_schema=[
                 {
                     "key": "eventType",

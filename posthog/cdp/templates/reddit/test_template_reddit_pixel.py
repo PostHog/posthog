@@ -73,6 +73,24 @@ class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
             {"conversion_id": event_id, "products": [{"id": TEST_PRODUCT_ID}], "currency": "USD", "value": 42},
         ]
 
+    def test_product_viewed(self):
+        event_id, calls = self._process_event(
+            "Product Viewed",
+            {
+                "products": [{"product_id": TEST_PRODUCT_ID}],
+                "value": 42,
+                "currency": "USD",
+            },
+            {"email": TEST_EMAIL},
+        )
+        assert len(calls) == 2
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
+        assert calls[1] == [
+            "track",
+            "ViewContent",
+            {"conversion_id": event_id, "products": [{"id": TEST_PRODUCT_ID}], "currency": "USD", "value": 42},
+        ]
+
     def test_purchase(self):
         event_id, calls = self._process_event(
             "Order Completed",
@@ -89,6 +107,34 @@ class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
             "track",
             "Purchase",
             {"conversion_id": event_id, "products": [{"id": TEST_PRODUCT_ID}], "currency": "USD", "value": 42},
+        ]
+
+    def test_lead_generated(self):
+        event_id, calls = self._process_event(
+            "Lead Generated",
+            {},
+            {"email": TEST_EMAIL},
+        )
+        assert len(calls) == 2
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
+        assert calls[1] == [
+            "track",
+            "Lead",
+            {"conversion_id": event_id},
+        ]
+
+    def test_signed_up(self):
+        event_id, calls = self._process_event(
+            "Signed Up",
+            {},
+            {"email": TEST_EMAIL},
+        )
+        assert len(calls) == 2
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
+        assert calls[1] == [
+            "track",
+            "SignUp",
+            {"conversion_id": event_id},
         ]
 
     def test_event_not_in_spec(self):
