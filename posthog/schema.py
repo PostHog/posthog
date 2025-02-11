@@ -626,10 +626,8 @@ class EntityType(StrEnum):
 
 
 class Status(StrEnum):
-    ARCHIVED = "archived"
     ACTIVE = "active"
     RESOLVED = "resolved"
-    PENDING_RELEASE = "pending_release"
 
 
 class ErrorTrackingIssueAggregations(BaseModel):
@@ -655,6 +653,17 @@ class OrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+
+
+class Status1(StrEnum):
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+    ALL = "all"
+
+
+class Status2(StrEnum):
+    ACTIVE = "active"
+    RESOLVED = "resolved"
 
 
 class Interval(StrEnum):
@@ -2113,7 +2122,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     first_seen: AwareDatetime
     id: str
     name: Optional[str] = None
-    status: Status
+    status: Status2
 
 
 class ErrorTrackingSparklineConfig(BaseModel):
@@ -6672,6 +6681,7 @@ class ErrorTrackingQuery(BaseModel):
     orderBy: Optional[OrderBy] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
+    status: Optional[Status1] = None
 
 
 class EventsQuery(BaseModel):

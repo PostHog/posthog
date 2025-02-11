@@ -31,6 +31,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     actions({
         setOrderBy: (orderBy: ErrorTrackingQuery['orderBy']) => ({ orderBy }),
+        setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
         setSelectedIssueIds: (ids: string[]) => ({ ids }),
     }),
 
@@ -40,6 +41,13 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
+            },
+        ],
+        status: [
+            'active' as ErrorTrackingQuery['status'],
+            { persist: true },
+            {
+                setStatus: (_, { status }) => status,
             },
         ],
         selectedIssueIds: [
@@ -52,10 +60,11 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     selectors(({ values }) => ({
         query: [
-            (s) => [s.orderBy, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.searchQuery],
-            (orderBy, dateRange, assignee, filterTestAccounts, filterGroup, searchQuery): DataTableNode =>
+            (s) => [s.orderBy, s.status, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.searchQuery],
+            (orderBy, status, dateRange, assignee, filterTestAccounts, filterGroup, searchQuery): DataTableNode =>
                 errorTrackingQuery({
                     orderBy,
+                    status,
                     dateRange,
                     assignee,
                     filterTestAccounts,

@@ -206,8 +206,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, fingerprint=fingerprint, issue_id=issue_id, version=version
         )
 
-    def create_issue(self, issue_id, fingerprint):
-        issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team)
+    def create_issue(self, issue_id, fingerprint, status=ErrorTrackingIssue.Status.ACTIVE):
+        issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status)
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
         return issue
 
@@ -246,7 +246,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 is_identified=True,
             )
 
-            self.issue_one = self.create_events_and_issue(
+            self.create_events_and_issue(
                 issue_id=self.issue_id_one,
                 fingerprint="issue_one_fingerprint",
                 distinct_ids=[self.distinct_id_one, self.distinct_id_two],
@@ -276,6 +276,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         searchQuery=None,
         filterGroup=None,
         orderBy=None,
+        status=None,
     ):
         return (
             ErrorTrackingQueryRunner(
@@ -289,6 +290,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     searchQuery=searchQuery,
                     filterGroup=filterGroup,
                     orderBy=orderBy,
+                    status=status,
                 ),
             )
             .calculate()
@@ -483,6 +485,24 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._calculate(orderBy="first_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
+
+    @snapshot_clickhouse_queries
+    def test_status(self):
+        resolved_issue = ErrorTrackingIssue.objects.filter(id=self.issue_id_one).first()
+        resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
+        resolved_issue.save()
+
+        results = self._calculate(status="active")["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two])
+
+        results = self._calculate(status="resolved")["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_id_one])
+
+        results = self._calculate()["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_one, self.issue_id_two])
+
+        results = self._calculate(status="all")["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_one, self.issue_id_two])
 
     def test_overrides_aggregation(self):
         self.override_fingerprint(self.issue_three_fingerprint, self.issue_id_one)

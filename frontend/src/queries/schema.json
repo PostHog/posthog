@@ -5985,7 +5985,7 @@
                     "type": ["string", "null"]
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "enum": ["active", "resolved"],
                     "type": "string"
                 }
             },
@@ -6112,6 +6112,10 @@
                 },
                 "searchQuery": {
                     "type": "string"
+                },
+                "status": {
+                    "enum": ["active", "resolved", "all"],
+                    "type": "string"
                 }
             },
             "required": ["dateRange", "kind"],
@@ -6195,7 +6199,7 @@
                     "type": ["string", "null"]
                 },
                 "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "enum": ["active", "resolved"],
                     "type": "string"
                 }
             },

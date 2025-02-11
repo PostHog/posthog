@@ -12,6 +12,7 @@ import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter,
 
 export const errorTrackingQuery = ({
     orderBy,
+    status,
     dateRange,
     assignee,
     filterTestAccounts,
@@ -20,7 +21,10 @@ export const errorTrackingQuery = ({
     customVolume,
     columns,
     limit = 50,
-}: Pick<ErrorTrackingQuery, 'orderBy' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery'> & {
+}: Pick<
+    ErrorTrackingQuery,
+    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery'
+> & {
     filterGroup: UniversalFiltersGroup
     customVolume?: ErrorTrackingSparklineConfig | null
     columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
@@ -30,6 +34,7 @@ export const errorTrackingQuery = ({
         source: {
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
+            status,
             dateRange,
             assignee,
             customVolume,
