@@ -428,8 +428,6 @@ describe('Hogfunction Manager - Execution Order', () => {
             execution_order: 1,
             type: 'transformation',
         })
-
-        console.log('before reload', manager['lastUpdatedAt'], manager['hogFunctions'])
         await manager.reloadAllHogFunctions()
         const teamFunctions = manager.getTeamHogFunctions(teamId2)
 
