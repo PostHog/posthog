@@ -100,10 +100,13 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
 class BaseSiteDestinationFunctionTest(APIBaseTest):
     template: HogFunctionTemplate
-    window_fn: str
+    track_fn: str
     inputs: dict
+    _transpiled: str
 
-    def _transpiled(self):
+    def setUp(self):
+        super().setUp()
+
         HogFunctionTemplates._load_templates()
         # use the API to create a HogFunction based on the template
         payload = {
@@ -135,9 +138,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
         # load from the DB based on the created ID
         hog_function = HogFunction.objects.get(id=function_id)
 
-        transpiled = get_transpiled_function(hog_function)
-
-        return transpiled
+        self._transpiled = get_transpiled_function(hog_function)
 
     def _process_event(
         self, event_name: str, event_properties: Optional[dict] = None, person_properties: Optional[dict] = None
@@ -148,20 +149,19 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
             "person": {"properties": person_properties or {}},
             "groups": {},
         }
-        transpiled = self._transpiled()
         js = f"""
             {JS_STDLIB}
 
             const calls = [];
-            const {self.window_fn} = (...args) => calls.push(args);
-            window.{self.window_fn} = {self.window_fn};
+            const {self.track_fn} = (...args) => calls.push(args);
+            window.{self.track_fn} = {self.track_fn};
 
             const globals = {json.dumps(js_globals)};
             const posthog = {{
                 get_property: (key) => key === '$stored_person_properties' ? globals.person.properties : null,
             }};
 
-            const initFn = {transpiled}().init;
+            const initFn = {self._transpiled}().init;
 
             const processEvent = initFn({{ posthog, callback: console.log }}).processEvent;
 
@@ -174,7 +174,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
             calls_json = ctxt.eval("JSON.stringify(calls)")
             calls = json.loads(calls_json)
             assert isinstance(calls, list)
-            return (event_id, calls)
+            return event_id, calls
 
 
 JS_STDLIB = """
