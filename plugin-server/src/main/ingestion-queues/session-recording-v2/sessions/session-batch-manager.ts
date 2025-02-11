@@ -1,7 +1,8 @@
 import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { SessionBatchFileWriter } from './session-batch-file-writer'
+import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionMetadataStore } from './session-metadata-store'
 
 export interface SessionBatchManagerConfig {
     /** Maximum raw size (before compression) of a batch in bytes before it should be flushed */
@@ -11,7 +12,9 @@ export interface SessionBatchManagerConfig {
     /** Manages Kafka offset tracking and commits */
     offsetManager: KafkaOffsetManager
     /** Handles writing session batch files to storage */
-    writer: SessionBatchFileWriter
+    fileStorage: SessionBatchFileStorage
+    /** Manages storing session metadata */
+    metadataStore: SessionMetadataStore
 }
 
 /**
@@ -53,15 +56,17 @@ export class SessionBatchManager {
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
     private readonly offsetManager: KafkaOffsetManager
-    private readonly writer: SessionBatchFileWriter
+    private readonly fileStorage: SessionBatchFileStorage
+    private readonly metadataStore: SessionMetadataStore
     private lastFlushTime: number
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
         this.maxBatchAgeMs = config.maxBatchAgeMs
         this.offsetManager = config.offsetManager
-        this.writer = config.writer
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
+        this.fileStorage = config.fileStorage
+        this.metadataStore = config.metadataStore
+        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.fileStorage, this.metadataStore)
         this.lastFlushTime = Date.now()
     }
 
@@ -78,7 +83,7 @@ export class SessionBatchManager {
     public async flush(): Promise<void> {
         status.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
         await this.currentBatch.flush()
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
+        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.fileStorage, this.metadataStore)
         this.lastFlushTime = Date.now()
     }
 

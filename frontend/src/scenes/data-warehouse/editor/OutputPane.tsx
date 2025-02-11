@@ -5,10 +5,9 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMemo } from 'react'
 import DataGrid from 'react-data-grid'
@@ -238,7 +237,7 @@ export function OutputPane(): JSX.Element {
 
 function InternalDataTableVisualization(
     props: DataTableVisualizationProps & { onSaveInsight: () => void }
-): JSX.Element {
+): JSX.Element | null {
     const {
         query,
         visualizationType,
@@ -257,7 +256,7 @@ function InternalDataTableVisualization(
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
             <div className="flex flex-col flex-1 justify-center items-center border rounded bg-surface-primary">
-                <Animation type={AnimationType.LaptopHog} />
+                <LoadingBar />
             </div>
         )
     } else if (visualizationType === ChartDisplayType.ActionsTable) {

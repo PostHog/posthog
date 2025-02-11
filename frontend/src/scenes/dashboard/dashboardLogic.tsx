@@ -23,7 +23,7 @@ import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, isAbortedRequest, shouldCancelQuery, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, getJSHeapMemory, isAbortedRequest, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -1268,6 +1268,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ),
                         min_last_refresh: lastRefresh[0],
                         max_last_refresh: lastRefresh[lastRefresh.length - 1],
+                        ...getJSHeapMemory(),
                     })
                 }
 
@@ -1353,6 +1354,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
                         insights_fetched: insightsToRefresh.length,
                         insights_fetched_cached: 0,
+                        ...getJSHeapMemory(),
                     }
 
                     eventUsageLogic.actions.reportTimeToSeeData(payload)

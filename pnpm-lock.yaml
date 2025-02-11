@@ -198,8 +198,8 @@ importers:
         specifier: ^1.14.2
         version: 1.14.2
       d3:
-        specifier: ^7.8.2
-        version: 7.8.2
+        specifier: ^7.9.0
+        version: 7.9.0
       d3-sankey:
         specifier: ^0.12.3
         version: 0.12.3
@@ -308,6 +308,9 @@ importers:
       natural-orderby:
         specifier: ^3.0.2
         version: 3.0.2
+      openai:
+        specifier: ^4.81.0
+        version: 4.82.0(encoding@0.1.13)(zod@3.24.1)
       papaparse:
         specifier: ^5.4.1
         version: 5.4.1
@@ -321,8 +324,8 @@ importers:
         specifier: ^9.3.0
         version: 9.3.0(postcss@8.4.31)
       posthog-js:
-        specifier: 1.215.6
-        version: 1.215.6
+        specifier: 1.216.1
+        version: 1.216.1
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -545,11 +548,11 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       '@types/d3':
-        specifier: ^7.4.0
-        version: 7.4.0
+        specifier: ^7.4.3
+        version: 7.4.3
       '@types/d3-sankey':
-        specifier: ^0.12.1
-        version: 0.12.1
+        specifier: ^0.12.4
+        version: 0.12.4
       '@types/dompurify':
         specifier: ^3.0.3
         version: 3.0.3
@@ -5989,8 +5992,8 @@ packages:
   '@types/d3-random@3.0.1':
     resolution: {integrity: sha512-IIE6YTekGczpLYo/HehAy3JGF1ty7+usI97LqraNa8IiDur+L44d0VOjAvFQWJVdZOJHukUJw+ZdZBlgeUsHOQ==}
 
-  '@types/d3-sankey@0.12.1':
-    resolution: {integrity: sha512-10X6l6lXB42udBNX9/fDN+kJuooifSMk7+x4U9815eobavldqis4wDdFQUQjMazh+qlzsUZsGzXKxfWFUVt+3w==}
+  '@types/d3-sankey@0.12.4':
+    resolution: {integrity: sha512-YTicQNwioitIlvuvlfW2GfO6sKxpohzg2cSQttlXAPjFwoBuN+XpGLhUN3kLutG/dI3GCLC+DUorqiJt7Naetw==}
 
   '@types/d3-scale-chromatic@3.0.0':
     resolution: {integrity: sha512-dsoJGEIShosKVRBZB0Vo3C8nqSDqVGujJU6tPznsBJxNJNwMF8utmS83nvCBKQYPpjCzaaHcrf66iTRpZosLPw==}
@@ -6022,8 +6025,8 @@ packages:
   '@types/d3-zoom@3.0.1':
     resolution: {integrity: sha512-7s5L9TjfqIYQmQQEUcpMAcBOahem7TRoSO/+Gkz02GbMVuULiZzjF2BOdw291dbO2aNon4m2OdFsRGaCq2caLQ==}
 
-  '@types/d3@7.4.0':
-    resolution: {integrity: sha512-jIfNVK0ZlxcuRDKtRS/SypEyOQ6UHaFQBKv032X45VvxSJ6Yi5G9behy9h6tNTHTDGh5Vq+KbmBjUWLgY4meCA==}
+  '@types/d3@7.4.3':
+    resolution: {integrity: sha512-lZXZ9ckh5R8uiFVt8ogUNf+pIrK4EsWrx2Np75WvF/eTpJ0FMHNhjXk8CKEx/+gpHbNQyJWehbFaTvqmHWB3ww==}
 
   '@types/debug@4.1.7':
     resolution: {integrity: sha512-9AonUzyTjXXhEOa0DnqpzZi6VHlqKMswga9EXjpXnnqxwLtdvPPtlO8evrI5D9S6asFRCQ6v+wpiUKbw+vKqyg==}
@@ -8204,8 +8207,8 @@ packages:
     resolution: {integrity: sha512-b8AmV3kfQaqWAuacbPuNbL6vahnOJflOhexLzMMNLga62+/nh0JzvJ0aO/5a5MVgUFGS7Hu1P9P03o3fJkDCyw==}
     engines: {node: '>=12'}
 
-  d3@7.8.2:
-    resolution: {integrity: sha512-WXty7qOGSHb7HR7CfOzwN1Gw04MUOzN8qh9ZUsvwycIMb4DYMpY9xczZ6jUorGtO6bR9BPMPaueIKwiDxu9uiQ==}
+  d3@7.9.0:
+    resolution: {integrity: sha512-e1U46jVP+w7Iut8Jt8ri1YsPOvFpg46k+K8TpCb0P+zjCkjkPnV7WzfDJzMHy1LnA+wj5pLT1wjO901gLXeEhA==}
     engines: {node: '>=12'}
 
   dash-ast@1.0.0:
@@ -9343,6 +9346,9 @@ packages:
       typescript: ~4.9.5
       webpack: ^5.11.0
 
+  form-data-encoder@1.7.2:
+    resolution: {integrity: sha512-qfqtYan3rxrnCk1VYaA4H+Ms9xdpPqvLZa6xmMgFvhO32x7/3J/ExcTd6qpxM0vH2GdMI+poehyBZvqfMTto8A==}
+
   form-data@2.3.3:
     resolution: {integrity: sha512-1lLKB2Mu3aGP1Q/2eCOx0fNbRMe7XdwktwOruhfqqd0rIJWwN4Dh+E3hrPSlDCXnSR7UtZ1N38rVXm+6+MEhJQ==}
     engines: {node: '>= 0.12'}
@@ -9358,6 +9364,10 @@ packages:
   format@0.2.2:
     resolution: {integrity: sha512-wzsgA6WOq+09wrU1tsJ09udeR/YZRaeArL9e1wPbFg3GG2yDnC2ldKpxs4xunpFF9DgqCqOIra3bc1HWrJ37Ww==}
     engines: {node: '>=0.4.x'}
+
+  formdata-node@4.4.1:
+    resolution: {integrity: sha512-0iirZp3uVDjVGt9p49aTaqjk84TrglENEDuqfdlZQ1roC9CWlPk6Avf8EEnZNcAqPonwkG35x4n3ww/1THYAeQ==}
+    engines: {node: '>= 12.20'}
 
   formidable@3.5.1:
     resolution: {integrity: sha512-WJWKelbRHN41m5dumb0/k8TeAx7Id/y3a+Z7QfhxP/htI9Js5zYaEDtG8uMgG0vM0lOlqnmjE99/kfpOYi/0Og==}
@@ -11870,6 +11880,10 @@ packages:
     resolution: {integrity: sha512-tmPX422rYgofd4epzrNoOXiE8XFZYOcCq1vD7MAXCDO+O+zndlA2ztdKKMa+EeuBG5tHETpr4ml4RGgpqDCCAg==}
     engines: {node: '>= 0.10.5'}
 
+  node-domexception@1.0.0:
+    resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
+    engines: {node: '>=10.5.0'}
+
   node-fetch-native@1.2.0:
     resolution: {integrity: sha512-5IAMBTl9p6PaAjYCnMv5FmqIF6GcZnawAVnzaCG0rX2aYZJ4CxEkZNtVPuTRug7fL7wyM5BQYTlAzcyMPi6oTQ==}
 
@@ -12124,6 +12138,18 @@ packages:
   open@8.4.2:
     resolution: {integrity: sha512-7x81NCL719oNbsq/3mh+hVrAWmFuEYUqrq/Iw3kUzH8ReypT9QQ0BLoJS7/G9k6N81XjW4qHWtjWwe/9eLy1EQ==}
     engines: {node: '>=12'}
+
+  openai@4.82.0:
+    resolution: {integrity: sha512-1bTxOVGZuVGsKKUWbh3BEwX1QxIXUftJv+9COhhGGVDTFwiaOd4gWsMynF2ewj1mg6by3/O+U8+EEHpWRdPaJg==}
+    hasBin: true
+    peerDependencies:
+      ws: ^8.18.0
+      zod: ^3.23.8
+    peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
 
   opn@5.5.0:
     resolution: {integrity: sha512-PqHpggC9bLV0VeWcdKhkpxY+3JTzetLSqTCWL/z/tFIbI6G8JCjondXklT1JinczLz2Xib62sSp0T/gKT4KksA==}
@@ -12956,8 +12982,8 @@ packages:
   posthog-js-lite@3.0.0:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
 
-  posthog-js@1.215.6:
-    resolution: {integrity: sha512-OWfLYXaGNZDfKnNo9h2jifV1rsqhSfZzHw6/W6IOSk8Cq2nidIPUm89mutk7zbzPPmnVTV8eqPCfhFaoHZZKLw==}
+  posthog-js@1.216.1:
+    resolution: {integrity: sha512-ZJxSfA1caZHxVTHfL8rNqwGGUq1JEgKq2/dIwnJ9hHaiv6ALAbc8Rm7Zda8SpTqKk/pEcwrdwY3LYAj2FF3K8w==}
 
   posthog-node@2.0.2:
     resolution: {integrity: sha512-lB7y5znEGHhL6CP+Xwq4v+js4x0oGqyJXwZM2SXPXakZzPq+UQo/HLYZCOnsCpk8DnXLZOKjut9vYLqkTCjGJQ==}
@@ -15154,8 +15180,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.218.0:
-    resolution: {integrity: sha512-86opZGOx5+weMRzUkIzdaAaV1+IUQf3MwUTWF5kfD99ZHxPD0JFMB+50DAPNi+8TnEZ2gzBQ0R5D+Ykc5ZjwyQ==}
+  unlayer-types@1.219.0:
+    resolution: {integrity: sha512-hMjlu7cQqZF8CdPggPJ3kfl/djDOhS+YM7R8Y+NLqfqtFxNtejr5ym9NcG94wL3wVnXgTYy07NFS9ICxHqVZYQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -15387,6 +15413,10 @@ packages:
 
   web-encoding@1.1.5:
     resolution: {integrity: sha512-HYLeVCdJ0+lBYV2FvNZmv3HJ2Nt0QYXqZojk3d9FJOLkwnuhzM9tmamh8d7HPM8QqjKH8DeHkFTx+CFlWpZZDA==}
+
+  web-streams-polyfill@4.0.0-beta.3:
+    resolution: {integrity: sha512-QW95TCTaHmsYfHDybGMwO5IJIM93I/6vTRk+daHTWFPhwh+C8Cg7j7XyKrwrj8Ib6vYXe0ocYNrmzY4xAAN6ug==}
+    engines: {node: '>= 14'}
 
   web-vitals@4.2.4:
     resolution: {integrity: sha512-r4DIlprAGwJ7YM11VZp4R884m0Vmgr6EAKe3P+kO0PPj3Unqyvv59rczf6UiGcb9Z8QxZVcqKNwv/g0WNdWwsw==}
@@ -23323,7 +23353,7 @@ snapshots:
 
   '@types/d3-random@3.0.1': {}
 
-  '@types/d3-sankey@0.12.1':
+  '@types/d3-sankey@0.12.4':
     dependencies:
       '@types/d3-shape': 1.3.8
 
@@ -23358,7 +23388,7 @@ snapshots:
       '@types/d3-interpolate': 3.0.1
       '@types/d3-selection': 3.0.3
 
-  '@types/d3@7.4.0':
+  '@types/d3@7.4.3':
     dependencies:
       '@types/d3-array': 3.0.3
       '@types/d3-axis': 3.0.1
@@ -26065,7 +26095,7 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  d3@7.8.2:
+  d3@7.9.0:
     dependencies:
       d3-array: 3.2.2
       d3-axis: 3.0.0
@@ -27549,6 +27579,8 @@ snapshots:
       typescript: 4.9.5
       webpack: 5.88.2(@swc/core@1.3.93(@swc/helpers@0.5.15))(esbuild@0.19.8)(webpack-cli@5.1.4)
 
+  form-data-encoder@1.7.2: {}
+
   form-data@2.3.3:
     dependencies:
       asynckit: 0.4.0
@@ -27568,6 +27600,11 @@ snapshots:
       mime-types: 2.1.35
 
   format@0.2.2: {}
+
+  formdata-node@4.4.1:
+    dependencies:
+      node-domexception: 1.0.0
+      web-streams-polyfill: 4.0.0-beta.3
 
   formidable@3.5.1:
     dependencies:
@@ -30879,6 +30916,8 @@ snapshots:
     dependencies:
       minimatch: 3.1.2
 
+  node-domexception@1.0.0: {}
+
   node-fetch-native@1.2.0: {}
 
   node-fetch@2.6.7(encoding@0.1.13):
@@ -31203,6 +31242,21 @@ snapshots:
       define-lazy-prop: 2.0.0
       is-docker: 2.2.1
       is-wsl: 2.2.0
+
+  openai@4.82.0(encoding@0.1.13)(zod@3.24.1):
+    dependencies:
+      '@types/node': 18.18.4
+      '@types/node-fetch': 2.6.4
+      abort-controller: 3.0.0
+      agentkeepalive: 4.3.0
+      form-data-encoder: 1.7.2
+      formdata-node: 4.4.1
+      node-fetch: 2.6.9(encoding@0.1.13)
+    optionalDependencies:
+      zod: 3.24.1
+    transitivePeerDependencies:
+      - encoding
+      - supports-color
 
   opn@5.5.0:
     dependencies:
@@ -32105,7 +32159,7 @@ snapshots:
 
   posthog-js-lite@3.0.0: {}
 
-  posthog-js@1.215.6:
+  posthog-js@1.216.1:
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -32630,7 +32684,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.218.0
+      unlayer-types: 1.219.0
 
   react-error-boundary@3.1.4(react@18.2.0):
     dependencies:
@@ -34697,7 +34751,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.218.0: {}
+  unlayer-types@1.219.0: {}
 
   unpipe@1.0.0: {}
 
@@ -34938,6 +34992,8 @@ snapshots:
       util: 0.12.5
     optionalDependencies:
       '@zxing/text-encoding': 0.9.0
+
+  web-streams-polyfill@4.0.0-beta.3: {}
 
   web-vitals@4.2.4: {}
 
