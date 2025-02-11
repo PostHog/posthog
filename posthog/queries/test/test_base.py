@@ -366,7 +366,10 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_d, {"key": None}))
 
         property_d_lower_case = Property(key="key", value="no", operator="regex")
-        self.assertFalse(match_property(property_d_lower_case, {"key": None}))
+        self.assertTrue(match_property(property_d_lower_case, {"key": None}))
+
+        property_d_non_matching = Property(key="key", value="xyz", operator="regex")
+        self.assertFalse(match_property(property_d_non_matching, {"key": None}))
 
         property_e = Property(key="key", value=1, operator="gt")
         self.assertTrue(match_property(property_e, {"key": None}))
