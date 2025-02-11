@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { WebVitalsMetric } from '~/queries/schema'
@@ -28,7 +29,8 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
     actions({
         getWebVitals: true,
         setLocalWebVital: (webVitalMetric: WebVitalsMetric, value: number | null) => ({ webVitalMetric, value }),
-        clearLocalWebVitals: true,
+        resetLocalWebVitals: true,
+        nullifyLocalWebVitals: true,
     }),
 
     reducers({
@@ -39,16 +41,27 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
                     ...state,
                     [webVitalMetric]: value,
                 }),
-                clearLocalWebVitals: () => ({} as WebVitalsMetrics),
+                resetLocalWebVitals: () => ({} as WebVitalsMetrics),
+                nullifyLocalWebVitals: () => ({ LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics),
             },
         ],
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         remoteWebVitals: [
             {} as WebVitalsMetrics,
             {
                 getWebVitals: async (_, breakpoint) => {
+                    // If web vitals autocapture is disabled, we don't want to fetch the data
+                    // because it's likely we won't have any data
+                    if (
+                        !values.posthog?.webVitalsAutocapture?.isEnabled &&
+                        !inStorybook() &&
+                        !inStorybookTestRunner()
+                    ) {
+                        return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
+                    }
+
                     const params = { pathname: window.location.pathname }
 
                     const response = await toolbarFetch(
@@ -76,14 +89,14 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
 
     listeners(({ actions }) => ({
         urlChanged: () => {
-            actions.clearLocalWebVitals()
+            actions.resetLocalWebVitals()
             actions.getWebVitals()
         },
     })),
     afterMount(({ values, actions }) => {
         // Listen to history state changes for SPA navigation
         window.addEventListener('popstate', () => {
-            actions.clearLocalWebVitals()
+            actions.resetLocalWebVitals()
             actions.getWebVitals()
         })
 
@@ -93,33 +106,39 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
 
         window.history.pushState = function (...args) {
             originalPushState(...args)
-            actions.clearLocalWebVitals()
+            actions.resetLocalWebVitals()
             actions.getWebVitals()
         }
 
         window.history.replaceState = function (...args) {
             originalReplaceState(...args)
-            actions.clearLocalWebVitals()
+            actions.resetLocalWebVitals()
             actions.getWebVitals()
         }
 
         // Listen to posthog events and capture them
-        const METRICS_AND_PROPERTIES: Record<WebVitalsMetric, string> = {
-            FCP: '$web_vitals_FCP_value',
-            LCP: '$web_vitals_LCP_value',
-            CLS: '$web_vitals_CLS_value',
-            INP: '$web_vitals_INP_value',
-        }
-        values.posthog?.on('eventCaptured', (event) => {
-            if (event.event === '$web_vitals') {
-                for (const [metric, property] of Object.entries(METRICS_AND_PROPERTIES)) {
-                    const value = event.properties[property]
-                    if (value !== undefined) {
-                        actions.setLocalWebVital(metric as WebVitalsMetric, value)
+        // Guarantee that we won't even attempt to show web vitals data if the feature is disabled
+        if (!values.posthog?.webVitalsAutocapture?.isEnabled && !inStorybook() && !inStorybookTestRunner()) {
+            actions.nullifyLocalWebVitals()
+        } else {
+            const METRICS_AND_PROPERTIES: Record<WebVitalsMetric, string> = {
+                FCP: '$web_vitals_FCP_value',
+                LCP: '$web_vitals_LCP_value',
+                CLS: '$web_vitals_CLS_value',
+                INP: '$web_vitals_INP_value',
+            }
+
+            values.posthog?.on('eventCaptured', (event) => {
+                if (event.event === '$web_vitals') {
+                    for (const [metric, property] of Object.entries(METRICS_AND_PROPERTIES)) {
+                        const value = event.properties[property]
+                        if (value !== undefined) {
+                            actions.setLocalWebVital(metric as WebVitalsMetric, value)
+                        }
                     }
                 }
-            }
-        })
+            })
+        }
 
         // Collect the web vitals metrics from the server
         actions.getWebVitals()

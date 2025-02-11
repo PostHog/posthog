@@ -9,6 +9,7 @@ import {
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
+import { createPlugin, createPluginConfig } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
@@ -456,6 +457,60 @@ describe('LegacyPluginExecutorService', () => {
             invocation.globals.event.event = '$pageview'
             const res = await service.execute(invocation)
             expect(res.logs.map((l) => l.message)).toMatchSnapshot()
+        })
+    })
+
+    describe('first-time-event-tracker', () => {
+        let invocation: HogFunctionInvocation
+        beforeEach(() => {
+            fn = createHogFunction({
+                team_id: team.id,
+                name: 'First time event tracker',
+                template_id: 'plugin-first-time-event-tracker',
+                type: 'transformation',
+            })
+
+            globals.inputs = {
+                events: '$pageview',
+                legacy_plugin_config_id: '123',
+            }
+            invocation = createInvocation(fn, globals)
+        })
+
+        it('should error if no legacy plugin config id is provided', async () => {
+            const res = await service.execute(invocation)
+
+            expect(res.finished).toBe(true)
+            expect(res.error).toMatchInlineSnapshot(`[Error: Plugin config 123 for team 2 not found]`)
+        })
+
+        it('should succeed if legacy plugin config id is provided', async () => {
+            console.log(team.id, team.organization_id)
+            const plugin = await createPlugin(hub.postgres, {
+                organization_id: team.organization_id,
+                name: 'first-time-event-tracker',
+                plugin_type: 'source',
+                is_global: false,
+                source__index_ts: `
+            export async function runEveryMinute() {
+                console.info(JSON.stringify(['runEveryMinute']))
+            }
+        `,
+            })
+            const pluginConfig = await createPluginConfig(hub.postgres, {
+                name: 'first-time-event-tracker',
+                team_id: team.id,
+                plugin_id: plugin.id,
+            } as any)
+
+            console.log(pluginConfig)
+
+            invocation.globals.inputs.legacy_plugin_config_id = pluginConfig.id
+
+            const res = await service.execute(invocation)
+
+            expect(res.finished).toBe(true)
+            expect(res.error).toBeUndefined()
         })
     })
 })

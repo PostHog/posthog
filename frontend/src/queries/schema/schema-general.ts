@@ -887,6 +887,8 @@ export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
     formula?: TrendsFilterLegacy['formula']
+    /** List of formulas to apply to the data. Takes precedence over formula if both are set. */
+    formulas?: string[]
     /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
     /** @default false */
@@ -1109,7 +1111,14 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
     retentionFilter: RetentionFilter
 }
 
-export interface PathsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export type PathsLink = {
+    source: string
+    target: string
+    value: number
+    average_conversion_time: number
+}
+
+export interface PathsQueryResponse extends AnalyticsQueryResponseBase<PathsLink[]> {}
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 

@@ -119,11 +119,27 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 ]
 `;
 
-exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-advanced-geoip', plugin: [Object] } 1`] = `
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {
+  name: 'plugin-posthog-plugin-snowplow-referer-parser',
+  plugin: [Object]
+} 1`] = `
 [
-  "Executing plugin plugin-advanced-geoip",
-  "Could not discard IP for event b3a1fe86-b10c-43cc-acaf-d208977608d0 as GeoIP has not been processed.",
-  "Finished processing b3a1fe86-b10c-43cc-acaf-d208977608d0.",
+  "Executing plugin plugin-posthog-plugin-snowplow-referer-parser",
+  "(Event: $pageview) URL: https://posthog.com, Referrer: undefined, Referring domain: undefined",
+  "Plugin execution failed: Cannot read properties of undefined (reading 'indexOf')",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-Plugin-Stonly-Clean-Campaign-Name', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-Plugin-Stonly-Clean-Campaign-Name",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-currency-normalization-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-currency-normalization-plugin",
   "Execution successful",
 ]
 `;
@@ -138,6 +154,13 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-drop-events-on-property-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin plugin-drop-events-on-property-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-first-time-event-tracker', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-first-time-event-tracker",
   "Execution successful",
 ]
 `;
@@ -163,9 +186,25 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 ]
 `;
 
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-plugin-advanced-geoip', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-plugin-advanced-geoip",
+  "Could not discard IP for event b3a1fe86-b10c-43cc-acaf-d208977608d0 as GeoIP has not been processed.",
+  "Finished processing b3a1fe86-b10c-43cc-acaf-d208977608d0.",
+  "Execution successful",
+]
+`;
+
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-plugin-netdata-event-processing', plugin: [Object] } 1`] = `
 [
   "Executing plugin plugin-plugin-netdata-event-processing",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-plugin-stonly-UTM-Extractor', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-plugin-stonly-UTM-Extractor",
   "Execution successful",
 ]
 `;
@@ -201,15 +240,27 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-posthog-route-censor-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin plugin-posthog-route-censor-plugin",
-  "Plugin execution failed: Unexpected token e in JSON at position 1",
-]
-`;
-
-exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-posthog-snowplow-referer-parser', plugin: [Object] } 1`] = `
-[
-  "Executing plugin plugin-posthog-snowplow-referer-parser",
-  "(Event: $pageview) URL: https://posthog.com, Referrer: undefined, Referring domain: undefined",
-  "Plugin execution failed: Cannot read properties of undefined (reading 'indexOf')",
+  "Plugin set up with global config: , {
+  "properties": [
+    "$current_url",
+    "$referrer",
+    "$pathname",
+    "$initial_current_url",
+    "initial_pathname",
+    "initial_referrer"
+  ],
+  "setProperties": [
+    "$initial_current_url",
+    "$initial_pathname",
+    "$initial_referrer"
+  ],
+  "setOnceProperties": [
+    "$initial_current_url",
+    "$initial_pathname",
+    "$initial_referrer"
+  ]
+}",
+  "Execution successful",
 ]
 `;
 
@@ -236,20 +287,6 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 ]
 `;
 
-exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-stonly-clean-campaign-name', plugin: [Object] } 1`] = `
-[
-  "Executing plugin plugin-stonly-clean-campaign-name",
-  "Execution successful",
-]
-`;
-
-exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-stonly-utm-extractor', plugin: [Object] } 1`] = `
-[
-  "Executing plugin plugin-stonly-utm-extractor",
-  "Execution successful",
-]
-`;
-
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-taxonomy-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin plugin-taxonomy-plugin",
@@ -260,6 +297,13 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-timestamp-parser-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin plugin-timestamp-parser-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-url-parser-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-url-parser-plugin",
   "Execution successful",
 ]
 `;

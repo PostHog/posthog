@@ -24,7 +24,7 @@ export const posthogRouteCensorPlugin: LegacyTransformationPlugin = {
                 label: 'List of routes following the React Router route patterns.',
                 description:
                     '[Example Here](https://github.com/ava-labs/posthog-route-censor-plugin/blob/main/src/assets/exampleRoutes.json).  See package [README](https://github.com/ava-labs/posthog-route-censor-plugin) for more details.',
-                type: 'string',
+                type: 'json',
                 required: true,
             },
             {

@@ -1,0 +1,73 @@
+{
+    "$exception_list": [
+        {
+            "type": "Error",
+            "value": "My first PostHog error!",
+            "stacktrace": {
+                "frames": [
+                    {
+                        "filename": "node:_http_common",
+                        "module": "node:_http_common",
+                        "function": "HTTPParser.parserOnHeadersComplete",
+                        "lineno": 119,
+                        "colno": 17,
+                        "in_app": false,
+                        "platform": "node:javascript"
+                    },
+                    {
+                        "filename": "node:_http_server",
+                        "module": "node:_http_server",
+                        "function": "parserOnIncoming",
+                        "lineno": 1131,
+                        "colno": 12,
+                        "in_app": false,
+                        "platform": "node:javascript"
+                    },
+                    {
+                        "filename": "node:events",
+                        "module": "node:events",
+                        "function": "Server.emit",
+                        "lineno": 517,
+                        "colno": 28,
+                        "in_app": false,
+                        "platform": "node:javascript"
+                    },
+                    {
+                        "filename": "/Users/david/Desktop/example/server.ts",
+                        "module": "server.ts",
+                        "function": "Server.?",
+                        "lineno": 27,
+                        "colno": 9,
+                        "in_app": true,
+                        "platform": "node:javascript",
+                        "pre_context": [
+                            "});",
+                            "",
+                            "posthog.debug();",
+                            "",
+                            "const server = createServer((req, res) => {",
+                            "  res.writeHead(200, { \"Content-Type\": \"text/plain\" });",
+                            "  posthog.capture({ event: \"Test event\", distinctId: \"test\" });"
+                        ],
+                        "context_line": "  throw new Error(\"My first PostHog error!\");",
+                        "post_context": [
+                            "  res.end(\"Hello World!\\n\");",
+                            "});",
+                            "// starts a simple http server locally on port 3000",
+                            "server.listen(8020, \"127.0.0.1\", () => {",
+                            "  console.log(\"Listening on 127.0.0.1:8020\");",
+                            "});"
+                        ]
+                    }
+                ],
+                "type": "raw"
+            },
+            "mechanism": {
+                "type": "onuncaughtexception",
+                "handled": false
+            }
+        }
+    ],
+    "$lib": "posthog-node",
+    "$lib_version": "4.4.1"
+}

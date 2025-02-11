@@ -1501,9 +1501,12 @@
                     ],
                     "type": "string"
                 },
-                "formula": {
+                "formulas": {
                     "description": "If the formula is provided, apply it here.",
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "showLegend": {
                     "default": false,
@@ -2993,7 +2996,7 @@
                 },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/PathsLink"
                     },
                     "type": "array"
                 },
@@ -9496,6 +9499,25 @@
             },
             "type": "object"
         },
+        "PathsLink": {
+            "additionalProperties": false,
+            "properties": {
+                "average_conversion_time": {
+                    "type": "number"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "target": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["source", "target", "value", "average_conversion_time"],
+            "type": "object"
+        },
         "PathsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -9586,7 +9608,7 @@
                 },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/PathsLink"
                     },
                     "type": "array"
                 },
@@ -11616,7 +11638,7 @@
                         },
                         "results": {
                             "items": {
-                                "type": "object"
+                                "$ref": "#/definitions/PathsLink"
                             },
                             "type": "array"
                         },
@@ -13823,6 +13845,13 @@
                 },
                 "formula": {
                     "type": "string"
+                },
+                "formulas": {
+                    "description": "List of formulas to apply to the data. Takes precedence over formula if both are set.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "goalLines": {
                     "description": "Goal Lines",

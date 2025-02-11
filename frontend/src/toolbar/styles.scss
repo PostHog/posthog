@@ -1,4 +1,4 @@
-@import '../styles/vars';
+@import '../styles/base';
 
 *,
 *::before,
@@ -15,7 +15,7 @@
     font-size: 14px;
     line-height: 1.5;
 
-    @include root-variables;
+    // @include root-variables;
 }
 
 .LemonModal__overlay--force-modal-above-popovers {

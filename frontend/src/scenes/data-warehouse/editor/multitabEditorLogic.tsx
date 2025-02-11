@@ -37,7 +37,29 @@ export const editorModelsStateKey = (key: string | number): string => `${key}/ed
 export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
 export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
 
-export const NEW_QUERY = 'New query'
+export const NEW_QUERY = 'Untitled'
+
+const getNextUntitledNumber = (tabs: QueryTab[]): number => {
+    const untitledNumbers = tabs
+        .filter((tab) => tab.name.startsWith(NEW_QUERY))
+        .map((tab) => {
+            const match = tab.name.match(/Untitled (\d+)/)
+            return match ? parseInt(match[1]) : 0
+        })
+        .filter((num) => !isNaN(num))
+
+    if (untitledNumbers.length === 0) {
+        return 1
+    }
+
+    // Find the first gap in the sequence or use the next number
+    for (let i = 1; i <= untitledNumbers.length + 1; i++) {
+        if (!untitledNumbers.includes(i)) {
+            return i
+        }
+    }
+    return untitledNumbers.length + 1
+}
 
 export interface QueryTab {
     uri: Uri
@@ -70,6 +92,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         addTab: (tab: QueryTab) => ({ tab }),
         createTab: (query?: string, view?: DataWarehouseSavedQuery) => ({ query, view }),
         deleteTab: (tab: QueryTab) => ({ tab }),
+        _deleteTab: (tab: QueryTab) => ({ tab }),
         removeTab: (tab: QueryTab) => ({ tab }),
         selectTab: (tab: QueryTab) => ({ tab }),
         setLocalState: (key: string, value: any) => ({ key, value }),
@@ -205,15 +228,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     initModel(model, mountedCodeEditorLogic)
                 }
 
+                const nextUntitledNumber = getNextUntitledNumber(values.allTabs)
+                const tabName = view?.name || `${NEW_QUERY} ${nextUntitledNumber}`
+
                 actions.addTab({
                     uri,
                     view,
-                    name: view?.name || NEW_QUERY,
+                    name: tabName,
                 })
                 actions.selectTab({
                     uri,
                     view,
-                    name: view?.name || NEW_QUERY,
+                    name: tabName,
                 })
 
                 const queries = values.allTabs.map((tab) => {
@@ -250,6 +276,31 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             path && actions.setLocalState(activeModelStateKey(props.key), path)
         },
         deleteTab: ({ tab: tabToRemove }) => {
+            if (values.activeModelUri?.view && values.queryInput !== values.sourceQuery.source.query) {
+                LemonDialog.open({
+                    title: 'Close tab',
+                    description: 'Are you sure you want to close this tab? There are unsaved changes.',
+                    primaryButton: {
+                        children: 'Close',
+                        status: 'danger',
+                        onClick: () => actions._deleteTab(tabToRemove),
+                    },
+                })
+            } else if (values.queryInput !== '' && !values.activeModelUri?.view) {
+                LemonDialog.open({
+                    title: 'Delete query',
+                    description: 'Are you sure you want to delete this query?',
+                    primaryButton: {
+                        children: 'Delete',
+                        status: 'danger',
+                        onClick: () => actions._deleteTab(tabToRemove),
+                    },
+                })
+            } else {
+                actions._deleteTab(tabToRemove)
+            }
+        },
+        _deleteTab: ({ tab: tabToRemove }) => {
             if (props.monaco) {
                 const model = props.monaco.editor.getModel(tabToRemove.uri)
                 if (tabToRemove.uri.toString() === values.activeModelUri?.uri.toString()) {
@@ -310,7 +361,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         newModels.push({
                             uri,
                             view: model.view,
-                            name: model.name || NEW_QUERY,
+                            name: model.name,
                         })
                         mountedCodeEditorLogic && initModel(newModel, mountedCodeEditorLogic)
                     }
@@ -336,18 +387,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         actions.setQueryInput(val)
                         actions.runQuery()
                     }
-                    const activeView = newModels.find((tab) => tab.uri.path.split('/').pop() === activeModelUri)?.view
+                    const activeTab = newModels.find((tab) => tab.uri.path.split('/').pop() === activeModelUri)
+                    const activeView = activeTab?.view
 
-                    uri &&
+                    if (uri && activeTab) {
                         actions.selectTab({
                             uri,
                             view: activeView,
-                            name: NEW_QUERY,
+                            name: activeView?.name || activeTab.name,
                         })
+                    }
                 } else if (newModels.length) {
                     actions.selectTab({
                         uri: newModels[0].uri,
-                        name: NEW_QUERY,
+                        name: newModels[0].view?.name || newModels[0].name,
                     })
                 }
             } else {
@@ -368,7 +421,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return {
                     query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
                     path: model.uri.path.split('/').pop(),
-                    name: model.view?.name || model.name || NEW_QUERY,
+                    name: model.view?.name || model.name,
                     view: model.view,
                 }
             })
@@ -475,7 +528,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
             const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId)
             if (tabToRemove) {
-                actions.deleteTab(tabToRemove)
+                actions._deleteTab(tabToRemove)
             }
             lemonToast.success('View deleted')
         },
