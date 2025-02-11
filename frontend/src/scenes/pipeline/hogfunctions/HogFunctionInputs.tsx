@@ -464,7 +464,7 @@ export function HogFunctionInputWithSchema({
                                 </div>
                                 {value?.secret ? (
                                     <div className="flex items-center gap-2 p-1 border border-dashed rounded">
-                                        <span className="flex-1 p-1 italic text-muted-alt">
+                                        <span className="flex-1 p-1 italic text-secondary">
                                             This value is secret and is not displayed here.
                                         </span>
                                         <LemonButton
@@ -513,7 +513,7 @@ export function HogFunctionInputs({
             // If this is a mapping, don't show any error message.
             return null
         }
-        return <span className="italic text-muted-alt">This function does not require any input variables.</span>
+        return <span className="italic text-secondary">This function does not require any input variables.</span>
     }
 
     const inputSchemas = configuration.inputs_schema

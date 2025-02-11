@@ -3,6 +3,7 @@ from posthog.cdp.templates.hog_function_template import SUB_TEMPLATE_COMMON, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-webhook",
     name="HTTP Webhook",

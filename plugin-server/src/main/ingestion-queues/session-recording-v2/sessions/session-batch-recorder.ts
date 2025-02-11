@@ -2,7 +2,9 @@ import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
-import { SessionBatchFileWriter } from './session-batch-file-writer'
+import { SessionBatchFileStorage } from './session-batch-file-storage'
+import { SessionBlockMetadata } from './session-block-metadata'
+import { SessionMetadataStore } from './session-metadata-store'
 import { SnappySessionRecorder } from './snappy-session-recorder'
 
 /**
@@ -43,20 +45,16 @@ import { SnappySessionRecorder } from './snappy-session-recorder'
  * This format allows efficient access to individual session recordings within a batch,
  * as only the relevant session block needs to be retrieved and decompressed.
  */
-
-export interface SessionBlockMetadata {
-    sessionId: string
-    teamId: number
-    blockStartOffset: number
-    blockLength: number
-}
-
 export class SessionBatchRecorder {
     private readonly partitionSessions = new Map<number, Map<string, SnappySessionRecorder>>()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
 
-    constructor(private readonly offsetManager: KafkaOffsetManager, private readonly writer: SessionBatchFileWriter) {
+    constructor(
+        private readonly offsetManager: KafkaOffsetManager,
+        private readonly storage: SessionBatchFileStorage,
+        private readonly metadataStore: SessionMetadataStore
+    ) {
         status.debug('🔁', 'session_batch_recorder_created')
     }
 
@@ -143,52 +141,45 @@ export class SessionBatchRecorder {
             totalSize: this._size,
         })
 
-        const { stream: outputStream, finish } = this.writer.newBatch()
+        // If no sessions, commit offsets but skip writing the file
+        if (this.partitionSessions.size === 0) {
+            await this.offsetManager.commit()
+            status.info('🔁', 'session_batch_recorder_flushed_no_sessions')
+            return []
+        }
+
+        const writer = this.storage.newBatch()
         const blockMetadata: SessionBlockMetadata[] = []
-        let currentOffset = 0
 
         let totalEvents = 0
         let totalSessions = 0
         let totalBytes = 0
 
         try {
-            // Set up error handler before writing
-            const writeError = new Promise<never>((_, reject) => {
-                outputStream.on('error', reject)
-            })
-
             for (const sessions of this.partitionSessions.values()) {
                 for (const recorder of sessions.values()) {
-                    const { buffer, eventCount } = await recorder.end()
+                    const { buffer, eventCount, startDateTime, endDateTime } = await recorder.end()
+                    const { bytesWritten, url } = await writer.writeSession(buffer)
 
                     // Track block metadata
                     blockMetadata.push({
                         sessionId: recorder.sessionId,
                         teamId: recorder.teamId,
-                        blockStartOffset: currentOffset,
-                        blockLength: buffer.length,
+                        distinctId: recorder.distinctId,
+                        blockLength: bytesWritten,
+                        startDateTime,
+                        endDateTime,
+                        blockUrl: url,
                     })
-                    currentOffset += buffer.length
-
-                    // Write and handle backpressure, but also watch for errors
-                    const canWriteMore = outputStream.write(buffer)
-                    if (!canWriteMore) {
-                        await Promise.race([
-                            new Promise<void>((resolve) => {
-                                outputStream.once('drain', resolve)
-                            }),
-                            writeError,
-                        ])
-                    }
 
                     totalEvents += eventCount
-                    totalBytes += buffer.length
+                    totalBytes += bytesWritten
                 }
                 totalSessions += sessions.size
             }
 
-            outputStream.end()
-            await finish()
+            await writer.finish()
+            await this.metadataStore.storeSessionBlocks(blockMetadata)
             await this.offsetManager.commit()
 
             // Update metrics
@@ -210,14 +201,12 @@ export class SessionBatchRecorder {
 
             return blockMetadata
         } catch (error) {
-            // Log error and cleanup
             status.error('🔁', 'session_batch_recorder_flush_error', {
                 error,
                 totalEvents,
                 totalSessions,
                 totalBytes,
             })
-            outputStream.destroy()
             throw error
         }
     }

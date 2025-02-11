@@ -96,7 +96,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                     if (!state.includes(eventHost)) {
                         return [...state, eventHost]
                     }
-                    return state
+                    return state ?? []
                 },
             },
         ],

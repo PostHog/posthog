@@ -1,10 +1,12 @@
 import { IconArchive } from '@posthog/icons'
-import { LemonBanner, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FeedbackNotice } from 'lib/components/FeedbackNotice'
+import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -70,10 +72,6 @@ const Tiles = (): JSX.Element => {
 }
 
 const IngestionStatusCheck = (): JSX.Element | null => {
-    const { hasSentAiGenerationEvent } = useValues(llmObservabilityLogic)
-    if (hasSentAiGenerationEvent !== false) {
-        return null
-    }
     return (
         <LemonBanner type="warning" className="mt-2">
             <p>
@@ -141,12 +139,28 @@ function LLMObservabilityNoEvents(): JSX.Element {
 }
 
 export function LLMObservabilityScene(): JSX.Element {
-    const { activeTab, hasSentAiGenerationEvent } = useValues(llmObservabilityLogic)
+    const { activeTab, hasSentAiGenerationEvent, hasSentAiGenerationEventLoading } = useValues(llmObservabilityLogic)
     const { searchParams } = useValues(router)
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
-            <IngestionStatusCheck />
+            <PageHeader
+                buttons={
+                    <LemonButton
+                        to="https://posthog.com/docs/ai-engineering/observability"
+                        type="secondary"
+                        targetBlank
+                    >
+                        Documentation
+                    </LemonButton>
+                }
+            />
+
+            {hasSentAiGenerationEventLoading ? null : hasSentAiGenerationEvent ? (
+                <FeedbackNotice text="LLM observability is currently in beta. Thanks for taking part! We'd love to hear what you think." />
+            ) : (
+                <IngestionStatusCheck />
+            )}
             <LemonTabs
                 activeKey={activeTab}
                 tabs={[

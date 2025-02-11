@@ -137,7 +137,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                         },
                                         {
                                             label: 'Try out in Insights',
-                                            to: urls.insightNew(undefined, undefined, query),
+                                            to: urls.insightNew({ query }),
                                             'data-attr': 'usage',
                                         },
                                     ],

@@ -1487,7 +1487,7 @@
                 },
                 "display": {
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. You can't use this with breakdown; use when user explicitly asks for a single output number. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. You can't use this with breakdown or with multiple series; use when user explicitly asks for a single output number. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
                         "ActionsLineGraph",
                         "ActionsBar",
@@ -1501,9 +1501,12 @@
                     ],
                     "type": "string"
                 },
-                "formula": {
+                "formulas": {
                     "description": "If the formula is provided, apply it here.",
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "showLegend": {
                     "default": false,
@@ -2993,7 +2996,7 @@
                 },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/PathsLink"
                     },
                     "type": "array"
                 },
@@ -5948,6 +5951,9 @@
         "ErrorTrackingIssue": {
             "additionalProperties": false,
             "properties": {
+                "aggregations": {
+                    "$ref": "#/definitions/ErrorTrackingIssueAggregations"
+                },
                 "assignee": {
                     "anyOf": [
                         {
@@ -5957,12 +5963,6 @@
                             "type": "null"
                         }
                     ]
-                },
-                "customVolume": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -5984,15 +5984,35 @@
                 "name": {
                     "type": ["string", "null"]
                 },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "type": "string"
+                }
+            },
+            "required": ["assignee", "description", "first_seen", "id", "name", "status"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueAggregations": {
+            "additionalProperties": false,
+            "properties": {
+                "customVolume": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "occurrences": {
                     "type": "number"
                 },
                 "sessions": {
                     "type": "number"
-                },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release"],
-                    "type": "string"
                 },
                 "users": {
                     "type": "number"
@@ -6010,20 +6030,7 @@
                     "type": "array"
                 }
             },
-            "required": [
-                "id",
-                "name",
-                "description",
-                "first_seen",
-                "last_seen",
-                "occurrences",
-                "sessions",
-                "users",
-                "volumeDay",
-                "volumeMonth",
-                "assignee",
-                "status"
-            ],
+            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeMonth", "customVolume"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -6159,6 +6166,40 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "ErrorTrackingRelationalIssue": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "first_seen": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
         "ErrorTrackingSparklineConfig": {
@@ -7762,6 +7803,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "name": {
+                    "description": "Client provided name of the query",
+                    "type": "string"
+                },
                 "query": {
                     "type": "object"
                 },
@@ -7776,7 +7821,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/HogQLVariable"
                     },
-                    "description": "Variables to be subsituted into the query",
+                    "description": "Variables to be substituted into the query",
                     "type": "object"
                 }
             },
@@ -8025,6 +8070,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "name": {
+                    "description": "Client provided name of the query",
+                    "type": "string"
+                },
                 "query": {
                     "type": "string"
                 },
@@ -8039,7 +8088,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/HogQLVariable"
                     },
-                    "description": "Variables to be subsituted into the query",
+                    "description": "Variables to be substituted into the query",
                     "type": "object"
                 }
             },
@@ -9488,6 +9537,25 @@
             },
             "type": "object"
         },
+        "PathsLink": {
+            "additionalProperties": false,
+            "properties": {
+                "average_conversion_time": {
+                    "type": "number"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "target": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["source", "target", "value", "average_conversion_time"],
+            "type": "object"
+        },
         "PathsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -9578,7 +9646,7 @@
                 },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/PathsLink"
                     },
                     "type": "array"
                 },
@@ -11608,7 +11676,7 @@
                         },
                         "results": {
                             "items": {
-                                "type": "object"
+                                "$ref": "#/definitions/PathsLink"
                             },
                             "type": "array"
                         },
@@ -13816,6 +13884,13 @@
                 "formula": {
                     "type": "string"
                 },
+                "formulas": {
+                    "description": "List of formulas to apply to the data. Takes precedence over formula if both are set.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "goalLines": {
                     "description": "Goal Lines",
                     "items": {
@@ -13862,6 +13937,10 @@
                     "type": "boolean"
                 },
                 "showLegend": {
+                    "default": false,
+                    "type": "boolean"
+                },
+                "showMultipleYAxes": {
                     "default": false,
                     "type": "boolean"
                 },
@@ -13935,6 +14014,9 @@
                     "type": "boolean"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_multiple_y_axes": {
                     "type": "boolean"
                 },
                 "show_percent_stack_view": {

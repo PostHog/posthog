@@ -245,9 +245,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (s) => [s.hogFunctions],
             (hogFunctions) => {
                 // Hide disabled functions and free functions. Shown in the "unsubscribe from data pipelines" modal.
-                return hogFunctions.filter(
-                    (hogFunction) => hogFunction.enabled && hogFunction.template?.status !== 'free'
-                )
+                return hogFunctions.filter((hogFunction) => hogFunction.enabled && !hogFunction.template?.free)
             },
         ],
         loading: [
@@ -382,9 +380,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
-        actions.loadPlugins()
-        actions.loadPluginConfigs()
         if (props.types.includes('destination')) {
+            actions.loadPlugins()
+            actions.loadPluginConfigs()
             actions.loadBatchExports()
         }
         actions.loadHogFunctions()

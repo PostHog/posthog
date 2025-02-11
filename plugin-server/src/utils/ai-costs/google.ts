@@ -2,6 +2,27 @@ import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
+        model: 'gemini-2.0-flash-001',
+        cost: {
+            prompt_token: 0.0000001,
+            completion_token: 0.0000004,
+        },
+    },
+    {
+        model: 'gemini-2.0-flash-lite-preview-02-05:free',
+        cost: {
+            prompt_token: 0,
+            completion_token: 0,
+        },
+    },
+    {
+        model: 'gemini-2.0-pro-exp-02-05:free',
+        cost: {
+            prompt_token: 0,
+            completion_token: 0,
+        },
+    },
+    {
         model: 'gemini-2.0-flash-thinking-exp:free',
         cost: {
             prompt_token: 0,
@@ -30,21 +51,7 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'gemini-exp-1121:free',
-        cost: {
-            prompt_token: 0,
-            completion_token: 0,
-        },
-    },
-    {
         model: 'learnlm-1.5-pro-experimental:free',
-        cost: {
-            prompt_token: 0,
-            completion_token: 0,
-        },
-    },
-    {
-        model: 'gemini-exp-1114:free',
         cost: {
             prompt_token: 0,
             completion_token: 0,
@@ -53,15 +60,8 @@ export const costs: ModelRow[] = [
     {
         model: 'gemini-flash-1.5-8b',
         cost: {
-            prompt_token: 3.75e-8,
-            completion_token: 1.5e-7,
-        },
-    },
-    {
-        model: 'gemini-flash-1.5-exp',
-        cost: {
-            prompt_token: 0,
-            completion_token: 0,
+            prompt_token: 0.0000000375,
+            completion_token: 0.00000015,
         },
     },
     {
@@ -72,17 +72,10 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'gemini-pro-1.5-exp',
-        cost: {
-            prompt_token: 0,
-            completion_token: 0,
-        },
-    },
-    {
         model: 'gemma-2-27b-it',
         cost: {
-            prompt_token: 2.7e-7,
-            completion_token: 2.7e-7,
+            prompt_token: 0.00000027,
+            completion_token: 0.00000027,
         },
     },
     {
@@ -95,15 +88,15 @@ export const costs: ModelRow[] = [
     {
         model: 'gemma-2-9b-it',
         cost: {
-            prompt_token: 3e-8,
-            completion_token: 6e-8,
+            prompt_token: 0.00000003,
+            completion_token: 0.00000006,
         },
     },
     {
         model: 'gemini-flash-1.5',
         cost: {
-            prompt_token: 7.5e-8,
-            completion_token: 3e-7,
+            prompt_token: 0.000000075,
+            completion_token: 0.0000003,
         },
     },
     {
@@ -116,21 +109,21 @@ export const costs: ModelRow[] = [
     {
         model: 'gemma-7b-it',
         cost: {
-            prompt_token: 1.5e-7,
-            completion_token: 1.5e-7,
+            prompt_token: 0.00000015,
+            completion_token: 0.00000015,
         },
     },
     {
         model: 'gemini-pro-vision',
         cost: {
-            prompt_token: 5e-7,
+            prompt_token: 0.0000005,
             completion_token: 0.0000015,
         },
     },
     {
         model: 'gemini-pro',
         cost: {
-            prompt_token: 5e-7,
+            prompt_token: 0.0000005,
             completion_token: 0.0000015,
         },
     },

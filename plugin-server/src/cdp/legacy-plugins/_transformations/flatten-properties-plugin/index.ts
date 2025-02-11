@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 /**
  * Some events will always create very large numbers of flattened properties
  * This is undesirable since a large enough number of properties for a particular team can slow down the property filter in the UI
@@ -55,10 +54,4 @@ const flattenProperties = (props: Record<string, any>, sep: string, nestedChain:
         return { ...newProps }
     }
     return { ...props, ...newProps }
-}
-
-export const flattenPropertiesPlugin: LegacyTransformationPlugin = {
-    id: 'flatten-properties-plugin',
-    metadata,
-    processEvent,
 }

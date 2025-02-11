@@ -10,6 +10,7 @@ import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ChartDisplayType,
     FeatureFlagFilters,
+    FeatureFlagType,
     FunnelConversionWindowTimeUnit,
     FunnelTimeConversionMetrics,
     FunnelVizType,
@@ -185,6 +186,21 @@ export function getViewRecordingFilters(
         }
     })
     return filters
+}
+
+export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
+    if (featureFlag.experiment_set && featureFlag.experiment_set.length > 0) {
+        throw new Error('Feature flag is already associated with an experiment.')
+    }
+
+    if (featureFlag.filters.multivariate?.variants?.length && featureFlag.filters.multivariate.variants.length > 1) {
+        if (featureFlag.filters.multivariate.variants[0].key !== 'control') {
+            throw new Error('Feature flag must have control as the first variant.')
+        }
+        return true
+    }
+
+    throw new Error('Feature flag must use multiple variants with control as the first variant.')
 }
 
 export function getDefaultTrendsMetric(): ExperimentTrendsQuery {

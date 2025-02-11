@@ -1,4 +1,5 @@
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+import { isValidRegexp } from 'lib/utils/regexp'
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
@@ -14,6 +15,14 @@ interface PathRegexPopoverProps {
 export function PathRegexPopover({ filter = {}, onSave, onCancel, isNew = false }: PathRegexPopoverProps): JSX.Element {
     const [alias, setAlias] = useState(filter.alias)
     const [regex, setRegex] = useState(filter.regex)
+
+    const disabledReason = !alias
+        ? 'Alias is required'
+        : !regex
+        ? 'Regex is required'
+        : !isValidRegexp(regex)
+        ? 'Malformed regex'
+        : null
 
     return (
         <div className="px-2 py-1">
@@ -31,7 +40,7 @@ export function PathRegexPopover({ filter = {}, onSave, onCancel, isNew = false 
                 <div>
                     <span>Regex</span>
                     <LemonInput defaultValue={regex} onChange={(regex) => setRegex(regex)} onPressEnter={() => false} />
-                    <p className="text-muted">
+                    <p className="text-secondary">
                         <span>
                             Example:{' '}
                             <span title={filter.regex} className="font-mono text-accent-primary text-xs">
@@ -55,7 +64,7 @@ export function PathRegexPopover({ filter = {}, onSave, onCancel, isNew = false 
                 <LemonButton type="secondary" onClick={onCancel}>
                     Cancel
                 </LemonButton>
-                <LemonButton type="primary" onClick={() => onSave({ alias, regex })}>
+                <LemonButton type="primary" onClick={() => onSave({ alias, regex })} disabledReason={disabledReason}>
                     Save
                 </LemonButton>
             </div>

@@ -27,7 +27,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
         full: true,
     }
 
-    const insightUrl = urls.insightNew(InsightType.SQL, null, dataTableNode)
+    const insightUrl = urls.insightNew({ type: InsightType.SQL, query: dataTableNode })
 
     const canvasContent = {
         type: 'doc',
@@ -44,7 +44,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
     const canvasUrl = urls.canvas() + '#🦔=' + btoa(JSON.stringify(canvasContent))
 
     return (
-        <div className="relative p-3 space-y-2 border rounded bg-bg-light">
+        <div className="relative p-3 space-y-2 border rounded bg-surface-primary">
             <LemonLabel>Matching events</LemonLabel>
             {sparkline && !sparklineLoading ? (
                 <>

@@ -2,8 +2,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 type IntercomMeta = LegacyDestinationPluginMeta & {
     global: {
         intercomUrl: string
@@ -16,7 +15,7 @@ type IntercomMeta = LegacyDestinationPluginMeta & {
     }
 }
 
-async function onEvent(event: ProcessedPluginEvent, meta: IntercomMeta): Promise<void> {
+export async function onEvent(event: ProcessedPluginEvent, meta: IntercomMeta): Promise<void> {
     if (!isTriggeringEvent(meta.config.triggeringEvents, event.event)) {
         return
     }
@@ -186,11 +185,4 @@ function getTimestamp(meta: IntercomMeta, event: ProcessedPluginEvent): number {
     }
     const date = new Date()
     return Math.floor(date.getTime() / 1000)
-}
-
-export const intercomPlugin: LegacyDestinationPlugin = {
-    id: 'posthog-intercom-plugin',
-    metadata,
-    onEvent,
-    setupPlugin: () => Promise.resolve(),
 }

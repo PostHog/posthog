@@ -7,15 +7,15 @@ from typing import Optional
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team.team import Team
 from posthog.settings.utils import get_list
 from token_bucket import Limiter, MemoryStorage
 from posthog.models.personal_api_key import hash_key_value
-
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
@@ -83,6 +83,21 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         except KeyError:
             return None
 
+    def load_team_rate_limit(self, team_id):
+        # try loading from cache
+        rate_limit_cache_key = f"team_ratelimit_{self.scope}_{team_id}"
+        cached_rate_limit = self.cache.get(rate_limit_cache_key, None)
+        if cached_rate_limit is not None:
+            self.rate = cached_rate_limit
+        else:
+            team = Team.objects.get(id=team_id)
+            if not team or not team.api_query_rate_limit:
+                return
+            self.rate = team.api_query_rate_limit
+            self.cache.set(rate_limit_cache_key, self.rate)
+
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+
     def allow_request(self, request, view):
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
@@ -93,11 +108,14 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return True
 
         try:
+            team_id = self.safely_get_team_id_from_view(view)
+            if team_id is not None and self.scope == HogQLQueryThrottle.scope:
+                self.load_team_rate_limit(team_id)
+
             request_would_be_allowed = super().allow_request(request, view)
             if request_would_be_allowed:
                 return True
 
-            team_id = self.safely_get_team_id_from_view(view)
             path = getattr(request, "path", None)
             if path:
                 path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
@@ -126,6 +144,9 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                 )
                 RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
 
+            return False
+        except Team.DoesNotExist as e:
+            capture_exception(e)
             return False
         except Exception as e:
             capture_exception(e)

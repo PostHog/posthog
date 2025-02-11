@@ -25,7 +25,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
             key: 'icon',
             width: 0,
             render: function Render(_, definition: PropertyDefinition) {
-                return <span className="text-xl text-muted">{getPropertyDefinitionIcon(definition)}</span>
+                return <span className="text-xl text-secondary">{getPropertyDefinitionIcon(definition)}</span>
             },
         },
         {
@@ -51,7 +51,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                         {definition.property_type}
                     </LemonTag>
                 ) : (
-                    <span className="text-muted">—</span>
+                    <span className="text-secondary">—</span>
                 )
             },
         },
@@ -73,14 +73,15 @@ export function PropertyDefinitionsTable(): JSX.Element {
             <LemonBanner className="mb-4" type="info">
                 Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
                 <Link
-                    to={urls.insightNewHogQL(
-                        'SELECT arrayJoin(JSONExtractKeys(properties)) AS property_key, count()\n' +
+                    to={urls.insightNewHogQL({
+                        query:
+                            'SELECT arrayJoin(JSONExtractKeys(properties)) AS property_key, count()\n' +
                             (filters.type === 'person' ? 'FROM persons\n' : 'FROM events\n') +
                             (filters.type === 'person' ? '' : 'WHERE {filters}\n') +
                             'GROUP BY property_key\n' +
                             'ORDER BY count() DESC',
-                        { dateRange: { date_from: '-24h' } }
-                    )}
+                        filters: { dateRange: { date_from: '-24h' } },
+                    })}
                 >
                     Query with SQL
                 </Link>

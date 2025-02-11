@@ -16,6 +16,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
 import {
     ActionConversionGoal,
@@ -228,21 +229,6 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
 }
-
-// We're setting end to 20% above the poor threshold to have much more space in the UI for the good and poor segments
-export type WebVitalsThreshold = { good: number; poor: number; end: number }
-export const WEB_VITALS_THRESHOLDS: Record<WebVitalsMetric, WebVitalsThreshold> = {
-    INP: { good: 200, poor: 500, end: 500 * 1.2 },
-    LCP: { good: 2500, poor: 4000, end: 4000 * 1.2 },
-    CLS: { good: 0.1, poor: 0.25, end: 0.25 * 1.2 },
-    FCP: { good: 1800, poor: 3000, end: 3000 * 1.2 },
-}
-
-export const WEB_VITALS_COLORS = {
-    good: 'rgb(45, 200, 100)',
-    needs_improvements: 'rgb(255, 160, 0)',
-    poor: 'rgb(220, 53, 69)',
-} as const
 
 const GEOIP_PLUGIN_URLS = [
     'https://github.com/PostHog/posthog-plugin-geoip',
@@ -1854,9 +1840,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         if (!tab) {
                             return undefined
                         }
-                        return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tab.query))
+                        return urls.insightNew({ query: formatQueryForNewInsight(tab.query) })
                     } else if (tile.kind === 'query') {
-                        return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tile.query))
+                        return urls.insightNew({ query: formatQueryForNewInsight(tile.query) })
                     } else if (tile.kind === 'replay') {
                         return urls.replay()
                     }

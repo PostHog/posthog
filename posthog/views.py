@@ -3,7 +3,7 @@ import os
 from functools import partial, wraps
 from typing import Union
 
-import sentry_sdk
+from posthog.exceptions_capture import capture_exception
 from django.conf import settings
 from django.contrib.admin.sites import site as admin_site
 from django.contrib.admin.views.decorators import staff_member_required
@@ -67,7 +67,7 @@ def health(request):
     status = 503 if plan else 200
     if status == 503:
         err = Exception("Migrations are not up to date. If this continues migrations have failed")
-        sentry_sdk.capture_exception(err)
+        capture_exception(err)
         return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
     if status == 200:
         return HttpResponse("ok", status=status, content_type="text/plain")

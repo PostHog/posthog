@@ -56,14 +56,15 @@ class HogFunctionMappingTemplate:
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionTemplate:
-    status: Literal["alpha", "beta", "stable", "free", "client-side"]
+    status: Literal["alpha", "beta", "stable", "deprecated"]
+    free: bool
     type: HogFunctionTemplateType
     id: str
     name: str
-    description: str
     hog: str
     inputs_schema: list[dict]
     category: list[str]
+    description: Optional[str] = None
     sub_templates: Optional[list[HogFunctionSubTemplate]] = None
     filters: Optional[dict] = None
     mappings: Optional[list[HogFunctionMapping]] = None

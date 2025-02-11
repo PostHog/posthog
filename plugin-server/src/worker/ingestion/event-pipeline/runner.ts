@@ -10,6 +10,7 @@ import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { cloneObject } from '../../../utils/utils'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { compareToHogTransformStep } from './compareToHogTransformStep'
@@ -232,18 +233,29 @@ export class EventPipelineRunner {
             return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
         }
 
+        // Setup a cloned event so we can compare the post-plugins event to the pre-plugins event
+        let clonedSourceEvent: PluginEvent | null = null
+
+        try {
+            const shouldCompareToHogFunctions =
+                this.hogTransformer && Math.random() < (this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE ?? 0)
+
+            if (shouldCompareToHogFunctions) {
+                clonedSourceEvent = cloneObject(postCookielessEvent)
+            }
+        } catch (error) {
+            status.error('🔔', 'Error cloning event for hog transform comparison', { error })
+        }
+
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
 
-        // NOTE: We don't use the step process here as we don't want it to interfere with other metrics
-        try {
-            await compareToHogTransformStep(
-                this.hogTransformer,
-                postCookielessEvent,
-                processedEvent,
-                this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE
-            )
-        } catch (error) {
-            status.error('🔔', 'Error comparing to hog transform', { error })
+        if (clonedSourceEvent) {
+            // NOTE: We don't use the step process here as we don't want it to interfere with other metrics
+            try {
+                await compareToHogTransformStep(this.hogTransformer, clonedSourceEvent, processedEvent)
+            } catch (error) {
+                status.error('🔔', 'Error comparing to hog transform', { error })
+            }
         }
 
         if (processedEvent == null) {

@@ -131,9 +131,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                     <LemonSkeleton className="h-6" />
                 ) : (
                     <div className="flex items-center gap-2">
-                        <IconPeople className="text-muted-alt text-lg" />
+                        <IconPeople className="text-secondary text-lg" />
                         <span className="flex-1 font-semibold truncate">{cohort.name}</span>
-                        <span className="italic text-muted-alt">({cohort.count} persons)</span>
+                        <span className="italic text-secondary">({cohort.count} persons)</span>
                         <LemonTag>{cohort.is_static ? 'Static' : 'Dynamic'}</LemonTag>
                     </div>
                 )}

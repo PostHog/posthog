@@ -298,12 +298,14 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
-    /** Variables to be subsituted into the query */
+    /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
+    /** Client provided name of the query */
+    name?: string
 }
 
 export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
@@ -885,6 +887,8 @@ export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
     formula?: TrendsFilterLegacy['formula']
+    /** List of formulas to apply to the data. Takes precedence over formula if both are set. */
+    formulas?: string[]
     /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
     /** @default false */
@@ -903,6 +907,8 @@ export type TrendsFilter = {
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    /** @default false */
+    showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
     /**
      * Wether result datasets are associated by their values or by their order.
@@ -1105,7 +1111,14 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
     retentionFilter: RetentionFilter
 }
 
-export interface PathsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export type PathsLink = {
+    source: string
+    target: string
+    value: number
+    average_conversion_time: number
+}
+
+export interface PathsQueryResponse extends AnalyticsQueryResponseBase<PathsLink[]> {}
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
@@ -1658,23 +1671,30 @@ export type ErrorTrackingSparklineConfig = {
     interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
 }
 
-export interface ErrorTrackingIssue {
-    id: string
-    name: string | null
-    description: string | null
-    /**  @format date-time */
-    first_seen: string
-    /**  @format date-time */
-    last_seen: string
-    earliest?: string
+export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
     volumeDay: number[]
     volumeMonth: number[]
-    customVolume?: number[]
+    customVolume: number[] | null
+}
+
+export interface ErrorTrackingRelationalIssue {
+    id: string
+    name: string | null
+    description: string | null
     assignee: ErrorTrackingIssueAssignee | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
+    /**  @format date-time */
+    first_seen: string
+}
+
+export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
+    /**  @format date-time */
+    last_seen?: string
+    earliest?: string
+    aggregations?: ErrorTrackingIssueAggregations
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {

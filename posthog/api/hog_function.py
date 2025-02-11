@@ -21,7 +21,6 @@ from posthog.api.shared import UserBasicSerializer
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 from posthog.cdp.services.icons import CDPIconsService
-from posthog.cdp.templates._internal.template_legacy_plugin import create_legacy_plugin_template
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
@@ -152,28 +151,40 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         attrs["team"] = team
 
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+        bypass_addon_check = self.context.get("bypass_addon_check", False)
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         hog_type = attrs.get("type", instance.type if instance else "destination")
-        is_create = self.context.get("view") and self.context["view"].action == "create"
+        is_create = self.context.get("is_create") or (
+            self.context.get("view") and self.context["view"].action == "create"
+        )
 
         template_id = attrs.get("template_id", instance.template_id if instance else None)
         template = HogFunctionTemplates.template(template_id) if template_id else None
 
-        if template_id and template_id.startswith("plugin-"):
-            template = create_legacy_plugin_template(template_id)
+        if hog_type == "transformation":
+            allowed_teams = [int(team_id) for team_id in settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS]
+            if team.id not in allowed_teams:
+                if not template:
+                    raise serializers.ValidationError(
+                        {"template_id": "Transformation functions must be created from a template."}
+                    )
+                # Currently we do not allow modifying the core transformation templates when transformations are disabled
+                attrs["hog"] = template.hog
+                attrs["inputs_schema"] = template.inputs_schema
 
         if not has_addon:
-            # In this case they are only allowed to create or update the function with free templates
-            if not template:
-                raise serializers.ValidationError(
-                    {"template_id": "The Data Pipelines addon is required to create custom functions."}
-                )
+            if not bypass_addon_check:
+                # If they don't have the addon, they can only use free templates and can't modify them
+                if not template:
+                    raise serializers.ValidationError(
+                        {"template_id": "The Data Pipelines addon is required to create custom functions."}
+                    )
 
-            if template.status != "free" and not instance:
-                raise serializers.ValidationError(
-                    {"template_id": "The Data Pipelines addon is required for this template."}
-                )
+                if not template.free and not instance:
+                    raise serializers.ValidationError(
+                        {"template_id": "The Data Pipelines addon is required for this template."}
+                    )
 
             # Without the addon you can't deviate from the template
             attrs["hog"] = template.hog
@@ -191,16 +202,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["hog"] = attrs.get("hog") or template.hog
                 attrs["inputs_schema"] = attrs.get("inputs_schema") or template.inputs_schema
                 attrs["inputs"] = attrs.get("inputs") or {}
-
-        if hog_type == "transformation":
-            if not settings.HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED:
-                if not template:
-                    raise serializers.ValidationError(
-                        {"template_id": "Transformation functions must be created from a template."}
-                    )
-                # Currently we do not allow modifying the core transformation templates when transformations are disabled
-                attrs["hog"] = template.hog
-                attrs["inputs_schema"] = template.inputs_schema
 
         # Used for both top level input validation, and mappings input validation
         def validate_input_and_filters(attrs: dict):
