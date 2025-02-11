@@ -89,7 +89,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         "isAuthenticated": False,
         # gzip and gzip-js are aliases for the same compression algorithm
         "supportedCompression": ["gzip", "gzip-js"],
-        "featureFlags": [],
+        "featureFlags": {},
         "sessionRecording": False,
     }
 
@@ -185,7 +185,7 @@ def get_decide(request: HttpRequest):
                     "toolbarParams": {},
                     "isAuthenticated": False,
                     "supportedCompression": ["gzip", "gzip-js"],
-                    "featureFlags": [],
+                    "featureFlags": {},
                     "sessionRecording": False,
                 }
             ),
@@ -195,6 +195,7 @@ def get_decide(request: HttpRequest):
     try:
         data = load_data_from_request(request)
         api_version_string = request.GET.get("v")
+        # NOTE: This does not support semantic versioning e.g. 2.1.0
         api_version = int(api_version_string) if api_version_string else 1
     except ValueError:
         # default value added because of bug in posthog-js 1.19.0
@@ -218,6 +219,10 @@ def get_decide(request: HttpRequest):
         )
     except RequestParsingError as error:
         capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
+        return cors_response(
+            request,
+            generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
+        )
 
     # --- 3. Authenticate the request ---
     token = get_token(data, request)
