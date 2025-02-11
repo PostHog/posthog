@@ -1501,9 +1501,12 @@
                     ],
                     "type": "string"
                 },
-                "formula": {
+                "formulas": {
                     "description": "If the formula is provided, apply it here.",
-                    "type": "string"
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "showLegend": {
                     "default": false,
@@ -13842,6 +13845,13 @@
                 },
                 "formula": {
                     "type": "string"
+                },
+                "formulas": {
+                    "description": "List of formulas to apply to the data. Takes precedence over formula if both are set.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "goalLines": {
                     "description": "Goal Lines",
