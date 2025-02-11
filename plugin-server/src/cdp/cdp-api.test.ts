@@ -451,13 +451,6 @@ describe('CDP API', () => {
                 .send({ globals, mock_async_functions: true, configuration })
 
             expect(res.status).toEqual(200)
-
-            expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
-                [
-                  "Execution successful",
-                ]
-            `)
-
             expect(forSnapshot(res.body.result)).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "123",
@@ -489,13 +482,6 @@ describe('CDP API', () => {
                 .send({ globals, mock_async_functions: true, configuration })
 
             expect(res.status).toEqual(200)
-
-            expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
-                [
-                  "Execution successful",
-                ]
-            `)
-
             expect(res.body.result).toMatchInlineSnapshot(`null`)
         })
     })

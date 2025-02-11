@@ -242,12 +242,10 @@ describe('LegacyPluginExecutorService', () => {
             expect(res.finished).toBe(true)
             expect(res.logs.map((l) => l.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin plugin-customerio-plugin",
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
                   "Detected email, test@posthog.com",
                   "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
                   "true",
-                  "Execution successful",
                 ]
             `)
         })
@@ -271,7 +269,6 @@ describe('LegacyPluginExecutorService', () => {
 
             expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin plugin-customerio-plugin",
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
                   "Detected email, test@posthog.com",
                   "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",

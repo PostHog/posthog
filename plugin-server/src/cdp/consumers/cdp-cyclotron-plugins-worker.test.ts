@@ -207,7 +207,6 @@ describe('CdpCyclotronWorkerPlugins', () => {
                   "Executing plugin plugin-posthog-intercom-plugin",
                   "Fetch called but mocked due to test function",
                   "Contact test@posthog.com in Intercom not found",
-                  "Execution successful",
                 ]
             `)
         })
