@@ -6115,6 +6115,10 @@
                 },
                 "searchQuery": {
                     "type": "string"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "all"],
+                    "type": "string"
                 }
             },
             "required": ["dateRange", "kind"],
