@@ -1,9 +1,16 @@
+import json
 from typing import Any, Optional, cast
 from unittest.mock import MagicMock
+
+from posthog.api.hog_function_template import HogFunctionTemplates
+from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.cdp.validation import compile_hog
-from posthog.test.base import BaseTest
+from posthog.models import HogFunction
+from posthog.models.utils import uuid7
+from posthog.test.base import BaseTest, APIBaseTest
 from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.stl import now
 
 
 class BaseHogFunctionTemplateTest(BaseTest):
@@ -89,3 +96,93 @@ class BaseHogFunctionTemplateTest(BaseTest):
             globals,
             functions=final_functions,
         )
+
+
+class BaseSiteDestinationFunctionTest(APIBaseTest):
+    template: HogFunctionTemplate
+    window_fn: str
+    inputs: dict
+
+    def _transpiled(self):
+        HogFunctionTemplates._load_templates()
+        # use the API to create a HogFunction based on the template
+        payload = {
+            "description": self.template.description,
+            "enabled": True,
+            "filters": self.template.filters,
+            "icon_url": self.template.icon_url,
+            "inputs": self.inputs,
+            "mappings": [
+                {
+                    "filters": m.filters,
+                    "inputs": {i["key"]: {"value": i["default"]} for i in m.inputs_schema},
+                    "inputs_schema": m.inputs_schema,
+                    "name": m.name,
+                }
+                for m in (self.template.mapping_templates or [])
+            ],
+            "masking": self.template.masking,
+            "name": self.template.name,
+            "template_id": self.template.id,
+            "type": self.template.type,
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data=payload,
+        )
+        function_id = response.json()["id"]
+
+        # load from the DB based on the created ID
+        hog_function = HogFunction.objects.get(id=function_id)
+
+        transpiled = get_transpiled_function(hog_function)
+
+        return transpiled
+
+    def _process_event(
+        self, event_name: str, event_properties: Optional[dict] = None, person_properties: Optional[dict] = None
+    ):
+        event_id = str(uuid7())
+        js_globals = {
+            "event": {"uuid": event_id, "event": event_name, "properties": event_properties or {}, "timestamp": now()},
+            "person": {"properties": person_properties or {}},
+            "groups": {},
+        }
+        transpiled = self._transpiled()
+        js = f"""
+            {JS_STDLIB}
+
+            const calls = [];
+            const {self.window_fn} = (...args) => calls.push(args);
+            window.{self.window_fn} = {self.window_fn};
+
+            const globals = {json.dumps(js_globals)};
+            const posthog = {{
+                get_property: (key) => key === '$stored_person_properties' ? globals.person.properties : null,
+            }};
+
+            const initFn = {transpiled}().init;
+
+            const processEvent = initFn({{ posthog, callback: console.log }}).processEvent;
+
+            processEvent(globals, posthog);;
+            """
+        import STPyV8
+
+        with STPyV8.JSContext() as ctxt:
+            ctxt.eval(js)
+            calls_json = ctxt.eval("JSON.stringify(calls)")
+            calls = json.loads(calls_json)
+            assert isinstance(calls, list)
+            return (event_id, calls)
+
+
+JS_STDLIB = """
+const document = {};
+const window = {};
+
+// easy but hacky impl, if we need a correct one, see
+// https://github.com/zloirock/core-js/blob/4b7201bb18a66481d8aa7ca28782c151bc99f152/packages/core-js/modules/web.structured-clone.js#L109
+const structuredClone = (obj) => JSON.parse(JSON.stringify(obj));
+window.structuredClone = structuredClone;
+"""
