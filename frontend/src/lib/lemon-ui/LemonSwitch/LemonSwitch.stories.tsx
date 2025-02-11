@@ -62,21 +62,21 @@ export const Sizes = (): JSX.Element => {
                     <td className="border border-bg-3000 border-4 p-2 bg-accent-3000">
                         <LemonSwitch label="xsmall" size="xsmall" />
                     </td>
-                    <td className="border border-bg-3000 border-4 p-2  bg-accent-3000">
+                    <td className="border border-bg-3000 border-4 p-2 bg-accent-3000">
                         <LemonSwitch label="small" size="small" />
                     </td>
-                    <td className="border border-bg-3000 border-4 p-2  bg-accent-3000">
+                    <td className="border border-bg-3000 border-4 p-2 bg-accent-3000">
                         <LemonSwitch label="medium" size="medium" />
                     </td>
                 </tr>
                 <tr>
-                    <td className="border border-bg-3000 border-4 p-2  bg-accent-3000">
+                    <td className="border border-bg-3000 border-4 p-2 bg-accent-3000">
                         <LemonSwitch label="xsmall" size="xsmall" bordered={true} />
                     </td>
-                    <td className="border border-bg-3000 border-4 p-2  bg-accent-3000">
+                    <td className="border border-bg-3000 border-4 p-2 bg-accent-3000">
                         <LemonSwitch label="small" size="small" bordered={true} />
                     </td>
-                    <td className="border border-bg-3000 border-4 p-2  bg-accent-3000">
+                    <td className="border border-bg-3000 border-4 p-2 bg-accent-3000">
                         <LemonSwitch label="medium" size="medium" bordered={true} />
                     </td>
                 </tr>
