@@ -1,32 +1,49 @@
 import concurrent.futures
 import datetime
 import itertools
+import operator
 from collections.abc import Iterator
+from typing import ClassVar
 
 import dagster
 from clickhouse_driver import Client
 from dateutil.relativedelta import relativedelta
-
+from pydantic import validator
 
 from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster, MutationRunner
 
 
+class PartitionRange(dagster.Config):
+    start: str
+    stop: str
+    inclusive: bool = True
+
+    FORMAT: ClassVar[str] = "%Y%m"
+
+    def __iter__(self) -> Iterator[str]:
+        start_date = self.parse_date(self.start)
+        stop_date = self.parse_date(self.stop)
+        seq = itertools.count()
+        cmp = operator.le if self.inclusive else operator.lt
+        while cmp(cur_date := start_date + relativedelta(months=next(seq)), stop_date):
+            yield cur_date.strftime(self.FORMAT)
+
+    @validator("start", "stop")
+    @classmethod
+    def validate_format(cls, value: str) -> str:
+        cls.parse_date(value)
+        return value
+
+    @classmethod
+    def parse_date(cls, value: str) -> datetime.date:
+        return datetime.datetime.strptime(value, cls.FORMAT).date()
+
+
 class MaterializeColumnConfig(dagster.Config):
     table: str
     column: str  # TODO: maybe make this a list/set so we can minimize the number of mutations?
-    from_partition: str
-    to_partition: str
-
-    def partitions(self) -> Iterator[str]:
-        format = "%Y%m"
-        [from_date, to_date] = [
-            datetime.datetime.strptime(partition_str, format).date()
-            for partition_str in [self.from_partition, self.to_partition]
-        ]
-        seq = itertools.count()
-        while (cur_date := from_date + relativedelta(months=next(seq))) <= to_date:
-            yield cur_date.strftime(format)
+    partitions: PartitionRange  # TODO: make optional
 
 
 @dagster.op
@@ -80,7 +97,7 @@ def run_materialize_mutations(config: MaterializeColumnConfig, cluster: dagster.
             mutation = MutationRunner(
                 config.table,
                 "MATERIALIZE COLUMN %(column)s IN PARTITION %(partition)s",
-                {"column": settings.column, "partition": partition},
+                {"column": config.column, "partition": partition},
             ).enqueue(client)
             mutation.wait()
 
