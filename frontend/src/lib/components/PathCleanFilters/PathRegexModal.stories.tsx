@@ -12,6 +12,7 @@ const meta: Meta<typeof PathRegexModal> = {
     component: PathRegexModal,
     parameters: {
         layout: 'fullscreen',
+        viewMode: 'story',
     },
 }
 export default meta
