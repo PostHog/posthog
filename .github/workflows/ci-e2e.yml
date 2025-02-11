@@ -33,6 +33,7 @@ jobs:
                         # code completely
                         - 'ee/**'
                         - 'posthog/**'
+                        - '!posthog/temporal/**'
                         - 'bin/*'
                         - frontend/**/*
                         - requirements.txt
