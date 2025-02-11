@@ -134,7 +134,8 @@ def match_property(property: Property, override_property_values: dict[str, Any])
         pattern = sanitize_regex_pattern(str(value))
         try:
             # Make the pattern more flexible by using DOTALL flag to allow . to match newlines
-            compiled_pattern = re.compile(pattern)  # Added IGNORECASE for more flexibility
+            # Added IGNORECASE for more flexibility
+            compiled_pattern = re.compile(pattern, re.DOTALL | re.IGNORECASE)
             match = compiled_pattern.search(str(override_value))
 
             if operator == "regex":
