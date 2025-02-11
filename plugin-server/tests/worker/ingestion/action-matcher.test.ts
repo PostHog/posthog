@@ -718,9 +718,14 @@ describe('ActionMatcher', () => {
                 team_id: 2,
             })
 
-            const actionDefinition: Action = await createTestAction([
+            const actionDefinitionInCohort: Action = await createTestAction([
                 {
                     properties: [{ type: 'cohort', key: 'id', value: testCohort.id }],
+                },
+            ])
+            const actionDefinitionNotInCohort: Action = await createTestAction([
+                {
+                    properties: [{ type: 'cohort', key: 'id', operator: PropertyOperator.IsNot, value: testCohort.id }],
                 },
             ])
             const actionDefinitionAllUsers: Action = await createTestAction([
@@ -734,7 +739,7 @@ describe('ActionMatcher', () => {
                 {},
                 {},
                 {},
-                actionDefinition.team_id,
+                actionDefinitionInCohort.team_id,
                 null,
                 true,
                 new UUIDT().toString(),
@@ -746,7 +751,7 @@ describe('ActionMatcher', () => {
                 {},
                 {},
                 {},
-                actionDefinition.team_id,
+                actionDefinitionInCohort.team_id,
                 null,
                 true,
                 new UUIDT().toString(),
@@ -771,11 +776,17 @@ describe('ActionMatcher', () => {
             })
 
             expect(await actionMatcher.match(eventExamplePersonOk)).toEqual([
-                actionDefinition,
+                actionDefinitionInCohort,
                 actionDefinitionAllUsers,
             ])
-            expect(await actionMatcher.match(eventExamplePersonBad)).toEqual([actionDefinitionAllUsers])
-            expect(await actionMatcher.match(eventExamplePersonUnknown)).toEqual([actionDefinitionAllUsers])
+            expect(await actionMatcher.match(eventExamplePersonBad)).toEqual([
+                actionDefinitionNotInCohort,
+                actionDefinitionAllUsers,
+            ])
+            expect(await actionMatcher.match(eventExamplePersonUnknown)).toEqual([
+                actionDefinitionNotInCohort,
+                actionDefinitionAllUsers,
+            ])
         })
 
         it('returns a match in case of element href equals', async () => {

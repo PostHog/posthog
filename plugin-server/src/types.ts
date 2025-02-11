@@ -1051,7 +1051,9 @@ export interface ElementPropertyFilter extends PropertyFilterWithOperator {
 export interface CohortPropertyFilter extends PropertyFilterBase {
     type: 'cohort'
     key: 'id'
-    value: number | string
+    value: number | 'all'
+    /** @default 'in' */
+    operator?: PropertyOperator
 }
 
 /** Sync with posthog/frontend/src/types.ts */

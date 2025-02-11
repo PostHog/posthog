@@ -383,7 +383,7 @@ export class ActionMatcher {
             return true
         }
         if (!event.person_id) {
-            return false // NO PERSON TO MATCH AGAINST COHORT
+            return filter.operator === PropertyOperator.IsNot // NO PERSON TO MATCH AGAINST COHORT
         }
         if (typeof cohortId !== 'number') {
             cohortId = parseInt(cohortId)
@@ -391,7 +391,15 @@ export class ActionMatcher {
         if (isNaN(cohortId)) {
             throw new Error(`Can't match against invalid cohort ID value "${filter.value}!"`)
         }
-        return await this.doesPersonBelongToCohort(Number(filter.value), event.person_id, event.teamId)
+        const doesPersonBelongToCohort = await this.doesPersonBelongToCohort(
+            Number(filter.value),
+            event.person_id,
+            event.teamId
+        )
+        if (filter.operator === PropertyOperator.IsNot) {
+            return !doesPersonBelongToCohort
+        }
+        return doesPersonBelongToCohort
     }
 
     public async doesPersonBelongToCohort(cohortId: number, personUuid: string, teamId: number): Promise<boolean> {
