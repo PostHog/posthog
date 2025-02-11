@@ -26,9 +26,13 @@ import { hogFunctionTestLogic } from './hogFunctionTestLogic'
 const HogFunctionTestEditor = ({
     value,
     onChange,
+    options,
+    disabled = false,
 }: {
     value: string
     onChange?: (value?: string) => void
+    options?: monacoEditor.IStandaloneEditorConstructionOptions
+    disabled?: boolean
 }): JSX.Element => {
     const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null)
     const decorationsRef = useRef<string[]>([]) // Track decoration IDs
@@ -98,14 +102,18 @@ const HogFunctionTestEditor = ({
             value={value}
             height={400}
             onChange={(newValue) => {
-                onChange?.(newValue)
-                handleValidation(newValue ?? '')
+                if (!disabled) {
+                    onChange?.(newValue)
+                    handleValidation(newValue ?? '')
+                }
             }}
             onMount={(editor) => {
                 editorRef.current = editor
                 handleValidation(value)
             }}
             options={{
+                ...options,
+                readOnly: disabled,
                 lineNumbers: 'on',
                 minimap: {
                     enabled: false,
@@ -144,6 +152,7 @@ export function HogFunctionTest(): JSX.Element {
         testResultMode,
         sortedTestsResult,
         jsonError,
+        isFetchingEvent,
     } = useValues(hogFunctionTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -154,6 +163,7 @@ export function HogFunctionTest(): JSX.Element {
         setSampleGlobals,
         saveGlobals,
         setTestResultMode,
+        cancelSampleGlobalsLoad,
     } = useActions(hogFunctionTestLogic(logicProps))
 
     return (
@@ -416,8 +426,49 @@ export function HogFunctionTest(): JSX.Element {
                                                 {sampleGlobalsError ? (
                                                     <div className="text-warning">{sampleGlobalsError}</div>
                                                 ) : null}
+                                                {isFetchingEvent && (
+                                                    <LemonBanner type="info">
+                                                        <div className="flex items-center gap-2">
+                                                            <Spinner />
+                                                            <span>Fetching event data...</span>
+                                                            <LemonButton
+                                                                type="secondary"
+                                                                size="small"
+                                                                onClick={() => cancelSampleGlobalsLoad()}
+                                                            >
+                                                                Cancel
+                                                            </LemonButton>
+                                                        </div>
+                                                    </LemonBanner>
+                                                )}
                                             </div>
-                                            <HogFunctionTestEditor value={value} onChange={onChange} />
+                                            <HogFunctionTestEditor
+                                                value={value}
+                                                onChange={onChange}
+                                                disabled={isFetchingEvent}
+                                                options={{
+                                                    readOnly: isFetchingEvent,
+                                                    lineNumbers: 'on',
+                                                    minimap: {
+                                                        enabled: false,
+                                                    },
+                                                    quickSuggestions: {
+                                                        other: true,
+                                                        strings: true,
+                                                    },
+                                                    suggest: {
+                                                        showWords: false,
+                                                        showFields: false,
+                                                        showKeywords: false,
+                                                    },
+                                                    scrollbar: {
+                                                        vertical: 'auto',
+                                                        verticalScrollbarSize: 14,
+                                                    },
+                                                    folding: true,
+                                                    glyphMargin: true,
+                                                }}
+                                            />
                                         </>
                                     )}
                                 </LemonField>

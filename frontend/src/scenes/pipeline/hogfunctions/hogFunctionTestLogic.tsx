@@ -96,6 +96,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
             ({ value, editor, decorations } as CodeEditorValidation),
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
+        cancelSampleGlobalsLoad: true,
+        setIsFetchingEvent: (isFetching: boolean) => ({ isFetching }),
     }),
     reducers({
         expanded: [
@@ -142,11 +144,28 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 setJsonError: () => [], // Clear decorations when error state changes
             },
         ],
+
+        isFetchingEvent: [
+            false as boolean,
+            {
+                setIsFetchingEvent: (_, { isFetching }) => isFetching,
+                cancelSampleGlobalsLoad: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
-        loadSampleGlobalsSuccess: () => {
-            actions.receiveExampleGlobals(values.sampleGlobals)
+        loadSampleGlobals: () => {
+            actions.setIsFetchingEvent(true)
         },
+
+        loadSampleGlobalsSuccess: () => {
+            actions.setIsFetchingEvent(false)
+        },
+
+        cancelSampleGlobalsLoad: () => {
+            actions.setIsFetchingEvent(false)
+        },
+
         setSampleGlobals: ({ sampleGlobals }) => {
             actions.receiveExampleGlobals(sampleGlobals)
         },
@@ -295,6 +314,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
 
     afterMount(({ actions, values }) => {
         if (values.type === 'transformation') {
+            // Use example/default event on initial load
             actions.receiveExampleGlobals(values.exampleInvocationGlobals)
         }
     }),
