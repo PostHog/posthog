@@ -145,8 +145,8 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         render: (_, backfill) => backfill.id,
                     },
                     {
-                        title: 'Backfill interval start',
-                        key: 'backfillIntervalStart',
+                        title: 'Interval start',
+                        key: 'intervalStart',
                         tooltip: 'Start of the time range to backfill',
                         render: (_, backfill) => {
                             return backfill.start_at ? (
@@ -157,8 +157,8 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         },
                     },
                     {
-                        title: 'Backfill interval end',
-                        key: 'backfillIntervalEnd',
+                        title: 'Interval end',
+                        key: 'intervalEnd',
                         tooltip: 'End of the time range to backfill',
                         render: (_, backfill) => {
                             return backfill.end_at ? (
@@ -169,14 +169,14 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         },
                     },
                     {
-                        title: 'Backfill started',
-                        key: 'backfillStarted',
+                        title: 'Started',
+                        key: 'started',
                         tooltip: 'Date and time when this BatchExport backfill started',
                         render: (_, backfill) => (backfill.created_at ? <TZLabel time={backfill.created_at} /> : ''),
                     },
                     {
-                        title: 'Backfill finished',
-                        key: 'backfillFinished',
+                        title: 'Finished',
+                        key: 'finished',
                         tooltip: 'Date and time when this BatchExport backfill finished',
                         render: (_, backfill) => (backfill.finished_at ? <TZLabel time={backfill.finished_at} /> : ''),
                     },
