@@ -118,7 +118,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
             "mappings": [
                 {
                     "filters": m.filters,
-                    "inputs": {i["key"]: {"value": i["default"]} for i in m.inputs_schema},
+                    "inputs": {i["key"]: {"value": i["default"]} for i in (m.inputs_schema or [])},
                     "inputs_schema": m.inputs_schema,
                     "name": m.name,
                 }
