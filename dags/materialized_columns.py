@@ -1,8 +1,12 @@
-from collections.abc import Iterable
-
 import concurrent.futures
+import datetime
+import itertools
+from collections.abc import Iterator
+
 import dagster
 from clickhouse_driver import Client
+from dateutil.relativedelta import relativedelta
+
 
 from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster, MutationRunner
@@ -14,8 +18,15 @@ class MaterializeColumnConfig(dagster.Config):
     from_partition: str
     to_partition: str
 
-    def partitions(self) -> Iterable[str]:
-        raise NotImplementedError
+    def partitions(self) -> Iterator[str]:
+        format = "%Y%m"
+        [from_date, to_date] = [
+            datetime.datetime.strptime(partition_str, format).date()
+            for partition_str in [self.from_partition, self.to_partition]
+        ]
+        seq = itertools.count()
+        while (cur_date := from_date + relativedelta(months=next(seq))) <= to_date:
+            yield cur_date.strftime(format)
 
 
 @dagster.op
