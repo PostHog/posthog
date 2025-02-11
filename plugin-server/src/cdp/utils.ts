@@ -25,6 +25,10 @@ import {
     HogFunctionType,
 } from './types'
 
+// ID of functions that are hidden from normal users and used by us for special testing
+// For example, transformations use this to only run if in comparison mode
+export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
+
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
     'Email',

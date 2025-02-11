@@ -28,6 +28,8 @@ export const UNSUBSCRIBE_REASONS: UnsubscribeReason[] = [
     { reason: 'Poor customer support', question: 'Please provide details on your support experience.' },
     { reason: 'Too difficult to use', question: 'What was difficult to use?' },
     { reason: 'Not enough hedgehogs', question: 'How many hedgehogs do you need? (but really why are you leaving)' },
+    { reason: 'Shutting down', question: "We're sorry to hear that ❤️. What was your favorite feature?" },
+    { reason: 'Technical issues', question: 'What technical problems did you experience?' },
     { reason: 'Other (let us know below!)', question: 'Why are you leaving?' },
 ]
 
@@ -329,8 +331,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         const reasonObject = UNSUBSCRIBE_REASONS.find((r) => r.reason === reason)
                         return reasonObject?.question
                     })
-                    .join(' ')
-                    .concat(' (required)')
+                    .join('\n')
             },
         ],
         isSessionReplayWithAddons: [

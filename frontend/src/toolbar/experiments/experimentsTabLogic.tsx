@@ -26,11 +26,7 @@ function newExperiment(): WebExperimentForm {
             },
             test: {
                 is_new: true,
-                transforms: [
-                    {
-                        text: '',
-                    },
-                ],
+                transforms: [{}],
                 rollout_percentage: 50,
             },
         },
@@ -74,7 +70,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         applyVariant: (newVariantKey: string) => ({
             newVariantKey,
         }),
-        addNewElement: (variant: string) => ({ variant }),
+        addNewTransformation: (variant: string) => ({ variant }),
         removeElement: (variant: string, index: number) => ({ variant, index }),
         inspectForElementWithIndex: (variant: string, type: ElementSelectorType, index: number | null) => ({
             variant,
@@ -133,7 +129,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             },
         ],
         selectedElementType: [
-            '',
+            'all-elements',
             {
                 selectElementType: (_, { elementType }) => elementType,
             },
@@ -312,8 +308,10 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         const originalHtmlState = values.experimentForm.original_html_state?.[previousSelector]
                         if (originalHtmlState) {
                             const element = document.querySelector(previousSelector) as HTMLElement
-                            element.innerHTML = originalHtmlState.innerHTML
-                            element.textContent = originalHtmlState.textContent
+                            element.innerHTML = originalHtmlState.html
+                            if (originalHtmlState.css) {
+                                element.setAttribute('style', originalHtmlState.css)
+                            }
                         }
                     }
 
@@ -326,7 +324,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                 i === index
                                     ? {
                                           selector,
-                                          text: element.textContent || t.text,
+                                          html: element.innerHTML,
+                                          ...(element.getAttribute('style') && { css: element.getAttribute('style') }),
                                       }
                                     : t
                             ),
@@ -338,8 +337,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     actions.setExperimentFormValue('original_html_state', {
                         ...values.experimentForm.original_html_state,
                         [selector]: {
-                            innerHTML: element.innerHTML,
-                            textContent: element.textContent,
+                            html: element.innerHTML,
+                            ...(element.getAttribute('style') && { css: element.getAttribute('style') }),
                         },
                     })
                 }
@@ -363,8 +362,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                             elements.forEach((element) => {
                                 const htmlElement = element as HTMLElement
                                 if (htmlElement) {
-                                    htmlElement.innerHTML = originalState.innerHTML
-                                    htmlElement.textContent = originalState.textContent
+                                    htmlElement.innerHTML = originalState.html
+                                    htmlElement.setAttribute('style', originalState.css)
                                 }
                             })
                         }
@@ -383,10 +382,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                                     if (transform.css) {
                                         htmlElement.setAttribute('style', transform.css)
-                                    }
-
-                                    if (transform.text) {
-                                        htmlElement.innerText = transform.text
                                     }
                                 }
                             })
@@ -414,12 +409,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                 values.experimentForm.variants[nextVariantName] = {
                     is_new: true,
-                    transforms: [
-                        {
-                            text: '',
-                            html: '',
-                        },
-                    ],
+                    transforms: [{}],
                     conditions: null,
                     rollout_percentage: 0,
                 }
@@ -428,7 +418,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.rebalanceRolloutPercentage()
             }
         },
-        addNewElement: ({ variant }) => {
+        addNewTransformation: ({ variant }) => {
             if (values.experimentForm.variants) {
                 const webVariant = values.experimentForm.variants[variant]
                 if (webVariant) {
@@ -436,10 +426,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         webVariant.transforms = []
                     }
 
-                    webVariant.transforms.push({
-                        text: '',
-                        html: '',
-                    })
+                    webVariant.transforms.push({})
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     actions.selectVariant(variant)

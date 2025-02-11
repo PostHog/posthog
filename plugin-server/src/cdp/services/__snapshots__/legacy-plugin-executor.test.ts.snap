@@ -301,6 +301,13 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 ]
 `;
 
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-url-parser-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-url-parser-plugin",
+  "Execution successful",
+]
+`;
+
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-user-agent-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin plugin-user-agent-plugin",

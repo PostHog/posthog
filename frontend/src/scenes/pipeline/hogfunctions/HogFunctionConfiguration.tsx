@@ -180,8 +180,10 @@ export function HogFunctionConfiguration({
         )
     const canEditSource =
         displayOptions.canEditSource ??
-        ((['destination', 'email', 'site_destination', 'site_app'].includes(type) && !isLegacyPlugin) ||
-            (type === 'transformation' && canEditTransformationHogCode))
+        // Never allow editing for legacy plugins
+        (!isLegacyPlugin &&
+            (['destination', 'email', 'site_destination', 'site_app'].includes(type) ||
+                (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
         displayOptions.showTesting ??

@@ -139,7 +139,7 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
-    color: var(--text-3000);
+    color: var(--text-secondary);
     vertical-align: middle;
     background: var(--accent-primary-highlight);
     border-radius: var(--radius);
@@ -180,5 +180,5 @@
     flex-shrink: 0;
     margin-right: 0.25rem;
     font-size: 1.25rem;
-    color: var(--border-bold);
+    color: var(--text-secondary);
 }

@@ -36,6 +36,7 @@ import { propertyFilterPlugin } from './_transformations/property-filter-plugin/
 import { semverFlattenerPlugin } from './_transformations/semver-flattener-plugin/template'
 import { taxonomyPlugin } from './_transformations/taxonomy-plugin/template'
 import { timestampParserPlugin } from './_transformations/timestamp-parser-plugin/template'
+import { urlParserPlugin } from './_transformations/url-parser/template'
 import { userAgentPlugin } from './_transformations/user-agent-plugin/template'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from './types'
 
@@ -80,6 +81,7 @@ export const TRANSFORMATION_PLUGINS: LegacyTransformationPlugin[] = [
     semverFlattenerPlugin,
     taxonomyPlugin,
     timestampParserPlugin,
+    urlParserPlugin,
     userAgentPlugin,
 ]
 

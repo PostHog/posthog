@@ -3,7 +3,7 @@ use std::fmt::Display;
 
 /// Validate that a token is the correct shape
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum InvalidTokenReason {
     Empty,
 

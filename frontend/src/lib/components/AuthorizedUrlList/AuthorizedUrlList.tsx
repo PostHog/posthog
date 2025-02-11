@@ -1,4 +1,4 @@
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -185,8 +185,16 @@ export function AuthorizedUrlList({
         allowWildCards,
     })
 
-    const { urlsKeyed, searchTerm, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
-    const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)
+    const {
+        urlsKeyed,
+        searchTerm,
+        launchUrl,
+        editUrlIndex,
+        isAddUrlFormVisible,
+        onlyAllowDomains,
+        manualLaunchParamsLoading,
+    } = useValues(logic)
+    const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
@@ -276,11 +284,41 @@ export function AuthorizedUrlList({
                                             }
                                             center
                                             data-attr="toolbar-open"
+                                            type="secondary"
                                             disabledReason={
                                                 keyedURL.url.includes('*')
                                                     ? 'Wildcard domains cannot be launched'
                                                     : undefined
                                             }
+                                            sideAction={{
+                                                dropdown: {
+                                                    placement: 'bottom-start',
+                                                    overlay: (
+                                                        <div className="px-2 py-1">
+                                                            <h3>If launching the toolbar didn't work, </h3>
+                                                            <p>
+                                                                You can copy the launch code and paste it into the
+                                                                browser console on your site.
+                                                            </p>
+                                                            <p>NB you need to have added posthog to the `window`</p>
+                                                            <LemonButton
+                                                                icon={<IconCopy />}
+                                                                size="small"
+                                                                className="float-right"
+                                                                type="primary"
+                                                                data-attr="copy-manual-toolbar-launch-code"
+                                                                onClick={() => {
+                                                                    copyLaunchCode(keyedURL.url)
+                                                                }}
+                                                                loading={manualLaunchParamsLoading}
+                                                            >
+                                                                Copy launch code
+                                                            </LemonButton>
+                                                        </div>
+                                                    ),
+                                                },
+                                                'data-attr': 'launch-toolbar-sideaction-dropdown',
+                                            }}
                                         >
                                             Launch
                                         </LemonButton>

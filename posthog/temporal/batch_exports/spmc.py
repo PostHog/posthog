@@ -10,18 +10,18 @@ import pyarrow as pa
 import temporalio.common
 from django.conf import settings
 
+from posthog.batch_exports.service import BackfillDetails
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
-from posthog.schema import (
-    EventPropertyFilter,
-    HogQLQueryModifiers,
-    MaterializationMode,
+from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
 )
-from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails, DateRange
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -516,19 +516,33 @@ def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime]) ->
     return False
 
 
-def use_distributed_events_recent_table(is_backfill: bool, team_id: int) -> bool:
-    if is_backfill:
-        return False
+def use_distributed_events_recent_table(
+    is_backfill: bool, backfill_details: BackfillDetails | None, data_interval_start: dt.datetime | None
+) -> bool:
+    """We should use the distributed_events_recent table if it's not a backfill (backfill_details is None) or the
+    backfill is within the last 6 days.
 
-    events_recent_rollout: float = settings.BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT
-    # sanity check
-    if events_recent_rollout < 0:
-        events_recent_rollout = 0
-    elif events_recent_rollout > 1:
-        events_recent_rollout = 1
+    We also check the data_interval_start to make sure it's also within the last 6 days (should always be the case for
+    realtime batch exports but for tests it may not be the case)
 
-    bucket = team_id % 10
-    return bucket < events_recent_rollout * 10
+    The events_recent table, and by extension, the distributed_events_recent table, only have event data from the last 7
+    days (we use 6 days to give some buffer).
+    """
+
+    if (
+        not is_backfill
+        and data_interval_start
+        and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6))
+    ):
+        return True
+
+    backfill_start_at = None
+    if backfill_details and backfill_details.start_at:
+        backfill_start_at = dt.datetime.fromisoformat(backfill_details.start_at)
+    if backfill_start_at and backfill_start_at > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
+        return True
+
+    return False
 
 
 class Producer:
@@ -553,7 +567,9 @@ class Producer:
         self,
         queue: RecordBatchQueue,
         model_name: str,
+        # TODO: remove once all backfill inputs are migrated
         is_backfill: bool,
+        backfill_details: BackfillDetails | None,
         team_id: int,
         full_range: tuple[dt.datetime | None, dt.datetime],
         done_ranges: list[tuple[dt.datetime, dt.datetime]],
@@ -579,6 +595,9 @@ class Producer:
             )
         else:
             filters_str, extra_query_parameters = "", extra_query_parameters
+
+        # TODO: this can be simplified once all backfill inputs are migrated
+        is_backfill = (backfill_details is not None) or is_backfill
 
         if model_name == "persons":
             if is_backfill and full_range[0] is None:
@@ -609,7 +628,9 @@ class Producer:
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
             # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
             # which is a distributed table that sits in front of the `events_recent` table
-            elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
+            elif use_distributed_events_recent_table(
+                is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+            ):
                 self.logger.info("Using distributed_events_recent table for batch export")
                 query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:

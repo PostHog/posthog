@@ -66,7 +66,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
     return (
         <div
-            className="bg-primary rounded p-6 flex flex-col"
+            className="bg-surface-secondary rounded p-6 flex flex-col"
             ref={productRef}
             data-attr={`billing-product-addon-${addon.type}`}
         >

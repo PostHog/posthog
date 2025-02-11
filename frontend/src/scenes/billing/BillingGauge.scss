@@ -10,7 +10,8 @@
         font-size: 0.8rem;
         line-height: 1rem;
         white-space: nowrap;
-        border-left: 1px solid var(--border-primary);
+        background-color: var(--bg-light);
+        border-left: 1px solid var(--border-light);
 
         &--bottom {
             top: 100%;
@@ -57,6 +58,12 @@
                 var(--data-color-1-hover) 0.5rem,
                 var(--data-color-1-hover) 1rem
             );
+        }
+    }
+
+    &.BillingGaugeItem--addon {
+        .BillingGaugeItem__info {
+            background-color: var(--bg-primary);
         }
     }
 }

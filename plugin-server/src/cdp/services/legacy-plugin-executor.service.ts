@@ -18,7 +18,7 @@ import {
 } from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
-import { isLegacyPluginHogFunction } from '../utils'
+import { CDP_TEST_ID, isLegacyPluginHogFunction } from '../utils'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -109,7 +109,7 @@ export class LegacyPluginExecutorService {
             logs: [],
         }
 
-        const isTestFunction = invocation.hogFunction.name.includes('[CDP-TEST-HIDDEN]')
+        const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({

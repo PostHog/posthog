@@ -2,11 +2,22 @@
 <html>
     <head>
         <meta name="robots" content="noindex" />
+        {{ exported_data|json_script:"posthog-exported-data" }}
         <script>
-            window.POSTHOG_EXPORTED_DATA = {{exported_data|safe}}
-            if (window.POSTHOG_EXPORTED_DATA.type) {
-              var root = document.documentElement
-              root.className += ' export-type-' + window.POSTHOG_EXPORTED_DATA.type
+            // need to parse twice to get JSON
+            // we JSON serialize on the server since there may be objects like Queries
+            // that need special handling in python in order to be serialized into the template
+            try {
+                window.POSTHOG_EXPORTED_DATA = JSON.parse(
+                    JSON.parse(document.getElementById('posthog-exported-data').textContent)
+                )
+            } catch (e) {
+                console.error('Failed to parse exported data:', e)
+                window.POSTHOG_EXPORTED_DATA = {}
+            }
+
+            if (window.POSTHOG_EXPORTED_DATA.rootClassName) {
+              document.documentElement.className += ' ' + window.POSTHOG_EXPORTED_DATA.rootClassName
             }
         </script>
         {% include "head.html" %} {% if add_og_tags %}
