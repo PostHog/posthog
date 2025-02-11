@@ -308,7 +308,7 @@ class FunnelResultsFormatter:
     The user distribution is the percentage of users who completed the funnel in the given period.
     ```
 
-    Example answer for a trends funnel:
+    Example answer for funnel trends:
     ```
     Date|$pageview (custom) -> $ai_trace conversion|$pageview (custom) -> $ai_trace drop-off
     2025-01-05|10%|90%
