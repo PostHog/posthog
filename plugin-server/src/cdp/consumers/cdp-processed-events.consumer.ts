@@ -72,6 +72,12 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             func: async () => {
                 // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
                 await this.groupsManager.enrichGroups(invocationGlobals)
+                // TODO: Only load cohorts if the filters require them
+                if (this.groupId === 'cdp-processed-events-consumer') {
+                    const hogFunctionsUsingCohorts = this.hogExecutor.findHogFunctionsUsingCohorts(invocationGlobals)
+
+                    await this.cohortsManager.enrichCohorts(invocationGlobals)
+                }
 
                 const possibleInvocations = (
                     await this.runManyWithHeartbeat(invocationGlobals, (globals) => {

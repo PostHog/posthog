@@ -108,6 +108,22 @@ export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): str
     return message
 }
 
+const inCohort = (triggerGlobals: HogFunctionInvocationGlobals) => (cohortId: unknown) => {
+    if (typeof cohortId !== 'number') {
+        throw new Error('inCohort called with invalid arguments: ' + JSON.stringify(cohortId))
+    }
+
+    if (!triggerGlobals.cohorts) {
+        throw new Error('inCohort called without cohorts being preloaded.')
+    }
+
+    return triggerGlobals.cohorts.includes(cohortId)
+}
+
+const notInCohort = (triggerGlobals: HogFunctionInvocationGlobals) => (cohortId: unknown) => {
+    return !inCohort(triggerGlobals)(cohortId)
+}
+
 export const buildGlobalsWithInputs = (
     globals: HogFunctionInvocationGlobals,
     inputs: HogFunctionType['inputs']
@@ -138,6 +154,26 @@ export class HogExecutorService {
 
     constructor(private hub: Hub, private hogFunctionManager: HogFunctionManagerService) {
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
+    }
+
+    findHogFunctionsUsingCohorts(triggerGlobals: HogFunctionInvocationGlobals[]): HogFunctionType[] {
+        const foundHogFunctions: HogFunctionType[] = []
+
+        for (const globals of triggerGlobals) {
+            const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(globals.project.id)
+
+            for (const hogFunction of allFunctionsForTeam) {
+                if (
+                    hogFunction.filters?.bytecode &&
+                    (hogFunction.filters.bytecode.includes('inCohort') ||
+                        hogFunction.filters.bytecode.includes('notInCohort'))
+                ) {
+                    foundHogFunctions.push(hogFunction)
+                }
+            }
+        }
+
+        return foundHogFunctions
     }
 
     findHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals) {
@@ -173,7 +209,12 @@ export class HogExecutorService {
                     const filterResult = execHog(filters.bytecode, {
                         globals: filterGlobals,
                         telemetry: this.telemetryMatcher(hogFunction.team_id),
+                        functions: {
+                            inCohort: inCohort(triggerGlobals),
+                            notInCohort: notInCohort(triggerGlobals),
+                        },
                     })
+
                     if (filterResult.error) {
                         status.error('🦔', `[HogExecutor] Error filtering function`, {
                             hogFunctionId: hogFunction.id,

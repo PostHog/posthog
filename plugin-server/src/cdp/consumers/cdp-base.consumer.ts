@@ -12,6 +12,7 @@ import { safeClickhouseString } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 import { CdpRedis, createCdpRedisPool } from '../redis'
+import { CohortsManagerService } from '../services/cohorts-manager.service'
 import { FetchExecutorService } from '../services/fetch-executor.service'
 import { GroupsManagerService } from '../services/groups-manager.service'
 import { HogExecutorService } from '../services/hog-executor.service'
@@ -79,6 +80,7 @@ export abstract class CdpConsumerBase {
     hogWatcher: HogWatcherService
     hogMasker: HogMaskerService
     groupsManager: GroupsManagerService
+    cohortsManager: CohortsManagerService
     isStopping = false
     messagesToProduce: HogFunctionMessageToProduce[] = []
     redis: CdpRedis
@@ -97,6 +99,7 @@ export abstract class CdpConsumerBase {
         this.hogExecutor = new HogExecutorService(this.hub, this.hogFunctionManager)
         this.fetchExecutor = new FetchExecutorService(this.hub)
         this.groupsManager = new GroupsManagerService(this.hub)
+        this.cohortsManager = new CohortsManagerService(this.hub)
     }
 
     public get service(): PluginServerService {

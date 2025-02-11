@@ -87,6 +87,7 @@ export type HogFunctionInvocationGlobals = {
         url: string
     }
     groups?: Record<string, GroupType>
+    cohorts?: number[]
 }
 
 export type HogFunctionInvocationGlobalsWithInputs = HogFunctionInvocationGlobals & {
