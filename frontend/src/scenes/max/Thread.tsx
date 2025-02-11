@@ -260,10 +260,12 @@ function VisualizationAnswer({
             return {
                 kind: NodeKind.InsightVizNode,
                 source: castAssistantQuery(message.answer),
+                // We set `embedded` to `true` on `<Query>` for styling - but on the query we want `embedded: false`
+                // so that the persons modal is available
+                embedded: false,
                 showHeader: true,
             }
         }
-
         return null
     }, [message])
 
