@@ -21,6 +21,7 @@ import {
     FeatureFlagFilters,
     MultipleSurveyQuestion,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
     RatingSurveyQuestion,
     Survey,
@@ -122,6 +123,39 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
         targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
+}
+
+function isPropertyValueValid(value?: PropertyFilterValue): boolean {
+    if (!value) {
+        return false
+    }
+
+    if (Array.isArray(value)) {
+        return value.length > 0
+    }
+
+    return value !== undefined && value !== null && value !== ''
+}
+
+function getPropertyFiltersSQL(propertyFilters?: AnyPropertyFilter[]): string {
+    if (!propertyFilters || propertyFilters.length === 0) {
+        return ''
+    }
+
+    const filtersWithValues = propertyFilters.filter((filter) => isPropertyValueValid(filter.value))
+
+    if (filtersWithValues.length === 0) {
+        return ''
+    }
+
+    return `AND ${filtersWithValues
+        .map((filter) => {
+            if (filter.type === 'person') {
+                return `person.properties['${filter.key}'] = '${filter.value}'`
+            }
+            return `properties['${filter.key}'] = '${filter.value}'`
+        })
+        .join(' AND ')}`
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -278,19 +312,19 @@ export const surveyLogic = kea<surveyLogicType>([
                         SELECT
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
-                                WHERE event = 'survey shown'
+                                WHERE event = 'survey shown' ${getPropertyFiltersSQL(values.propertyFilters)}
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
                                     AND timestamp <= ${endDate}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
-                                WHERE event = 'survey dismissed'
+                                WHERE event = 'survey dismissed' ${getPropertyFiltersSQL(values.propertyFilters)}
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
                                     AND timestamp <= ${endDate}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
-                                WHERE event = 'survey sent'
+                                WHERE event = 'survey sent' ${getPropertyFiltersSQL(values.propertyFilters)}
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
                                     AND timestamp <= ${endDate})
@@ -329,6 +363,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (iteration && iteration > 0) {
                     iterationCondition = ` AND properties.$survey_iteration='${iteration}' `
                 }
+
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -341,12 +376,11 @@ export const surveyLogic = kea<surveyLogicType>([
                             ${iterationCondition}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            ${getPropertyFiltersSQL(values.propertyFilters)}
                         GROUP BY survey_response
                     `,
                 }
                 const responseJSON = await api.query(query)
-                // TODO:Dylan - I don't like how we lose our types here
-                // would be cool if we could parse this in a more type-safe way
                 const { results } = responseJSON
 
                 let total = 0
@@ -388,9 +422,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
-                            AND properties.$survey_id = '${props.id}'
+                            AND properties.$survey_id = '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            ${getPropertyFiltersSQL(values.propertyFilters)}
                         GROUP BY survey_response, survey_iteration
                     `,
                 }
@@ -459,6 +494,17 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
+                const propertyFiltersSQL = values.propertyFilters?.length
+                    ? `AND ${values.propertyFilters
+                          .map((filter) => {
+                              if (filter.type === 'person') {
+                                  return `person.properties['${filter.key}'] = '${filter.value}'`
+                              }
+                              return `properties['${filter.key}'] = '${filter.value}'`
+                          })
+                          .join(' AND ')}`
+                    : ''
+
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -470,6 +516,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            ${propertyFiltersSQL}
                         GROUP BY survey_response
                     `,
                 }
@@ -511,6 +558,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id == '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                           ${getPropertyFiltersSQL(values.propertyFilters)}
                         GROUP BY choice
                         ORDER BY count() DESC
                     `,
@@ -564,6 +612,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND trim(JSONExtractString(properties, '${getResponseField(questionIndex)}')) != ''
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            ${getPropertyFiltersSQL(values.propertyFilters)}
                         LIMIT 20
                     `,
                 }
@@ -654,6 +703,23 @@ export const surveyLogic = kea<surveyLogicType>([
                 () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
                 5
             )
+        },
+        setPropertyFilters: () => {
+            // Reload all survey data when filters change
+            if (values.survey.questions) {
+                values.survey.questions.forEach((question, index) => {
+                    if (question.type === SurveyQuestionType.Rating) {
+                        actions.loadSurveyRatingResults({ questionIndex: index })
+                    } else if (question.type === SurveyQuestionType.SingleChoice) {
+                        actions.loadSurveySingleChoiceResults({ questionIndex: index })
+                    } else if (question.type === SurveyQuestionType.MultipleChoice) {
+                        actions.loadSurveyMultipleChoiceResults({ questionIndex: index })
+                    } else if (question.type === SurveyQuestionType.Open) {
+                        actions.loadSurveyOpenTextResults({ questionIndex: index })
+                    }
+                })
+            }
+            actions.loadSurveyUserStats()
         },
     })),
     reducers({
