@@ -115,5 +115,5 @@ class Migration(AsyncMigrationDefinition):
         return progress
 
     def is_required(self):
-        res = sync_execute("SHOW CREATE TABLE person_distinct_id")
+        res = sync_execute("SHOW CREATE TABLE person_distinct_id", is_insert=True)
         return "ReplacingMergeTree" in res[0][0]

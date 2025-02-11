@@ -284,7 +284,7 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
         }
         for person_uuid in person_uuids
     ]
-    sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+    sync_execute(INSERT_PERSON_STATIC_COHORT, persons, is_insert=True)
 
 
 def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:

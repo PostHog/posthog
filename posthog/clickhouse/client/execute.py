@@ -95,6 +95,7 @@ def sync_execute(
     with_column_types=False,
     flush=True,
     *,
+    is_insert=False,
     workload: Workload = Workload.DEFAULT,
     team_id: Optional[int] = None,
     readonly=False,
@@ -147,6 +148,7 @@ def sync_execute(
                 settings=settings,
                 with_column_types=with_column_types,
                 query_id=query_id,
+                is_insert=is_insert,
             )
         except Exception as e:
             err = wrap_query_error(e)

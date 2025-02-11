@@ -258,7 +258,7 @@ if settings.TEST:
         from posthog.client import sync_execute
         from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 
-        sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
+        sync_execute(TRUNCATE_EVENTS_TABLE_SQL(), is_insert=True)
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))

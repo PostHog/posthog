@@ -73,18 +73,18 @@ def convert_query_result_to_dlq_event_dicts(query_result):
 
 class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
     def setUp(self):
-        sync_execute(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL())
-        sync_execute(DEAD_LETTER_QUEUE_TABLE_MV_SQL)
+        sync_execute(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL(), is_insert=True)
+        sync_execute(DEAD_LETTER_QUEUE_TABLE_MV_SQL, is_insert=True)
         super().setUp()
 
     def tearDown(self):
-        sync_execute("DROP TABLE IF EXISTS events_dead_letter_queue_mv")
-        sync_execute("DROP TABLE IF EXISTS kafka_events_dead_letter_queue")
+        sync_execute("DROP TABLE IF EXISTS events_dead_letter_queue_mv", is_insert=True)
+        sync_execute("DROP TABLE IF EXISTS kafka_events_dead_letter_queue", is_insert=True)
         super().tearDown()
 
     def test_direct_table_insert(self):
         inserted_dlq_event = get_dlq_event()
-        sync_execute(INSERT_DEAD_LETTER_QUEUE_EVENT_SQL, inserted_dlq_event)
+        sync_execute(INSERT_DEAD_LETTER_QUEUE_EVENT_SQL, inserted_dlq_event, is_insert=True)
         query_result = sync_execute(f"SELECT * FROM {DEAD_LETTER_QUEUE_TABLE}")
         events_returned = convert_query_result_to_dlq_event_dicts(query_result)
         # TRICKY: because it's hard to truncate the dlq table, we just check if the event is in the table along with events from other tests

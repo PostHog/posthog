@@ -1678,7 +1678,7 @@ email@example.org,
         self.assertEqual(async_deletion.delete_verified_at, None)
 
         # optimise cohortpeople table, so all collapsing / replcaing on the merge tree is done
-        sync_execute(f"OPTIMIZE TABLE cohortpeople FINAL SETTINGS mutations_sync = 2")
+        sync_execute(f"OPTIMIZE TABLE cohortpeople FINAL SETTINGS mutations_sync = 2", is_insert=True)
 
         # check clickhouse data is gone from cohortpeople table
         res = sync_execute(
@@ -1872,6 +1872,7 @@ email@example.org,
         res = sync_execute(
             "SELECT count() FROM cohortpeople WHERE cohort_id = %(cohort_id)s",
             {"cohort_id": cohort_id},
+            is_insert=True,
         )
         self.assertEqual(res[0][0], 2)
 

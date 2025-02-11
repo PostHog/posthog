@@ -73,7 +73,7 @@ def execute_op_clickhouse(
             sql = f"/* async_migration:{query_id} */ {sql}"
             execute_on_each_shard(sql, args, settings=settings)
         else:
-            client.sync_execute(sql, args, settings=settings)
+            client.sync_execute(sql, args, settings=settings, is_insert=True)
     except Exception as e:
         reset_query_tags()
         raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")

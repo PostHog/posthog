@@ -39,7 +39,7 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         )
 
     def tearDown(self) -> None:
-        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL(), is_insert=True)
 
     @property
     def base_time(self):

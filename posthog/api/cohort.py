@@ -672,6 +672,7 @@ def insert_actors_into_cohort_by_query(
             **context.values,
             **params,
         },
+        is_insert=True,
     )
 
 

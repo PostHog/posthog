@@ -82,8 +82,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         super().tearDown()
 
     def recreate_database(self):
-        sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
-        sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
+        sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC", is_insert=True)
+        sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}", is_insert=True)
         create_clickhouse_tables()
 
     def test_get_columns_default(self):
@@ -147,8 +147,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         assert materialize("person", "SoMePrOp", create_minmax_index=True).name == "pmat_SoMePrOp"
 
     def test_backfilling_data(self):
-        sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_prop")
-        sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_another")
+        sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_prop", is_insert=True)
+        sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_another", is_insert=True)
 
         _create_event(
             event="some_event",
@@ -225,7 +225,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         self.assertGreaterEqual(self._count_materialized_rows("mat_another"), 4)
 
         self.assertEqual(
-            sync_execute("SELECT mat_prop, mat_another FROM events ORDER BY timestamp"),
+            sync_execute("SELECT mat_prop, mat_another FROM events ORDER BY timestamp", is_insert=True),
             [
                 ("1", ""),
                 ("2", "5"),
@@ -409,7 +409,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         # create the materialized column
         destination_column = materialize(table, property, table_column=source_column, create_minmax_index=False)
 
-        sync_execute(f"ALTER TABLE {table} DROP COLUMN {destination_column.name}", settings={"alter_sync": 1})
+        sync_execute(
+            f"ALTER TABLE {table} DROP COLUMN {destination_column.name}", settings={"alter_sync": 1}, is_insert=True
+        )
 
         latest_mutation_id_before_drop = self._get_latest_mutation_id(table)
 

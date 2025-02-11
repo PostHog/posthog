@@ -9,8 +9,8 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
     @patch("ee.clickhouse.materialized_columns.analyze.materialize")
     @patch("ee.clickhouse.materialized_columns.analyze.backfill_materialized_columns")
     def test_mat_columns(self, patch_backfill, patch_materialize):
-        sync_execute("SYSTEM FLUSH LOGS")
-        sync_execute("TRUNCATE TABLE system.query_log")
+        sync_execute("SYSTEM FLUSH LOGS", is_insert=True)
+        sync_execute("TRUNCATE TABLE system.query_log", is_insert=True)
 
         queries_to_insert = [
             "SELECT * FROM events WHERE JSONExtractRaw(properties, \\'materialize_me\\')",
@@ -44,7 +44,8 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
                 40000000000,
                 10000000
             )
-            """.format(query=query, log_comment='{"team_id": 2}')
+            """.format(query=query, log_comment='{"team_id": 2}'),
+                is_insert=True,
             )
         materialize_properties_task()
         patch_materialize.assert_has_calls(

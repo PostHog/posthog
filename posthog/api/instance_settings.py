@@ -98,7 +98,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
                 UPDATE_RECORDINGS_TABLE_TTL_SQL,
             )
 
-            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
+            sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed}, is_insert=True)
 
         if instance.key == "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS":
             if is_cloud():
@@ -112,7 +112,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
                 UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL,
             )
 
-            sync_execute(UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
+            sync_execute(UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL(), {"weeks": new_value_parsed}, is_insert=True)
 
         set_instance_setting_raw(instance.key, new_value_parsed)
         instance.value = new_value_parsed

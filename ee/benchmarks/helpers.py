@@ -33,7 +33,7 @@ def run_query(fn, *args):
 
 
 def get_clickhouse_query_stats(uuid):
-    client.sync_execute("SYSTEM FLUSH LOGS")
+    client.sync_execute("SYSTEM FLUSH LOGS", is_insert=True)
     rows = client.sync_execute(
         f"""
         SELECT
