@@ -1,11 +1,12 @@
-from collections.abc import Sequence
-from typing import Optional, TypeVar, Union
+from collections.abc import Mapping, Sequence, Set
+from typing import Any, Literal, Optional, TypeVar, Union, get_origin
 
 from jsonref import replace_refs
 from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
 )
+from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantMessage,
@@ -77,3 +78,40 @@ def dereference_schema(schema: dict) -> dict:
     if "$defs" in new_schema:
         new_schema.pop("$defs")
     return new_schema
+
+
+def dump_model_with_literals(model: BaseModel) -> dict[str, Any]:
+    """
+    Custom serializer for Pydantic v2 models that preserves Literal fields while following specified model_dump parameters.
+    This is needed because exclude_unset=True excludes Literal fields even when they are set.
+    Handles nested Pydantic models recursively.
+
+    Args:
+        model: The Pydantic model to serialize
+
+    Returns:
+        A dictionary with all fields serialized, preserving Literal fields at all nesting levels
+    """
+    # First dump with our standard parameters
+    dumped = model.model_dump(exclude_unset=True, exclude_none=False, exclude_defaults=False)
+
+    # Add back any Literal fields that were stripped and handle nested models
+    for name, field_info in model.model_fields.items():
+        value = getattr(model, name)
+
+        # Handle Literal fields
+        if get_origin(field_info.annotation) == Literal:
+            dumped[name] = value
+            continue
+
+        # Recursively handle nested models
+        if isinstance(value, BaseModel):
+            dumped[name] = dump_model_with_literals(value)
+        elif isinstance(value, Sequence | Set) and not isinstance(value, str | bytes):
+            # Convert any sequence or set to a list for JSON serialization
+            dumped[name] = [dump_model_with_literals(item) if isinstance(item, BaseModel) else item for item in value]
+        elif isinstance(value, Mapping):
+            # Handle any mapping type (dict, defaultdict, etc)
+            dumped[name] = {k: dump_model_with_literals(v) if isinstance(v, BaseModel) else v for k, v in value.items()}
+
+    return dumped

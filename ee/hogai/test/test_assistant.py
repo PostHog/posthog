@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from ee.hogai.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.memory import prompts as memory_prompts
 from ee.hogai.trends.nodes import TrendsSchemaGeneratorOutput
+from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.schema import (
     AssistantFunnelsEventsNode,
@@ -23,7 +24,6 @@ from posthog.schema import (
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
-    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
@@ -98,11 +98,17 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch(
         "ee.hogai.trends.nodes.TrendsPlannerNode.run",
-        return_value={"intermediate_steps": [(AgentAction(tool="final_answer", tool_input="Plan", log=""), None)]},
+        return_value=PartialAssistantState(
+            intermediate_steps=[
+                (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
+            ],
+        ),
     )
     @patch(
         "ee.hogai.query_executor.nodes.QueryExecutorNode.run",
-        return_value={"messages": [AssistantMessage(content="Foobar")]},
+        return_value=PartialAssistantState(
+            messages=[AssistantMessage(content="Foobar")],
+        ),
     )
     def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_funnel_planner_run):
         output = self._run_assistant_graph(
@@ -141,8 +147,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch(
         "ee.hogai.trends.nodes.TrendsPlannerNode.run",
-        return_value={
-            "intermediate_steps": [
+        return_value=PartialAssistantState(
+            intermediate_steps=[
                 # Compare with toolkit.py to see supported AgentAction shapes. The list below is supposed to include ALL
                 (AgentAction(tool="retrieve_entity_properties", tool_input="session", log=""), None),
                 (AgentAction(tool="retrieve_event_properties", tool_input="$pageview", log=""), None),
@@ -165,7 +171,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 (AgentAction(tool="handle_incorrect_response", tool_input="", log=""), None),
                 (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
             ]
-        },
+        ),
     )
     def test_reasoning_messages_with_substeps_added(self, _mock_funnel_planner_run):
         output = self._run_assistant_graph(
@@ -480,7 +486,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="Hello")),
-            ("message", RouterMessage(content="trends")),
+            (
+                "message",
+                AssistantMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "xyz",
+                            "name": "retrieve_data_for_question",
+                            "args": {"query_description": "Foobar", "query_kind": "trends"},
+                        }
+                    ],
+                ),
+            ),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating trends query")),
@@ -549,7 +567,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="Hello")),
-            ("message", RouterMessage(content="funnel")),
+            (
+                "message",
+                AssistantMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "xyz",
+                            "name": "retrieve_data_for_question",
+                            "args": {"query_description": "Foobar", "query_kind": "funnel"},
+                        }
+                    ],
+                ),
+            ),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating funnel query")),
