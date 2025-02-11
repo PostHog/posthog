@@ -183,7 +183,7 @@ export interface AssistantTrendsFilter {
     /**
      * If the formula is provided, apply it here.
      */
-    formula?: TrendsFilterLegacy['formula']
+    formulas?: string[]
 
     /**
      * Visualization type. Available values:
