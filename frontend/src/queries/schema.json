@@ -4243,6 +4243,9 @@
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
             "properties": {
+                "cohort_name": {
+                    "type": "string"
+                },
                 "key": {
                     "const": "id",
                     "type": "string"
@@ -6154,6 +6157,10 @@
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
                 "searchQuery": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "all"],
                     "type": "string"
                 }
             },

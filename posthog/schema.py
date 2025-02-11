@@ -676,6 +676,21 @@ class OrderBy(StrEnum):
     SESSIONS = "sessions"
 
 
+class Status1(StrEnum):
+    ARCHIVED = "archived"
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+    PENDING_RELEASE = "pending_release"
+    ALL = "all"
+
+
+class Status2(StrEnum):
+    ARCHIVED = "archived"
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+    PENDING_RELEASE = "pending_release"
+
+
 class Interval(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
@@ -2008,6 +2023,7 @@ class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cohort_name: Optional[str] = None
     key: Literal["id"] = "id"
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.IN_
@@ -2123,7 +2139,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     first_seen: AwareDatetime
     id: str
     name: Optional[str] = None
-    status: Status
+    status: Status2
 
 
 class ErrorTrackingSparklineConfig(BaseModel):
@@ -6683,6 +6699,7 @@ class ErrorTrackingQuery(BaseModel):
     orderBy: Optional[OrderBy] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
+    status: Optional[Status1] = None
 
 
 class EventsQuery(BaseModel):
