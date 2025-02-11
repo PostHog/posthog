@@ -92,13 +92,6 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
                 py_type = type(val)
                 break
 
-        # Handle infinity in decimal fields
-        if pa.types.is_decimal(field.type) and issubclass(py_type, decimal.Decimal):
-            values = columnar_known_types[field.name]
-            columnar_known_types[field.name] = np.array(
-                [None if isinstance(x, decimal.Decimal) and x.is_infinite() else x for x in values]
-            )
-
         # cast double / float ndarrays to decimals if type mismatch, looks like decimals and floats are often mixed up in dialects
         if pa.types.is_decimal(field.type) and issubclass(py_type, str | float):
             logger.warning(
@@ -123,9 +116,14 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
             json_str_array = pa.array([None if s is None else json_dumps(s) for s in columnar_known_types[field.name]])
             columnar_known_types[field.name] = json_str_array
         if issubclass(py_type, decimal.Decimal):
-            # Remove any NaN values from decimal columns
+            # Remove any NaN or infinite values from decimal columns
             columnar_known_types[field.name] = np.array(
-                [None if x is not None and math.isnan(x) else x for x in columnar_known_types[field.name]]
+                [
+                    None
+                    if x is not None and (math.isnan(x) or (isinstance(x, decimal.Decimal) and x.is_infinite()))
+                    else x
+                    for x in columnar_known_types[field.name]
+                ]
             )
 
     # If there are unknown type columns, first create a table to infer their types
