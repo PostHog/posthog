@@ -43,6 +43,7 @@ import {
     NodeKind,
     ExperimentMetricType,
     ExperimentQuery,
+    ExperimentMetric,
 } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
@@ -257,6 +258,17 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
         }),
+        setMetric: ({
+            metricIdx,
+            name,
+            metric,
+            isSecondary = false,
+        }: {
+            metricIdx: number
+            name?: string
+            metric: ExperimentMetric
+            isSecondary?: boolean
+        }) => ({ metricIdx, name, metric, isSecondary }),
         setTrendsMetric: ({
             metricIdx,
             name,
@@ -429,6 +441,21 @@ export const experimentLogic = kea<experimentLogicType>([
                             ...state.parameters,
                             feature_flag_variants: updatedVariants,
                         },
+                    }
+                },
+                setMetric: (state, { metricIdx, name, metric, isSecondary }) => {
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
+
+                    metrics[metricIdx] = {
+                        kind: NodeKind.ExperimentQuery,
+                        name,
+                        metric,
+                    }
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
                     }
                 },
                 setTrendsMetric: (state, { metricIdx, name, series, filterTestAccounts, isSecondary }) => {
