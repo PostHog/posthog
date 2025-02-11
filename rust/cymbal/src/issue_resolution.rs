@@ -123,6 +123,7 @@ impl Issue {
             UPDATE posthog_errortrackingissue
             SET status = 'active'
             WHERE id = $1 AND status != 'active'
+            RETURNING id
             "#,
             self.id
         )
