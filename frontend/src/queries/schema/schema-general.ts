@@ -99,8 +99,11 @@ export enum NodeKind {
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
 
     // Experiment queries
-    ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
+    ExperimentMetric = 'ExperimentMetric',
+    ExperimentQuery = 'ExperimentQuery',
+    ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
+    ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -1781,6 +1784,65 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
 }
+
+export enum ExperimentMetricType {
+    COUNT = 'count',
+    CONTINUOUS = 'continuous',
+    FUNNEL = 'funnel',
+}
+
+export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
+
+export interface ExperimentMetric {
+    kind: 'ExperimentMetric'
+    name?: string
+    metric_type: ExperimentMetricType
+    filterTestAccounts?: boolean
+    inverse?: boolean
+    metric_config: ExperimentEventMetricConfig | ExperimentDataWarehouseMetricConfig
+}
+
+export interface ExperimentEventMetricConfig {
+    kind: 'ExperimentEventMetricConfig'
+    event: string
+    math?: ExperimentMetricMath
+    math_hogql?: string
+    math_property?: string
+}
+
+export interface ExperimentDataWarehouseMetricConfig {
+    kind: 'ExperimentDataWarehouseMetricConfig'
+    table_name: string
+    id_field: string
+    distinct_id_field: string
+    timestamp_field: string
+    math?: ExperimentMetricMath
+    math_hogql?: string
+    math_property?: string
+}
+
+export interface ExperimentQuery extends DataNode<ExperimentTrendsQueryResponse> {
+    kind: NodeKind.ExperimentQuery
+    metric: ExperimentMetric
+    experiment_id?: integer
+    name?: string
+}
+
+export interface ExperimentQueryResponse {
+    kind: NodeKind.ExperimentTrendsQuery
+    insight: Record<string, any>[]
+    count_query?: TrendsQuery
+    exposure_query?: TrendsQuery
+    variants: ExperimentVariantTrendsBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    stats_version?: integer
+    p_value: number
+    credible_intervals: Record<string, [number, number]>
+}
+
+export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
 
 /**
  * @discriminator kind
