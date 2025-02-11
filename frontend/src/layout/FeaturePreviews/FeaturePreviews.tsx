@@ -71,7 +71,7 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
     return (
         <div>
             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                     <h4 className="font-semibold mb-0">{name}</h4>
                     <LemonButton
                         icon={<IconLink />}
