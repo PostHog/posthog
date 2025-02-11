@@ -26,7 +26,7 @@ class PartitionRange(dagster.Config):
         while (cur_date := date_lower + relativedelta(months=next(seq))) <= date_upper:
             yield cur_date.strftime(self.FORMAT)
 
-    @validator("start", "stop")
+    @validator("lower", "upper")
     @classmethod
     def validate_format(cls, value: str) -> str:
         cls.parse_date(value)
