@@ -41,6 +41,8 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    ExperimentMetricType,
+    ExperimentQuery,
 } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
@@ -1334,6 +1336,13 @@ export const experimentLogic = kea<experimentLogicType>([
                         (metric?.kind === NodeKind.ExperimentQuery || metric?.kind === NodeKind.ExperimentTrendsQuery)
                         ? InsightType.TRENDS
                         : InsightType.FUNNELS
+                },
+        ],
+        getNewMetricType: [
+            () => [],
+            () =>
+                (metric: ExperimentQuery | undefined): ExperimentMetricType => {
+                    return metric?.metric?.metric_type || ExperimentMetricType.COUNT
                 },
         ],
         isExperimentRunning: [

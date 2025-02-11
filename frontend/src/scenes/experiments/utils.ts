@@ -32,6 +32,7 @@ import {
     FilterType,
 } from '~/types'
 import { ExperimentEventMetricConfig, ExperimentQuery } from '~/queries/schema/schema-general'
+import { ExperimentMetricType } from '~/queries/schema/schema-general'
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -292,6 +293,35 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     }
 }
 
+export function getDefaultCountMetric(): ExperimentQuery {
+    return {
+        kind: NodeKind.ExperimentQuery,
+        metric: {
+            kind: 'ExperimentMetric',
+            metric_type: ExperimentMetricType.COUNT,
+            metric_config: {
+                kind: 'ExperimentEventMetricConfig',
+                event: '$pageview',
+            },
+        },
+    }
+}
+
+export function getDefaultContinuousMetric(): ExperimentQuery {
+    return {
+        kind: NodeKind.ExperimentQuery,
+        metric: {
+            kind: 'ExperimentMetric',
+            metric_type: ExperimentMetricType.CONTINUOUS,
+            metric_config: {
+                kind: 'ExperimentEventMetricConfig',
+                event: '$pageview',
+                math: 'sum',
+            },
+        },
+    }
+}
+
 export function getExperimentMetricFromInsight(
     insight: QueryBasedInsightModel | null
 ): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
@@ -335,6 +365,56 @@ export function getExperimentMetricFromInsight(
         return {
             kind: NodeKind.ExperimentTrendsQuery,
             count_query: trendsQuery,
+            name: metricName,
+        }
+    }
+
+    return undefined
+}
+
+export function getNewExperimentMetricFromInsight(
+    insight: QueryBasedInsightModel | null
+): ExperimentQuery | undefined {
+    if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
+        return undefined
+    }
+
+    const metricName = (insight?.name || insight?.derived_name) ?? undefined
+
+    if (isFunnelsQuery(insight.query.source)) {
+        const firstSeries = insight.query.source.series[0]
+        const event = firstSeries.kind === NodeKind.EventsNode ? firstSeries.event : undefined
+
+        return {
+            kind: NodeKind.ExperimentQuery,
+            metric: {
+                kind: 'ExperimentMetric',
+                metric_type: ExperimentMetricType.FUNNEL,
+                metric_config: {
+                    kind: 'ExperimentEventMetricConfig',
+                    event: event as string,
+                },
+                filterTestAccounts: insight.query.source.filterTestAccounts,
+            },
+            name: metricName,
+        }
+    }
+
+    if (isTrendsQuery(insight.query.source)) {
+        const firstSeries = insight.query.source.series[0]
+        const event = firstSeries.kind === NodeKind.EventsNode ? firstSeries.event : undefined
+
+        return {
+            kind: NodeKind.ExperimentQuery,
+            metric: {
+                kind: 'ExperimentMetric',
+                metric_type: ExperimentMetricType.COUNT,
+                metric_config: {
+                    kind: 'ExperimentEventMetricConfig',
+                    event: event as string,
+                },
+                filterTestAccounts: insight.query.source.filterTestAccounts,
+            },
             name: metricName,
         }
     }
