@@ -119,6 +119,7 @@ class QueryExecutorNode(AssistantNode):
             messages=[
                 AssistantToolCallMessage(content=formatted_query_result, id=str(uuid4()), tool_call_id=tool_call_id)
             ],
+            # Resetting values to empty strings because Nones are not supported by LangGraph.
             root_tool_call_id="",
             root_tool_insight_plan="",
             root_tool_insight_type="",

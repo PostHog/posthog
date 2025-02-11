@@ -214,9 +214,9 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 # Add initial instructions.
                 if idx == 0:
                     # If there's only one human message, it's the initial question. Replace the initial question with the one from the tool call if it exists.
-                    human_question = (
-                        state.root_tool_insight_plan if len(human_messages) == 1 else None
-                    ) or message.content
+                    human_question = state.root_tool_insight_plan if len(human_messages) == 1 else None
+                    if not human_question:
+                        human_question = message.content
 
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
