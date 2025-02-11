@@ -71,17 +71,19 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")
         if fingerprint:
-            fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue")
-            record = fingerprint_queryset.filter(team=self.team, fingerprint=fingerprint).first()
+            fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue").filter(
+                team=self.team
+            )
+            record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
 
             if record:
-                if not record.issue.id == self.request.GET.get("pk"):
+                if not record.issue_id == self.request.GET.get("pk"):
                     return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
                 serializer = self.get_serializer(record.issue)
                 return Response(serializer.data)
 
-        super().retrieve(request, *args, **kwargs)
+        return super().retrieve(request, *args, **kwargs)
 
     @action(methods=["POST"], detail=True)
     def merge(self, request, **kwargs):
