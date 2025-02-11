@@ -25,7 +25,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
 
     return (
-        <div className="flex flex-col flex-1 m-4 gap-4">
+        <div className="flex flex-col flex-1 m-4 gap-4 overflow-y-auto">
             <div>
                 <div className="flex flex-row items-center gap-2">
                     <h3 className="mb-0">Materialization</h3>
@@ -101,6 +101,34 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                     )}
                 </div>
             </div>
+            <div>
+                <h3>Columns</h3>
+                <p>Columns that are available in the materialized view.</p>
+            </div>
+            <LemonTable
+                columns={[
+                    {
+                        key: 'name',
+                        title: 'Name',
+                        render: (_, column) => column.name,
+                    },
+                    {
+                        key: 'type',
+                        title: 'Type',
+                        render: (_, column) => column.type,
+                    },
+                    {
+                        key: 'schema_valid',
+                        title: 'Schema Valid',
+                        render: (_, column) => (
+                            <LemonTag type={column.schema_valid ? 'success' : 'danger'}>
+                                {column.schema_valid ? 'Yes' : 'No'}
+                            </LemonTag>
+                        ),
+                    },
+                ]}
+                dataSource={editingView?.columns || []}
+            />
             <div>
                 <h3>Dependencies</h3>
                 <p>
