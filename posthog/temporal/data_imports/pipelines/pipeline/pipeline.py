@@ -3,7 +3,6 @@ import time
 from typing import Any
 import pyarrow as pa
 from dlt.sources import DltSource, DltResource
-import deltalake as deltalake
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _handle_null_columns_with_definitions,
@@ -70,6 +69,8 @@ class PipelineNonDLT:
             row_count = 0
             chunk_index = 0
 
+            pa_memory_pool = pa.default_memory_pool()
+
             if self._reset_pipeline:
                 self._logger.debug("Deleting existing table due to reset_pipeline being set")
                 self._delta_table_helper.reset_table()
@@ -112,6 +113,17 @@ class PipelineNonDLT:
                 row_count += py_table.num_rows
                 chunk_index += 1
 
+                # Clean up pyarrow memory
+                py_table = None
+                self._logger.debug(
+                    f"pyarrows: memory before release: {pa_memory_pool.bytes_allocated()/1024/1024:.2f}mb"
+                )
+                pa_memory_pool.release_unused()
+                self._logger.debug(
+                    f"pyarrows: memory after release: {pa_memory_pool.bytes_allocated()/1024/1024:.2f}mb"
+                )
+                gc.collect()
+
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
                 self._process_pa_table(pa_table=py_table, index=chunk_index)
@@ -121,7 +133,6 @@ class PipelineNonDLT:
         finally:
             # Help reduce the memory footprint of each job
             delta_table = self._delta_table_helper.get_delta_table()
-            self._delta_table_helper.get_delta_table.cache_clear()
             if delta_table:
                 del delta_table
 
@@ -132,6 +143,12 @@ class PipelineNonDLT:
                 del buffer
             if "py_table" in locals() and py_table is not None:
                 del py_table
+
+            pa_memory_pool = pa.default_memory_pool()
+            self._logger.debug(f"pyarrows: memory before release: {pa_memory_pool.bytes_allocated()/1024/1024:.2f}mb")
+            pa_memory_pool.release_unused()
+            self._logger.debug(f"pyarrows: memory after release: {pa_memory_pool.bytes_allocated()/1024/1024:.2f}mb")
+
             gc.collect()
 
     def _process_pa_table(self, pa_table: pa.Table, index: int):
