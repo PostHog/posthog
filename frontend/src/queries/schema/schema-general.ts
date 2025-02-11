@@ -1717,18 +1717,36 @@ export interface ProjectTreeQuery extends DataNode<ProjectTreeQueryResponse> {
     searchQuery?: string
 }
 
-// Keep this compatible with LemonTree's TreeDataItem
+export type ProjectTreeItemType =
+    | 'feature_flag'
+    | 'insight'
+    | 'dashboard'
+    | 'experiment'
+    | 'notebook'
+    | 'repl'
+    | 'survey'
+    | 'sql'
+    | 'source'
+    | 'destination'
+    | 'site_app'
+    | 'transformation'
+
 export interface ProjectTreeItem {
+    /** Unique UUID for tree entry */
     id: string
+    /** Object's name */
     name: string
-    type?: string
+    /** Where do we keep it */
+    folder: string
+    /** Type of object, used for icon, e.g. feature_flag, insight, etc */
+    type?: ProjectTreeItemType
+    /** Object's URL */
     href?: string
-    children?: ProjectTreeItem[]
+    /** Metadata */
+    meta?: Record<string, any>
 }
 
-export interface ProjectTreeQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {
-    tree: ProjectTreeItem[]
-}
+export interface ProjectTreeQueryResponse extends AnalyticsQueryResponseBase<ProjectTreeItem[]> {}
 
 export type InsightQueryNode =
     | TrendsQuery

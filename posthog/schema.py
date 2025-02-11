@@ -1124,15 +1124,19 @@ class PersonType(BaseModel):
     uuid: Optional[str] = None
 
 
-class ProjectTreeItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    children: Optional[list[ProjectTreeItem]] = None
-    href: Optional[str] = None
-    id: str
-    name: str
-    type: Optional[str] = None
+class ProjectTreeItemType(StrEnum):
+    FEATURE_FLAG = "feature_flag"
+    INSIGHT = "insight"
+    DASHBOARD = "dashboard"
+    EXPERIMENT = "experiment"
+    NOTEBOOK = "notebook"
+    REPL = "repl"
+    SURVEY = "survey"
+    SQL = "sql"
+    SOURCE = "source"
+    DESTINATION = "destination"
+    SITE_APP = "site_app"
+    TRANSFORMATION = "transformation"
 
 
 class PropertyFilterType(StrEnum):
@@ -2392,6 +2396,20 @@ class PersonPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class ProjectTreeItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    folder: str = Field(..., description="Where do we keep it")
+    href: Optional[str] = Field(default=None, description="Object's URL")
+    id: str = Field(..., description="Unique UUID for tree entry")
+    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
+    name: str = Field(..., description="Object's name")
+    type: Optional[ProjectTreeItemType] = Field(
+        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
+    )
 
 
 class QueryResponseAlternative7(BaseModel):
@@ -4125,11 +4143,10 @@ class Response13(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[dict[str, Any]]
+    results: list[ProjectTreeItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    tree: list[ProjectTreeItem]
 
 
 class DataWarehouseNode(BaseModel):
@@ -4850,11 +4867,10 @@ class ProjectTreeQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[dict[str, Any]]
+    results: list[ProjectTreeItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    tree: list[ProjectTreeItem]
 
 
 class PropertyGroupFilterValue(BaseModel):
@@ -5068,11 +5084,10 @@ class QueryResponseAlternative13(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[dict[str, Any]]
+    results: list[ProjectTreeItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    tree: list[ProjectTreeItem]
 
 
 class QueryResponseAlternative14(BaseModel):
@@ -5393,11 +5408,10 @@ class QueryResponseAlternative32(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[dict[str, Any]]
+    results: list[ProjectTreeItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    tree: list[ProjectTreeItem]
 
 
 class QueryResponseAlternative33(BaseModel):
@@ -8154,6 +8168,5 @@ class QuerySchemaRoot(
     ] = Field(..., discriminator="kind")
 
 
-ProjectTreeItem.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
 QueryRequest.model_rebuild()

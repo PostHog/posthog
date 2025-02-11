@@ -30,7 +30,7 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
-import { NodeKind, ProjectTreeQuery } from '~/queries/schema'
+import { NodeKind, ProjectTreeItem, ProjectTreeItemType, ProjectTreeQuery } from '~/queries/schema'
 import { InsightType, PipelineStage, ReplayTabs } from '~/types'
 
 import type { projectTreeLogicType } from './projectTreeLogicType'
@@ -99,6 +99,37 @@ const testTreeData: TreeDataItem[] = [
     },
 ]
 
+export function iconForType(type: ProjectTreeItemType): JSX.Element {
+    switch (type) {
+        case 'feature_flag':
+            return <IconToggle />
+        case 'experiment':
+            return <IconTestTube />
+        case 'insight':
+            return <IconGraph />
+        case 'notebook':
+            return <IconNotebook />
+        case 'dashboard':
+            return <IconGraph />
+        case 'repl':
+            return <IconTarget />
+        case 'survey':
+            return <IconMessage />
+        case 'sql':
+            return <IconServer />
+        case 'site_app':
+            return <IconPlug />
+        case 'destination':
+            return <IconPlug />
+        case 'transformation':
+            return <IconPlug />
+        case 'source':
+            return <IconPlug />
+        default:
+            return <IconBook />
+    }
+}
+
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
     connect(() => ({
@@ -118,17 +149,45 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     })),
     actions({ loadProjectTree: true }),
     loaders({
-        projectTree: [
-            [] as TreeDataItem[],
+        rawProjectTree: [
+            [] as ProjectTreeItem[],
             {
                 loadProjectTree: async () => {
                     const response = await performQuery<ProjectTreeQuery>({ kind: NodeKind.ProjectTreeQuery })
-                    return response.tree
+                    return response.results
                 },
             },
         ],
     }),
     selectors({
+        projectTree: [
+            (s) => [s.rawProjectTree],
+            (rawProjectTree): TreeDataItem[] => {
+                const folders: Record<string, TreeDataItem[]> = {}
+                for (const item of rawProjectTree) {
+                    const folder = item.folder || ''
+                    const obj: TreeDataItem = {
+                        id: 'project/' + item.id,
+                        name: item.name,
+                        icon: iconForType(item.type),
+                        onClick: () => {
+                            item.href && router.actions.push(item.href)
+                        },
+                    }
+                    if (folder in folders) {
+                        folders[folder].push(obj)
+                    } else {
+                        folders[folder] = [obj]
+                    }
+                }
+
+                return Object.entries(folders).map(([folder, items]) => ({
+                    id: 'project/' + folder,
+                    name: folder,
+                    children: items.sort((a, b) => a.name.localeCompare(b.name)),
+                }))
+            },
+        ],
         defaultTreeNodes: [
             () => [],
             (): TreeDataItem[] => [
@@ -145,19 +204,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         {
                             id: 'new/dashboard',
                             name: 'Dashboard',
-                            icon: <IconGraph />,
+                            icon: iconForType('dashboard'),
                             onClick: () => router.actions.push(urls.dashboards() + '#newDashboard=modal'),
                         },
                         {
                             id: 'new/experiment',
                             name: 'Experiment',
-                            icon: <IconTestTube />,
+                            icon: iconForType('experiment'),
                             onClick: () => router.actions.push(urls.experiment('new')),
                         },
                         {
                             id: 'new/feature_flag',
                             name: 'Feature flag',
-                            icon: <IconToggle />,
+                            icon: iconForType('feature_flag'),
                             onClick: () => router.actions.push(urls.featureFlag('new')),
                         },
                         {
@@ -167,39 +226,39 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 {
                                     id: 'new/insight/trends',
                                     name: 'Trends',
-                                    icon: <IconGraph />,
+                                    icon: iconForType('insight'),
                                     onClick: () => router.actions.push(urls.insightNew({ type: InsightType.TRENDS })),
                                 },
                                 {
                                     id: 'new/insight/funnels',
                                     name: 'Funnels',
-                                    icon: <IconGraph />,
+                                    icon: iconForType('insight'),
                                     onClick: () => router.actions.push(urls.insightNew({ type: InsightType.FUNNELS })),
                                 },
                                 {
                                     id: 'new/insight/retention',
                                     name: 'Retention',
-                                    icon: <IconGraph />,
+                                    icon: iconForType('insight'),
                                     onClick: () =>
                                         router.actions.push(urls.insightNew({ type: InsightType.RETENTION })),
                                 },
                                 {
                                     id: 'new/insight/paths',
                                     name: 'User Paths',
-                                    icon: <IconGraph />,
+                                    icon: iconForType('insight'),
                                     onClick: () => router.actions.push(urls.insightNew({ type: InsightType.PATHS })),
                                 },
                                 {
                                     id: 'new/insight/stickiness',
                                     name: 'Stickiness',
-                                    icon: <IconGraph />,
+                                    icon: iconForType('insight'),
                                     onClick: () =>
                                         router.actions.push(urls.insightNew({ type: InsightType.STICKINESS })),
                                 },
                                 {
                                     id: 'new/insight/lifecycle',
                                     name: 'Lifecycle',
-                                    icon: <IconGraph />,
+                                    icon: iconForType('insight'),
                                     onClick: () =>
                                         router.actions.push(urls.insightNew({ type: InsightType.LIFECYCLE })),
                                 },
@@ -208,25 +267,25 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         {
                             id: 'new/notebook',
                             name: 'Notebook',
-                            icon: <IconNotebook />,
+                            icon: iconForType('notebook'),
                             onClick: () => router.actions.push(urls.notebook('new')),
                         },
                         {
                             id: 'new/repl',
                             name: 'Repl',
-                            icon: <IconTarget />,
+                            icon: iconForType('repl'),
                             onClick: () => router.actions.push(urls.debugHog() + '#repl=[]&code='),
                         },
                         {
                             id: 'new/survey',
                             name: 'Survey',
-                            icon: <IconMessage />,
+                            icon: iconForType('survey'),
                             onClick: () => router.actions.push(urls.experiment('new')),
                         },
                         {
                             id: 'new/sql',
                             name: 'SQL query',
-                            icon: <IconServer />,
+                            icon: iconForType('sql'),
                             onClick: () => router.actions.push(urls.sqlEditor()),
                         },
                         {
@@ -237,26 +296,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 {
                                     id: 'new/pipeline/source',
                                     name: 'Source',
-                                    icon: <IconPlug />,
+                                    icon: iconForType('source'),
                                     onClick: () => router.actions.push(urls.pipelineNodeNew(PipelineStage.Source)),
                                 },
                                 {
                                     id: 'new/pipeline/destination',
                                     name: 'Destination',
-                                    icon: <IconPlug />,
+                                    icon: iconForType('destination'),
                                     onClick: () => router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination)),
                                 },
                                 {
                                     id: 'new/pipeline/transformation',
                                     name: 'Transformation',
-                                    icon: <IconPlug />,
+                                    icon: iconForType('transformation'),
                                     onClick: () =>
                                         router.actions.push(urls.pipelineNodeNew(PipelineStage.Transformation)),
                                 },
                                 {
                                     id: 'new/pipeline/site_app',
                                     name: 'Site App',
-                                    icon: <IconPlug />,
+                                    icon: iconForType('site_app'),
                                     onClick: () => router.actions.push(urls.pipelineNodeNew(PipelineStage.SiteApp)),
                                 },
                             ],
@@ -320,52 +379,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             ],
         ],
-        unfilled: [
-            (s) => [s.featureFlags, s.insights, s.experiments, s.dashboards, s.notebooks],
-            (featureFlags, insights, experiments, dashboards, notebooks): TreeDataItem[] => {
-                return [
-                    {
-                        id: 'unfilled',
-                        name: 'Unfilled',
-                        children: [
-                            ...featureFlags.results.map((f) => ({
-                                id: `ff_${f.id}`,
-                                name: f.name || 'Untitled',
-                                icon: <IconToggle />,
-                                onClick: () => router.actions.push(urls.featureFlag(Number(f.id))),
-                            })),
-                            ...insights.results.map((i) => ({
-                                id: `insight_${i.id}`,
-                                name: i.name || 'Untitled',
-                                icon: <IconGraph />,
-                                onClick: () => router.actions.push(urls.insightView(i.short_id)),
-                            })),
-                            ...experiments.map((e) => ({
-                                id: `exp_${e.id}`,
-                                name: e.name || 'Untitled',
-                                icon: <IconTestTube />,
-                                onClick: () => router.actions.push(urls.experiment(e.id)),
-                            })),
-                            ...dashboards.map((d) => ({
-                                id: `dash_${d.id}`,
-                                name: d.name || 'Untitled',
-                                icon: <IconGraph />,
-                                onClick: () => router.actions.push(urls.dashboard(d.id)),
-                            })),
-                            ...notebooks.map((n) => ({
-                                id: `nb_${n.id}`,
-                                name: n.title || 'Untitled',
-                                icon: <IconNotebook />,
-                                onClick: () => router.actions.push(urls.notebook(n.short_id)),
-                            })),
-                        ].sort((a, b) => a.name.localeCompare(b.name)),
-                    },
-                ]
-            },
-        ],
         treeData: [
-            (s) => [s.defaultTreeNodes, s.projectTree, s.unfilled],
-            (defaultTreeNodes, projectTree, unfilled): TreeDataItem[] => {
+            (s) => [s.defaultTreeNodes, s.projectTree],
+            (defaultTreeNodes, projectTree): TreeDataItem[] => {
                 return [
                     ...defaultTreeNodes,
                     {
@@ -374,7 +390,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     },
                     ...testTreeData,
                     ...projectTree,
-                    ...unfilled,
                 ]
             },
         ],

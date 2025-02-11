@@ -5194,7 +5194,7 @@
                                 },
                                 "results": {
                                     "items": {
-                                        "type": "object"
+                                        "$ref": "#/definitions/ProjectTreeItem"
                                     },
                                     "type": "array"
                                 },
@@ -5204,15 +5204,9 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
-                                },
-                                "tree": {
-                                    "items": {
-                                        "$ref": "#/definitions/ProjectTreeItem"
-                                    },
-                                    "type": "array"
                                 }
                             },
-                            "required": ["results", "tree"],
+                            "required": ["results"],
                             "type": "object"
                         }
                     ]
@@ -9820,27 +9814,50 @@
         "ProjectTreeItem": {
             "additionalProperties": false,
             "properties": {
-                "children": {
-                    "items": {
-                        "$ref": "#/definitions/ProjectTreeItem"
-                    },
-                    "type": "array"
+                "folder": {
+                    "description": "Where do we keep it",
+                    "type": "string"
                 },
                 "href": {
+                    "description": "Object's URL",
                     "type": "string"
                 },
                 "id": {
+                    "description": "Unique UUID for tree entry",
                     "type": "string"
                 },
+                "meta": {
+                    "description": "Metadata",
+                    "type": "object"
+                },
                 "name": {
+                    "description": "Object's name",
                     "type": "string"
                 },
                 "type": {
-                    "type": "string"
+                    "$ref": "#/definitions/ProjectTreeItemType",
+                    "description": "Type of object, used for icon, e.g. feature_flag, insight, etc"
                 }
             },
-            "required": ["id", "name"],
+            "required": ["id", "name", "folder"],
             "type": "object"
+        },
+        "ProjectTreeItemType": {
+            "enum": [
+                "feature_flag",
+                "insight",
+                "dashboard",
+                "experiment",
+                "notebook",
+                "repl",
+                "survey",
+                "sql",
+                "source",
+                "destination",
+                "site_app",
+                "transformation"
+            ],
+            "type": "string"
         },
         "ProjectTreeQuery": {
             "additionalProperties": false,
@@ -9890,7 +9907,7 @@
                 },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/ProjectTreeItem"
                     },
                     "type": "array"
                 },
@@ -9900,15 +9917,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
-                },
-                "tree": {
-                    "items": {
-                        "$ref": "#/definitions/ProjectTreeItem"
-                    },
-                    "type": "array"
                 }
             },
-            "required": ["results", "tree"],
+            "required": ["results"],
             "type": "object"
         },
         "PropertyFilterType": {
@@ -10729,7 +10740,7 @@
                         },
                         "results": {
                             "items": {
-                                "type": "object"
+                                "$ref": "#/definitions/ProjectTreeItem"
                             },
                             "type": "array"
                         },
@@ -10739,15 +10750,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
-                        },
-                        "tree": {
-                            "items": {
-                                "$ref": "#/definitions/ProjectTreeItem"
-                            },
-                            "type": "array"
                         }
                     },
-                    "required": ["results", "tree"],
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -11739,7 +11744,7 @@
                         },
                         "results": {
                             "items": {
-                                "type": "object"
+                                "$ref": "#/definitions/ProjectTreeItem"
                             },
                             "type": "array"
                         },
@@ -11749,15 +11754,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
-                        },
-                        "tree": {
-                            "items": {
-                                "$ref": "#/definitions/ProjectTreeItem"
-                            },
-                            "type": "array"
                         }
                     },
-                    "required": ["results", "tree"],
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
