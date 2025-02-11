@@ -422,53 +422,25 @@ export function getNewExperimentMetricFromInsight(
     return undefined
 }
 
-export const metricQueryToFilter = (query: ExperimentQuery): Partial<FilterType> => {
-    console.log('metricQueryToFilter: ', query)
-    const entity: ActionFilter = {
-        type: EntityTypes.EVENTS,
-        id: "$pageview",
-        name: "$pageview",
-        math: "total",
-        order: 0,
+export function metricQueryToFilter(query: ExperimentQuery): FilterType {
+    if (!query.metric?.metric_config) {
+        return {}
     }
-    const filters: Partial<FilterType> = {
-        events: [entity],
+
+    const config = query.metric.metric_config
+    if (config.kind === 'ExperimentEventMetricConfig') {
+        return {
+            events: [{
+                id: config.event,
+                name: config.event,
+                type: 'events',
+                math: config.math,
+                math_property: config.math_property,
+                math_hogql: config.math_hogql,
+            }],
+            actions: [],
+        }
     }
-    return filters
-    // if (!query.metric) {
-    //     return {}
-    // }
 
-    // const filters: Partial<FilterType> = objectClean({
-    //     filter_test_accounts: query.metric.filterTestAccounts,
-    // })
-
-    // Convert metric config to events/actions
-    // if (query.metric.metric_config.kind === 'ExperimentEventMetricConfig') {
-    //     const config = query.metric.metric_config
-    //     const entity: ActionFilter = {
-    //         type: EntityTypes.EVENTS,
-    //         id: config.event,
-    //         name: config.event,
-    //         math: config.math,
-    //         math_property: config.math_property,
-    //         math_hogql: config.math_hogql,
-    //         order: 0,
-    //     }
-    //     filters.events = [entity]
-    // } else if (query.metric.metric_config.kind === 'ExperimentDataWarehouseMetricConfig') {
-    //     const config = query.metric.metric_config
-    //     const entity: ActionFilter = {
-    //         type: EntityTypes.DATA_WAREHOUSE,
-    //         id: config.table_name,
-    //         name: config.table_name,
-    //         math: config.math,
-    //         math_property: config.math_property,
-    //         math_hogql: config.math_hogql,
-    //         order: 0,
-    //     }
-    //     filters.data_warehouse = [entity]
-    // }
-
-    // return filters
+    return {}
 }
