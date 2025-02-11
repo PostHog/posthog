@@ -809,11 +809,12 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
 
     We mock the insert_into_snowflake_activity for this test.
     """
+    data_interval_end = dt.datetime.now(dt.UTC)
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(snowflake_batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
+        data_interval_end=data_interval_end.isoformat(),
         **snowflake_batch_export.destination.config,
     )
 
@@ -1692,7 +1693,7 @@ async def test_snowflake_export_workflow_handles_cancellation(
     clickhouse_client, ateam, snowflake_batch_export, interval, snowflake_cursor
 ):
     """Test that Snowflake Export Workflow can gracefully handle cancellations when inserting Snowflake data."""
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(dt.UTC)
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     await generate_test_events_in_clickhouse(
@@ -1767,7 +1768,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
 
     We use a function that runs on_heartbeat to check and track the heartbeat contents.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(dt.UTC)
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     n_expected_files = 3
