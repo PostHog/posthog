@@ -78,6 +78,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const showSmoothing =
         isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
     const showMultipleYAxesConfig = isTrends || isStickiness
+    const showAlertThresholdLinesConfig = isTrends
 
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
@@ -90,7 +91,9 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                          { label: () => <ShowAlertThresholdLinesFilter /> },
+                          ...(showAlertThresholdLinesConfig
+                              ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
+                              : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
                       ],
                   },
