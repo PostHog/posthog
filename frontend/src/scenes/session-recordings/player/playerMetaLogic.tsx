@@ -1,5 +1,5 @@
 import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
-import { eventWithTime } from '@rrweb/types'
+import { eventWithTime } from '@posthog/rrweb-types'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'

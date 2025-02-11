@@ -97,7 +97,6 @@ class HogFunctionTemplates:
                         exc_info=True,
                     )
                     capture_exception(e)
-                    raise
         except Exception as e:
             capture_exception(e)
             # Continue on so as not to block the user
@@ -143,6 +142,9 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
                 continue
 
             if sub_template_id and sub_template_id not in template.id:
+                continue
+
+            if template.status == "deprecated":
                 continue
 
             if request.path.startswith("/api/public_hog_function_templates"):

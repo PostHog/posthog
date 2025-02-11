@@ -1,0 +1,16 @@
+{
+    "name": "Unduplicates",
+    "url": "https://github.com/paolodamico/posthog-plugin-unduplicates",
+    "description": "Prevent duplicates in your data when ingesting.",
+    "main": "index.ts",
+    "posthogVersion": ">=1.25.0",
+    "config": [
+        {
+            "key": "dedupMode",
+            "name": "Dedup Mode",
+            "type": "choice",
+            "required": true,
+            "choices": ["Event and Timestamp", "All Properties"]
+        }
+    ]
+}

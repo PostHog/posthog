@@ -45,6 +45,12 @@ export default defineConfig({
                 webpackOptions: createEntry('cypress'),
                 watchOptions: {},
             }
+            options.webpackOptions.module.rules.push({
+  test: /\.m?js$/,
+  resolve: {
+    fullySpecified: false,
+  },
+} as any)
 
             // @ts-expect-error -- ignore errors in options type
             on('file:preprocessor', webpackPreprocessor(options))

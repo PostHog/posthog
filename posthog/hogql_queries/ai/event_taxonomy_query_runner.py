@@ -100,6 +100,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             r"\$time",
             r"\$set_once",
             r"\$sent_at",
+            "distinct_id",
             # privacy-related
             r"\$ip",
             # feature flags and experiments
@@ -115,6 +116,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             "window-id",
             "changed_event",
             "partial_filter",
+            "distinct_id",
         ]
         regex_conditions = "|".join(omit_list)
 

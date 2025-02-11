@@ -1,9 +1,10 @@
-import { IconRewindPlay, IconTrending } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconRewindPlay, IconTrending, IconWarning } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -193,6 +194,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { breakdownBy } = source
 
     switch (breakdownBy) {
+        case WebStatsBreakdown.ExitPage:
+        case WebStatsBreakdown.InitialPage:
+        case WebStatsBreakdown.Page:
+            return <>{source.doPathCleaning ? parseAliasToReadable(value as string) : value}</>
+
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
                 const [width, height] = value
@@ -433,7 +439,7 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
@@ -466,7 +472,6 @@ export const WebStatsTableTile = ({
     control?: JSX.Element
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
-    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -483,17 +488,14 @@ export const WebStatsTableTile = ({
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
-            if (
-                (breakdownBy === WebStatsBreakdown.InitialPage || breakdownBy === WebStatsBreakdown.Page) &&
-                isPathCleaningEnabled
-            ) {
-                // if the path cleaning is enabled, don't allow toggling a path by clicking a row, as this wouldn't
-                // work due to the order that the regex and filters are applied
+            // `onClick` won't know how to handle the breakdown value if these don't exist,
+            // so let's prevent from `onClick` from being set up in the first place to avoid a noop click
+            if (!key || !type) {
                 return {}
             }
 
+            // Tricky to calculate because the breakdown is a computed value rather than a DB column, make it non-filterable for now
             if (breakdownBy === WebStatsBreakdown.Language || breakdownBy === WebStatsBreakdown.Timezone) {
-                // Slightly trickier to calculate, make it non-filterable for now
                 return {}
             }
 
@@ -502,10 +504,9 @@ export const WebStatsTableTile = ({
                 return {}
             }
 
-            return {
-                onClick: key && type ? () => onClick(breakdownValue) : undefined,
-            }
+            return { onClick: () => onClick(breakdownValue) }
         }
+
         return {
             ...webAnalyticsDataTableQueryContext,
             insightProps,
@@ -514,7 +515,7 @@ export const WebStatsTableTile = ({
     }, [onClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
             <Query query={query} readOnly={true} context={context} />
         </div>
@@ -585,7 +586,7 @@ export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<Data
     }
 
     return (
-        <div className="border rounded bg-bg-light flex-1">
+        <div className="border rounded bg-surface-primary flex-1">
             <div className="flex flex-row-reverse p-2">
                 <LemonButton to={urls.actions()} sideIcon={<IconOpenInNew />} type="secondary" size="small">
                     Manage actions
@@ -603,7 +604,7 @@ export const WebExternalClicksTile = ({
     const { shouldStripQueryParams } = useValues(webAnalyticsLogic)
     const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             <div className="flex flex-row items-center justify-end m-2 mr-4">
                 <div className="flex flex-row items-center space-x-2">
                     <LemonSwitch
@@ -622,15 +623,27 @@ export const WebExternalClicksTile = ({
 export const WebVitalsPathBreakdownTile = ({
     query,
     insightProps,
-    control,
-}: QueryWithInsightProps<WebVitalsPathBreakdownQuery> & {
-    control?: JSX.Element
-}): JSX.Element => {
+}: QueryWithInsightProps<WebVitalsPathBreakdownQuery>): JSX.Element => {
+    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
+    const { setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+
     return (
         <div>
-            <div className="flex flex-row items-center justify-between m-2 mr-4">
+            <div className="flex flex-row items-center gap-1 m-2">
                 <h3 className="text-lg font-semibold">Path Breakdown</h3>
-                {control}
+                {!isPathCleaningEnabled && (
+                    <Tooltip
+                        title={
+                            <span>
+                                Path Breakdown is more useful when path cleaning is turned on.{' '}
+                                <Link onClick={() => setIsPathCleaningEnabled(true)}>Enable it.</Link>
+                            </span>
+                        }
+                        interactive
+                    >
+                        <IconWarning className="mb-2" fontSize="18" />
+                    </Tooltip>
+                )}
             </div>
             <Query query={query} readOnly context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
         </div>
@@ -670,7 +683,7 @@ export const WebQuery = ({
     }
 
     if (query.kind === NodeKind.WebVitalsPathBreakdownQuery) {
-        return <WebVitalsPathBreakdownTile query={query} insightProps={insightProps} control={control} />
+        return <WebVitalsPathBreakdownTile query={query} insightProps={insightProps} />
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />

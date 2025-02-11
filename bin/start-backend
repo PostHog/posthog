@@ -1,4 +1,4 @@
 #!/bin/bash
 set -e
 
-python3 manage.py runserver
+uvicorn --reload posthog.asgi:application --host 0.0.0.0 --log-level debug --reload-include "posthog/" --reload-include "ee/" --reload-include "products/"

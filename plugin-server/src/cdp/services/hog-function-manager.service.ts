@@ -28,6 +28,7 @@ const HOG_FUNCTION_FIELDS = [
     'type',
     'template_id',
     'execution_order',
+    'created_at',
 ]
 
 export class HogFunctionManagerService {
@@ -108,15 +109,34 @@ export class HogFunctionManagerService {
         return this.cache.orderedTeamFunctions[teamId] || []
     }
 
+    /**
+     * Sorts HogFunctions by their execution_order and creation date.
+     * Functions with no execution_order are placed at the end.
+     * When execution_order is the same, earlier created functions come first.
+     */
     private sortHogFunctions(functions: HogFunctionType[]): HogFunctionType[] {
         return [...functions].sort((a, b) => {
-            if (a.execution_order === null || a.execution_order === undefined) {
+            // If either execution_order is null/undefined, it should go last
+            if (a.execution_order == null && b.execution_order == null) {
+                // Both are null/undefined, sort by creation date
+                return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            }
+
+            // Null/undefined values go last
+            if (a.execution_order == null) {
                 return 1
             }
-            if (b.execution_order === null || b.execution_order === undefined) {
+            if (b.execution_order == null) {
                 return -1
             }
-            return a.execution_order - b.execution_order
+
+            // If execution orders are different, sort by them
+            if (a.execution_order !== b.execution_order) {
+                return a.execution_order - b.execution_order
+            }
+
+            // If execution orders are the same, sort by creation date
+            return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
         })
     }
 
@@ -140,7 +160,7 @@ export class HogFunctionManagerService {
             SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
             FROM posthog_hogfunction
             WHERE deleted = FALSE AND enabled = TRUE AND type = ANY($1)
-            ORDER BY execution_order NULLS LAST
+            ORDER BY execution_order NULLS LAST, created_at ASC
         `,
                 [this.hogTypes],
                 'fetchAllHogFunctions'

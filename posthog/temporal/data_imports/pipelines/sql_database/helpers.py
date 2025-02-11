@@ -102,8 +102,9 @@ class TableLoader:
             if self.end_value is not None:
                 query = query.where(filter_op_end(self.cursor_column, self.end_value))
 
-        # generate order by from declared row order
-        order_by = None
+        # generate order by from declared row order - default to asc
+        order_by = self.cursor_column.asc()
+
         if (self.row_order == "asc" and last_value_func is max) or (
             self.row_order == "desc" and last_value_func is min
         ):

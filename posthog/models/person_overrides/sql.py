@@ -11,18 +11,20 @@
 # table to the `sharded_events` table to find all events that were associated
 # and therefore reconcile the events to be associated with the same Person.
 
-from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
+from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
 from posthog.settings.data_stores import (
-    CLICKHOUSE_CLUSTER,
     CLICKHOUSE_DATABASE,
     KAFKA_HOSTS,
 )
 
-PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
+
+PERSON_OVERRIDES_CREATE_TABLE_SQL = (
+    lambda on_cluster=True: f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+    {ON_CLUSTER_CLAUSE(on_cluster)} (
         team_id INT NOT NULL,
 
         -- When we merge two people `old_person_id` and `override_person_id`, we
@@ -66,13 +68,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
     -- consider all replicas as the same. See
     -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
     -- for details.
-    ENGINE = ReplicatedReplacingMergeTree(
-        -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
-        -- when the tests tear down and recreate the table.
-        '/clickhouse/tables/{'{uuid}' if settings.TEST or settings.E2E_TESTING else ''}noshard/{CLICKHOUSE_DATABASE}.person_overrides',
-        '{{replica}}-{{shard}}',
-        version
-    )
+    ENGINE = {{engine}}
 
     -- We partition the table by the `oldest_event` column. This allows us to
     -- handle updating the events table partition by partition, progressing each
@@ -85,14 +81,17 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
     -- the newest known mapping for it in the table. Query side we will need to
     -- ensure that we are always querying the latest version of the mapping.
     ORDER BY (team_id, old_person_id)
-"""
+""".format(
+        engine=ReplacingMergeTree("person_overrides", replication_scheme=ReplicationScheme.REPLICATED, ver="version")
+    )
+)
 
 # An abstraction over Kafka that allows us to consume, via a ClickHouse
 # Materialized View from a Kafka topic and insert the messages into the
 # ClickHouse MergeTree table `person_overrides`
 KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    {ON_CLUSTER_CLAUSE()}
 
     ENGINE = Kafka(
         '{",".join(KAFKA_HOSTS)}', -- Kafka hosts
@@ -121,7 +120,7 @@ KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
 
 DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
     DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    {ON_CLUSTER_CLAUSE()}
     SYNC
 """
 
@@ -129,7 +128,7 @@ DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
 # `person_overrides` table.
 PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_mv`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    {ON_CLUSTER_CLAUSE()}
     TO `{CLICKHOUSE_DATABASE}`.`person_overrides`
     AS SELECT
         team_id,
@@ -146,7 +145,7 @@ PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
 
 DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     DROP VIEW IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_mv`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    {ON_CLUSTER_CLAUSE()}
     SYNC
 """
 
@@ -165,7 +164,7 @@ GROUP BY
 # ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
 PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
     CREATE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+    {ON_CLUSTER_CLAUSE()} (
         team_id INT,
         old_person_id UUID,
         override_person_id UUID
@@ -182,5 +181,5 @@ PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
 
 DROP_PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
     DROP DICTIONARY IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    {ON_CLUSTER_CLAUSE()}
 """

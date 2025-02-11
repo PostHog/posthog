@@ -172,7 +172,10 @@ export function HogRepl(): JSX.Element {
                             onChange={(value) => setCurrentCode(value ?? '')}
                             onPressCmdEnter={runCurrentCode}
                             onPressUpNoValue={() => {
-                                if ((hogReplLogic.findMounted()?.values.replChunks.length ?? 0) > 0) {
+                                // TRICKY: This function will be memoified, so find the actual latest value,
+                                // not the one we had in the HogRepl component's chunk when this first rendered.
+                                const replChunks: ReplChunkType[] = hogReplLogic.findMounted()?.values.replChunks ?? []
+                                if (replChunks.length > 0) {
                                     editFromHere(replChunks.length - 1)
                                 }
                             }}

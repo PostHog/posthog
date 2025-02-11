@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 from posthog.schema import ExperimentFunnelsQuery, ExperimentTrendsQuery
 
@@ -30,7 +31,7 @@ class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
         ]
 
 
-class ExperimentSavedMetricSerializer(serializers.ModelSerializer):
+class ExperimentSavedMetricSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -43,6 +44,7 @@ class ExperimentSavedMetricSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "tags",
         ]
         read_only_fields = [
             "id",

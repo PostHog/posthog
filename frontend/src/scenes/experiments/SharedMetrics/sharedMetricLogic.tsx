@@ -23,12 +23,14 @@ export interface SharedMetric {
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
+    tags: string[]
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
     name: '',
     description: '',
     query: getDefaultTrendsMetric(),
+    tags: [],
 }
 
 export const sharedMetricLogic = kea<sharedMetricLogicType>([

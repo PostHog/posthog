@@ -11,7 +11,7 @@ from django.utils.timezone import datetime
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr, action_to_expr
+from posthog.hogql.property import property_to_expr, action_to_expr, apply_path_cleaning
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -495,20 +495,10 @@ WHERE
         )
 
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
-        if not self.query.doPathCleaning or not self.team.path_cleaning_filters:
+        if not self.query.doPathCleaning:
             return path_expr
 
-        for replacement in self.team.path_cleaning_filter_models():
-            path_expr = ast.Call(
-                name="replaceRegexpAll",
-                args=[
-                    path_expr,
-                    ast.Constant(value=replacement.regex),
-                    ast.Constant(value=replacement.alias),
-                ],
-            )
-
-        return path_expr
+        return apply_path_cleaning(path_expr, self.team)
 
     def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
         if n is None:

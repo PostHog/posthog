@@ -1,6 +1,8 @@
-import { PluginConfigSchema, PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { Response, trackedFetch } from '~/src/utils/fetch'
+
+import { HogFunctionTemplate } from '../templates/types'
 
 export type LegacyPluginLogger = {
     debug: (...args: any[]) => void
@@ -9,10 +11,16 @@ export type LegacyPluginLogger = {
     error: (...args: any[]) => void
 }
 
-export type LegacyTransformationPluginMeta = {
+export type LegacyPluginMeta = {
     config: Record<string, any>
     global: Record<string, any>
     logger: LegacyPluginLogger
+}
+
+export type LegacyTransformationPluginMeta = LegacyPluginMeta & {
+    geoip: {
+        locate: (ipAddress: string) => Record<string, any> | null
+    }
 }
 
 export type LegacyDestinationPluginMeta = LegacyTransformationPluginMeta & {
@@ -20,21 +28,13 @@ export type LegacyDestinationPluginMeta = LegacyTransformationPluginMeta & {
 }
 
 export type LegacyDestinationPlugin = {
-    id: string
-    metadata: {
-        name: string
-        config: PluginConfigSchema[]
-    }
+    template: HogFunctionTemplate
     onEvent(event: ProcessedPluginEvent, meta: LegacyDestinationPluginMeta): Promise<void>
     setupPlugin?: (meta: LegacyDestinationPluginMeta) => Promise<void>
 }
 
 export type LegacyTransformationPlugin = {
-    id: string
-    metadata: {
-        name: string
-        config: PluginConfigSchema[]
-    }
+    template: HogFunctionTemplate
     processEvent(event: PluginEvent, meta: LegacyTransformationPluginMeta): PluginEvent | undefined | null
     setupPlugin?: (meta: LegacyTransformationPluginMeta) => void
 }

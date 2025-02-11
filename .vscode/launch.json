@@ -155,7 +155,8 @@
                 "OBJECT_STORAGE_ENABLED": "True",
                 "HOG_HOOK_URL": "http://localhost:3300/hoghook",
                 "PLUGIN_SERVER_MODE": "all-v2",
-                "HOG_TRANSFORMATIONS_ENABLED": "True"
+                "HOG_TRANSFORMATIONS_ENABLED": "True",
+                "HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE": "1"
             },
             "presentation": {
                 "group": "main"
@@ -273,6 +274,22 @@
                 "Celery Threaded Pool",
                 "Celery Beat",
                 "Frontend",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "order": 1,
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (no typegen)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend (no typegen)",
                 "Plugin Server",
                 "Temporal Worker"
             ],

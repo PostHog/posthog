@@ -2687,6 +2687,112 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("ExprCall", "{s:N, s:N}", "expr", expr, "args", args);
   }
 
+  VISIT(ColumnExprCallSelect) {
+    // 1) Parse the "function expression" from columnExpr().
+    PyObject* expr = visitAsPyObject(ctx->columnExpr());
+    if (!expr) {
+      throw PyInternalError();
+    }
+
+    // 2) Check if `expr` is a Field node with a chain of length == 1.
+    //    If so, interpret that chain[0] as the function name, and the SELECT as the function argument.
+    int is_field = is_ast_node_instance(expr, "Field");  // returns 1, 0, or -1 on error
+    if (is_field == -1) {
+      Py_DECREF(expr);
+      throw PyInternalError();
+    }
+
+    if (is_field == 1) {
+      // If it's a Field, get `chain` and see if there's exactly one item in it.
+      PyObject* chain = PyObject_GetAttrString(expr, "chain");
+      if (!chain) {
+          Py_DECREF(expr);
+          throw PyInternalError();
+      }
+
+      if (PyList_Check(chain) && PyList_Size(chain) == 1) {
+        PyObject* item = PyList_GetItem(chain, 0);  // Borrowed reference
+        if (item && PyUnicode_Check(item)) {
+          // 2a) We have a single identifier as function name -> produce ast.Call(name=..., args=[select])
+          PyObject* select_node = nullptr;
+          try {
+            select_node = visitAsPyObject(ctx->selectSetStmt());
+          } catch (...) {
+            Py_DECREF(chain);
+            Py_DECREF(expr);
+            throw;
+          }
+
+          // Prepare [select_node] as the .args list
+          PyObject* args_list = PyList_New(1);
+          if (!args_list) {
+            Py_DECREF(select_node);
+            Py_DECREF(chain);
+            Py_DECREF(expr);
+            throw PyInternalError();
+          }
+          // Steal the select_node reference into the list
+          PyList_SET_ITEM(args_list, 0, select_node);
+
+          // Convert the function name from Python string to char*
+          Py_ssize_t size = 0;
+          const char* func_name = PyUnicode_AsUTF8AndSize(item, &size);
+          if (!func_name) {
+            Py_DECREF(args_list);
+            Py_DECREF(chain);
+            Py_DECREF(expr);
+            throw PyInternalError();
+          }
+
+          // Build a Call node: ast.Call(name=<func_name>, args=[<select_node>])
+          PyObject* call_node =
+            build_ast_node("Call", "{s:s#,s:N}", "name", func_name, size, "args", args_list);
+          Py_DECREF(chain);
+          Py_DECREF(expr);
+
+          if (!call_node) {
+            // build_ast_node already sets an error
+            Py_DECREF(args_list);
+            throw PyInternalError();
+          }
+          return call_node;
+        }
+      }
+      Py_DECREF(chain);
+    }
+
+    // 3) Otherwise, if we couldn't interpret the columnExpr() as a single-chained function name,
+    //    build ExprCall(expr=<expr>, args=[select])
+    PyObject* select_node = nullptr;
+    try {
+      select_node = visitAsPyObject(ctx->selectSetStmt());
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+
+    // Prepare [select_node] as the .args list
+    PyObject* args_list = PyList_New(1);
+    if (!args_list) {
+      Py_DECREF(expr);
+      Py_DECREF(select_node);
+      throw PyInternalError();
+    }
+    // Steal the select_node reference into the list
+    PyList_SET_ITEM(args_list, 0, select_node);
+
+    // Return ast.ExprCall(expr=expr, args=args_list).
+    PyObject* expr_call_node =
+      build_ast_node("ExprCall", "{s:N,s:N}", "expr", expr, "args", args_list);
+    if (!expr_call_node) {
+      Py_DECREF(expr);
+      Py_DECREF(select_node);
+      Py_DECREF(args_list);
+      throw PyInternalError();
+    }
+    return expr_call_node;
+  }
+
   VISIT(ColumnExprTemplateString) { return visit(ctx->templateString()); }
 
   VISIT(String) {

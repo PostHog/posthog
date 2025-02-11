@@ -87,7 +87,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                                 </div>
                             }
                         >
-                            <PropertyIcon className="text-muted-alt" property={property} value={value} />
+                            <PropertyIcon className="text-secondary" property={property} value={value} />
                         </Tooltip>
                     )
                 })
@@ -123,7 +123,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
 
                         {person ? (
                             <div>
-                                <span className="text-muted">First seen:</span>{' '}
+                                <span className="text-secondary">First seen:</span>{' '}
                                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
                             </div>
                         ) : null}

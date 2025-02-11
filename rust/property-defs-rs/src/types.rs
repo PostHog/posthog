@@ -428,7 +428,7 @@ impl EventDefinition {
             r#"
             INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
             VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW())
-            ON CONFLICT (coalesce(project_id, team_id), name)
+            ON CONFLICT (coalesce(project_id, team_id::bigint), name)
             DO UPDATE SET last_seen_at = $5
         "#,
             Uuid::now_v7(),
@@ -476,7 +476,7 @@ impl PropertyDefinition {
             r#"
             INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, project_id, property_type)
             VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, $8)
-            ON CONFLICT (coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1))
+            ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
             DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
         "#,
             Uuid::now_v7(),

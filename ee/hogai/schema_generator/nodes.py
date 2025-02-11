@@ -29,7 +29,7 @@ from ee.hogai.schema_generator.prompts import (
     QUESTION_PROMPT,
 )
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.utils.helpers import find_last_message_of_type, slice_messages_to_conversation_start
+from ee.hogai.utils.helpers import slice_messages_to_conversation_start
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -55,7 +55,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True, stream_usage=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="function_calling",
             include_raw=False,
@@ -86,7 +86,13 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         chain = generation_prompt | merger | self._model | parser
 
         try:
-            message: SchemaGeneratorOutput[Q] = chain.invoke({}, config)
+            message: SchemaGeneratorOutput[Q] = chain.invoke(
+                {
+                    "project_datetime": self.project_now,
+                    "project_timezone": self.project_timezone,
+                },
+                config,
+            )
         except PydanticOutputParserException as e:
             # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
             if len(intermediate_steps) >= 2:
@@ -167,7 +173,6 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         msg_mapping = self._get_human_viz_message_mapping(messages)
         initiator_message = messages[-1]
-        last_viz_message = find_last_message_of_type(messages, VisualizationMessage)
 
         for message in messages:
             # The initial human message and the new plan are added to the end of the conversation.
@@ -196,14 +201,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             # Summary, human-in-the-loop messages.
             elif isinstance(message, AssistantMessage):
                 conversation.append(LangchainAssistantMessage(content=message.content))
-
-        # Include only last generated schema because it doesn't need more context.
-        if last_viz_message:
-            conversation.append(
-                LangchainAssistantMessage(
-                    content=last_viz_message.answer.model_dump_json() if last_viz_message.answer else ""
-                )
-            )
+            elif isinstance(message, VisualizationMessage) and message.answer:
+                conversation.append(LangchainAssistantMessage(content=message.answer.model_dump_json()))
         # Add the initiator message and the generated plan to the end, so instructions are clear.
         if isinstance(initiator_message, HumanMessage):
             if generated_plan:

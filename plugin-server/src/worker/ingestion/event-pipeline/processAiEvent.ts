@@ -14,7 +14,20 @@ export const processAiEvent = (event: PluginEvent): PluginEvent => {
 }
 
 const processCost = (event: PluginEvent) => {
-    if (!event.properties || !event.properties['$ai_provider'] || !event.properties['$ai_model']) {
+    if (!event.properties) {
+        return event
+    }
+
+    // If we already have input and output costs, we can skip the rest of the logic
+    if (event.properties['$ai_input_cost_usd'] && event.properties['$ai_output_cost_usd']) {
+        if (!event.properties['$ai_total_cost_usd']) {
+            event.properties['$ai_total_cost_usd'] =
+                event.properties['$ai_input_cost_usd'] + event.properties['$ai_output_cost_usd']
+        }
+        return event
+    }
+
+    if (!event.properties['$ai_provider'] || !event.properties['$ai_model']) {
         return event
     }
 
@@ -86,9 +99,18 @@ export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
 }
 
 const findCostFromModel = (aiModel: string): ModelRow | undefined => {
+    // Check if the model is an exact match
     let cost = costs.find((cost) => cost.model.toLowerCase() === aiModel.toLowerCase())
+    // Check if the model is a variant of a known model
     if (!cost) {
         cost = costs.find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
+    }
+    // Check if the model is a variant of a known model
+    if (!cost) {
+        cost = costs.find((cost) => cost.model.toLowerCase().includes(aiModel.toLowerCase()))
+    }
+    if (!cost) {
+        console.warn(`No cost found for model: ${aiModel}`)
     }
     return cost
 }

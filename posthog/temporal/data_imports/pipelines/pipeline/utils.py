@@ -1,16 +1,24 @@
+import asyncio
+import dataclasses
 import json
 from collections.abc import Sequence
 from typing import Any
 from dateutil import parser
 import uuid
+import orjson
 import pyarrow as pa
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.sources import DltResource
 import deltalake as deltalake
 from django.db.models import F
+from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import FilteringBoundLogger
 from dlt.common.data_types.typing import TDataType
 from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.temporal.data_imports.deltalake_compaction_job import DeltalakeCompactionJobWorkflowInputs
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP = {
@@ -229,6 +237,15 @@ def _convert_uuid_to_string(table_data: list[Any]) -> list[dict]:
     ]
 
 
+def _json_dumps(obj: Any) -> str:
+    try:
+        return orjson.dumps(obj).decode("utf-8")
+    except TypeError as e:
+        if str(e) == "Integer exceeds 64-bit range":
+            return json.dumps(obj)
+        raise TypeError(e)
+
+
 def table_from_py_list(table_data: list[Any]) -> pa.Table:
     try:
         if len(table_data) == 0:
@@ -245,6 +262,9 @@ def table_from_py_list(table_data: list[Any]) -> pa.Table:
 
         for row in table_data:
             for column, value in row.items():
+                if value is None:
+                    continue
+
                 column_types[column].add(type(value))
 
         inconsistent_columns = {column: types for column, types in column_types.items() if len(types) > 1}
@@ -259,4 +279,39 @@ def table_from_py_list(table_data: list[Any]) -> pa.Table:
                 if not isinstance(value, list):
                     row[column_name] = [value]
 
+        # Convert any dict/lists to json strings to avoid schema mismatches in nested objects
+        for column_name, types in column_types.items():
+            has_dict_or_list = any(issubclass(column_type, dict | list) for column_type in types)
+            if not has_dict_or_list:
+                continue
+
+            for row in table_data:
+                value = row[column_name]
+                row[column_name] = _json_dumps(value)
+
         return pa.Table.from_pylist(table_data)
+
+
+def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> str:
+    temporal = sync_connect()
+    workflow_id = f"{schema.id}-compaction"
+
+    try:
+        asyncio.run(
+            temporal.start_workflow(
+                workflow="deltalake-compaction-job",
+                arg=dataclasses.asdict(
+                    DeltalakeCompactionJobWorkflowInputs(team_id=job.team_id, external_data_job_id=job.id)
+                ),
+                id=workflow_id,
+                task_queue=str(DATA_WAREHOUSE_COMPACTION_TASK_QUEUE),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=1,
+                    non_retryable_error_types=["NondeterminismError"],
+                ),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        pass
+
+    return workflow_id

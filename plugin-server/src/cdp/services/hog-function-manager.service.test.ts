@@ -102,7 +102,7 @@ describe('HogFunctionManager', () => {
         let items = manager.getTeamHogFunctions(teamId1)
 
         expect(items).toEqual([
-            {
+            expect.objectContaining({
                 id: hogFunctions[0].id,
                 team_id: teamId1,
                 name: 'Test Hog Function team 1',
@@ -134,7 +134,7 @@ describe('HogFunctionManager', () => {
                 mappings: null,
                 template_id: null,
                 depends_on_integration_ids: new Set([integrations[0].id]),
-            },
+            }),
         ])
 
         await hub.db.postgres.query(
@@ -228,14 +228,19 @@ describe('Hogfunction Manager - Execution Order', () => {
     let manager: HogFunctionManagerService
     let hogFunctions: HogFunctionType[]
     let teamId: number
-
+    let teamId2: number
     beforeEach(async () => {
+        // Setup fake timers but exclude nextTick and setImmediate
+        // faking them can cause tests to hang or timeout
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
+
         hub = await createHub()
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
         const team = await hub.db.fetchTeam(2)
         teamId = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
 
         hogFunctions = []
 
@@ -267,6 +272,7 @@ describe('Hogfunction Manager - Execution Order', () => {
     })
 
     afterEach(async () => {
+        jest.useRealTimers()
         await manager.stop()
         await closeHub(hub)
     })
@@ -337,6 +343,84 @@ describe('Hogfunction Manager - Execution Order', () => {
             { name: 'fn3', order: 1 },
             { name: 'fn2', order: 2 },
             { name: 'fn1', order: 3 },
+        ])
+    })
+
+    it('should handle null/undefined execution orders and created_at ordering', async () => {
+        // Set initial time
+        jest.setSystemTime(new Date('2024-01-01T00:00:00Z'))
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn1',
+            execution_order: null,
+            type: 'transformation',
+        })
+
+        // Advance time by 1 day
+        jest.setSystemTime(new Date('2024-01-02T00:00:00Z'))
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn2',
+            execution_order: 1,
+            type: 'transformation',
+        })
+
+        // Advance time by another day
+        jest.setSystemTime(new Date('2024-01-03T00:00:00Z'))
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn3',
+            execution_order: 1,
+            type: 'transformation',
+        })
+
+        await manager.reloadAllHogFunctions()
+        const teamFunctions = manager.getTeamHogFunctions(teamId2)
+
+        expect(teamFunctions).toHaveLength(3)
+        expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
+            { name: 'fn2', order: 1 }, // First because execution_order=1 and earlier created_at
+            { name: 'fn3', order: 1 }, // Second because execution_order=1 but later created_at
+            { name: 'fn1', order: null }, // Last because null execution_order
+        ])
+    })
+
+    it('should maintain order with mixed execution orders and timestamps', async () => {
+        // Create functions with different timestamps and execution orders
+        jest.setSystemTime(new Date('2024-01-01T00:00:00Z'))
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn1',
+            execution_order: 2,
+            type: 'transformation',
+        })
+
+        jest.setSystemTime(new Date('2024-01-02T00:00:00Z'))
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn2',
+            execution_order: null,
+            type: 'transformation',
+        })
+
+        jest.setSystemTime(new Date('2024-01-03T00:00:00Z'))
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn3',
+            execution_order: 1,
+            type: 'transformation',
+        })
+
+        jest.setSystemTime(new Date('2024-01-04T00:00:00Z'))
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn4',
+            execution_order: 1,
+            type: 'transformation',
+        })
+
+        await manager.reloadAllHogFunctions()
+        const teamFunctions = manager.getTeamHogFunctions(teamId2)
+
+        expect(teamFunctions).toHaveLength(4)
+        expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
+            { name: 'fn3', order: 1 }, // First because execution_order=1 and earlier created_at
+            { name: 'fn4', order: 1 }, // Second because execution_order=1 but later created_at
+            { name: 'fn1', order: 2 }, // Third because execution_order=2
+            { name: 'fn2', order: null }, // Last because null execution_order
         ])
     })
 })

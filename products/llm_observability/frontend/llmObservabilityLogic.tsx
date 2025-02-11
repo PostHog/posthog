@@ -526,21 +526,13 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     }),
 
     actionToUrl(() => ({
-        setPropertyFilters: ({ propertyFilters }) => {
-            const searchParams = router.values.searchParams
-            // The `objectsEqual` check is necessary, because kea-router as of 3.2.0 uses a `===` check on search params
-            // internally, meaning that every time the filters array is constructed, it will be considered a new object
-            // (even if actually it's identical)
-            if (!objectsEqual(propertyFilters, searchParams.filters)) {
-                return [
-                    router.values.location.pathname,
-                    {
-                        ...searchParams,
-                        filters: propertyFilters.length > 0 ? propertyFilters : undefined,
-                    },
-                ]
-            }
-        },
+        setPropertyFilters: ({ propertyFilters }) => [
+            router.values.location.pathname,
+            {
+                ...router.values.searchParams,
+                filters: propertyFilters.length > 0 ? propertyFilters : undefined,
+            },
+        ],
         setDates: ({ dateFrom, dateTo }) => [
             router.values.location.pathname,
             {

@@ -12,7 +12,7 @@ from concurrent.futures import (
     as_completed,
 )
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple, TypeVar
 
 from clickhouse_driver import Client
@@ -21,6 +21,12 @@ from clickhouse_pool import ChPool
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
+
+def ON_CLUSTER_CLAUSE(on_cluster=True):
+    return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -91,8 +97,29 @@ class ClickhouseCluster:
         if logger is None:
             logger = logging.getLogger(__name__)
 
+        cluster_hosts = bootstrap_client.execute(
+            """
+            SELECT host_address, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            FROM clusterAllReplicas(%(name)s, system.clusters)
+            WHERE name = %(name)s and is_local
+            ORDER BY shard_num, replica_num
+            """,
+            {"name": cluster or settings.CLICKHOUSE_CLUSTER},
+        )
+
         self.__hosts = [
-            HostInfo(ConnectionInfo(host_address, port), shard_num, replica_num, host_cluster_type, host_cluster_role)
+            # We only use the port from system.clusters if we're running in E2E tests or debug mode,
+            # otherwise, we will use the default port.
+            HostInfo(
+                ConnectionInfo(
+                    host_address,
+                    port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
+                ),
+                shard_num if host_cluster_role != "coordinator" else None,
+                replica_num if host_cluster_role != "coordinator" else None,
+                host_cluster_type,
+                host_cluster_role,
+            )
             for (
                 host_address,
                 port,
@@ -100,17 +127,10 @@ class ClickhouseCluster:
                 replica_num,
                 host_cluster_type,
                 host_cluster_role,
-            ) in bootstrap_client.execute(
-                """
-                SELECT host_address, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
-                FROM clusterAllReplicas(%(name)s, system.clusters)
-                WHERE name = %(name)s and is_local
-                ORDER BY shard_num, replica_num
-                """,
-                {"name": cluster or settings.CLICKHOUSE_CLUSTER},
-            )
+            ) in cluster_hosts
         ]
-        if extra_hosts is not None:
+
+        if extra_hosts is not None and len(extra_hosts) > 0:
             self.__hosts.extend(
                 [
                     HostInfo(
@@ -153,6 +173,17 @@ class ClickhouseCluster:
     def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
         with ThreadPoolExecutor() as executor:
             host = self.__hosts[0]
+            return executor.submit(self.__get_task_function(host, fn))
+
+    def any_host_by_role(self, fn: Callable[[Client], T], node_role: NodeRole) -> Future[T]:
+        """
+        Execute the callable once for any host with the given node role.
+        """
+        with ThreadPoolExecutor() as executor:
+            try:
+                host = next(host for host in self.__hosts if host.host_cluster_role == node_role.value.lower())
+            except StopIteration:
+                raise ValueError(f"No hosts found with role {node_role.value}")
             return executor.submit(self.__get_task_function(host, fn))
 
     def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
@@ -287,6 +318,7 @@ class MutationRunner:
     table: str
     command: str  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
     parameters: Mapping[str, Any]
+    settings: Mapping[str, Any] = field(default_factory=dict)
 
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
@@ -332,12 +364,13 @@ class MutationRunner:
             return task
 
         if self.is_lightweight_delete:
-            client.execute(self.command, self.parameters)
+            client.execute(self.command, self.parameters, settings=self.settings)
 
         else:
             client.execute(
                 f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
                 self.parameters,
+                settings=self.settings,
             )
 
         # mutations are not always immediately visible, so give it a bit of time to show up

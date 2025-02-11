@@ -3,8 +3,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 
 const DEFAULT_HOST = 'track.customer.io'
 const DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS = 'Send all events'
@@ -253,11 +252,4 @@ function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
         return event.distinct_id
     }
     return null
-}
-
-export const customerioPlugin: LegacyDestinationPlugin = {
-    id: 'customerio-plugin',
-    metadata: metadata as any,
-    setupPlugin: setupPlugin as any,
-    onEvent,
 }

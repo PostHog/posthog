@@ -445,6 +445,16 @@ async def cancel_running_batch_export_backfill(temporal: Client, batch_export_ba
     await batch_export_backfill.asave()
 
 
+def sync_cancel_running_batch_export_backfill(temporal: Client, batch_export_backfill: BatchExportBackfill) -> None:
+    """Cancel a running BatchExportBackfill."""
+
+    handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
+    async_to_sync(handle.cancel)()
+
+    batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
+    batch_export_backfill.save()
+
+
 def cancel_running_batch_export_run(temporal: Client, batch_export_run: BatchExportRun) -> None:
     """Cancel a running BatchExportRun."""
 
@@ -795,36 +805,23 @@ async def acreate_batch_export_backfill(
     return backfill
 
 
-def update_batch_export_backfill_status(backfill_id: UUID, status: str) -> BatchExportBackfill:
+def update_batch_export_backfill_status(
+    backfill_id: UUID, status: str, finished_at: dt.datetime | None = None
+) -> BatchExportBackfill:
     """Update the status of an BatchExportBackfill with given id.
 
     Arguments:
         id: The id of the BatchExportBackfill to update.
         status: The new status to assign to the BatchExportBackfill.
+        finished_at: The time the BatchExportBackfill finished.
     """
     model = BatchExportBackfill.objects.filter(id=backfill_id)
-    updated = model.update(status=status)
+    updated = model.update(status=status, finished_at=finished_at)
 
     if not updated:
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
 
     return model.get()
-
-
-async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -> BatchExportBackfill:
-    """Update the status of an BatchExportBackfill with given id.
-
-    Arguments:
-        id: The id of the BatchExportBackfill to update.
-        status: The new status to assign to the BatchExportBackfill.
-    """
-    model = BatchExportBackfill.objects.filter(id=backfill_id)
-    updated = await model.aupdate(status=status)
-
-    if not updated:
-        raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
-
-    return await model.aget()
 
 
 async def aupdate_records_total_count(

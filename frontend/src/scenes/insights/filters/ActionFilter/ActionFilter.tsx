@@ -98,7 +98,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         addFilterDefaultOptions = {},
         mathAvailability = MathAvailability.All,
         buttonCopy = '',
-        buttonProps = { fullWidth: true },
+        buttonProps = {},
         disabled = false,
         sortable = false,
         showSeriesIndicator = false,
@@ -239,6 +239,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             onClick={() => addFilter()}
                             data-attr="add-action-event-button"
                             icon={<IconPlusSmall />}
+                            size="small"
                             disabled={reachedLimit || disabled || readOnly}
                             {...buttonProps}
                         >
