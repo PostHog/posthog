@@ -266,6 +266,7 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_events": 1612137599,
                 "quota_limited_recordings": 1612137599,
                 "quota_limited_rows_synced": None,
+                "quota_limited_feature_flags": None,
             }
             assert org_action_call.kwargs.get("groups") == {
                 "instance": "http://localhost:8010",
