@@ -1,3 +1,5 @@
+from collections.abc import Iterator, Mapping
+import contextlib
 from datetime import datetime
 from uuid import UUID
 from clickhouse_driver import Client
@@ -27,20 +29,27 @@ def test_partition_range_validation():
         PartitionRange(lower="202401", upper="")
 
 
+@contextlib.contextmanager
+def override_mergetree_settings(cluster: ClickhouseCluster, table: str, settings: Mapping[str, str]) -> Iterator[None]:
+    def alter_table_add_settings(client: Client) -> None:
+        client.execute(f"ALTER TABLE {table} MODIFY SETTING " + ", ".join(" = ".join(i) for i in settings.items()))
+
+    def alter_table_reset_settings(client) -> None:
+        client.execute(f"ALTER TABLE {table} RESET SETTING " + ", ".join(settings.keys()))
+
+    try:
+        cluster.map_all_hosts(alter_table_add_settings).result()
+        yield
+    finally:
+        cluster.map_all_hosts(alter_table_reset_settings).result()
+
+
 def test_sharded_table_job(cluster: ClickhouseCluster):
     config = MaterializeColumnConfig(
         table="sharded_events",
         column="mat_$ip",  # TODO: create new materialized column
         partitions=PartitionRange(lower="202401", upper="202412"),
     )
-
-    # make sure all parts are wide
-    def setup_table_for_wide_part(client: Client) -> None:
-        client.execute(
-            f"ALTER TABLE {config.table} MODIFY SETTING min_bytes_for_wide_part = 1, min_rows_for_wide_part = 1",
-        )
-
-    cluster.map_all_hosts(setup_table_for_wide_part).result()
 
     def populate_test_data(client: Client) -> None:
         for date in config.partitions.iter_dates():
@@ -50,7 +59,12 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
                 [(dt, UUID(int=i)) for i in range(100)],
             )
 
-    cluster.any_host(populate_test_data).result()
+    with override_mergetree_settings(
+        cluster,
+        config.table,
+        {"min_bytes_for_wide_part": "1", "min_rows_for_wide_part": "1"},
+    ):
+        cluster.any_host(populate_test_data).result()
 
     remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
     for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
