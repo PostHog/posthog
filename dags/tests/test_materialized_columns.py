@@ -11,10 +11,11 @@ from dags.materialized_columns import (
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 
-def test_partition_range():
+def test_partition_range_validation():
     assert set(PartitionRange(lower="202401", upper="202403").iter()) == {"202401", "202402", "202403"}
 
-    assert set(PartitionRange(lower="202403", upper="202401").iter()) == set()
+    with pytest.raises(pydantic.ValidationError):
+        PartitionRange(lower="202403", upper="202401")  # lower > upper
 
     with pytest.raises(pydantic.ValidationError):
         PartitionRange(lower="2024XX", upper="202403")

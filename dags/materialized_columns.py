@@ -5,9 +5,9 @@ from collections.abc import Iterator
 from typing import ClassVar
 
 import dagster
+import pydantic
 from clickhouse_driver import Client
 from dateutil.relativedelta import relativedelta
-from pydantic import validator
 
 from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster, MutationRunner
@@ -26,11 +26,17 @@ class PartitionRange(dagster.Config):
         while (cur_date := date_lower + relativedelta(months=next(seq))) <= date_upper:
             yield cur_date.strftime(self.FORMAT)
 
-    @validator("lower", "upper")
+    @pydantic.field_validator("lower", "upper")
     @classmethod
     def validate_format(cls, value: str) -> str:
         cls.parse_date(value)
         return value
+
+    @pydantic.model_validator(mode="after")
+    def validate_bounds(self):
+        if not self.parse_date(self.lower) <= self.parse_date(self.upper):
+            raise ValueError("expected lower bound to be less (or equal to) upper bound")
+        return self
 
     @classmethod
     def parse_date(cls, value: str) -> datetime.date:
