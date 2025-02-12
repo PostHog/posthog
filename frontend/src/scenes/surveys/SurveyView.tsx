@@ -16,6 +16,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { SurveyAnswerFilters } from 'scenes/surveys/SurveyAnswerFilters'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -42,12 +43,13 @@ function SurveyResultsFilters(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            <h4 className="text-base font-semibold mb-2">Filter results</h4>
+            <h3 className="text-base">Filter survey results</h3>
+            <SurveyAnswerFilters />
             <PropertyFilters
                 propertyFilters={propertyFilters}
                 onChange={setPropertyFilters}
                 pageKey="survey-results"
-                buttonText="Add filter to survey results"
+                buttonText="More filters"
             />
         </div>
     )
