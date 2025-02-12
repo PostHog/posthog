@@ -115,6 +115,7 @@ export enum NodeKind {
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
+    ExperimentMetric = "ExperimentMetric",
 }
 
 export type AnyDataNode =
