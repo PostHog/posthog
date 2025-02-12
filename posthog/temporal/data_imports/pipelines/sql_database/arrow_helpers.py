@@ -1,7 +1,9 @@
 import decimal
 import json
 import math
+import pyarrow as pa
 import pyarrow.compute as pc
+import numpy as np
 from typing import Any, Optional
 from dateutil import parser
 from collections.abc import Sequence
@@ -57,8 +59,6 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
     Columns missing `data_type` will be inferred from the row data.
     Columns with object types not supported by arrow are excluded from the resulting table.
     """
-    from dlt.common.libs.pyarrow import pyarrow as pa
-    import numpy as np
 
     caps = DestinationCapabilitiesContext.generic_capabilities()
     caps.decimal_precision = (76, 32)
