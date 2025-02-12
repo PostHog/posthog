@@ -327,6 +327,10 @@ class MutationRunner:
     parameters: Mapping[str, Any]
     settings: Mapping[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if invalid_keys := {key for key in self.parameters.keys() if key.startswith("__")}:
+            raise ValueError(f"invalid parameter names: {invalid_keys!r} (keys cannot start with double underscore)")
+
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
 
@@ -340,12 +344,12 @@ class MutationRunner:
             SELECT mutation_id
             FROM system.mutations
             WHERE
-                database = %(_database_{id(self)})s
-                AND table = %(_table_{id(self)})s
+                database = %(__database)s
+                AND table = %(__table)s
                 -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
                 -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
                 AND NOT throwIf(
-                    length(splitByString('UPDATE', replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {command}$_sql_{id(self)}$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
+                    length(splitByString('UPDATE', replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {command}$__sql$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
                     'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
                 )
                 AND command = 'UPDATE ' || trim(lines[2])
@@ -353,8 +357,8 @@ class MutationRunner:
             ORDER BY create_time DESC
             """,
             {
-                f"_database_{id(self)}": settings.CLICKHOUSE_DATABASE,
-                f"_table_{id(self)}": self.table,
+                f"__database": settings.CLICKHOUSE_DATABASE,
+                f"__table": self.table,
                 **self.parameters,
             },
         )
