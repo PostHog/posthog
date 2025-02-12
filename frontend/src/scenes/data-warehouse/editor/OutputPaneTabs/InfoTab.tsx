@@ -14,6 +14,41 @@ interface InfoTabProps {
     codeEditorKey: string
 }
 
+const OPTIONS = [
+    {
+        value: '5min' as DataWarehouseSyncInterval,
+        label: ' Resync every 5 mins',
+    },
+    {
+        value: '30min' as DataWarehouseSyncInterval,
+        label: ' Resync every 30 mins',
+    },
+    {
+        value: '1hour' as DataWarehouseSyncInterval,
+        label: ' Resync every 1 hour',
+    },
+    {
+        value: '6hour' as DataWarehouseSyncInterval,
+        label: ' Resync every 6 hours',
+    },
+    {
+        value: '12hour' as DataWarehouseSyncInterval,
+        label: ' Resync every 12 hours',
+    },
+    {
+        value: '24hour' as DataWarehouseSyncInterval,
+        label: ' Resync every Daily',
+    },
+    {
+        value: '7day' as DataWarehouseSyncInterval,
+        label: ' Resync every Weekly',
+    },
+    {
+        value: '30day' as DataWarehouseSyncInterval,
+        label: ' Resync every Monthly',
+    },
+]
+
 export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
     const { editingView } = useValues(multitabEditorLogic)
@@ -70,40 +105,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                                 })
                                             }
                                         }}
-                                        options={[
-                                            {
-                                                value: '5min' as DataWarehouseSyncInterval,
-                                                label: ' Resync every 5 mins',
-                                            },
-                                            {
-                                                value: '30min' as DataWarehouseSyncInterval,
-                                                label: ' Resync every 30 mins',
-                                            },
-                                            {
-                                                value: '1hour' as DataWarehouseSyncInterval,
-                                                label: ' Resync every 1 hour',
-                                            },
-                                            {
-                                                value: '6hour' as DataWarehouseSyncInterval,
-                                                label: ' Resync every 6 hours',
-                                            },
-                                            {
-                                                value: '12hour' as DataWarehouseSyncInterval,
-                                                label: ' Resync every 12 hours',
-                                            },
-                                            {
-                                                value: '24hour' as DataWarehouseSyncInterval,
-                                                label: ' Resync every Daily',
-                                            },
-                                            {
-                                                value: '7day' as DataWarehouseSyncInterval,
-                                                label: ' Resync every Weekly',
-                                            },
-                                            {
-                                                value: '30day' as DataWarehouseSyncInterval,
-                                                label: ' Resync every Monthly',
-                                            },
-                                        ]}
+                                        options={OPTIONS}
                                     />
                                 </div>
                             </div>
