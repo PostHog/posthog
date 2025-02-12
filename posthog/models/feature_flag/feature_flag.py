@@ -412,7 +412,9 @@ def set_feature_flags_for_team_in_cache(
         all_feature_flags = feature_flags
     else:
         all_feature_flags = list(
-            FeatureFlag.objects.db_manager(using_database).filter(team__project=project_id, active=True, deleted=False)
+            FeatureFlag.objects.db_manager(using_database).filter(
+                team__project_id=project_id, active=True, deleted=False
+            )
         )
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
