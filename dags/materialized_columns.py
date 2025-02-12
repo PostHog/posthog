@@ -42,20 +42,10 @@ class MaterializeColumnConfig(dagster.Config):
     column: str  # TODO: maybe make this a list/set so we can minimize the number of mutations?
     partitions: PartitionRange  # TODO: make optional for non-partitioned tables
 
-
-@dagster.op
-def run_materialize_mutations(
-    context: dagster.OpExecutionContext,
-    config: MaterializeColumnConfig,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-):
-    def materialize_column_for_shard(client: Client) -> None:
+    def get_remaining_partitions(self, client: Client) -> set[str]:
         # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
         # have the target column materialized by finding parts where the key column exists but the target column does
-        # not. Since this is only being run on a single host in the shard, we're assuming that the other hosts either
-        # have the same set of partitions already materialized, or that a materialization mutation already exists (and
-        # is running) if they are lagging behind. (If _this_ host is lagging behind the others, the mutation runner
-        # should prevent us from scheduling duplicate mutations on the shard.)
+        # not.
         [[key_column]] = client.execute(
             """
             SELECT name
@@ -67,37 +57,50 @@ def run_materialize_mutations(
             ORDER BY position
             LIMIT 1
             """,
-            {"database": settings.CLICKHOUSE_DATABASE, "table": config.table},
+            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
         )
 
-        requested_partitions = set(config.partitions)
-        remaining_partitions = {
+        return {
             partition
             for [partition] in client.execute(
                 """
-                SELECT partition
-                FROM system.parts_columns
-                WHERE
-                    database = %(database)s
-                    AND table = %(table)s
-                    AND part_type != 'Compact'  -- can't get column sizes from compact parts; should be small enough to ignore anyway
-                    AND active
-                    AND column IN (%(key_column)s, %(column)s)
-                    AND partition IN %(partitions)s
-                GROUP BY partition
-                HAVING countIf(column = %(key_column)s) > countIf(column = %(column)s)
-                ORDER BY partition DESC
-                """,
+            SELECT partition
+            FROM system.parts_columns
+            WHERE
+                database = %(database)s
+                AND table = %(table)s
+                AND part_type != 'Compact'  -- can't get column sizes from compact parts; should be small enough to ignore anyway
+                AND active
+                AND column IN (%(key_column)s, %(column)s)
+                AND partition IN %(partitions)s
+            GROUP BY partition
+            HAVING countIf(column = %(key_column)s) > countIf(column = %(column)s)
+            ORDER BY partition DESC
+            """,
                 {
                     "database": settings.CLICKHOUSE_DATABASE,
-                    "table": config.table,
+                    "table": self.table,
                     "key_column": key_column,
-                    "column": config.column,
-                    "partitions": [*requested_partitions],
+                    "column": self.column,
+                    "partitions": [*self.partitions],
                 },
             )
         }
 
+
+@dagster.op
+def run_materialize_mutations(
+    context: dagster.OpExecutionContext,
+    config: MaterializeColumnConfig,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+):
+    def materialize_column_for_shard(client: Client) -> None:
+        # Since this is only being run on a single host in the shard, we're assuming that the other hosts either
+        # have the same set of partitions already materialized, or that a materialization mutation already exists (and
+        # is running) if they are lagging behind. (If _this_ host is lagging behind the others, the mutation runner
+        # should prevent us from scheduling duplicate mutations on the shard.)
+        requested_partitions = set(config.partitions)
+        remaining_partitions = set(config.get_remaining_partitions(client))
         context.log.info(
             "Materializing %s of %s requested partitions (%s already materialized)",
             len(remaining_partitions),
