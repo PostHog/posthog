@@ -2,16 +2,23 @@ import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import merge from 'lodash.merge'
-import { objectClean } from 'lib/utils'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
-import { AnyEntityNode, ExperimentMetric, type FunnelsQuery, NodeKind, type TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    AnyEntityNode,
+    ExperimentMetric,
+    type FunnelsQuery,
+    NodeKind,
+    type TrendsQuery,
+} from '~/queries/schema/schema-general'
+import { ExperimentMetricType } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
 import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ChartDisplayType,
     FeatureFlagFilters,
     FeatureFlagType,
+    FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelTimeConversionMetrics,
     FunnelVizType,
@@ -21,12 +28,7 @@ import {
     type QueryBasedInsightModel,
     TrendResult,
     UniversalFiltersGroupValue,
-    ActionFilter,
-    EntityTypes,
-    FilterType,
 } from '~/types'
-import { ExperimentEventMetricConfig, ExperimentQuery } from '~/queries/schema/schema-general'
-import { ExperimentMetricType } from '~/queries/schema/schema-general'
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -147,17 +149,17 @@ function seriesToFilter(
 }
 
 export function getViewRecordingFilters(
-    metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery,
+    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
-    if (metric.kind === NodeKind.ExperimentQuery) {
-        if (metric.metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+    if (metric.kind === NodeKind.ExperimentMetric) {
+        if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
             return [
                 {
-                    id: metric.metric.metric_config.event,
-                    name: metric.metric.metric_config.event,
+                    id: metric.metric_config.event,
+                    name: metric.metric_config.event,
                     type: 'events',
                     properties: [
                         {
@@ -412,29 +414,33 @@ export function getNewExperimentMetricFromInsight(
 export function metricToFilter(metric: ExperimentMetric): FilterType {
     if (!metric.metric_config) {
         return {
-            events: [{
+            events: [
+                {
                     id: '$pageview',
                     name: '$pageview',
                     type: 'events',
                     math: 'total',
                     math_property: null,
                     math_hogql: null,
-                }],
-                actions: [],
+                },
+            ],
+            actions: [],
         }
     }
 
     const config = metric.metric_config
     if (config.kind === 'ExperimentEventMetricConfig') {
         return {
-            events: [{
-                id: config.event,
-                name: config.event,
-                type: 'events',
-                math: config.math,
-                math_property: config.math_property,
-                math_hogql: config.math_hogql,
-            }],
+            events: [
+                {
+                    id: config.event,
+                    name: config.event,
+                    type: 'events',
+                    math: config.math,
+                    math_property: config.math_property,
+                    math_hogql: config.math_hogql,
+                },
+            ],
             actions: [],
         }
     }

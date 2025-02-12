@@ -9,8 +9,8 @@ import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { commonActionFilterProps } from './Selectors'
 import { metricToFilter } from '../utils'
+import { commonActionFilterProps } from './Selectors'
 
 export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { experiment, editingPrimaryMetricIndex, editingSecondaryMetricIndex } = useValues(experimentLogic)
@@ -74,7 +74,7 @@ export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }
                 hideRename={true}
                 entitiesLimit={1}
                 showNumericalPropsOnly={true}
-                mathAvailability={MathAvailability.None}
+                mathAvailability={MathAvailability.All}
                 {...commonActionFilterProps}
             />
         </>

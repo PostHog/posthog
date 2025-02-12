@@ -35,15 +35,15 @@ import {
     CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
     ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentMetricType,
+    ExperimentQuery,
     ExperimentQuery,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
-    ExperimentMetricType,
-    ExperimentQuery,
-    ExperimentMetric,
 } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
@@ -137,9 +137,18 @@ const loadMetrics = async ({
     return await Promise.all(
         metrics.map(async (metric, index) => {
             try {
-                const queryWithExperimentId = {
-                    ...metric,
-                    experiment_id: experimentId,
+                let queryWithExperimentId
+                if (metric.kind === NodeKind.ExperimentMetric) {
+                    queryWithExperimentId = {
+                        kind: NodeKind.ExperimentQuery,
+                        metric: metric,
+                        experiment_id: experimentId,
+                    }
+                } else {
+                    queryWithExperimentId = {
+                        ...metric,
+                        experiment_id: experimentId,
+                    }
                 }
                 const response = await performQuery(queryWithExperimentId, undefined, refresh)
 
@@ -444,7 +453,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 setMetric: (state, { metricIdx, metric, isSecondary }) => {
-                    console.log('setMetric', metric)
                     const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
                     const metrics = [...(state?.[metricsKey] || [])]
 
