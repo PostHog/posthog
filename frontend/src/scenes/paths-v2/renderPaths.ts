@@ -167,35 +167,14 @@ const appendPathLinks = (svg: any, links: PathNodeData[]): void => {
         .attr('stroke', 'var(--paths-link)')
         .attr('stroke-width', (d: PathNodeData) => Math.max(1, d.width))
         .attr('opacity', LINK_OPACITY)
-    // .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
-    //     // apply effect to hovered path
-    //     // svg.select(`#path-${data.index}`).attr('stroke', '#f00')
-    //     svg.select(`#path-${data.index}`).attr('opacity', 1)
-    //     // // recursively apply effect to incoming paths
-    //     // const sourceNodes = [data.source]
-    //     // while (sourceNodes.length > 0) {
-    //     //     const _node = sourceNodes.pop()
-    //     //     _node?.targetLinks.forEach((link: PathTargetLink) => {
-    //     //         svg.select(`#path-${link.index}`).attr('stroke', '#0f0')
-    //     //         sourceNodes.push(link.source) // add source node to recursion
-    //     //     })
-    //     // }
-    //     // // recursively apply effect to outgoing paths
-    //     // const targetNodes = [data.target]
-    //     // while (targetNodes.length > 0) {
-    //     //     const node = targetNodes.pop()
-    //     //     node?.sourceLinks.forEach((link: PathTargetLink) => {
-    //     //         svg.select(`#path-${link.index}`).attr('stroke', '#00f')
-    //     //         targetNodes.push(link.target) // add target node to recursion
-    //     //     })
-    //     // }
-    // })
-    // .on('mouseleave', (_event: MouseEvent, data: PathNodeData) => {
-    //     // reset all paths
-    //     // svg.selectAll('path').attr('stroke', 'var(--paths-link)')
-
-    //     svg.select(`#path-${data.index}`).attr('opacity', 0.1)
-    // })
+        .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
+            // apply effect to hovered link
+            svg.select(`#path-${data.index}`).attr('opacity', LINK_OPACITY_EMPHASIZED)
+        })
+        .on('mouseleave', (_event: MouseEvent, data: PathNodeData) => {
+            // reset hovered link
+            svg.select(`#path-${data.index}`).attr('opacity', LINK_OPACITY)
+        })
 }
 
 export function renderPaths(
