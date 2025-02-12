@@ -30,7 +30,7 @@ export const captureTeamEvent = (team: Team, event: string, properties: Record<s
     })
 }
 
-// We use sentry-style hints rather than our flat property lisr all over the place,
+// We use sentry-style hints rather than our flat property list all over the place,
 // so define a type for them that we can flatten internally
 export type Primitive = number | string | boolean | bigint | symbol | null | undefined
 export interface ExceptionHint {

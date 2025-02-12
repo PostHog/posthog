@@ -68,7 +68,7 @@ async function handleProcessingError(
     // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
     // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
     //
-    // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
+    // TODO: properly abstract out this `isRetriable` error logic. This is currently relying on the
     // fact that node-rdkafka adheres to the `isRetriable` interface.
     if (error?.isRetriable === false) {
         const sentryEventId = captureException(error)
