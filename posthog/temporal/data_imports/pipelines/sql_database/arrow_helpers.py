@@ -116,10 +116,24 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
             json_str_array = pa.array([None if s is None else json_dumps(s) for s in columnar_known_types[field.name]])
             columnar_known_types[field.name] = json_str_array
         if issubclass(py_type, decimal.Decimal):
-            # Remove any NaN values from decimal columns
+            # Remove any NaN or infinite values from decimal columns
             columnar_known_types[field.name] = np.array(
-                [None if x is not None and math.isnan(x) else x for x in columnar_known_types[field.name]]
+                [
+                    None
+                    if x is not None and (math.isnan(x) or (isinstance(x, decimal.Decimal) and x.is_infinite()))
+                    else x
+                    for x in columnar_known_types[field.name]
+                ]
             )
+
+        if issubclass(py_type, bytes) or issubclass(py_type, str):
+            # For bytes/str columns, ensure any dict values are serialized to JSON strings
+            # Convert to numpy array after processing
+            processed_values = [
+                None if x is None else json_dumps(x) if isinstance(x, dict | list) else x
+                for x in columnar_known_types[field.name]
+            ]
+            columnar_known_types[field.name] = np.array(processed_values, dtype=object)
 
     # If there are unknown type columns, first create a table to infer their types
     if columnar_unknown_types:

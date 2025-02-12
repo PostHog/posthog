@@ -24,7 +24,6 @@ import { getFilterLabel } from 'lib/taxonomy'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyOperator } from '~/types'
 
@@ -34,13 +33,7 @@ import {
     FeatureFlagReleaseConditionsLogicProps,
 } from './FeatureFlagReleaseConditionsLogic'
 
-function PropertyValueComponent({
-    property,
-    cohortsById,
-}: {
-    property: AnyPropertyFilter
-    cohortsById: Record<string, any>
-}): JSX.Element {
+function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === 'cohort') {
         return (
             <LemonButton
@@ -50,7 +43,7 @@ function PropertyValueComponent({
                 sideIcon={<IconOpenInNew />}
                 targetBlank
             >
-                {(property.value && cohortsById[property.value]?.name) || `ID ${property.value}`}
+                {property.cohort_name || `ID ${property.value}`}
             </LemonButton>
         )
     }
@@ -135,7 +128,6 @@ export function FeatureFlagReleaseConditions({
     const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants } =
         useValues(featureFlagLogic)
 
-    const { cohortsById } = useValues(cohortsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
@@ -249,7 +241,7 @@ export function FeatureFlagReleaseConditions({
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
 
-                                    <PropertyValueComponent property={property} cohortsById={cohortsById} />
+                                    <PropertyValueComponent property={property} />
                                 </div>
                             ))}
                         </>

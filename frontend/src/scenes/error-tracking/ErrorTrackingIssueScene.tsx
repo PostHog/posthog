@@ -20,7 +20,10 @@ import { SparklinePanel } from './issue/Sparkline'
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
-    paramsToProps: ({ params: { id } }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id }),
+    paramsToProps: ({
+        params: { id },
+        searchParams: { fingerprint },
+    }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint }),
 }
 
 const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
