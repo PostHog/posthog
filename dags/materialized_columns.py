@@ -127,13 +127,13 @@ def run_materialize_mutations(
         mutation.wait()
 
     for partition in sorted(remaining_partitions, reverse=True):
-        cluster.map_any_host_in_shards(
-            {
-                shard: partial(materialize_column_in_partition, partition)
-                for shard, partitions in remaining_partitions_by_shard.values()
-                if partition in partitions
-            }
-        ).result()
+        shard_tasks = {
+            shard: partial(materialize_column_in_partition, partition)
+            for shard, partitions in remaining_partitions_by_shard.values()
+            if partition in partitions
+        }
+        context.log.info("Materializing partition %r in shard(s): %r", partition, shard_tasks.keys())
+        cluster.map_any_host_in_shards(shard_tasks).result()
 
 
 @dagster.job
