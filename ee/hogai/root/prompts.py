@@ -126,5 +126,5 @@ You must fix the exception and try again.
 """.strip()
 
 ROOT_HARD_LIMIT_REACHED_PROMPT = """
-You have reached the maximum number of tool calls, a security measure to prevent infinite loops. Now, summarize the conversation so far and answer my question if you can. Then, ask me if I'd like to continue what you were doing.
+You have reached the maximum number of iterations, a security measure to prevent infinite loops. Now, summarize the conversation so far and answer my question if you can. Then, ask me if I'd like to continue what you were doing.
 """.strip()
