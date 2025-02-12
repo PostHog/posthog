@@ -43,7 +43,7 @@ from posthog.schema import (
     DateRange,
     IntervalType,
 )
-from typing import Optional
+from typing import Optional, cast
 from datetime import datetime, timedelta, UTC
 
 
@@ -315,8 +315,9 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
+        variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] = []
         if self.metric.metric_type == ExperimentMetricType.FUNNEL:
-            variants: list[ExperimentVariantFunnelsBaseStats] = [
+            variants = [
                 ExperimentVariantFunnelsBaseStats(
                     failure_count=result[1] - result[2],
                     key=result[0],
@@ -325,7 +326,7 @@ class ExperimentQueryRunner(QueryRunner):
                 for result in response.results
             ]
         else:
-            variants: list[ExperimentVariantTrendsBaseStats] = [
+            variants = [
                 ExperimentVariantTrendsBaseStats(
                     absolute_exposure=result[1],
                     count=result[2],
@@ -350,23 +351,40 @@ class ExperimentQueryRunner(QueryRunner):
         if self.stats_version == 2:
             match self.metric.metric_type:
                 case ExperimentMetricType.CONTINUOUS:
-                    probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
+                    probabilities = calculate_probabilities_v2_continuous(
+                        control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
+                        test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                    )
                     significance_code, p_value = are_results_significant_v2_continuous(
-                        control_variant, test_variants, probabilities
+                        control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
+                        test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                        probabilities=probabilities,
                     )
                     credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
                 case ExperimentMetricType.COUNT:
-                    probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
+                    probabilities = calculate_probabilities_v2_count(
+                        cast(ExperimentVariantTrendsBaseStats, control_variant),
+                        cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                    )
                     significance_code, p_value = are_results_significant_v2_count(
-                        control_variant, test_variants, probabilities
+                        cast(ExperimentVariantTrendsBaseStats, control_variant),
+                        cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                        probabilities,
                     )
                     credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
                 case ExperimentMetricType.FUNNEL:
-                    probabilities = calculate_probabilities_v2_funnel(control_variant, test_variants)
-                    significance_code, p_value = are_results_significant_v2_funnel(
-                        control_variant, test_variants, probabilities
+                    probabilities = calculate_probabilities_v2_funnel(
+                        cast(ExperimentVariantFunnelsBaseStats, control_variant),
+                        cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
                     )
-                    credible_intervals = calculate_credible_intervals_v2_funnel([control_variant, *test_variants])
+                    significance_code, p_value = are_results_significant_v2_funnel(
+                        cast(ExperimentVariantFunnelsBaseStats, control_variant),
+                        cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
+                        probabilities,
+                    )
+                    credible_intervals = calculate_credible_intervals_v2_funnel(
+                        cast(list[ExperimentVariantFunnelsBaseStats], [control_variant, *test_variants])
+                    )
                 case _:
                     raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
         else:
