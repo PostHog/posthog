@@ -32,6 +32,20 @@ function initSnippet() {
     !function(w,d){if(!w.rdt){var p=w.rdt=function(){p.sendEvent?p.sendEvent.apply(p,arguments):p.callQueue.push(arguments)};p.callQueue=[];var t=d.createElement("script");t.src="https://www.redditstatic.com/ads/pixel.js",t.async=!0;var s=d.getElementsByTagName("script")[0];s.parentNode.insertBefore(t,s)}}(window,document);
 }
 
+// These are the event names which we are allowed to call rdt with. If we want to send a different event name, we will
+// need to use the 'Custom' event name, and pass original event name as 'customEventName' in event properties.
+const RDT_ALLOWED_EVENT_NAMES = [
+    'PageVisit',
+    'Search',
+    'AddToCart',
+    'AddToWishlist',
+    'Purchase',
+    'ViewContent',
+    'Lead',
+    'SignUp',
+    'Custom',
+];
+
 export function onLoad({ inputs, posthog }) {
     initSnippet();
     let userProperties = {};
@@ -46,16 +60,7 @@ export function onLoad({ inputs, posthog }) {
     rdt('init', inputs.pixelId, userProperties);
 }
 export function onEvent({ inputs, posthog }) {
-    const builtInEvents = [
-        'PageVisit',
-        'Search',
-        'AddToCart',
-        'AddToWishlist',
-        'Purchase',
-        'ViewContent',
-        'Lead',
-        'SignUp',
-    ];
+
     let eventProperties = {};
     for (const [key, value] of Object.entries(inputs.eventProperties)) {
         if (value) {
@@ -63,7 +68,7 @@ export function onEvent({ inputs, posthog }) {
         }
     };
     let eventName;
-    if (builtInEvents.includes(inputs.eventType)) {
+    if (RDT_ALLOWED_EVENT_NAMES.includes(inputs.eventType)) {
         eventName = inputs.eventType;
     } else {
         eventName = 'Custom';
