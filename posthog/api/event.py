@@ -294,7 +294,7 @@ class EventViewSet(
             date_from = relative_date_parse("-7d", team.timezone_info).strftime("%Y-%m-%d 00:00:00")
             date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
 
-            conditions = [
+            conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["timestamp"]),
@@ -313,7 +313,7 @@ class EventViewSet(
             ]
 
             if event_names and len(event_names) > 0:
-                event_conditions = [
+                event_conditions: list[ast.Expr] = [
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["event"]),
