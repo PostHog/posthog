@@ -175,6 +175,7 @@ class BatchExport(UUIDModel):
 
         EVENTS = "events"
         PERSONS = "persons"
+        SESSIONS = "sessions"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     name = models.TextField(help_text="A human-readable name for this BatchExport.")

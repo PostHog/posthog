@@ -24,8 +24,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { GraphType } from '~/types'
-import { InsightLogicProps, SurveyQuestionType } from '~/types'
+import { GraphType, InsightLogicProps, SurveyQuestionType } from '~/types'
 
 import {
     QuestionResultsReady,
@@ -86,7 +85,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
     return (
         <>
             {total > 0 && (
-                <div className="mb-8">
+                <div>
                     <div className="relative w-full mx-auto h-10 mb-4">
                         {[
                             {
@@ -169,7 +168,7 @@ export function Summary({
     surveyUserStatsLoading: boolean
 }): JSX.Element {
     return (
-        <div className="mb-4 mt-2">
+        <div>
             {surveyUserStatsLoading ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : (
@@ -210,13 +209,13 @@ export function RatingQuestionBarChart({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyRatingResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyRatingResults[questionIndex]?.total ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">{`${
                         question.scale === 10
                             ? '0 - 10'
@@ -305,13 +304,13 @@ export function NPSSurveyResultsBarChart({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyRecurringNPSResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyRecurringNPSResults[questionIndex]?.total ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">{`${
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
@@ -402,13 +401,13 @@ export function SingleChoiceQuestionPieChart({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveySingleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveySingleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">Single choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
                     <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
@@ -513,7 +512,7 @@ export function MultipleChoiceQuestionBarChart({
     }, [surveyMultipleChoiceResults])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyMultipleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyMultipleChoiceResults[questionIndex]?.data.length ? (
@@ -590,7 +589,7 @@ export function OpenTextViz({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyOpenTextResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
