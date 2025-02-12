@@ -116,7 +116,7 @@ export const EventDebugMenu = (): JSX.Element => {
                 <div className="flex flex-col pb-2 space-y-1">
                     <div className="flex justify-center flex-col">
                         <LemonInput
-                            autofocus={true}
+                            autoFocus={true}
                             fullWidth={true}
                             placeholder="Search"
                             type="search"
