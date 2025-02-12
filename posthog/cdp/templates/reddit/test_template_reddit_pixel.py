@@ -142,3 +142,28 @@ class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
 
         assert len(calls) == 1  # Only init call
         assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
+
+    def test_product_from_top_level_properties(self):
+        event_id, calls = self._process_event(
+            "Product Added",
+            {
+                "product_id": TEST_PRODUCT_ID,
+                "name": "Product Name",
+                "category": "Product Category",
+                "price": 42,
+                "currency": "USD",
+            },
+            {"email": TEST_EMAIL},
+        )
+        assert len(calls) == 2
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
+        assert calls[1] == [
+            "track",
+            "AddToCart",
+            {
+                "conversion_id": event_id,
+                "products": [{"id": TEST_PRODUCT_ID, "name": "Product Name", "category": "Product Category"}],
+                "currency": "USD",
+                "value": 42,
+            },
+        ]

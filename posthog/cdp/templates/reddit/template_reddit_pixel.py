@@ -8,8 +8,8 @@ common_inputs = [
         "label": "Event parameters",
         "default": {
             "conversion_id": "{event.uuid}",
-            "products": "{event.properties.products ? arrayMap(product -> ({'id': product.product_id, 'category': product.category, 'name': product.name}), event.properties.products) : event.properties.product_id ? [{id: event.properties.product_id, category: event.properties.category, name: event.properties.name}] : undefined}",
-            "value": "{toFloat(event.properties.value ?? event.properties.revenue)}",
+            "products": "{event.properties.products ? arrayMap(product -> ({'id': product.product_id, 'category': product.category, 'name': product.name}), event.properties.products) : event.properties.product_id ? [{'id': event.properties.product_id, 'category': event.properties.category, 'name': event.properties.name}] : undefined}",
+            "value": "{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}",
             "currency": "{event.properties.currency}",
         },
         "secret": False,
