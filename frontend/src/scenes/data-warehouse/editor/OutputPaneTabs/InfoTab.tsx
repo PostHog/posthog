@@ -37,15 +37,15 @@ const OPTIONS = [
     },
     {
         value: '24hour' as DataWarehouseSyncInterval,
-        label: ' Resync every Daily',
+        label: ' Resync Daily',
     },
     {
         value: '7day' as DataWarehouseSyncInterval,
-        label: ' Resync every Weekly',
+        label: ' Resync Weekly',
     },
     {
         value: '30day' as DataWarehouseSyncInterval,
-        label: ' Resync every Monthly',
+        label: ' Resync Monthly',
     },
 ]
 
@@ -110,19 +110,11 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                 </div>
                             </div>
                         ) : (
-                            <div>
-                                <p>
-                                    Materialized views are a way to pre-compute data in your data warehouse. This allows
-                                    you to run queries faster and more efficiently.
-                                </p>
-                                <LemonButton
-                                    onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
-                                    type="primary"
-                                    disabledReason={editingView ? undefined : 'You must save the view first'}
-                                >
-                                    Materialize
-                                </LemonButton>
-                            </div>
+                            <p>
+                                Saved views are automatically materialized as way to pre-compute data in your data
+                                warehouse. This allows you to run queries faster and more efficiently. You will be able
+                                to modify the schedule of how often the view is materialized.
+                            </p>
                         )}
                     </div>
                 </div>
