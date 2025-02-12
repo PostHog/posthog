@@ -214,9 +214,34 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         setTestResult: ({ result }) => {
             if (result) {
                 setTimeout(() => {
+                    // First try to scroll the test results container into view
                     const testResults = document.querySelector('[data-attr="test-results"]')
                     if (testResults) {
                         testResults.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }
+
+                    // Find the Monaco editor and scroll to the first difference
+                    const editors = document.querySelectorAll('[data-attr="test-results"] .monaco-editor')
+                    if (editors.length > 0 && values.sortedTestsResult?.hasDiff) {
+                        const lastEditor = editors[editors.length - 1]
+                        const monacoEditor = lastEditor.querySelector('.monaco-scrollable-element')
+                        if (monacoEditor) {
+                            const inputLines = values.sortedTestsResult.input.split('\n')
+                            const outputLines = values.sortedTestsResult.output.split('\n')
+
+                            // Find the first line that differs
+                            let diffLineIndex = 0
+                            for (let i = 0; i < Math.max(inputLines.length, outputLines.length); i++) {
+                                if (inputLines[i] !== outputLines[i]) {
+                                    diffLineIndex = i
+                                    break
+                                }
+                            }
+
+                            // Calculate approximate scroll position for the diff, showing 2 lines of context above
+                            const lineHeight = 19 // Default Monaco line height
+                            monacoEditor.scrollTop = Math.max(0, (diffLineIndex - 2) * lineHeight)
+                        }
                     }
                 }, 100)
             }
