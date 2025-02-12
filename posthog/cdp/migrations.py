@@ -53,7 +53,8 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             for key, value in plugin_config["config"].items():
                 inputs[key] = {"value": value}
 
-            if plugin_id == "first-time-event-tracker":
+            if plugin_id == "first-time-event-tracker" or plugin_id == "customerio-plugin":
+                # These are plugins that use the legacy storage
                 inputs["legacy_plugin_config_id"] = {"value": str(plugin_config["id"])}
 
             if len(plugin_config["config"]) > 0:
