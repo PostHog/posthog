@@ -241,12 +241,11 @@ export const teamLogic = kea<teamLogicType>([
         loadCurrentTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
-                activationLogic.findMounted()?.actions?.onTeamLoad()
             }
         },
-        updateCurrentTeamSuccess: ({ currentTeam }) => {
-            if (currentTeam) {
-                activationLogic.findMounted()?.actions?.onTeamLoad()
+        updateCurrentTeamSuccess: ({ currentTeam, payload }) => {
+            if (currentTeam && !payload?.onboarding_tasks) {
+                activationLogic.findMounted()?.actions?.onTeamLoad(currentTeam)
             }
         },
         createTeamSuccess: ({ currentTeam }) => {

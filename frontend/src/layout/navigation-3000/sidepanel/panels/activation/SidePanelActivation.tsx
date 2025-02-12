@@ -160,7 +160,14 @@ const ActivationSectionComponent = ({
                     {section.visible ? (
                         <IconChevronRight className={clsx('h-4 w-4', section.open && 'rotate-90')} />
                     ) : (
-                        <IconPlus onClick={handleAddProduct} className="h-4 w-4" />
+                        <LemonButton
+                            icon={<IconPlus className="h-4 w-4" />}
+                            onClick={handleAddProduct}
+                            size="xsmall"
+                            type="secondary"
+                        >
+                            Add
+                        </LemonButton>
                     )}
                 </div>
             </button>

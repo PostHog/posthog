@@ -6,7 +6,6 @@ import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
@@ -425,8 +424,6 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             pipelineDestinationsLogic
                 .findMounted({ types: DESTINATION_TYPES })
                 ?.actions.updateBatchExportConfig(batchExportConfig)
-
-            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.ConnectDestination)
         },
         setConfigurationValue: async ({ name, value }) => {
             if (name[0] === 'json_config_file' && value) {

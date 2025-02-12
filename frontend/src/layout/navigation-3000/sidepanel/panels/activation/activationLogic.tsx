@@ -93,7 +93,7 @@ export const activationLogic = kea<activationLogicType>([
         addIntentForSection: (section: ActivationSection) => ({ section }),
         toggleSectionOpen: (section: ActivationSection) => ({ section }),
         setOpenSections: (teamId: TeamBasicType['id'], sections: ActivationSection[]) => ({ teamId, sections }),
-        onTeamLoad: true,
+        onTeamLoad: (team: TeamType | TeamPublicType | null) => ({ team }),
     }),
     reducers(() => ({
         openSections: [
@@ -272,9 +272,6 @@ export const activationLogic = kea<activationLogicType>([
                 case ActivationTask.ConnectSource:
                     router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
                     break
-                case ActivationTask.ConnectDestination:
-                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination))
-                    break
                 case ActivationTask.LaunchSurvey:
                     router.actions.push(urls.surveyTemplates())
                     break
@@ -358,25 +355,29 @@ export const activationLogic = kea<activationLogicType>([
                 actions.markTaskAsCompleted(ActivationTask.TrackCustomEvents)
             }
         },
-        onTeamLoad: () => {
+        onTeamLoad: ({ team }) => {
             if (
-                values.currentTeam?.session_recording_opt_in &&
+                team?.session_recording_opt_in &&
                 values.savedOnboardingTasks[ActivationTask.SetupSessionRecordings] !== ActivationTaskStatus.COMPLETED
             ) {
                 actions.markTaskAsCompleted(ActivationTask.SetupSessionRecordings)
             }
 
             if (
-                values.currentTeam?.ingested_event &&
+                team?.ingested_event &&
                 values.savedOnboardingTasks[ActivationTask.IngestFirstEvent] !== ActivationTaskStatus.COMPLETED
             ) {
                 actions.markTaskAsCompleted(ActivationTask.IngestFirstEvent)
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadCustomEvents({})
-        actions.loadCurrentTeam()
+        actions.loadCurrentTeam() // TRICKY: Product intents are not available without loading the current team
+
+        if (values.currentTeam) {
+            actions.onTeamLoad(values.currentTeam)
+        }
     }),
     permanentlyMount(),
 ])
@@ -401,7 +402,6 @@ export enum ActivationTask {
 
     // Data Pipelines
     ConnectSource = 'connect_source',
-    ConnectDestination = 'connect_destination',
 
     // Surveys
     LaunchSurvey = 'launch_survey',
@@ -551,18 +551,6 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         title: 'Connect external data source',
         canSkip: false,
         section: ActivationSection.DataWarehouse,
-    },
-    {
-        id: ActivationTask.ConnectDestination,
-        title: 'Connect a destination',
-        canSkip: true,
-        section: ActivationSection.DataWarehouse,
-        dependsOn: [
-            {
-                task: ActivationTask.IngestFirstEvent,
-                reason: 'Ingest your first event first',
-            },
-        ],
     },
     // Surveys
     {
