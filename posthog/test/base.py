@@ -610,6 +610,8 @@ def cleanup_materialized_columns():
         )
         if drops:
             sync_execute(f"ALTER TABLE {table} {drops} SETTINGS mutations_sync = 2")
+            if table == "events":
+                sync_execute(f"ALTER TABLE sharded_events {drops} SETTINGS mutations_sync = 2")
 
     default_column_names = {
         get_materialized_columns("events")[(prop, "properties")].name

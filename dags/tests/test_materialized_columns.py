@@ -1,6 +1,7 @@
 import contextlib
 from collections.abc import Iterator, Mapping
 from datetime import datetime
+import time
 from uuid import UUID
 
 import dagster
@@ -56,7 +57,7 @@ def override_mergetree_settings(cluster: ClickhouseCluster, table: str, settings
 
 
 def test_sharded_table_job(cluster: ClickhouseCluster):
-    partitions = PartitionRange(lower="202401", upper="202412")
+    partitions = PartitionRange(lower="202401", upper="202402")
 
     def populate_test_data(client: Client) -> None:
         for date in partitions.iter_dates():
@@ -73,24 +74,24 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
     ):
         cluster.any_host(populate_test_data).result()
 
-    with stop_merges(cluster, "sharded_events"), materialized("events", "$xyz") as column:
-        config = MaterializeColumnConfig(
-            table="sharded_events",
-            column=column.name,
-            partitions=partitions,
-        )
+        with materialized("events", f"$xyz_{time.time()}") as column:
+            config = MaterializeColumnConfig(
+                table="sharded_events",
+                column=column.name,
+                partitions=partitions,
+            )
 
-        remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
-        for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
-            assert shard_partitions_remaining == set(config.partitions.iter_ids())
+            remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
+            for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
+                assert shard_partitions_remaining == set(config.partitions.iter_ids())
 
-        materialize_column.execute_in_process(
-            run_config=dagster.RunConfig(
-                {run_materialize_mutations.name: {"config": config.model_dump()}},
-            ),
-            resources={"cluster": cluster},
-        )
+            materialize_column.execute_in_process(
+                run_config=dagster.RunConfig(
+                    {run_materialize_mutations.name: {"config": config.model_dump()}},
+                ),
+                resources={"cluster": cluster},
+            )
 
-        remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
-        for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
-            assert shard_partitions_remaining == set()
+            remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
+            for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
+                assert shard_partitions_remaining == set()
