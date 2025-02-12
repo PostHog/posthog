@@ -16,7 +16,7 @@ import { dayjs } from 'lib/dayjs'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { SettingsBar, SettingsButton, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
@@ -135,7 +135,7 @@ export const EventDebugMenu = (): JSX.Element => {
                             <div className="flex-1 text-sm pl-1">
                                 View all events sent from this page as they are sent to PostHog.
                             </div>
-                            <SettingsToggle
+                            <SettingsButton
                                 label="Search"
                                 icon={<IconSearch />}
                                 active={searchVisible}
