@@ -1,6 +1,6 @@
 import './Paths.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { lightenDarkenColor } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -23,6 +23,7 @@ export function PathsV2(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
         useValues(pathsDataLogic(insightProps))
+    const { openPersonsModal } = useActions(pathsDataLogic(insightProps))
 
     useEffect(() => {
         setNodes([])
@@ -40,7 +41,8 @@ export function PathsV2(): JSX.Element {
             paths,
             pathsFilter || {},
             funnelPathsFilter || ({} as FunnelPathsFilter),
-            setNodes
+            setNodes,
+            openPersonsModal
         )
 
         // Proper cleanup

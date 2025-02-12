@@ -52,7 +52,7 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                 top: node.y0 + NODE_LABEL_TOP_OFFSET,
             }}
         >
-            <div className="flex items-center justify-bsetween w-full">
+            <div className="flex items-center">
                 <Tooltip title={pageUrl(node)} placement="right">
                     <div className="font-semibold overflow-hidden max-h-16 text-xs break-words">
                         {pageUrl(node, isPath)}

@@ -100,7 +100,8 @@ const appendNodes = (
     svg: any,
     nodes: PathNodeData[],
     pathsFilter: PathsFilter,
-    funnelPathsFilter: FunnelPathsFilter
+    funnelPathsFilter: FunnelPathsFilter,
+    openPersonsModal: (props: { path_dropoff_key?: string; path_end_key?: string; path_start_key?: string }) => void
 ): void => {
     svg.append('g')
         .selectAll('rect')
@@ -119,8 +120,9 @@ const appendNodes = (
         })
         .attr('id', (node: PathNodeData) => `node-${node.index}`)
         .on('click', (_event: MouseEvent, node: PathNodeData) => {
-            console.debug('clicked', node)
+            openPersonsModal({ path_end_key: node.name })
         })
+        .style('cursor', 'pointer')
         .on('mouseover', (_event: MouseEvent, node: PathNodeData) => {
             svg.selectAll('path').attr('opacity', LINK_OPACITY_DEEMPHASIZED)
 
@@ -187,7 +189,8 @@ export function renderPaths(
     paths: Paths,
     pathsFilter: PathsFilter,
     funnelPathsFilter: FunnelPathsFilter,
-    setNodes: Dispatch<SetStateAction<PathNodeData[]>>
+    setNodes: Dispatch<SetStateAction<PathNodeData[]>>,
+    openPersonsModal: (props: { path_dropoff_key?: string; path_end_key?: string; path_start_key?: string }) => void
 ): void {
     const canvasWidth = _canvasWidth || FALLBACK_CANVAS_WIDTH
     const canvasHeight = _canvasHeight || FALLBACK_CANVAS_HEIGHT
@@ -213,7 +216,7 @@ export function renderPaths(
     const { nodes, links } = sankey(clonedPaths)
 
     appendLinks(svg, links)
-    appendNodes(svg, nodes, pathsFilter, funnelPathsFilter)
+    appendNodes(svg, nodes, pathsFilter, funnelPathsFilter, openPersonsModal)
 
     // :TRICKY: this needs to come last, as d3 mutates data in place and otherwise
     // we won't have node positions.
