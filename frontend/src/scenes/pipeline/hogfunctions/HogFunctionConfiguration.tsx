@@ -42,6 +42,9 @@ export interface HogFunctionConfigurationProps {
     id?: string | null
 
     displayOptions?: {
+        embedded?: boolean
+        hidePageHeader?: boolean
+        hideOverview?: boolean
         showFilters?: boolean
         showExpectedVolume?: boolean
         showStatus?: boolean
@@ -161,6 +164,9 @@ export function HogFunctionConfiguration({
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
+    const embedded = displayOptions.embedded ?? false
+    const includeHeaderButtons = !(displayOptions.hidePageHeader ?? false)
+    const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
         ['destination', 'internal_destination', 'site_destination', 'broadcast', 'transformation'].includes(type)
@@ -180,17 +186,21 @@ export function HogFunctionConfiguration({
         displayOptions.showTesting ??
         ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
 
+    const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
+
     return (
         <div className="space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
-                <PageHeader
-                    buttons={
-                        <>
-                            {headerButtons}
-                            {saveButtons}
-                        </>
-                    }
-                />
+                {includeHeaderButtons && (
+                    <PageHeader
+                        buttons={
+                            <>
+                                {headerButtons}
+                                {saveButtons}
+                            </>
+                        }
+                    />
+                )}
 
                 {type === 'destination' ? (
                     <LemonBanner type="info">
@@ -215,133 +225,144 @@ export function HogFunctionConfiguration({
                     className="space-y-3"
                 >
                     <div className="flex flex-wrap items-start gap-4">
-                        <div className="flex flex-col flex-1 gap-4 min-w-100">
-                            <div className="p-3 space-y-2 border rounded bg-bg-light">
-                                <div className="flex flex-row items-center gap-2 min-h-16">
-                                    <LemonField name="icon_url">
-                                        {({ value, onChange }) => (
-                                            <HogFunctionIconEditable
-                                                logicKey={id ?? templateId ?? 'new'}
-                                                src={value}
-                                                onChange={(val) => onChange(val)}
-                                            />
-                                        )}
-                                    </LemonField>
+                        {showLeftPanel && (
+                            <div className="flex flex-col flex-1 gap-4 min-w-100">
+                                {showOverview && (
+                                    <div className={clsx('p-3 space-y-2 bg-bg-light', !embedded && 'border rounded')}>
+                                        <div className="flex flex-row items-center gap-2 min-h-16">
+                                            <LemonField name="icon_url">
+                                                {({ value, onChange }) => (
+                                                    <HogFunctionIconEditable
+                                                        logicKey={id ?? templateId ?? 'new'}
+                                                        src={value}
+                                                        onChange={(val) => onChange(val)}
+                                                    />
+                                                )}
+                                            </LemonField>
 
-                                    <div className="flex flex-col items-start justify-start flex-1 py-1">
-                                        <span className="font-semibold">{configuration.name}</span>
-                                        {template && <DestinationTag status={template.status} />}
-                                    </div>
-
-                                    {showStatus && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
-                                    {showEnabled && (
-                                        <LemonField name="enabled">
-                                            {({ value, onChange }) => (
-                                                <LemonSwitch
-                                                    label="Enabled"
-                                                    onChange={() => onChange(!value)}
-                                                    checked={value}
-                                                    disabled={loading}
-                                                    bordered
-                                                />
-                                            )}
-                                        </LemonField>
-                                    )}
-                                </div>
-                                <LemonField name="name" label="Name">
-                                    <LemonInput type="text" disabled={loading} />
-                                </LemonField>
-                                <LemonField
-                                    name="description"
-                                    label="Description"
-                                    info="Add a description to share context with other team members"
-                                >
-                                    <LemonTextArea disabled={loading} />
-                                </LemonField>
-
-                                {hogFunction?.template && !hogFunction.template.id.startsWith('template-blank-') ? (
-                                    <LemonDropdown
-                                        showArrow
-                                        overlay={
-                                            <div className="p-1 max-w-120">
-                                                <p>
-                                                    This function was built from the template{' '}
-                                                    <b>{hogFunction.template.name}</b>. If the template is updated, this
-                                                    function is not affected unless you choose to update it.
-                                                </p>
-
-                                                <div className="flex items-center flex-1 gap-2 pt-2 border-t">
-                                                    <div className="flex-1">
-                                                        <LemonButton>Close</LemonButton>
-                                                    </div>
-
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        onClick={() => duplicateFromTemplate()}
-                                                    >
-                                                        New function from template
-                                                    </LemonButton>
-
-                                                    {templateHasChanged ? (
-                                                        <LemonButton type="primary" onClick={() => resetToTemplate()}>
-                                                            Update
-                                                        </LemonButton>
-                                                    ) : null}
-                                                </div>
+                                            <div className="flex flex-col items-start justify-start flex-1 py-1">
+                                                <span className="font-semibold">{configuration.name}</span>
+                                                {template && <DestinationTag status={template.status} />}
                                             </div>
-                                        }
-                                    >
-                                        <div className="text-xs border border-dashed rounded text-muted-alt">
-                                            <Link subtle className="flex flex-wrap items-center gap-1 p-2">
-                                                Built from template:
-                                                <span className="font-semibold">{hogFunction?.template.name}</span>
-                                                <DestinationTag status={hogFunction.template.status} />
-                                                {templateHasChanged ? (
-                                                    <LemonTag type="success">Update available!</LemonTag>
-                                                ) : null}
-                                            </Link>
+
+                                            {showStatus && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
+                                            {showEnabled && (
+                                                <LemonField name="enabled">
+                                                    {({ value, onChange }) => (
+                                                        <LemonSwitch
+                                                            label="Enabled"
+                                                            onChange={() => onChange(!value)}
+                                                            checked={value}
+                                                            disabled={loading}
+                                                            bordered
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                            )}
                                         </div>
-                                    </LemonDropdown>
-                                ) : null}
-                            </div>
+                                        <LemonField name="name" label="Name">
+                                            <LemonInput type="text" disabled={loading} />
+                                        </LemonField>
+                                        <LemonField
+                                            name="description"
+                                            label="Description"
+                                            info="Add a description to share context with other team members"
+                                        >
+                                            <LemonTextArea disabled={loading} />
+                                        </LemonField>
 
-                            {showFilters && <HogFunctionFilters />}
+                                        {hogFunction?.template &&
+                                        !hogFunction.template.id.startsWith('template-blank-') ? (
+                                            <LemonDropdown
+                                                showArrow
+                                                overlay={
+                                                    <div className="p-1 max-w-120">
+                                                        <p>
+                                                            This function was built from the template{' '}
+                                                            <b>{hogFunction.template.name}</b>. If the template is
+                                                            updated, this function is not affected unless you choose to
+                                                            update it.
+                                                        </p>
 
-                            {showPersonsCount && (
-                                <div className="relative p-3 space-y-2 border rounded bg-bg-light">
-                                    <div>
-                                        <LemonLabel>Matching persons</LemonLabel>
-                                    </div>
-                                    {personsCount && !personsCountLoading ? (
-                                        <>
-                                            Found{' '}
-                                            <Link
-                                                to={
-                                                    // TODO: swap for a link to the persons page
-                                                    combineUrl(urls.activity(), {}, { q: personsListQuery }).url
+                                                        <div className="flex items-center flex-1 gap-2 pt-2 border-t">
+                                                            <div className="flex-1">
+                                                                <LemonButton>Close</LemonButton>
+                                                            </div>
+
+                                                            <LemonButton
+                                                                type="secondary"
+                                                                onClick={() => duplicateFromTemplate()}
+                                                            >
+                                                                New function from template
+                                                            </LemonButton>
+
+                                                            {templateHasChanged ? (
+                                                                <LemonButton
+                                                                    type="primary"
+                                                                    onClick={() => resetToTemplate()}
+                                                                >
+                                                                    Update
+                                                                </LemonButton>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
                                                 }
                                             >
-                                                <strong>
-                                                    {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
-                                                </strong>
-                                            </Link>{' '}
-                                            to send to.
-                                        </>
-                                    ) : personsCountLoading ? (
-                                        <div className="min-h-20">
-                                            <SpinnerOverlay />
-                                        </div>
-                                    ) : (
-                                        <p>The expected volume could not be calculated</p>
-                                    )}
-                                </div>
-                            )}
+                                                <div className="text-xs border border-dashed rounded text-muted-alt">
+                                                    <Link subtle className="flex flex-wrap items-center gap-1 p-2">
+                                                        Built from template:
+                                                        <span className="font-semibold">
+                                                            {hogFunction?.template.name}
+                                                        </span>
+                                                        <DestinationTag status={hogFunction.template.status} />
+                                                        {templateHasChanged ? (
+                                                            <LemonTag type="success">Update available!</LemonTag>
+                                                        ) : null}
+                                                    </Link>
+                                                </div>
+                                            </LemonDropdown>
+                                        ) : null}
+                                    </div>
+                                )}
 
-                            {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
-                        </div>
+                                {showFilters && <HogFunctionFilters />}
+
+                                {showPersonsCount && (
+                                    <div className="relative p-3 space-y-2 border rounded bg-bg-light">
+                                        <div>
+                                            <LemonLabel>Matching persons</LemonLabel>
+                                        </div>
+                                        {personsCount && !personsCountLoading ? (
+                                            <>
+                                                Found{' '}
+                                                <Link
+                                                    to={
+                                                        // TODO: swap for a link to the persons page
+                                                        combineUrl(urls.activity(), {}, { q: personsListQuery }).url
+                                                    }
+                                                >
+                                                    <strong>
+                                                        {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
+                                                    </strong>
+                                                </Link>{' '}
+                                                to send to.
+                                            </>
+                                        ) : personsCountLoading ? (
+                                            <div className="min-h-20">
+                                                <SpinnerOverlay />
+                                            </div>
+                                        ) : (
+                                            <p>The expected volume could not be calculated</p>
+                                        )}
+                                    </div>
+                                )}
+
+                                {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
+                            </div>
+                        )}
 
                         <div className="space-y-4 flex-2 min-w-100">
-                            <div className="p-3 space-y-2 border rounded bg-bg-light">
+                            <div className={clsx('p-3 space-y-2 bg-bg-light', !embedded && 'border rounded')}>
                                 <div className="space-y-2">
                                     {usesGroups && !hasGroupsAddon ? (
                                         <LemonBanner type="warning">
