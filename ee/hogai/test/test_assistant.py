@@ -486,19 +486,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="Hello")),
-            (
-                "message",
-                AssistantMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "xyz",
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "trends"},
-                        }
-                    ],
-                ),
-            ),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating trends query")),
@@ -506,17 +493,17 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])
+        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
 
         # Second run
         actual_output = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
         # Third run
         actual_output = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
     @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
@@ -567,19 +554,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="Hello")),
-            (
-                "message",
-                AssistantMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "xyz",
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "funnel"},
-                        }
-                    ],
-                ),
-            ),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating funnel query")),
@@ -587,17 +561,17 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])
+        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
 
         # Second run
         actual_output = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
         # Third run
         actual_output = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
     @patch("ee.hogai.memory.nodes.MemoryInitializerInterruptNode._model")
     @patch("ee.hogai.memory.nodes.MemoryInitializerNode._model")
