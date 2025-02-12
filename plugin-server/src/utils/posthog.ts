@@ -7,6 +7,7 @@ import { UUID7 } from './utils'
 
 export const posthog = new PostHog('sTMFPsFhdP1Ssg', {
     host: 'https://us.i.posthog.com',
+    enableExceptionAutocapture: true,
 })
 
 if (process.env.NODE_ENV === 'test') {
