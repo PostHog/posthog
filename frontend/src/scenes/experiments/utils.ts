@@ -362,48 +362,6 @@ export function getExperimentMetricFromInsight(
     return undefined
 }
 
-export function getNewExperimentMetricFromInsight(
-    insight: QueryBasedInsightModel | null
-): ExperimentMetric | undefined {
-    if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
-        return undefined
-    }
-
-    const metricName = (insight?.name || insight?.derived_name) ?? undefined
-
-    if (isFunnelsQuery(insight.query.source)) {
-        const firstSeries = insight.query.source.series[0]
-        const event = firstSeries.kind === NodeKind.EventsNode ? firstSeries.event : undefined
-
-        return {
-            kind: NodeKind.ExperimentMetric,
-            name: metricName,
-            metric_type: ExperimentMetricType.FUNNEL,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                event: event as string,
-            },
-        }
-    }
-
-    if (isTrendsQuery(insight.query.source)) {
-        const firstSeries = insight.query.source.series[0]
-        const event = firstSeries.kind === NodeKind.EventsNode ? firstSeries.event : undefined
-
-        return {
-            kind: NodeKind.ExperimentMetric,
-            name: metricName,
-            metric_type: ExperimentMetricType.COUNT,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                event: event as string,
-            },
-        }
-    }
-
-    return undefined
-}
-
 export function metricToFilter(metric: ExperimentMetric): FilterType {
     if (!metric.metric_config) {
         return {
