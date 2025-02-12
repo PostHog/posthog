@@ -16,6 +16,9 @@ declare module '@playwright/test' {
     }
 }
 
+/**
+ * we override the base playwright test to add things useful to us
+ * */
 export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     page: async ({ page }, use) => {
         // // Add custom methods to the page object
