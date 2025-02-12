@@ -3,7 +3,7 @@ import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_fun
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
 import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
-import { ExperimentFunnelsQuery, ExperimentQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import {
     EntityType,
     FeatureFlagFilters,
@@ -259,7 +259,7 @@ describe('getViewRecordingFilters', () => {
 
     it('returns the correct filters for an experiment query', () => {
         const filters = getViewRecordingFilters(
-            EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.metrics[0] as ExperimentQuery,
+            EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.metrics[0] as ExperimentMetric,
             featureFlagKey,
             'control'
         )

@@ -37,7 +37,6 @@ import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
-    ExperimentQuery,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     InsightQueryNode,
@@ -1985,7 +1984,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         firstPrimaryMetric: [
             (s) => [s.experiment],
-            (experiment: Experiment): ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined => {
+            (experiment: Experiment): ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined => {
                 if (experiment.metrics.length) {
                     return experiment.metrics[0]
                 }
