@@ -110,7 +110,7 @@ class MaterializeColumnInPartitionTask:
             self.table,
             f"MATERIALIZE COLUMN {self.column} IN PARTITION %(partition)s",
             {"partition": self.partition},
-        ).enqueue(client).wait()
+        ).enqueue(client).wait(client)
 
 
 @dagster.op
