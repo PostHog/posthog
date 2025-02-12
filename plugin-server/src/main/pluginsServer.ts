@@ -609,7 +609,7 @@ export async function startPluginsServer(
         Sentry.captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
-        posthog.flush().catch(() => null)
+        void posthog.flush().catch(() => null)
         status.error('💥', 'Exception while starting server, shutting down!', { error })
         await closeJobs()
         process.exit(1)
