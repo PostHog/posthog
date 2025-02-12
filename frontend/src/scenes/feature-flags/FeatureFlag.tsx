@@ -781,7 +781,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
     const confirmEncryptedPayloadReset = (): void => {
         LemonDialog.open({
             title: 'Reset payload?',
-            description: 'The existing payload will not be deleted until the feature flag is saved.',
+            description: 'The existing payload will not be reset until the feature flag is saved.',
             primaryButton: {
                 children: 'Reset',
                 onClick: resetEncryptedPayload,
