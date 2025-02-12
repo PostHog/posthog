@@ -33,15 +33,6 @@ def test_partition_range_validation():
 
 
 @contextlib.contextmanager
-def stop_merges(cluster: ClickhouseCluster, table: str):
-    try:
-        cluster.map_all_hosts(lambda c: c.execute(f"SYSTEM STOP MERGES {table}")).result()
-        yield
-    finally:
-        cluster.map_all_hosts(lambda c: c.execute(f"SYSTEM START MERGES {table}")).result()
-
-
-@contextlib.contextmanager
 def override_mergetree_settings(cluster: ClickhouseCluster, table: str, settings: Mapping[str, str]) -> Iterator[None]:
     def alter_table_add_settings(client: Client) -> None:
         client.execute(f"ALTER TABLE {table} MODIFY SETTING " + ", ".join(" = ".join(i) for i in settings.items()))
@@ -57,7 +48,7 @@ def override_mergetree_settings(cluster: ClickhouseCluster, table: str, settings
 
 
 def test_sharded_table_job(cluster: ClickhouseCluster):
-    partitions = PartitionRange(lower="202401", upper="202402")
+    partitions = PartitionRange(lower="202401", upper="202403")
 
     def populate_test_data(client: Client) -> None:
         for date in partitions.iter_dates():
@@ -74,16 +65,30 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
     ):
         cluster.any_host(populate_test_data).result()
 
-        with materialized("events", f"$xyz_{time.time()}") as column:
+        # stop merges on all hosts so that we don't inadvertently write data for the materialized column due to merges
+        cluster.map_all_hosts(lambda c: c.execute(f"SYSTEM STOP MERGES")).result()
+
+        # try our best to make sure that merges resume after this test, even if we throw in the test block below
+        resume_merges = cluster.map_all_hosts(lambda c: c.execute("SYSTEM START MERGES")).result()
+        exit_handlers = contextlib.ExitStack()
+        exit_handlers.callback(resume_merges)
+
+        with exit_handlers, materialized("events", f"$test_{time.time()}") as column:
             config = MaterializeColumnConfig(
                 table="sharded_events",
                 column=column.name,
                 partitions=partitions,
             )
 
+            # before running the job, the materialized column should not have been written to any parts
             remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
             for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
                 assert shard_partitions_remaining == set(config.partitions.iter_ids())
+
+            # merges need to be resumed to allow the mutations to move forward (there is a bit of a race condition here:
+            # if the table is preemptively merged prior to running the job, we're actually testing the deduplication
+            # behavior, not the mutation itself. this isn't intended but is probably okay to do)
+            resume_merges()
 
             materialize_column.execute_in_process(
                 run_config=dagster.RunConfig(
@@ -92,6 +97,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
                 resources={"cluster": cluster},
             )
 
+            # after running the job, the materialized column should have been written to all parts
             remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
             for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
                 assert shard_partitions_remaining == set()
