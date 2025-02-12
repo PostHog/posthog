@@ -10116,10 +10116,6 @@
         "ProjectTreeItem": {
             "additionalProperties": false,
             "properties": {
-                "folder": {
-                    "description": "Where do we keep it",
-                    "type": "string"
-                },
                 "href": {
                     "description": "Object's URL",
                     "type": "string"
@@ -10132,8 +10128,8 @@
                     "description": "Metadata",
                     "type": "object"
                 },
-                "name": {
-                    "description": "Object's name",
+                "path": {
+                    "description": "Object's name and folder",
                     "type": "string"
                 },
                 "type": {
@@ -10141,7 +10137,7 @@
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc"
                 }
             },
-            "required": ["id", "name", "folder"],
+            "required": ["id", "path"],
             "type": "object"
         },
         "ProjectTreeItemType": {
@@ -10157,7 +10153,8 @@
                 "source",
                 "destination",
                 "site_app",
-                "transformation"
+                "transformation",
+                "folder"
             ],
             "type": "string"
         },

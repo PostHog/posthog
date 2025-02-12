@@ -60,32 +60,24 @@ export function TreeView(): JSX.Element {
                                                 ) : null}
                                                 <LemonButton
                                                     onClick={() => {
-                                                        const oldName =
-                                                            (data.folder ? data.folder + '/' : '') +
-                                                            (data.name ? data.name : '')
-                                                        const folder = prompt('New name?', oldName)
-                                                        if (folder && folder !== oldName) {
+                                                        const oldPath = data.path
+                                                        const folder = prompt('New name?', oldPath)
+                                                        if (folder && folder !== oldPath) {
                                                             if (data.meta.custom) {
-                                                                renameItem(oldName, folder)
+                                                                renameItem(oldPath, folder)
                                                             } else {
                                                                 for (const item of rawProjectTree) {
                                                                     // find all starting with the old path in case this was a folder
-                                                                    const itemName =
-                                                                        (item.folder ? item.folder + '/' : '') +
-                                                                        item.name
                                                                     if (
-                                                                        itemName === oldName ||
-                                                                        itemName.startsWith(oldName + '/')
+                                                                        item.path === oldPath ||
+                                                                        item.path.startsWith(oldPath + '/')
                                                                     ) {
-                                                                        const newItemName =
-                                                                            folder + itemName.slice(oldName.length)
+                                                                        console.log({ item })
                                                                         createItem({
                                                                             ...item,
-                                                                            name: newItemName.split('/').pop() || '',
-                                                                            folder: newItemName
-                                                                                .split('/')
-                                                                                .slice(0, -1)
-                                                                                .join('/'),
+                                                                            path:
+                                                                                folder +
+                                                                                item.path.slice(oldPath.length),
                                                                         })
                                                                     }
                                                                 }

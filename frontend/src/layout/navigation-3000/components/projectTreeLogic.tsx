@@ -109,13 +109,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             [] as ProjectTreeItem[],
             {
                 addFolder: (state, { folder }) => {
-                    const splitFolder = folder.split('/')
                     return [
                         ...state,
                         {
                             id: uuid(),
-                            name: splitFolder[splitFolder.length - 1],
-                            folder: splitFolder.slice(0, -1).join('/'),
+                            path: folder,
                             type: 'folder',
                             meta: { custom: true },
                         },
@@ -125,20 +123,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return state.map((item) => {
                         const itemName = (item.folder ? item.folder + '/' : '') + item.name
                         if (itemName === oldName) {
-                            const splitName = newName.split('/')
                             return {
                                 ...item,
-                                name: splitName[splitName.length - 1],
-                                folder: splitName.slice(0, -1).join('/'),
+                                path: newName,
                                 meta: { ...item.meta, custom: true },
                             }
                         } else if (itemName.startsWith(oldName + '/')) {
-                            const fullNewName = newName + itemName.slice(oldName.length)
-                            const splitName = fullNewName.split('/')
                             return {
                                 ...item,
-                                name: splitName[splitName.length - 1],
-                                folder: splitName.slice(0, -1).join('/'),
+                                path: newName + itemName.slice(oldName.length),
                                 meta: { ...item.meta, custom: true },
                             }
                         }
@@ -190,15 +183,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     folderName: string,
                     fullPath: string
                 ): TreeDataItem => {
-                    const folderPath = fullPath.split('/').slice(0, -1).join('/')
-                    let folderNode = nodes.find(
-                        (node) => node.data.folder == folderPath && node.data.name === folderName
-                    )
+                    let folderNode = nodes.find((node) => node.data.path === fullPath)
                     if (!folderNode) {
                         folderNode = {
                             id: 'project/' + fullPath,
                             name: folderName,
-                            data: { type: 'folder', id: 'project/' + fullPath, name: folderName, folder: folderPath },
+                            data: { type: 'folder', id: 'project/' + fullPath, path: fullPath },
                             children: [],
                         }
                         nodes.push(folderNode)
@@ -216,8 +206,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                 // Iterate over each raw project item.
                 for (const item of viableNodes) {
-                    // Get the folder string; if empty, the item goes at the root.
-                    const folderPath = item.folder || ''
+                    const pathSplit = item.path.split('/').filter(Boolean)
+                    const itemName = pathSplit.pop()!
+                    const folderPath = pathSplit.join('/')
+
                     // Split the folder path by "/" (ignoring empty parts).
                     const folderParts = folderPath ? folderPath.split('/').filter(Boolean) : []
 
@@ -235,7 +227,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     // Create the actual item node.
                     const node: TreeDataItem = {
                         id: 'project/' + item.id,
-                        name: item.name,
+                        name: itemName,
                         icon: iconForType(item.type),
                         data: item,
                         onClick: () => {

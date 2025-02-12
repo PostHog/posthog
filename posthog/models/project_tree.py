@@ -14,8 +14,7 @@ class ProjectTreeBuilder:
         return [
             ProjectTreeItem(
                 id=str(uuid7()),
-                name=flag.name,
-                folder="Unfiled/Feature Flags",
+                path=f"Unfiled/Feature Flags/{flag.name}",
                 type=ProjectTreeItemType.FEATURE_FLAG,
                 href="/feature_flags/" + str(flag.id),
                 meta={
@@ -31,8 +30,7 @@ class ProjectTreeBuilder:
         return [
             ProjectTreeItem(
                 id=str(uuid7()),
-                name=experiment.name,
-                folder="Unfiled/Experiments",
+                path=f"Unfiled/Experiments/{experiment.name}",
                 type=ProjectTreeItemType.EXPERIMENT,
                 href="/experiments/" + str(experiment.id),
                 meta={
@@ -50,8 +48,7 @@ class ProjectTreeBuilder:
         return [
             ProjectTreeItem(
                 id=str(uuid7()),
-                name=insight.name,
-                folder="Unfiled/Insights",
+                path=f"Unfiled/Insights/{insight.name}",
                 type=ProjectTreeItemType.INSIGHT,
                 href="/insights/" + str(insight.id),
                 meta={
@@ -67,8 +64,7 @@ class ProjectTreeBuilder:
         return [
             ProjectTreeItem(
                 id=str(uuid7()),
-                name=dashboard.name,
-                folder="Unfiled/Dashboards",
+                path=f"Unfiled/Dashboards/{dashboard.name}",
                 type=ProjectTreeItemType.DASHBOARD,
                 href="/dashboard/" + str(dashboard.id),
                 meta={
@@ -86,8 +82,7 @@ class ProjectTreeBuilder:
         return [
             ProjectTreeItem(
                 id=str(uuid7()),
-                name=notebook.title or "Untitled",
-                folder="Unfiled/Notebooks",
+                path=f"Unfiled/Notebooks/{notebook.title or 'Untitled'}",
                 type=ProjectTreeItemType.NOTEBOOK,
                 href="/notebooks/" + str(notebook.id),
                 meta={

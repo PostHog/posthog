@@ -1741,10 +1741,8 @@ export type ProjectTreeItemType =
 export interface ProjectTreeItem {
     /** Unique UUID for tree entry */
     id: string
-    /** Object's name */
-    name: string
-    /** Where do we keep it */
-    folder: string
+    /** Object's name and folder */
+    path: string
     /** Type of object, used for icon, e.g. feature_flag, insight, etc */
     type?: ProjectTreeItemType
     /** Object's URL */

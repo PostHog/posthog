@@ -1171,6 +1171,7 @@ class ProjectTreeItemType(StrEnum):
     DESTINATION = "destination"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
+    FOLDER = "folder"
 
 
 class PropertyFilterType(StrEnum):
@@ -2473,11 +2474,10 @@ class ProjectTreeItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    folder: str = Field(..., description="Where do we keep it")
     href: Optional[str] = Field(default=None, description="Object's URL")
     id: str = Field(..., description="Unique UUID for tree entry")
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
-    name: str = Field(..., description="Object's name")
+    path: str = Field(..., description="Object's name and folder")
     type: Optional[ProjectTreeItemType] = Field(
         default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
     )
