@@ -167,11 +167,11 @@ const meta: Meta = {
 
 export default meta
 
-const OverviewTabTemplate: StoryFn<typeof PlayerSidebarOverviewTab & { width: number }> = ({
-    width,
-}: {
+interface OverviewTabProps {
     width: number
-}) => {
+}
+
+const OverviewTabTemplate: StoryFn<OverviewTabProps> = ({ width }: { width: number }) => {
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ width: `${width}px`, height: '100vh' }}>
