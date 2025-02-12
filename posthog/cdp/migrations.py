@@ -8,7 +8,6 @@ from posthog.models.plugin import PluginAttachment, PluginConfig
 from posthog.models.team.team import Team
 from django.db import transaction
 from django.db.models import Q
-from django.core.paginator import Paginator
 
 # python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind=transformation
 
