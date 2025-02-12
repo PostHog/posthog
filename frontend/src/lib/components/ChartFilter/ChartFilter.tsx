@@ -7,6 +7,15 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { ChartDisplayType } from '~/types'
 
+function ChartFilterOptionLabel(props: { label: string; description?: string }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-[2px]">
+            <span>{props.label}</span>
+            <span className="text-xs text-tertiary font-normal">{props.description}</span>
+        </div>
+    )
+}
+
 export function ChartFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { display } = useValues(insightVizDataLogic(insightProps))
@@ -28,21 +37,10 @@ export function ChartFilter(): JSX.Element {
                     icon: <IconTrends />,
                     label: 'Line chart',
                     labelInMenu: (
-                        <div className="flex flex-col gap-[2px]">
-                            <span>Line chart</span>
-                            <span className="text-xs text-tertiary">Trends over time with a continuous line.</span>
-                        </div>
-                    ),
-                },
-                {
-                    value: ChartDisplayType.ActionsBar,
-                    icon: <IconGraph />,
-                    label: 'Bar chart',
-                    labelInMenu: (
-                        <div className="flex flex-col gap-[2px]">
-                            <span>Bar chart</span>
-                            <span className="text-xs text-tertiary">Time-based data with vertical bars.</span>
-                        </div>
+                        <ChartFilterOptionLabel
+                            label="Line chart"
+                            description="Trends over time plotted as a continuous line."
+                        />
                     ),
                 },
                 {
@@ -50,10 +48,21 @@ export function ChartFilter(): JSX.Element {
                     icon: <IconAreaChart />,
                     label: 'Area chart',
                     labelInMenu: (
-                        <div className="flex flex-col gap-[2px]">
-                            <span>Area chart</span>
-                            <span className="text-xs text-tertiary">Trends over time with a shaded area.</span>
-                        </div>
+                        <ChartFilterOptionLabel
+                            label="Area chart"
+                            description="Trends over time plotted as a shaded area."
+                        />
+                    ),
+                },
+                {
+                    value: ChartDisplayType.ActionsBar,
+                    icon: <IconGraph />,
+                    label: 'Bar chart',
+                    labelInMenu: (
+                        <ChartFilterOptionLabel
+                            label="Bar chart"
+                            description="Trends over time data with vertical bars."
+                        />
                     ),
                 },
             ],
@@ -65,13 +74,13 @@ export function ChartFilter(): JSX.Element {
                     value: ChartDisplayType.ActionsLineGraphCumulative,
                     icon: <IconCumulativeChart />,
                     label: 'Line chart (cumulative)',
-                    labelInMenu: (
-                        <div className="flex flex-col gap-[2px]">
-                            <span>Line chart (cumulative)</span>
-                            <span className="text-xs text-tertiary">Accumulating values over time.</span>
-                        </div>
-                    ),
                     disabledReason: trendsOnlyDisabledReason,
+                    labelInMenu: (
+                        <ChartFilterOptionLabel
+                            label="Line chart (cumulative)"
+                            description="Accumulating values over time plotted as a continuous line."
+                        />
+                    ),
                 },
             ],
         },
@@ -83,10 +92,7 @@ export function ChartFilter(): JSX.Element {
                     icon: <Icon123 />,
                     label: 'Number',
                     labelInMenu: (
-                        <div className="flex flex-col gap-[2px]">
-                            <span>Number</span>
-                            <span className="text-xs text-tertiary">A big number showing the total value..</span>
-                        </div>
+                        <ChartFilterOptionLabel label="Number" description="A big number showing the total value." />
                     ),
                     disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
                 },
@@ -96,10 +102,10 @@ export function ChartFilter(): JSX.Element {
                     label: 'Pie chart',
                     disabledReason: trendsOnlyDisabledReason,
                     labelInMenu: (
-                        <div className="flex flex-col gap-[2px]">
-                            <span>Pie chart</span>
-                            <span className="text-xs text-tertiary">Proportions of a whole.</span>
-                        </div>
+                        <ChartFilterOptionLabel
+                            label="Pie chart"
+                            description="Proportions of a whole plotted as a pie."
+                        />
                     ),
                 },
                 {
@@ -108,22 +114,17 @@ export function ChartFilter(): JSX.Element {
                     label: 'Bar chart',
                     disabledReason: trendsOnlyDisabledReason,
                     labelInMenu: (
-                        <div className="flex flex-col gap-[2px]">
-                            <span>Bar chart</span>
-                            <span className="text-xs text-tertiary">Category totals with horizontal bars.</span>
-                        </div>
+                        <ChartFilterOptionLabel
+                            label="Bar chart"
+                            description="Total values plotted as horizontal bars."
+                        />
                     ),
                 },
                 {
                     value: ChartDisplayType.ActionsTable,
                     icon: <IconTableChart />,
                     label: 'Table',
-                    labelInMenu: (
-                        <div className="flex flex-col gap-[2px]">
-                            <span>Table</span>
-                            <span className="text-xs text-tertiary">A table view of values.</span>
-                        </div>
-                    ),
+                    labelInMenu: <ChartFilterOptionLabel label="Table" description="Total values in a table view." />,
                 },
                 {
                     value: ChartDisplayType.WorldMap,
@@ -140,10 +141,7 @@ export function ChartFilter(): JSX.Element {
                             ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
                             : undefined),
                     labelInMenu: (
-                        <div className="flex flex-col gap-[2px]">
-                            <span>World map</span>
-                            <span className="text-xs text-tertiary">Data across regions using color or markers.</span>
-                        </div>
+                        <ChartFilterOptionLabel label="World map" description="Data across regions on a map." />
                     ),
                 },
             ],
