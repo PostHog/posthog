@@ -60,7 +60,7 @@ class _SharedAssistantState(BaseModel):
     """
     root_tool_calls_count: Optional[int] = Field(default=None)
     """
-    The number of tool calls made by the root node to limit the number of tool calls.
+    Tracks the number of tool calls made by the root node to terminate the loop.
     """
 
 
