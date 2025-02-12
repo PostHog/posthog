@@ -775,7 +775,9 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict):
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
+        )
 
         cohort = None
         if name == "cohort_static":
@@ -838,6 +840,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     event="$pageview",
                     distinct_id=f"user_{variant}_{i}",
+                    timestamp=datetime(2020, 1, i + 2),
                     properties={feature_flag_property: variant, **extra_properties},
                 )
 
@@ -849,6 +852,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     event="$feature_flag_called",
                     distinct_id=f"user_{variant}_{i}",
+                    timestamp=datetime(2020, 1, i + 3),
                     properties={
                         "$feature_flag_response": variant,
                         "$feature_flag": feature_flag.key,
@@ -1042,6 +1046,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment = self.create_experiment(
             feature_flag=feature_flag,
             start_date=datetime(2023, 1, 1),
+            end_date=datetime(2023, 1, 31),
         )
 
         feature_flag_property = f"$feature/{feature_flag.key}"
