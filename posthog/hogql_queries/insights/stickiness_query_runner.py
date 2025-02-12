@@ -269,13 +269,24 @@ class StickinessQueryRunner(QueryRunner):
 
                 data = val[0]
 
+                # Calculate cumulative values if requested
+                if self.query.stickinessFilter and self.query.stickinessFilter.cumulative:
+                    cumulative_data = []
+                    for i in range(len(data)):
+                        total_for_days = sum(data[i:])
+                        cumulative_data.append(total_for_days)
+                    data = cumulative_data
+
                 series_object = {
                     "count": sum(data),
                     "data": data,
                     "days": val[1],
                     "label": "All events" if series_label is None else series_label,
                     "labels": [
-                        f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'}" for day in val[1]
+                        f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'} or more"
+                        if (self.query.stickinessFilter and self.query.stickinessFilter.cumulative)
+                        else f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'}"
+                        for day in val[1]
                     ],
                 }
 

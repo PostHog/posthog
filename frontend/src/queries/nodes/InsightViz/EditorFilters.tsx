@@ -34,6 +34,7 @@ import {
 } from '~/types'
 
 import { Breakdown } from './Breakdown'
+import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
@@ -206,6 +207,31 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               </div>
                           ),
                           component: StickinessCriteria as (props: EditorFilterProps) => JSX.Element | null,
+                      }
+                    : null,
+                isStickiness
+                    ? {
+                          key: 'cumulativeStickiness',
+                          label: () => (
+                              <div className="flex">
+                                  <span>Cumulative Values</span>
+                                  <Tooltip
+                                      closeDelayMs={200}
+                                      title={
+                                          <div className="space-y-2">
+                                              <div>
+                                                  Show cumulative stickiness values, where each point represents users
+                                                  who were active for that many days or more.
+                                              </div>
+                                          </div>
+                                      }
+                                  >
+                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                  </Tooltip>
+                              </div>
+                          ),
+                          position: 'right',
+                          component: CumulativeStickinessFilter as (props: EditorFilterProps) => JSX.Element | null,
                       }
                     : null,
                 {

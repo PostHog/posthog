@@ -787,3 +787,220 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+
+    def test_cumulative_stickiness(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+            filters=StickinessFilter(**{"cumulative": True}),
+        )
+
+        result = response.results[0]
+
+        # Test cumulative data
+        assert result["data"] == [3, 2, 1]  # Day 1: 3 users, Day 2: 2 users for 2+ days, Day 3: 1 user for 3 days
+        assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]
+
+    def test_cumulative_stickiness_with_intervals(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-11T13:00:00Z",
+                                "2020-01-11T14:00:00Z",
+                            ],
+                        ),
+                    ],
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-11T13:00:00Z",
+                            ],
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-11T12:00:00Z",
+            date_to="2020-01-11T14:00:00Z",
+            interval="hour",
+            filters=StickinessFilter(**{"cumulative": True}),
+        )
+
+        result = response.results[0]
+
+        # Test cumulative data with hourly intervals
+        assert result["data"] == [2, 2, 1]  # Hour 1: 2 users, Hour 2: 2 users for 2+ hours, Hour 3: 1 user for 3 hours
+        assert result["labels"] == ["1 hour or more", "2 hours or more", "3 hours or more"]
+
+    def test_cumulative_stickiness_with_property_filter(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"browser": "Chrome"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                    properties={"browser": "Safari"},
+                ),
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+            filters=StickinessFilter(
+                **{
+                    "cumulative": True,
+                    "properties": [{"key": "browser", "value": "Chrome"}],
+                }
+            ),
+        )
+
+        result = response.results[0]
+
+        # Test cumulative data with property filter
+        assert result["data"] == [1, 1, 1]  # Only Chrome user counted
+        assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]
+
+    def test_cumulative_stickiness_zero_days(self):
+        # Test edge case with no events
+        response = self._run_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+            filters=StickinessFilter(**{"cumulative": True}),
+        )
+
+        result = response.results[0]
+
+        # Test empty cumulative data
+        assert result["data"] == [0, 0, 0]
+        assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]
+
+    def test_cumulative_stickiness_with_criteria(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                                "2020-01-13T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                ),
+                SeriesTestData(
+                    distinct_id="p3",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",
+                            ],
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-11",
+            date_to="2020-01-13",
+            filters=StickinessFilter(**{"cumulative": True, "stickinessCriteria": {"operator": "gte", "value": 2}}),
+        )
+
+        result = response.results[0]
+
+        # Test cumulative data with stickiness criteria
+        # Only users who were active for 2 or more days should be counted
+        assert result["data"] == [2, 2, 1]  # 2 users active 2+ days, same 2 users for 2+ days, 1 user for 3 days
+        assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]

@@ -1192,6 +1192,8 @@ export type StickinessFilter = {
         operator: StickinessOperator
         value: integer
     }
+    /** @default false */
+    cumulative?: boolean
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
@@ -1199,6 +1201,7 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'showLegend',
     'showValuesOnSeries',
     'hiddenLegendIndexes',
+    'cumulative',
 ])
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
