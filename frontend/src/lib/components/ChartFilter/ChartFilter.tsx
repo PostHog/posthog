@@ -78,7 +78,7 @@ export function ChartFilter(): JSX.Element {
                     labelInMenu: (
                         <ChartFilterOptionLabel
                             label="Line chart (cumulative)"
-                            description="Accumulating values over time plotted as a continuous line."
+                            description="Accumulating values over time as a continuous line."
                         />
                     ),
                 },
