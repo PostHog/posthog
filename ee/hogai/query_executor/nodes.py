@@ -31,8 +31,8 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import (
     AssistantFunnelsQuery,
-    AssistantMessage,
     AssistantRetentionQuery,
+    AssistantToolCallMessage,
     AssistantTrendsQuery,
     FailureMessage,
     FunnelVizType,
@@ -43,12 +43,16 @@ from posthog.schema import (
 class QueryExecutorNode(AssistantNode):
     name = AssistantNodeName.QUERY_EXECUTOR
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
         if not isinstance(viz_message, VisualizationMessage):
             raise ValueError("Can only run summarization with a visualization message as the last one in the state")
         if viz_message.answer is None:
             raise ValueError("Did not find query in the visualization message")
+
+        tool_call_id = state.root_tool_call_id
+        if not tool_call_id:
+            return None
 
         try:
             results_response = process_query_dict(  # type: ignore
@@ -104,20 +108,23 @@ class QueryExecutorNode(AssistantNode):
             results = json.dumps(results_response["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
             example_prompt = FALLBACK_EXAMPLE_PROMPT
 
+        formatted_query_result = QUERY_RESULTS_PROMPT.format(
+            example=example_prompt,
+            query_kind=viz_message.answer.kind,
+            results=results,
+            utc_datetime_display=self.utc_now,
+            project_datetime_display=self.project_now,
+            project_timezone=self.project_timezone,
+        )
+
         return PartialAssistantState(
             messages=[
-                AssistantMessage(
-                    content=QUERY_RESULTS_PROMPT.format(
-                        example=example_prompt,
-                        query_kind=viz_message.answer.kind,
-                        results=results,
-                        utc_datetime_display=self.utc_now,
-                        project_datetime_display=self.project_now,
-                        project_timezone=self.project_timezone,
-                    ),
-                    id=str(uuid4()),
-                )
-            ]
+                AssistantToolCallMessage(content=formatted_query_result, id=str(uuid4()), tool_call_id=tool_call_id)
+            ],
+            # Resetting values to empty strings because Nones are not supported by LangGraph.
+            root_tool_call_id="",
+            root_tool_insight_plan="",
+            root_tool_insight_type="",
         )
 
     def _compress_results(self, viz_message: VisualizationMessage, results: list[dict]) -> str:

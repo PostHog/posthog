@@ -152,9 +152,9 @@ class TestCompression(BaseTest):
         }
         formatter = TrendsResultsFormatter(AssistantTrendsQuery(series=[]), [series])
 
-        self.assertEqual(formatter._extract_series_label(series), "Custom Name (breakdown)")
+        self.assertEqual(formatter._extract_series_label(series), "Custom Name breakdown for the value `0`")
         series.pop("action")
-        self.assertEqual(formatter._extract_series_label(series), "$pageview (breakdown)")
+        self.assertEqual(formatter._extract_series_label(series), "$pageview breakdown for the value `0`")
 
     def test_funnels_single_series(self):
         results: list[dict[str, Any]] = [

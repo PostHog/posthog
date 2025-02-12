@@ -1190,6 +1190,12 @@
                 "meta": {
                     "$ref": "#/definitions/AssistantMessageMetadata"
                 },
+                "tool_calls": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantToolCall"
+                    },
+                    "type": "array"
+                },
                 "type": {
                     "const": "ai",
                     "type": "string"
@@ -1208,7 +1214,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "ai", "ai/reasoning", "ai/viz", "ai/failure", "ai/router"],
+            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -1351,6 +1357,43 @@
                     "$ref": "#/definitions/AssistantArrayPropertyFilter"
                 }
             ]
+        },
+        "AssistantToolCall": {
+            "additionalProperties": false,
+            "properties": {
+                "args": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "args"],
+            "type": "object"
+        },
+        "AssistantToolCallMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "tool",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content", "tool_call_id"],
+            "type": "object"
         },
         "AssistantTrendsBreakdownFilter": {
             "additionalProperties": false,
@@ -13077,28 +13120,8 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
-                },
-                {
-                    "$ref": "#/definitions/RouterMessage"
                 }
             ]
-        },
-        "RouterMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "type": {
-                    "const": "ai/router",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "content"],
-            "type": "object"
         },
         "SamplingRate": {
             "additionalProperties": false,

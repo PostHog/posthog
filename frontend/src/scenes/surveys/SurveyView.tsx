@@ -474,77 +474,75 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     } = useValues(surveyLogic)
 
     return (
-        <>
-            <>
-                <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
-                {survey.questions.map((question, i) => {
-                    if (question.type === SurveyQuestionType.Rating) {
-                        return (
-                            <>
-                                {question.scale === 10 && (
-                                    <>
-                                        <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                        <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
-                                        <SurveyNPSResults survey={survey as Survey} />
-                                    </>
+        <div className="space-y-4">
+            <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+            {survey.questions.map((question, i) => {
+                if (question.type === SurveyQuestionType.Rating) {
+                    return (
+                        <>
+                            {question.scale === 10 && (
+                                <div>
+                                    <div className="text-4xl font-bold">{surveyNPSScore}</div>
+                                    <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
+                                    <SurveyNPSResults survey={survey as Survey} />
+                                </div>
+                            )}
+
+                            <RatingQuestionBarChart
+                                key={`survey-q-${i}`}
+                                surveyRatingResults={surveyRatingResults}
+                                surveyRatingResultsReady={surveyRatingResultsReady}
+                                questionIndex={i}
+                                iteration={survey.current_iteration}
+                            />
+
+                            {survey.iteration_count &&
+                                survey.iteration_count > 0 &&
+                                survey.current_iteration &&
+                                survey.current_iteration > 1 &&
+                                survey.iteration_start_dates &&
+                                survey.iteration_start_dates.length > 0 && (
+                                    <NPSSurveyResultsBarChart
+                                        key={`nps-survey-results-q-${i}`}
+                                        surveyRecurringNPSResults={surveyRecurringNPSResults}
+                                        surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
+                                        iterationStartDates={survey.iteration_start_dates}
+                                        currentIteration={survey.current_iteration}
+                                        questionIndex={i}
+                                    />
                                 )}
-
-                                <RatingQuestionBarChart
-                                    key={`survey-q-${i}`}
-                                    surveyRatingResults={surveyRatingResults}
-                                    surveyRatingResultsReady={surveyRatingResultsReady}
-                                    questionIndex={i}
-                                    iteration={survey.current_iteration}
-                                />
-
-                                {survey.iteration_count &&
-                                    survey.iteration_count > 0 &&
-                                    survey.current_iteration &&
-                                    survey.current_iteration > 1 &&
-                                    survey.iteration_start_dates &&
-                                    survey.iteration_start_dates.length > 0 && (
-                                        <NPSSurveyResultsBarChart
-                                            key={`nps-survey-results-q-${i}`}
-                                            surveyRecurringNPSResults={surveyRecurringNPSResults}
-                                            surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
-                                            iterationStartDates={survey.iteration_start_dates}
-                                            currentIteration={survey.current_iteration}
-                                            questionIndex={i}
-                                        />
-                                    )}
-                            </>
-                        )
-                    } else if (question.type === SurveyQuestionType.SingleChoice) {
-                        return (
-                            <SingleChoiceQuestionPieChart
-                                key={`survey-q-${i}`}
-                                surveySingleChoiceResults={surveySingleChoiceResults}
-                                surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
-                                questionIndex={i}
-                            />
-                        )
-                    } else if (question.type === SurveyQuestionType.MultipleChoice) {
-                        return (
-                            <MultipleChoiceQuestionBarChart
-                                key={`survey-q-${i}`}
-                                surveyMultipleChoiceResults={surveyMultipleChoiceResults}
-                                surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
-                                questionIndex={i}
-                            />
-                        )
-                    } else if (question.type === SurveyQuestionType.Open) {
-                        return (
-                            <OpenTextViz
-                                key={`survey-q-${i}`}
-                                surveyOpenTextResults={surveyOpenTextResults}
-                                surveyOpenTextResultsReady={surveyOpenTextResultsReady}
-                                questionIndex={i}
-                            />
-                        )
-                    }
-                })}
-            </>
-            <div className="mb-4 max-w-40">
+                        </>
+                    )
+                } else if (question.type === SurveyQuestionType.SingleChoice) {
+                    return (
+                        <SingleChoiceQuestionPieChart
+                            key={`survey-q-${i}`}
+                            surveySingleChoiceResults={surveySingleChoiceResults}
+                            surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
+                            questionIndex={i}
+                        />
+                    )
+                } else if (question.type === SurveyQuestionType.MultipleChoice) {
+                    return (
+                        <MultipleChoiceQuestionBarChart
+                            key={`survey-q-${i}`}
+                            surveyMultipleChoiceResults={surveyMultipleChoiceResults}
+                            surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
+                            questionIndex={i}
+                        />
+                    )
+                } else if (question.type === SurveyQuestionType.Open) {
+                    return (
+                        <OpenTextViz
+                            key={`survey-q-${i}`}
+                            surveyOpenTextResults={surveyOpenTextResults}
+                            surveyOpenTextResultsReady={surveyOpenTextResultsReady}
+                            questionIndex={i}
+                        />
+                    )
+                }
+            })}
+            <div className="max-w-40">
                 <LemonButton
                     type="primary"
                     data-attr="survey-results-explore"
@@ -555,7 +553,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                 </LemonButton>
             </div>
             {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
-        </>
+        </div>
     )
 }
 
