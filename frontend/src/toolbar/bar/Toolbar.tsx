@@ -122,8 +122,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <WebVitalsToolbarMenu />
     ) : null
 
-    // const content = <ExperimentsToolbarMenu />
-
     useEffect(() => {
         setMenu(ref.current)
         return () => setMenu(null)
