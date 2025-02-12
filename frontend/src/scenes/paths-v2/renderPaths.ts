@@ -96,7 +96,7 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
         ])
 }
 
-const appendPathNodes = (
+const appendNodes = (
     svg: any,
     nodes: PathNodeData[],
     pathsFilter: PathsFilter,
@@ -157,7 +157,7 @@ const appendPathNodes = (
         })
 }
 
-const appendPathLinks = (svg: any, links: PathNodeData[]): void => {
+const appendLinks = (svg: any, links: PathNodeData[]): void => {
     svg.selectAll('path')
         .data(links)
         .join('path')
@@ -209,8 +209,8 @@ export function renderPaths(
     const clonedPaths = structuredClone(paths)
     const { nodes, links } = sankey(clonedPaths)
 
-    appendPathLinks(svg, links)
-    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter)
+    appendLinks(svg, links)
+    appendNodes(svg, nodes, pathsFilter, funnelPathsFilter)
 
     // :TRICKY: this needs to come last, as d3 mutates data in place and otherwise
     // we won't have node positions.
