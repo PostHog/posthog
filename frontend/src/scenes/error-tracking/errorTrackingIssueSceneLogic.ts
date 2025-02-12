@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
@@ -14,6 +15,7 @@ import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './querie
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
+    fingerprint?: string
 }
 
 export enum EventsMode {
@@ -54,7 +56,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             null as ErrorTrackingIssue | null,
             {
                 loadRelationalIssue: async () => {
-                    const response = await api.errorTracking.getIssue(props.id)
+                    const response = await api.errorTracking.getIssue(props.id, props.fingerprint)
                     return { ...values.issue, ...response }
                 },
                 loadClickHouseIssue: async (firstSeen: string) => {
@@ -138,6 +140,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             setIssueSuccess: loadIssue,
             initIssue: loadIssue,
             loadRelationalIssueSuccess: loadIssue,
+            loadRelationalIssueFailure: ({ errorObject: { status, data } }) => {
+                if (status == 308 && 'issue_id' in data) {
+                    router.actions.replace(urls.errorTrackingIssue(data.issue_id))
+                }
+            },
             setDateRange: loadIssue,
             setFilterTestAccounts: loadIssue,
             setFilterGroup: loadIssue,

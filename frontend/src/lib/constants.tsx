@@ -241,9 +241,11 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     EXPERIMENT_P_VALUE: 'experiment-p-value', // owner: @jurajmajerik #team-experiments
     WEB_ANALYTICS_IMPROVED_PATH_CLEANING: 'web-analytics-improved-path-cleaning', // owner: @rafaeelaudibert #team-web-analytics
+    ONBOARDING_NEW_PLANS_STEP: 'onboarding-new-plans-step', // owner: @joshsny #team-growth
     EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
     RECORDINGS_AI_FILTER: 'recordings-ai-filter', // owner: @veryayskiy #team-replay
     EXPERIMENTS_NEW_QUERY_RUNNER: 'experiments-new-query-runner', // owner: #team-experiments
+    PATH_CLEANING_AI_REGEX: 'path-cleaning-ai-regex', // owner: @rafaeelaudibert #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
