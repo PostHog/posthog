@@ -101,9 +101,11 @@ if [[ -t 0 ]]; then # The block below only runs when in an interactive shell
   # Print intro message
   echo -e "
 IT'S DANGEROUS TO GO ALONE! RUN THIS:
-1. \033[31mbin/migrate\033[0m - to run all migrations
-2. \033[32mbin/start\033[0m - to start the entire stack
-3. \033[34m./manage.py generate_demo_data\033[0m - to create a user with demo data
+\033[3mRun the following commands in the given order to get the stack up and running:\033[0m
+1. spin up containers - \033[33mdocker compose -f docker-compose.dev.yml up\033[0m
+2. run all migrations - \033[31mbin/migrate\033[0m
+3. start the stack - \033[32mbin/start\033[0m
+4. (optional) create a user with demo data - \033[34m./manage.py generate_demo_data\033[0m
 "
 fi
 '''
