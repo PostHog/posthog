@@ -2203,29 +2203,6 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     timestamp_field: str
 
 
-class ExperimentEventMetricConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    event: str
-    kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
-    math_hogql: Optional[str] = None
-    math_property: Optional[str] = None
-
-
-class ExperimentMetric(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    filterTestAccounts: Optional[bool] = None
-    inverse: Optional[bool] = None
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    metric_config: Union[ExperimentEventMetricConfig, ExperimentDataWarehouseMetricConfig]
-    metric_type: ExperimentMetricType
-    name: Optional[str] = None
-
-
 class FeaturePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4482,6 +4459,48 @@ class EventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: list[str]
+
+
+class ExperimentEventMetricConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
+    math: Optional[ExperimentMetricMath] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+
+
+class ExperimentMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterTestAccounts: Optional[bool] = None
+    inverse: Optional[bool] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_config: Union[ExperimentEventMetricConfig, ExperimentDataWarehouseMetricConfig]
+    metric_type: ExperimentMetricType
+    name: Optional[str] = None
 
 
 class FunnelCorrelationResponse(BaseModel):

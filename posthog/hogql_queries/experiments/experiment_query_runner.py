@@ -26,6 +26,7 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
     calculate_credible_intervals_v2 as calculate_credible_intervals_v2_funnel,
 )
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
@@ -40,6 +41,7 @@ from posthog.schema import (
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
     DateRange,
+    IntervalType,
 )
 from typing import Optional
 from datetime import datetime, timedelta, UTC
@@ -63,6 +65,8 @@ class ExperimentQueryRunner(QueryRunner):
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
         self.stats_version = self.experiment.get_stats_config("version") or 1
+
+        self.date_range = self._get_date_range()
 
         # Just to simplify access
         self.metric = self.query.metric
@@ -118,6 +122,19 @@ class ExperimentQueryRunner(QueryRunner):
             for property in self.team.test_account_filters:
                 test_accounts_filter.append(property_to_expr(property, self.team))
 
+        # Property filters
+        metric_property_filters: list[ast.Expr] = []
+        if isinstance(self.metric.metric_config, ExperimentEventMetricConfig) and self.metric.metric_config.properties:
+            for property in self.metric.metric_config.properties:
+                metric_property_filters.append(property_to_expr(property, self.team))
+
+        date_range_query = QueryDateRange(
+            date_range=self.date_range,
+            team=self.team,
+            interval=IntervalType.DAY,
+            now=datetime.now(),
+        )
+
         # Exposures, find those to include in the experiment
         # One row per entity, with the variant and first exposure time
         # Currently grouping by distinct_id, but this would be changed to group_id or session_id,
@@ -133,6 +150,16 @@ class ExperimentQueryRunner(QueryRunner):
                 exprs=[
                     parse_expr(
                         f"event = '$feature_flag_called' and replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '') = '{feature_flag_key}' "
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=date_range_query.date_from()),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=date_range_query.date_to()),
                     ),
                     *test_accounts_filter,
                 ]
@@ -219,6 +246,7 @@ class ExperimentQueryRunner(QueryRunner):
                                 op=ast.CompareOperationOp.GtEq,
                             ),
                             parse_expr(f"event = '{metric_config.event}'"),
+                            *metric_property_filters,
                         ],
                     ),
                 )

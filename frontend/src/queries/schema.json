@@ -6815,6 +6815,13 @@
                 },
                 "math_property": {
                     "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["kind", "event"],
