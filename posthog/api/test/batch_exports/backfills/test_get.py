@@ -103,11 +103,11 @@ TEST_TIME = dt.datetime.now(tz=dt.UTC).replace(microsecond=0)
                 "progress": 1,
             },
         ),
-        # backfill is a continuous hourly backfill up to the current time. It started 119 minutes ago so we expect there
+        # backfill is a continuous hourly backfill up to the current time. It started 100 minutes ago so we expect there
         # to be 2 runs, 1 of which is completed, so progress is 0.5
         (
             BatchExportBackfill.Status.RUNNING,
-            TEST_TIME - dt.timedelta(minutes=119),
+            TEST_TIME - dt.timedelta(minutes=100),
             None,
             1,
             {
