@@ -11,7 +11,12 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.property import Property
-from posthog.queries.base import match_property, relative_date_parse_for_feature_flag_matching, sanitize_property_key
+from posthog.queries.base import (
+    match_property,
+    relative_date_parse_for_feature_flag_matching,
+    sanitize_property_key,
+    sanitize_regex_pattern,
+)
 from posthog.test.base import APIBaseTest
 
 
@@ -148,7 +153,7 @@ class TestMatchProperties(TestCase):
             mock_compile.return_value = pattern
             self.assertTrue(match_property(property_e, {"key": "5"}))
 
-        mock_compile.assert_called_once_with("5")
+        mock_compile.assert_called_once_with("5", re.IGNORECASE | re.DOTALL)
 
     def test_match_properties_math_operators(self):
         property_a = Property(key="key", value=1, operator="gt")
@@ -361,7 +366,10 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_d, {"key": None}))
 
         property_d_lower_case = Property(key="key", value="no", operator="regex")
-        self.assertFalse(match_property(property_d_lower_case, {"key": None}))
+        self.assertTrue(match_property(property_d_lower_case, {"key": None}))
+
+        property_d_non_matching = Property(key="key", value="xyz", operator="regex")
+        self.assertFalse(match_property(property_d_non_matching, {"key": None}))
 
         property_e = Property(key="key", value=1, operator="gt")
         self.assertTrue(match_property(property_e, {"key": None}))
@@ -554,4 +562,164 @@ class TestRelativeDateParsing(unittest.TestCase):
             )
             assert relative_date_parse_for_feature_flag_matching("8y") == datetime.datetime(
                 2012, 1, 1, 12, 1, 20, 134000, tzinfo=tz.gettz("UTC")
+            )
+
+
+class TestSanitizeRegexPattern(TestCase):
+    def test_basic_property_matching(self):
+        test_cases = [
+            # Simple key-value matches
+            ('"key":"value"', "{'key': 'value'}", True),
+            # Quote style variations
+            ("'key':'value'", "{'key': 'value'}", True),
+            (r"\"key\":\"value\"", "{'key': 'value'}", True),
+            # Whitespace handling
+            ('"key" : "value"', "{'key':'value'}", True),
+            ('"key":"value"', "{'key': 'value'}", True),
+            # Case sensitivity
+            ('"LANG":"EN"', "{'lang': 'en'}", True),
+            ('"lang":"en"', "{'LANG': 'EN'}", True),
+            # Basic non-matching cases
+            ('"key":"value"', "{'key': 'different'}", False),
+            ('"key":"value"', "{'different': 'value'}", False),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            )
+
+    def test_property_name_patterns(self):
+        test_cases = [
+            # Special characters in property names
+            ('"user-id":"123"', "{'user-id': '123'}", True),
+            ('"@timestamp":"2023-01-01"', "{'@timestamp': '2023-01-01'}", True),
+            ('"$ref":"#/definitions/user"', "{'$ref': '#/definitions/user'}", True),
+            ('"special.key":"value"', "{'special.key': 'value'}", True),
+            ('"snake_case_key":"value"', "{'snake_case_key': 'value'}", True),
+            # Unicode and emoji
+            ('"über":"value"', "{'über': 'value'}", True),
+            ('"emoji🔑":"value"', "{'emoji🔑': 'value'}", True),
+            # Empty or special-only names
+            ('"-":"value"', "{'-': 'value'}", True),
+            ('"_":"value"', "{'_': 'value'}", True),
+            # Multiple special characters
+            ('"$special@key.name-here":"value"', "{'$special@key.name-here': 'value'}", True),
+            # Partial matches should not work
+            ('"user-id":"123"', "{'different-id': '123'}", False),
+            ('"lang":"en"', "{'language': 'en'}", False),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            )
+
+    def test_nested_structures(self):
+        test_cases = [
+            # Simple nested dictionary
+            ('"key":"value"', "{'parent': {'key': 'value'}}", True),
+            # Multiple levels of nesting
+            ('"a":{"b":{"c":"value"}}', '{"a":{"b":{"c":"value"}}}', True),
+            # Array values
+            ('"array":["value1","value2"]', '{"array":["value1","value2"]}', True),
+            # Mixed nesting with arrays and objects
+            ('"data":{"items":[{"id":"123"}]}', '{"data":{"items":[{"id":"123"}]}}', True),
+            # Multiple properties with nesting
+            (
+                '"lang":"en"[^}]*"slug":"web"',
+                "{'id': 123, 'data': {'lang': 'en', 'meta': {'slug': 'web'}, 'active': true}}",
+                True,
+            ),
+            # Incorrect nesting level should not match
+            (
+                '"lang":"en"[^}]*"slug":"web"',
+                "{'data': {'lang': 'en'}, 'slug': 'mobile'}",
+                False,
+            ),
+            # Nested structures with whitespace and newlines
+            (
+                '"lang":"en"[^}]*"slug":"web"',
+                """
+                {
+                    'data': {
+                        'lang': 'en',
+                        'slug': 'web'
+                    }
+                }
+                """,
+                True,
+            ),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            )
+
+    def test_multiple_properties(self):
+        test_cases = [
+            # Multiple properties in any order
+            ('"lang":"en"[^}]*"slug":"web"', "{'slug': 'web', 'lang': 'en'}", True),
+            ('"lang":"en"[^}]*"slug":"web"', "{'lang': 'en', 'slug': 'web'}", True),
+            # Properties with other data in between
+            ('"lang":"en"[^}]*"slug":"web"', "{'name': 'test', 'lang': 'en', 'other': 123, 'slug': 'web'}", True),
+            # Missing required property
+            ('"lang":"en"[^}]*"slug":"web"', "{'lang': 'en', 'url': 'web'}", False),
+            # Wrong property values
+            ('"lang":"en"[^}]*"slug":"web"', "{'lang': 'es', 'slug': 'web'}", False),
+            ('"lang":"en"[^}]*"slug":"web"', "{'lang': 'en', 'slug': 'mobile'}", False),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
+            )
+
+    def test_simple_regex_patterns(self):
+        test_cases = [
+            # Basic regex patterns
+            (r"^test$", "test", True),
+            (r"^test$", "test123", False),
+            (r"test\d+", "test123", True),
+            (r"test\d+", "test", False),
+            # Wildcards and character classes
+            (r".*\.com$", "example.com", True),
+            (r".*\.com$", "example.org", False),
+            (r"[a-z]+", "abc", True),
+            (r"[a-z]+", "123", False),
+            # Groups and alternation
+            (r"(foo|bar)", "foo", True),
+            (r"(foo|bar)", "bar", True),
+            (r"(foo|bar)", "baz", False),
+            # Common patterns (email, URL)
+            (r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "test@example.com", True),
+            (r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "invalid-email", False),
+            (r"^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "https://example.com", True),
+            (r"^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", "not-a-url", False),
+        ]
+
+        for pattern, test_string, should_match in test_cases:
+            sanitized = sanitize_regex_pattern(pattern)
+            match = re.search(sanitized, test_string, re.DOTALL | re.IGNORECASE)
+            self.assertEqual(
+                bool(match),
+                should_match,
+                f"Failed for pattern: {pattern}\nSanitized to: {sanitized}\nTesting against: {test_string}\nExpected match: {should_match}",
             )

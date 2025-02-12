@@ -5,7 +5,8 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { useState } from 'react'
+import { isObject } from 'lib/utils'
+import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
 import { CompatMessage } from '../types'
@@ -15,15 +16,45 @@ export function ConversationMessagesDisplay({
     input,
     output,
     httpStatus,
+    raisedError,
     bordered = false,
 }: {
     input: any
     output: any
     httpStatus?: number
+    raisedError?: boolean
     bordered?: boolean
 }): JSX.Element {
     const inputNormalized = normalizeMessages(input, 'user')
     const outputNormalized = normalizeMessages(output, 'assistant')
+
+    const outputDisplay = raisedError ? (
+        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-scroll">
+            <IconExclamation className="text-base" />
+            {isObject(output) ? (
+                <JSONViewer src={output} collapsed={4} />
+            ) : (
+                <span className="font-mono">
+                    {(() => {
+                        try {
+                            const parsedJson = JSON.parse(output)
+                            return isObject(parsedJson) ? (
+                                <JSONViewer src={parsedJson} collapsed={5} />
+                            ) : (
+                                JSON.stringify(output ?? null)
+                            )
+                        } catch {
+                            return JSON.stringify(output ?? null)
+                        }
+                    })()}
+                </span>
+            )}
+        </div>
+    ) : (
+        outputNormalized?.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />) || (
+            <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
+        )
+    )
 
     return (
         <LLMInputOutput
@@ -36,79 +67,112 @@ export function ConversationMessagesDisplay({
                         )}
                     </>
                 )) || (
-                    <div className="rounded border text-default p-2 italic bg-[var(--background-danger-subtle)]">
+                    <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
                         No input
                     </div>
                 )
             }
-            outputDisplay={
-                outputNormalized?.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />) || (
-                    <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--background-danger-subtle)]">
-                        <IconExclamation className="text-base" />
-                        {httpStatus ? `Generation failed with HTTP status ${httpStatus}` : 'Missing output'}
-                    </div>
-                )
+            outputDisplay={outputDisplay}
+            outputHeading={
+                raisedError
+                    ? `Error (${httpStatus})`
+                    : `Output${outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}`
             }
-            outputHeading={`Output${outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}`}
             bordered={bordered}
         />
     )
 }
 
-export function LLMMessageDisplay({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element {
-    const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(!!message.content)
+export const LLMMessageDisplay = React.memo(
+    ({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element => {
+        const { role, content, ...additionalKwargs } = message
+        const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
 
-    const { role, content, ...additionalKwargs } = message
-    const additionalKwargsEntries = Object.entries(additionalKwargs).filter(([, value]) => value !== undefined)
+        // Compute whether the content looks like Markdown.
+        // (Heuristic: looks for code blocks, blockquotes, or headings)
+        const isMarkdownCandidate = content ? /(\n\s*```|^>\s|#{1,6}\s)/.test(content) : false
 
-    return (
-        <div
-            className={clsx(
-                'rounded border text-default',
-                isOutput
-                    ? 'bg-[var(--bg-fill-success-tertiary)]'
-                    : role === 'user'
-                    ? 'bg-[var(--bg-fill-tertiary)]'
-                    : role === 'assistant'
-                    ? 'bg-[var(--bg-fill-info-tertiary)]'
-                    : null // e.g. system
-            )}
-        >
-            <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
-                <span className="grow">{role}</span>
-                {content && (
-                    <>
-                        <LemonButton
-                            size="small"
-                            noPadding
-                            icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
-                            tooltip="Toggle Markdown rendering"
-                            onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
-                        />
-                        <CopyToClipboardInline iconSize="small" description="message content" explicitValue={content} />
-                    </>
+        // Render any additional keyword arguments as JSON.
+        const additionalKwargsEntries = Object.fromEntries(
+            Object.entries(additionalKwargs).filter(([, value]) => value !== undefined)
+        )
+
+        const renderMessageContent = (content: string): JSX.Element | null => {
+            if (!content) {
+                return null
+            }
+            const trimmed = content.trim()
+
+            // If content is valid JSON (we only check when it starts and ends with {} or [] to avoid false positives)
+            if (
+                (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                (trimmed.startsWith('[') && trimmed.endsWith(']'))
+            ) {
+                try {
+                    const parsed = JSON.parse(content)
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        return <JSONViewer src={parsed} name={null} collapsed={5} />
+                    }
+                } catch {
+                    // Not valid JSON. Fall through to Markdown/plain text handling.
+                }
+            }
+
+            // If the content appears to be Markdown, render based on the toggle.
+            if (isMarkdownCandidate) {
+                return isRenderingMarkdown ? (
+                    <LemonMarkdown>{content}</LemonMarkdown>
+                ) : (
+                    <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                )
+            }
+
+            // Fallback: render as plain text.
+            return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+        }
+
+        return (
+            <div
+                className={clsx(
+                    'rounded border text-default',
+                    isOutput
+                        ? 'bg-[var(--bg-fill-success-tertiary)]'
+                        : role === 'user'
+                        ? 'bg-[var(--bg-fill-tertiary)]'
+                        : role === 'assistant'
+                        ? 'bg-[var(--bg-fill-info-tertiary)]'
+                        : null
+                )}
+            >
+                <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
+                    <span className="grow">{role}</span>
+                    {content && (
+                        <>
+                            {isMarkdownCandidate && (
+                                <LemonButton
+                                    size="small"
+                                    noPadding
+                                    icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                                    tooltip="Toggle Markdown rendering"
+                                    onClick={() => setIsRenderingMarkdown((prev) => !prev)}
+                                />
+                            )}
+                            <CopyToClipboardInline
+                                iconSize="small"
+                                description="message content"
+                                explicitValue={content}
+                            />
+                        </>
+                    )}
+                </div>
+                {!!content && <div className="p-2 border-t">{renderMessageContent(content)}</div>}
+                {Object.keys(additionalKwargsEntries).length > 0 && (
+                    <div className="p-2 text-xs border-t">
+                        <JSONViewer src={additionalKwargsEntries} name={null} collapsed={5} />
+                    </div>
                 )}
             </div>
-            {!!content && (
-                <div className={clsx('p-2 whitespace-pre-wrap border-t', !isRenderingMarkdown && 'font-mono text-xs')}>
-                    {isRenderingMarkdown ? <LemonMarkdown>{content}</LemonMarkdown> : content}
-                </div>
-            )}
-            {!!additionalKwargsEntries && additionalKwargsEntries.length > 0 && (
-                <div className="p-2 text-xs border-t">
-                    {additionalKwargsEntries.map(([key, value]) => (
-                        <JSONViewer
-                            key={key}
-                            name={key}
-                            src={value}
-                            // `collapsed` limits depth shown at first. 4 is chosen so that we do show
-                            // function arguments in `tool_calls`, but if an argument is an object,
-                            // its child objects are collapsed by default
-                            collapsed={4}
-                        />
-                    ))}
-                </div>
-            )}
-        </div>
-    )
-}
+        )
+    }
+)
+LLMMessageDisplay.displayName = 'LLMMessageDisplay'

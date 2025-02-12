@@ -24,7 +24,7 @@ export function WinningVariantText({
             <div className="items-center inline-flex flex-wrap">
                 <VariantTag experimentId={experimentId} variantKey={highestProbabilityVariant} />
                 <span>&nbsp;is winning with a&nbsp;</span>
-                <span className="font-semibold text-success items-center">
+                <span className="font-semibold items-center">
                     {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
                 </span>
                 <span>of being best.&nbsp;</span>

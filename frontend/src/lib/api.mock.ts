@@ -96,6 +96,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     human_friendly_comparison_periods: false,
     revenue_tracking_config: { events: [] },
     flags_persistence_default: false,
+    access_control_version: 'v1',
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

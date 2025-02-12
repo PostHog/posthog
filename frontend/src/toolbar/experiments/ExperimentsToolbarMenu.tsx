@@ -33,7 +33,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
         <ToolbarMenu>
             <ToolbarMenu.Header>
                 {isWebExperimentsDisabled && (
-                    <div className="p-2">
+                    <div className="pb-2">
                         <LemonBanner type="warning">
                             Web experiments are disabled in your PostHog web snippet configuration. To run experiments,
                             add <code>disable_web_experiments: false</code> to your configuration.{' '}
@@ -47,6 +47,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
                         </LemonBanner>
                     </div>
                 )}
+
                 <LemonInput
                     autoFocus
                     fullWidth

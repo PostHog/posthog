@@ -22,6 +22,7 @@ export type IncomingRecordingMessage = {
         end: number
     }
     snapshot_source: string | null
+    snapshot_library: string | null
 }
 
 export type PersistedRecordingMessage = {

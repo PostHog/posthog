@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timedelta
 import json
 from typing import Optional
 from unittest.mock import call, patch
@@ -676,7 +676,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -717,7 +717,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "has_rollout_percentage": True,
                 "has_filters": True,
                 "filter_count": 1,
-                "created_at": datetime.datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
+                "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
             },
@@ -803,7 +803,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -868,7 +868,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "has_rollout_percentage": True,
                 "has_filters": True,
                 "filter_count": 1,
-                "created_at": datetime.datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
+                "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
                 "payload_count": 0,
             },
@@ -976,7 +976,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -1065,7 +1065,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -1155,7 +1155,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -1262,7 +1262,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
             flag_id = create_response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -1341,7 +1341,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
             flag_id = create_response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -1353,7 +1353,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             second_create_response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -1718,7 +1718,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(14, 15)):
+        with self.assertNumQueries(FuzzyInt(16, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1733,7 +1733,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(14, 15)):
+        with self.assertNumQueries(FuzzyInt(16, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1757,7 +1757,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(14, 15)):
+        with self.assertNumQueries(FuzzyInt(16, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -4705,6 +4705,40 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_feature_flag_includes_cohort_names(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test_cohort",
+            groups=[{"properties": [{"key": "email", "value": "@posthog.com", "type": "person"}]}],
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Get the flag
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["filters"]["groups"][0]["properties"][0],
+            {
+                "key": "id",
+                "type": "cohort",
+                "value": cohort.pk,
+                "cohort_name": "test_cohort",
+            },
+        )
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
@@ -6581,6 +6615,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for flag that has been soft deleted
         deleted_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Deleted feature flag",
             key="deleted-feature-flag",
             team=self.team,
@@ -6591,6 +6626,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for flag that is disabled, but recently called
         disabled_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Disabled feature flag",
             key="disabled-feature-flag",
             team=self.team,
@@ -6601,6 +6637,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for flag that has super group rolled out to <100%
         fifty_percent_super_group_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="50 percent super group flag",
             key="50-percent-super-group-flag",
             team=self.team,
@@ -6612,6 +6649,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for flag that has super group rolled out to 100% and specific properties
         fully_rolled_out_super_group_flag_with_properties = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="100 percent super group with properties flag",
             key="100-percent-super-group-with-properties-flag",
             team=self.team,
@@ -6637,6 +6675,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for flag that has super group rolled out to 100% and has no specific properties
         fully_rolled_out_super_group_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="100 percent super group flag",
             key="100-percent-super-group-flag",
             team=self.team,
@@ -6656,6 +6695,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for flag that has holdout group rolled out to <100%
         fifty_percent_holdout_group_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="50 percent holdout group flag",
             key="50-percent-holdout-group-flag",
             team=self.team,
@@ -6667,6 +6707,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for flag that has holdout group rolled out to 100% and specific properties
         fully_rolled_out_holdout_group_flag_with_properties = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="100 percent holdout group with properties flag",
             key="100-percent-holdout-group-with-properties-flag",
             team=self.team,
@@ -6692,6 +6733,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for flag that has holdout group rolled out to 100% and has no specific properties
         fully_rolled_out_holdout_group_flag = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="100 percent holdout group flag",
             key="100-percent-holdout-group-flag",
             team=self.team,
@@ -6711,6 +6753,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with no variants set to 100%
         multivariate_flag_no_rolled_out_variants = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Multivariate flag with no variants set to 100%",
             key="multivariate-no-rolled-out-variants-flag",
             team=self.team,
@@ -6729,6 +6772,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with no variants set to 100%
         multivariate_flag_rolled_out_variant = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Multivariate flag with variant set to 100%",
             key="multivariate-rolled-out-variant-flag",
             team=self.team,
@@ -6751,6 +6795,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
         multivariate_flag_rolled_out_variant_no_rolled_out_release = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Multivariate flag with variant set to 100%, no release condition set to 100%",
             key="multivariate-rolled-out-variant-no-release-rolled-out-flag",
             team=self.team,
@@ -6776,6 +6821,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with a variant set to 100% but no release condition set to 100%
         multivariate_flag_rolled_out_release_condition_half_variant = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Multivariate flag with release condition set to 100%, but variants still 50%",
             key="multivariate-rolled-out-release-half-variant-flag",
             team=self.team,
@@ -6800,6 +6846,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with variants set to 100% and a filtered release condition
         multivariate_flag_rolled_out_variant_rolled_out_filtered_release = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Multivariate flag with variant and release condition set to 100%",
             key="multivariate-rolled-out-variant-and-release-condition-with-properties-flag",
             team=self.team,
@@ -6835,6 +6882,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with no variants set to 100%, but a filtered and fully rolled out release condition has variant override
         multivariate_flag_filtered_rolled_out_release_with_override = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Multivariate flag with release condition set to 100% and override",
             key="multivariate-rolled-out-filtered-release-condition-and-override-flag",
             team=self.team,
@@ -6870,6 +6918,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for multivariate flag with no variants set to 100%, but fully rolled out release condition has variant override
         multivariate_flag_rolled_out_release_with_override = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Multivariate flag with release condition set to 100% and override",
             key="multivariate-rolled-out-release-condition-and-override-flag",
             team=self.team,
@@ -6898,6 +6947,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for boolean flag with empty filters
         boolean_flag_empty_filters = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Boolean flag with empty filters",
             key="boolean-empty-filters-flag",
             team=self.team,
@@ -6912,6 +6962,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for boolean flag with no fully rolled out release conditions
         boolean_flag_no_rolled_out_release_conditions = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Boolean flag with no release condition set to 100%",
             key="boolean-no-rolled-out-release-conditions-flag",
             team=self.team,
@@ -6948,6 +6999,7 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         # Request status for boolean flag with a fully rolled out release condition
         boolean_flag_rolled_out_release_condition = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Boolean flag with a release condition set to 100%",
             key="boolean-rolled-out-release-condition-flag",
             team=self.team,
@@ -6978,9 +7030,31 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             'This boolean flag will always evaluate to "true"',
         )
 
+        # Request status for boolean flag with a fully rolled out release condition
+        boolean_flag_rolled_out_release_condition_created_twenty_nine_days_ago = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=29),
+            name="Boolean flag with a release condition set to 100%, created 29 days ago",
+            key="boolean-rolled-out-release-condition-29-days-ago-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+        self.assert_expected_response(
+            boolean_flag_rolled_out_release_condition_created_twenty_nine_days_ago.id,
+            FeatureFlagStatus.ACTIVE,
+        )
+
         # Request status for a boolean flag with no rolled out release conditions and has
         # been called recently
         boolean_flag_no_rolled_out_release_condition_recently_evaluated = FeatureFlag.objects.create(
+            created_at=datetime.now() - timedelta(days=31),
             name="Boolean flag with a release condition set to 100%",
             key="boolean-recently-evaluated-flag",
             team=self.team,

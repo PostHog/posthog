@@ -93,7 +93,7 @@ export const formatInput = (bytecode: any, globals: HogFunctionInvocation['globa
     }
 }
 
-const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
+export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
     let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
 
     // Find and replace any sensitive values

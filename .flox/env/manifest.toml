@@ -91,19 +91,34 @@ fi
 
 if [[ -t 0 ]]; then # The block below only runs when in an interactive shell
   # Add required entries to /etc/hosts if not present
-  if ! grep -q "127.0.0.1 kafka clickhouse" /etc/hosts; then
+  if ! grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator" /etc/hosts; then
     echo
-    echo "🚨 Amending /etc/hosts to map hostnames 'kafka' and 'clickhouse' to 127.0.0.1..."
-    echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts 1> /dev/null
+    echo "🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse' and 'clickhouse-coordinator' to 127.0.0.1..."
+    echo "127.0.0.1 kafka clickhouse clickhouse-coordinator" | sudo tee -a /etc/hosts 1> /dev/null
     echo "✅ /etc/hosts amended"
   fi
 
+  quotes=(
+    # https://github.com/PostHog/posthog.com/blob/cd0ad2e5a96c3ff7d2662ec696a5560022ff318d/src/components/Careers/FounderNote/Audio
+    "At PostHog, we don't follow trends, we set them, like records."
+    "Be bold, be fearless, and let's lead the way in tech innovation with beast mode."
+    "The future belongs to the bold and the strong."
+    "Break the mold, push the limits, and let's redefine what's possible with beast mode on."
+    "Our best feature? Still in the pipeline."
+    "Mindset matters. Stay positive, stay resilient, and keep grinding."
+    "Challenges are just opportunities in disguise."
+    "Ownership isn't a task, it's a mindset."
+  )
+  
+  echo -e "\nInspirational James Hawkins quote he never said:\n\"${quotes[$RANDOM % ${#quotes[@]}]}\""
+
   # Print intro message
   echo -e "
-IT'S DANGEROUS TO GO ALONE! RUN THIS:
-1. \033[31mbin/migrate\033[0m - to run all migrations
-2. \033[32mbin/start\033[0m - to start the entire stack
-3. \033[34m./manage.py generate_demo_data\033[0m - to create a user with demo data
+\033[3mRun the following commands in the given order to get the stack up and running:\033[0m
+1. Spin up containers - \033[33mdocker compose -f docker-compose.dev.yml up -d\033[0m
+2. Run all migrations - \033[31mbin/migrate\033[0m
+3. Start the stack - \033[32mbin/start\033[0m
+4. (optional) Create a user with demo data - \033[34m./manage.py generate_demo_data\033[0m
 "
 fi
 '''

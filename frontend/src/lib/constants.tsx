@@ -146,7 +146,6 @@ export const FEATURE_FLAGS = {
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
-    QUERY_ASYNC: 'query-async', // owner: @webjunkie
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
@@ -197,7 +196,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
     INSIGHT_FUNNELS_USE_UDF: 'insight-funnels-use-udf', // owner: @aspicer #team-product-analytics
     INSIGHT_FUNNELS_USE_UDF_TRENDS: 'insight-funnels-use-udf-trends', // owner: @aspicer #team-product-analytics
-    FIRST_TIME_FOR_USER_MATH: 'first-time-for-user-math', // owner: @skoob13 #team-product-analytics
     MULTITAB_EDITOR: 'multitab-editor', // owner: @EDsCODE #team-data-warehouse
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
@@ -222,6 +220,7 @@ export const FEATURE_FLAGS = {
     SITE_DESTINATIONS: 'site-destinations', // owner: @mariusandra #team-cdp
     SITE_APP_FUNCTIONS: 'site-app-functions', // owner: @mariusandra #team-cdp
     HOG_TRANSFORMATIONS: 'hog-transformations', // owner: #team-cdp
+    HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED: 'hog-transformation-custom-hog-code', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
     SUPPORT_SIDEBAR_MAX: 'support-sidebar-max', // owner: @steven #team-max
@@ -235,9 +234,17 @@ export const FEATURE_FLAGS = {
     REPLAY_FLAGS_FILTERS: 'replay-flags-filters', // owner: @pauldambra #team-replay
     REPLAY_LANDING_PAGE: 'replay-landing-page', // owner :#team-replay
     WEB_VITALS: 'web-vitals', // owner: @rafaeelaudibert #team-web-analytics
+    WEB_VITALS_TOOLBAR: 'web-vitals-toolbar', // owner: @rafaeelaudibert #team-web-analytics
     WEB_REVENUE_TRACKING: 'web-revenue-tracking', // owner: @robbie-c #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
-    ONBOARDING_SESSION_REPLAY_SEPERATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
+    ONBOARDING_SESSION_REPLAY_SEPARATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
+    EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
+    EXPERIMENT_P_VALUE: 'experiment-p-value', // owner: @jurajmajerik #team-experiments
+    WEB_ANALYTICS_IMPROVED_PATH_CLEANING: 'web-analytics-improved-path-cleaning', // owner: @rafaeelaudibert #team-web-analytics
+    ONBOARDING_NEW_PLANS_STEP: 'onboarding-new-plans-step', // owner: @joshsny #team-growth
+    EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
+    RECORDINGS_AI_FILTER: 'recordings-ai-filter', // owner: @veryayskiy #team-replay
+    PATH_CLEANING_AI_REGEX: 'path-cleaning-ai-regex', // owner: @rafaeelaudibert #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -316,6 +323,7 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
 ]
 
 export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
+export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '0194a763-9a13-0000-8088-32b52acf7156'
 
 export const TAILWIND_BREAKPOINTS = {
     sm: 526,

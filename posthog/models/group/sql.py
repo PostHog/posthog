@@ -1,5 +1,6 @@
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -10,7 +11,7 @@ DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUS
 TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
 GROUPS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     group_type_index UInt8,
     group_key VARCHAR,
@@ -21,26 +22,34 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-GROUPS_TABLE_ENGINE = lambda: ReplacingMergeTree(GROUPS_TABLE, ver="_timestamp")
-GROUPS_TABLE_SQL = lambda: (
-    GROUPS_TABLE_BASE_SQL
-    + """Order By (team_id, group_type_index, group_key)
+
+def GROUPS_TABLE_ENGINE():
+    return ReplacingMergeTree(GROUPS_TABLE, ver="_timestamp")
+
+
+def GROUPS_TABLE_SQL(on_cluster=True):
+    return (
+        GROUPS_TABLE_BASE_SQL
+        + """Order By (team_id, group_type_index, group_key)
 {storage_policy}
 """
-).format(
-    table_name=GROUPS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=GROUPS_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS,
-    storage_policy=STORAGE_POLICY(),
-)
+    ).format(
+        table_name=GROUPS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=GROUPS_TABLE_ENGINE(),
+        extra_fields=KAFKA_COLUMNS,
+        storage_policy=STORAGE_POLICY(),
+    )
 
-KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + GROUPS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(KAFKA_GROUPS),
-    extra_fields="",
-)
+
+def KAFKA_GROUPS_TABLE_SQL(on_cluster=True):
+    return GROUPS_TABLE_BASE_SQL.format(
+        table_name="kafka_" + GROUPS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(KAFKA_GROUPS),
+        extra_fields="",
+    )
+
 
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471

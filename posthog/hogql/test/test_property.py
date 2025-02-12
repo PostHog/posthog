@@ -146,11 +146,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
-            self._parse_expr("properties.a ilike '%3%'"),
+            self._parse_expr("toString(properties.a) ilike '%3%'"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_icontains"}),
-            self._parse_expr("properties.a not ilike '%3%'"),
+            self._parse_expr("toString(properties.a) not ilike '%3%'"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
@@ -233,7 +233,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("properties.a ilike '%b%' or properties.a ilike '%c%'"),
+            self._parse_expr("toString(properties.a) ilike '%b%' or toString(properties.a) ilike '%c%'"),
         )
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
@@ -258,7 +258,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("properties.a not ilike '%b%' and properties.a not ilike '%c%'"),
+            self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'"),
         )
         a = self._property_to_expr(
             {
@@ -353,7 +353,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("elements_chain_href ilike '%href-text.%'"),
+            self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
         self.assertEqual(
             self._property_to_expr(

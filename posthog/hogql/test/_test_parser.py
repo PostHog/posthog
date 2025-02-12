@@ -342,6 +342,22 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_call_expr_sql(self):
+            self.assertEqual(
+                self._expr("asd.asd(select 1)"),
+                ast.ExprCall(
+                    expr=ast.Field(chain=["asd", "asd"]),
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
+                ),
+            )
+            self.assertEqual(
+                self._expr("sql(select 1)"),
+                ast.Call(
+                    name="sql",
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
+                ),
+            )
+
         def test_strings(self):
             self.assertEqual(self._expr("'null'"), ast.Constant(value="null"))
             self.assertEqual(self._expr("'n''ull'"), ast.Constant(value="n'ull"))

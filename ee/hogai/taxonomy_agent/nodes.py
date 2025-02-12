@@ -18,7 +18,6 @@ from langchain_openai import ChatOpenAI
 from langgraph.errors import NodeInterrupt
 from pydantic import ValidationError
 
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from ee.hogai.taxonomy_agent.parsers import (
     ReActParserException,
     ReActParserMissingActionException,
@@ -40,7 +39,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils.helpers import filter_messages, remove_line_breaks, slice_messages_to_conversation_start
+from ee.hogai.utils.helpers import filter_and_merge_messages, remove_line_breaks, slice_messages_to_conversation_start
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -53,6 +52,7 @@ from posthog.schema import (
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):
@@ -90,13 +90,15 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
                         "core_memory": self.core_memory.text if self.core_memory else "",
-                        "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
+                        "tools": toolkit.render_text_description(),
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
+                        "project_datetime": self.project_now,
+                        "project_timezone": self.project_timezone,
                     },
                     config,
                 ),
@@ -140,7 +142,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             str,
             ChatPromptTemplate.from_template(REACT_FORMAT_PROMPT, template_format="mustache")
             .format_messages(
-                tools=toolkit.render_text_description(),
                 tool_names=", ".join([t["name"] for t in toolkit.tools]),
             )[0]
             .content,
@@ -203,25 +204,38 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
         start_id = state.start_id
-        filtered_messages = filter_messages(slice_messages_to_conversation_start(state.messages, start_id))
+        filtered_messages = filter_and_merge_messages(slice_messages_to_conversation_start(state.messages, start_id))
+        human_messages = [message for message in filtered_messages if isinstance(message, HumanMessage)]
         conversation = []
 
         for idx, message in enumerate(filtered_messages):
             if isinstance(message, HumanMessage):
+                format_reminder = REACT_FORMAT_REMINDER_PROMPT if message.id == start_id else None
                 # Add initial instructions.
                 if idx == 0:
+                    # If there's only one human message, it's the initial question. Replace the initial question with the one from the tool call if it exists.
+                    human_question = state.root_tool_insight_plan if len(human_messages) == 1 else None
+                    if not human_question:
+                        human_question = message.content
+
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
-                            question=message.content
+                            question=human_question,
+                            react_format_reminder=format_reminder,
                         )
                     )
                 # Add follow-up instructions only for the human message that initiated a generation.
                 elif message.id == start_id:
+                    # follow-ups are always coming from the tool call
+                    human_question = state.root_tool_insight_plan or message.content
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(
                             REACT_FOLLOW_UP_PROMPT,
                             template_format="mustache",
-                        ).format(feedback=message.content)
+                        ).format(
+                            feedback=human_question,
+                            react_format_reminder=format_reminder,
+                        )
                     )
                 # Everything else leave as is.
                 else:

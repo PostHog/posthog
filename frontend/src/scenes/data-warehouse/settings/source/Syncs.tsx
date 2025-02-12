@@ -44,7 +44,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                 {
                     title: 'Rows synced',
                     render: (_, job) => {
-                        return job.rows_synced
+                        return job.rows_synced.toLocaleString()
                     },
                 },
                 {

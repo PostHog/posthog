@@ -39,9 +39,11 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
         }
 
         const metricType = getMetricType(metric)
+        const hasMissingExposure = errorCode === ResultErrorCode.NO_EXPOSURES
+
         const requiredEvent =
             metricType === InsightType.TRENDS
-                ? errorCode === ResultErrorCode.NO_EXPOSURES
+                ? hasMissingExposure
                     ? metric.exposure_query?.series[0]?.event || '$feature_flag_called'
                     : metric.count_query?.series[0]?.event
                 : metric.funnels_query?.series[0]?.event
@@ -58,15 +60,24 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
                 properties: [
                     {
                         key: `$feature/${experiment.feature_flag?.key}`,
-                        value:
-                            errorCode === ResultErrorCode.NO_EXPOSURES
-                                ? variants.map((variant) => variant.key)
-                                : errorCode === ResultErrorCode.NO_CONTROL_VARIANT
-                                ? ['control']
-                                : variants.slice(1).map((variant) => variant.key),
+                        value: hasMissingExposure
+                            ? variants.map((variant) => variant.key)
+                            : errorCode === ResultErrorCode.NO_CONTROL_VARIANT
+                            ? ['control']
+                            : variants.slice(1).map((variant) => variant.key),
                         operator: 'exact',
                         type: 'event',
                     },
+                    ...(hasMissingExposure
+                        ? [
+                              {
+                                  key: '$feature_flag',
+                                  value: [experiment.feature_flag?.key],
+                                  operator: 'exact',
+                                  type: 'event',
+                              },
+                          ]
+                        : []),
                 ],
                 filterTestAccounts: metric.count_query?.filter_test_accounts,
             },
@@ -79,7 +90,7 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
                 {value === false ? (
                     <span className="flex items-center space-x-2">
                         <IconCheck className="text-success" fontSize={16} />
-                        <span className="text-muted">{successText[errorCode]}</span>
+                        <span className="text-secondary">{successText[errorCode]}</span>
                     </span>
                 ) : (
                     <span className="flex items-center space-x-2">

@@ -4,5 +4,5 @@ from posthog.models.sessions.sql import (
 )
 
 operations = [
-    run_sql_with_exceptions(SESSION_TABLE_UPDATE_SQL),
+    run_sql_with_exceptions(SESSION_TABLE_UPDATE_SQL()),
 ]

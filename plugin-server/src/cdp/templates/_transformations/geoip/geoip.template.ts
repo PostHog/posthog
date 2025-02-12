@@ -1,12 +1,13 @@
 import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
-    status: 'beta',
+    free: true,
+    status: 'alpha',
     type: 'transformation',
     id: 'template-geoip',
     name: 'GeoIP',
     description: 'Adds geoip data to the event',
-    icon_url: '/static/hedgehog/builder-hog-01.png',
+    icon_url: '/static/transformations/geoip.png',
     category: ['Custom'],
     hog: `
 // Define the properties to be added to the event
@@ -27,9 +28,9 @@ let geoipProperties := {
     'accuracy_radius': null,
     'time_zone': null
 }
-// Check if the event has an IP address l
+// Check if the event has an IP address
 if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {
-    print('geoip disabled or no ip', event.properties, event.properties?.$ip)
+    print('geoip disabled or no ip.')
     return event
 }
 let ip := event.properties.$ip

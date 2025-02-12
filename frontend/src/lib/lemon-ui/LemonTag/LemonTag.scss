@@ -8,7 +8,7 @@
     line-height: 1rem;
     color: var(--text-3000);
     white-space: nowrap;
-    background: var(--border);
+    background: var(--border-primary);
     border-radius: var(--radius-sm);
 
     &.LemonTag--normal {
@@ -32,7 +32,7 @@
 
     &.LemonTag--option {
         color: var(--accent-primary);
-        background-color: var(--accent-3000);
+        background-color: var(--bg-surface-primary);
     }
 
     &.LemonTag--highlight {
@@ -72,8 +72,8 @@
     }
 
     &.LemonTag--muted {
-        color: var(--muted);
-        background-color: var(--accent-3000);
+        color: var(--text-secondary);
+        background-color: var(--bg-surface-primary);
     }
 
     &.LemonTag--none {

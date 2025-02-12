@@ -1,7 +1,7 @@
 import { LemonInputProps, LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { LogLevel } from '@rrweb/rrweb-plugin-console-record'
-import { eventWithTime } from '@rrweb/types'
+import { LogLevel } from '@posthog/rrweb-plugin-console-record'
+import { eventWithTime } from '@posthog/rrweb-types'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -37,6 +37,7 @@ import type {
     DashboardFilter,
     DatabaseSchemaField,
     ExperimentFunnelsQuery,
+    ExperimentQuery,
     ExperimentTrendsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -106,7 +107,6 @@ export enum AvailableFeature {
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
-    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     SAML = 'saml',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
@@ -385,6 +385,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
+    is_ai_data_processing_approved?: boolean
     metadata?: OrganizationMetadata
     member_count: number
 }
@@ -493,6 +494,7 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
     /** Whether the project is private. */
     access_control: boolean
+    access_control_version: 'v1' | 'v2'
 }
 
 export interface CorrelationConfigType {
@@ -703,6 +705,7 @@ export enum PropertyOperator {
     Maximum = 'max',
     In = 'in',
     NotIn = 'not_in',
+    IsCleanedPathExact = 'is_cleaned_path_exact',
 }
 
 export enum SavedInsightsTabs {
@@ -752,6 +755,7 @@ export enum PipelineStage {
 }
 
 export enum PipelineNodeTab {
+    Backfills = 'backfills',
     Configuration = 'configuration',
     Runs = 'runs',
     Logs = 'logs',
@@ -839,6 +843,7 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     value: number
     /** @default 'in' */
     operator: PropertyOperator
+    cohort_name?: string
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
@@ -1481,6 +1486,7 @@ export interface SessionRecordingUpdateType {
     analyzed?: boolean
     player_metadata?: Record<string, any> | null
     durations?: Record<string, any> | null
+    $pathname: string
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1885,6 +1891,7 @@ export interface DashboardBasicType extends WithAccessControl {
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
+    access_control_version: 'v1' | 'v2'
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -2329,6 +2336,7 @@ export interface TrendsFilterType extends FilterType {
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
     y_axis_scale_type?: 'log10' | 'linear'
+    show_multiple_y_axes?: boolean
 }
 
 export interface StickinessFilterType extends FilterType {
@@ -2342,6 +2350,7 @@ export interface StickinessFilterType extends FilterType {
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     show_values_on_series?: boolean
+    show_multiple_y_axes?: boolean
 
     // persons only
     stickiness_days?: number
@@ -2772,7 +2781,9 @@ export interface Survey {
         url: string
         selector: string
         seenSurveyWaitPeriodInDays?: number
-        urlMatchType?: SurveyUrlMatchType
+        urlMatchType?: SurveyMatchType
+        deviceTypes?: string[]
+        deviceTypesMatchType?: SurveyMatchType
         actions: {
             values: {
                 id: number
@@ -2807,7 +2818,7 @@ export interface Survey {
     response_sampling_daily_limits?: string[] | null
 }
 
-export enum SurveyUrlMatchType {
+export enum SurveyMatchType {
     Exact = PropertyOperator.Exact,
     IsNot = PropertyOperator.IsNot,
     Contains = PropertyOperator.IContains,
@@ -2956,9 +2967,9 @@ export interface MultivariateFlagOptions {
 
 export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
-    multivariate: MultivariateFlagOptions | null
+    multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
-    payloads: Record<string, JsonType>
+    payloads?: Record<string, JsonType>
     super_groups?: FeatureFlagGroupType[]
 }
 
@@ -2992,6 +3003,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
+    status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
 }
 
 export interface OrganizationFeatureFlag {
@@ -3331,8 +3343,8 @@ export interface Experiment {
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
     filters: TrendsFilterType | FunnelsFilterType
-    metrics: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
-    metrics_secondary: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics_secondary: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
@@ -3492,7 +3504,7 @@ interface BreadcrumbBase {
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
-    name: string | null | undefined
+    name: string | JSX.Element | null | undefined
     symbol?: never
     /** Path to link to. */
     path?: string
@@ -3502,7 +3514,7 @@ interface LinkBreadcrumb extends BreadcrumbBase {
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
-    name: string | null | undefined
+    name: string | JSX.Element | null | undefined
     symbol?: never
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
@@ -3746,6 +3758,7 @@ export type IntegrationKind =
     | 'google-pubsub'
     | 'google-cloud-storage'
     | 'google-ads'
+    | 'linkedin-ads'
     | 'snapchat'
 
 export interface IntegrationType {
@@ -4338,6 +4351,7 @@ export type BatchExportConfiguration = {
     end_at: string | null
     paused: boolean
     model: string
+    filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }
 
@@ -4382,6 +4396,46 @@ export type GroupedBatchExportRuns = {
     data_interval_start: Dayjs
     data_interval_end: Dayjs
     runs: BatchExportRun[]
+}
+
+export type RawBatchExportBackfill = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at: string
+    finished_at?: string
+    start_at?: string
+    end_at?: string
+    last_updated_at?: string
+    total_runs?: number
+}
+
+export type BatchExportBackfill = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at?: Dayjs
+    finished_at?: Dayjs
+    start_at?: Dayjs
+    end_at?: Dayjs
+    last_updated_at?: Dayjs
+    total_runs?: number
 }
 
 export type SDK = {
@@ -4595,6 +4649,7 @@ export type HogFunctionInputSchemaType = {
     required?: boolean
     default?: any
     secret?: boolean
+    templating?: boolean
     description?: string
     integration?: string
     integration_key?: string
@@ -4686,7 +4741,7 @@ export type HogFunctionType = {
     updated_at: string
     enabled: boolean
     hog: string
-
+    execution_order?: number
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
     mappings?: HogFunctionMappingType[] | null
@@ -4696,7 +4751,7 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
+export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated'
 export type HogFunctionSubTemplateIdType = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
 
 export type HogFunctionConfigurationType = Omit<
@@ -4718,6 +4773,7 @@ export type HogFunctionTemplateType = Pick<
     'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
+    free: boolean
     sub_templates?: HogFunctionSubTemplateType[]
     mapping_templates?: HogFunctionMappingTemplateType[]
 }
@@ -4778,6 +4834,13 @@ export type HogFunctionInvocationGlobals = {
     >
 }
 
+export type HogFunctionTestInvocationResult = {
+    status: 'success' | 'error'
+    logs: LogEntry[]
+    result: any
+    errors?: string[]
+}
+
 export type AppMetricsV2Response = {
     labels: string[]
     series: {
@@ -4833,6 +4896,17 @@ export type GoogleAdsConversionActionType = {
     resourceName: string
 }
 
+export type LinkedInAdsConversionRuleType = {
+    id: number
+    name: string
+}
+
+export type LinkedInAdsAccountType = {
+    id: number
+    name: string
+    campaigns: string
+}
+
 export type DataColorThemeModel = {
     id: number
     name: string
@@ -4873,4 +4947,9 @@ export type UserGroup = {
     id: string
     name: string
     members: UserBasicType[]
+}
+
+export interface CoreMemory {
+    id: string
+    text: string
 }

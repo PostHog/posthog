@@ -30,6 +30,7 @@ from posthog.caching.insight_cache import update_cached_state
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS
 from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -252,6 +253,19 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         return value
 
+    def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
+        if feature_flag.experiment_set.exists():
+            raise ValidationError("Feature flag is already associated with an experiment.")
+
+        variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
+
+        if len(variants) and len(variants) > 1:
+            if variants[0].get("key") != "control":
+                raise ValidationError("Feature flag must have control as the first variant.")
+            return True
+
+        raise ValidationError("Feature flag is not eligible for experiments.")
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
 
@@ -271,35 +285,42 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
-        holdout_groups = None
-        if validated_data.get("holdout"):
-            holdout_groups = validated_data["holdout"].filters
+        existing_feature_flag = FeatureFlag.objects.filter(
+            key=feature_flag_key, team_id=self.context["team_id"], deleted=False
+        ).first()
+        if existing_feature_flag:
+            self.validate_existing_feature_flag_for_experiment(existing_feature_flag)
+            feature_flag = existing_feature_flag
+        else:
+            holdout_groups = None
+            if validated_data.get("holdout"):
+                holdout_groups = validated_data["holdout"].filters
 
-        default_variants = [
-            {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-            {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-        ]
+            default_variants = [
+                {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+            ]
 
-        feature_flag_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "multivariate": {"variants": variants or default_variants},
-            "aggregation_group_type_index": aggregation_group_type_index,
-            "holdout_groups": holdout_groups,
-        }
+            feature_flag_filters = {
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {"variants": variants or default_variants},
+                "aggregation_group_type_index": aggregation_group_type_index,
+                "holdout_groups": holdout_groups,
+            }
 
-        feature_flag_serializer = FeatureFlagSerializer(
-            data={
-                "key": feature_flag_key,
-                "name": f'Feature Flag for Experiment {validated_data["name"]}',
-                "filters": feature_flag_filters,
-                "active": not is_draft,
-                "creation_context": "experiments",
-            },
-            context=self.context,
-        )
+            feature_flag_serializer = FeatureFlagSerializer(
+                data={
+                    "key": feature_flag_key,
+                    "name": f'Feature Flag for Experiment {validated_data["name"]}',
+                    "filters": feature_flag_filters,
+                    "active": not is_draft,
+                    "creation_context": "experiments",
+                },
+                context=self.context,
+            )
 
-        feature_flag_serializer.is_valid(raise_exception=True)
-        feature_flag = feature_flag_serializer.save()
+            feature_flag_serializer.is_valid(raise_exception=True)
+            feature_flag = feature_flag_serializer.save()
 
         if not validated_data.get("stats_config"):
             validated_data["stats_config"] = {"version": 2}

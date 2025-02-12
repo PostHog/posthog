@@ -34,6 +34,7 @@ describe('CDP Consumer loop', () => {
         let processedEventsConsumer: CdpProcessedEventsConsumer
         let cyclotronWorker: CdpCyclotronWorker | undefined
         let cyclotronFetchWorker: CdpCyclotronWorkerFetch | undefined
+
         let hub: Hub
         let team: Team
         let fnFetchNoFilters: HogFunctionType

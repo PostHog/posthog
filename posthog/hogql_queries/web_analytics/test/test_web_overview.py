@@ -31,6 +31,8 @@ from posthog.test.base import (
 
 @snapshot_clickhouse_queries
 class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
@@ -89,26 +91,27 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
         include_revenue: Optional[bool] = False,
     ):
-        modifiers = HogQLQueryModifiers(
-            sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
-        )
-        query = WebOverviewQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
-            properties=[],
-            compareFilter=CompareFilter(compare=compare) if compare else None,
-            modifiers=modifiers,
-            filterTestAccounts=filter_test_accounts,
-            includeRevenue=include_revenue,
-            conversionGoal=ActionConversionGoal(actionId=action.id)
-            if action
-            else CustomEventConversionGoal(customEventName=custom_event)
-            if custom_event
-            else None,
-        )
-        runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
-        response = runner.calculate()
-        WebOverviewQueryResponse.model_validate(response)
-        return response
+        with freeze_time(self.QUERY_TIMESTAMP):
+            modifiers = HogQLQueryModifiers(
+                sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
+            )
+            query = WebOverviewQuery(
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
+                properties=[],
+                compareFilter=CompareFilter(compare=compare) if compare else None,
+                modifiers=modifiers,
+                filterTestAccounts=filter_test_accounts,
+                includeRevenue=include_revenue,
+                conversionGoal=ActionConversionGoal(actionId=action.id)
+                if action
+                else CustomEventConversionGoal(customEventName=custom_event)
+                if custom_event
+                else None,
+            )
+            runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
+            response = runner.calculate()
+            WebOverviewQueryResponse.model_validate(response)
+            return response
 
     def test_no_crash_when_no_data(self):
         results = self._run_web_overview_query(

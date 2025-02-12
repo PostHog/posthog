@@ -1,3 +1,4 @@
+import { LemonTag } from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import { lowercaseFirstLetter } from 'lib/utils'
 
@@ -10,16 +11,19 @@ export function MetadataHeader({
     model,
     latency,
     className,
+    isError,
 }: {
     inputTokens?: number
     outputTokens?: number
     totalCostUsd?: number
     model?: string
     latency?: number
+    isError?: boolean
     className?: string
 }): JSX.Element {
     return (
         <div className={classNames('flex flex-wrap gap-2', className)}>
+            {isError && <LemonTag type="danger">Error</LemonTag>}
             {typeof latency === 'number' && (
                 <MetadataTag label="Latency">{`${Math.round(latency * 10e2) / 10e2} s of latency`}</MetadataTag>
             )}

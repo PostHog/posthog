@@ -236,38 +236,39 @@ pub fn decode_request(
     body: Bytes,
     query: &FlagsQueryParams,
 ) -> Result<FlagRequest, FlagError> {
-    let decoded_body = match query.compression {
-        Some(Compression::Gzip) => decompress_gzip(body)?,
-        Some(Compression::Base64) => {
-            let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
-            })?;
-            Bytes::from(decoded)
-        }
-        Some(Compression::Unsupported) => {
-            return Err(FlagError::RequestDecodingError(
-                "Unsupported compression type".to_string(),
-            ))
-        }
-        None => body,
-    };
-
     let content_type = headers
         .get("content-type")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
     match content_type {
-        "application/json" => FlagRequest::from_bytes(decoded_body),
+        "application/json" => {
+            // Apply compression first if specified
+            let decoded_body = match query.compression {
+                Some(Compression::Gzip) => decompress_gzip(body)?,
+                Some(Compression::Base64) => {
+                    let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
+                        FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
+                    })?;
+                    Bytes::from(decoded)
+                }
+                Some(Compression::Unsupported) => {
+                    return Err(FlagError::RequestDecodingError(
+                        "Unsupported compression type".to_string(),
+                    ))
+                }
+                None => body,
+            };
+            FlagRequest::from_bytes(decoded_body)
+        }
         "application/json; encoding=base64" => {
-            let decoded = general_purpose::STANDARD
-                .decode(decoded_body)
-                .map_err(|e| {
-                    FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
-                })?;
+            let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
+            })?;
             FlagRequest::from_bytes(Bytes::from(decoded))
         }
         "application/x-www-form-urlencoded" => {
-            let form_data = String::from_utf8(decoded_body.to_vec()).map_err(|e| {
+            // For form data, first parse the form
+            let form_data = String::from_utf8(body.to_vec()).map_err(|e| {
                 FlagError::RequestDecodingError(format!("Invalid UTF-8 in form data: {}", e))
             })?;
 
@@ -280,16 +281,32 @@ pub fn decode_request(
                 FlagError::RequestDecodingError(format!("Failed to parse form data: {}", e))
             })?;
 
-            // URL-decode the base64 string if needed
+            // URL-decode the data field
             let data = urlencoding::decode(&form.data)
                 .map_err(|e| {
                     FlagError::RequestDecodingError(format!("Failed to URL-decode data: {}", e))
                 })?
                 .into_owned();
 
-            let decoded = general_purpose::STANDARD.decode(data).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
-            })?;
+            // Now handle compression if specified
+            let decoded = match query.compression {
+                Some(Compression::Base64) | None => {
+                    general_purpose::STANDARD.decode(data).map_err(|e| {
+                        FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
+                    })?
+                }
+                Some(Compression::Gzip) => {
+                    return Err(FlagError::RequestDecodingError(
+                        "Gzip compression not supported for form-urlencoded data".to_string(),
+                    ))
+                }
+                Some(Compression::Unsupported) => {
+                    return Err(FlagError::RequestDecodingError(
+                        "Unsupported compression type".to_string(),
+                    ))
+                }
+            };
+
             FlagRequest::from_bytes(Bytes::from(decoded))
         }
         ct => Err(FlagError::RequestDecodingError(format!(

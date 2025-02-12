@@ -169,7 +169,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception: {
             label: 'Exception',
-            description: 'Exceptions - an error or unexpected event in your application',
+            description: 'An unexpected error or unhandled exception in your application',
         },
         $web_vitals: {
             label: 'Web Vitals',
@@ -183,6 +183,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Trace',
             description:
                 'A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls',
+        },
+        $ai_span: {
+            label: 'AI Span',
+            description:
+                'A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)',
         },
         $ai_metric: {
             label: 'AI Metric',
@@ -263,6 +268,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
     event_properties: {
+        $last_posthog_reset: {
+            label: 'Timestamp of last call to `Reset` in the web sdk',
+            description: 'The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.',
+            system: true,
+        },
         distinct_id: {} as CoreFilterDefinition, // Copied from `metadata` down below
         $session_duration: {} as CoreFilterDefinition, // Copied from `sessions` down below
         $session_is_sampled: {
@@ -444,43 +454,35 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The status of session recording at the time the event was captured',
         },
         // exception tracking
-        $cymbal_errors: {
-            label: 'Exception processing errors',
-            description: 'Errors encountered while trying to process exceptions',
-            system: true,
-        },
         $exception_list: {
             label: 'Exception list',
             description: 'List of one or more associated exceptions',
         },
-        // TODO - most of the rest of these are legacy, I think?
-        $sentry_exception: {
-            label: 'Sentry exception',
-            description: 'Raw Sentry exception data',
-            system: true,
-        },
-        $sentry_exception_message: {
-            label: 'Sentry exception message',
-        },
-        $sentry_exception_type: {
-            label: 'Sentry exception type',
-            description: 'Class name of the exception object',
-        },
-        $sentry_tags: {
-            label: 'Sentry tags',
-            description: 'Tags sent to Sentry along with the exception',
-        },
         $exception_type: {
             label: 'Exception type',
-            description: 'Exception categorized into types. E.g. "Error"',
+            description: 'Exception categorized into types',
+            examples: ['Error'],
         },
         $exception_message: {
             label: 'Exception Message',
-            description: 'The message detected on the error.',
+            description: 'The message detected on the error',
+        },
+        $exception_fingerprint: {
+            label: 'Exception fingerprint',
+            description: 'A fingerprint used to group issues, can be set clientside',
+        },
+        $exception_proposed_fingerprint: {
+            label: 'Exception proposed fingerprint',
+            description: 'The fingerprint used to group issues. Auto generated unless provided clientside',
+        },
+        $exception_issue_id: {
+            label: 'Exception issue ID',
+            description: 'The id of the issue the fingerprint was associated with at ingest time',
         },
         $exception_source: {
             label: 'Exception source',
-            description: 'The source of the exception. E.g. JS file.',
+            description: 'The source of the exception',
+            examples: ['JS file'],
         },
         $exception_lineno: {
             label: 'Exception source line number',
@@ -500,7 +502,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exception_stack_trace_raw: {
             label: 'Exception raw stack trace',
-            description: "The exception's stack trace, as a string.",
+            description: 'The exceptions stack trace, as a string.',
         },
         $exception_handled: {
             label: 'Exception was handled',
@@ -509,6 +511,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $exception_personURL: {
             label: 'Exception person URL',
             description: 'The PostHog person that experienced the exception',
+        },
+        $cymbal_errors: {
+            label: 'Exception processing errors',
+            description: 'Errors encountered while trying to process exceptions',
+            system: true,
         },
         $exception_capture_endpoint: {
             label: 'Exception capture endpoint',
@@ -523,6 +530,23 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $exception_capture_enabled_server_side: {
             label: 'Exception capture enabled server side',
             description: 'Whether exception autocapture was enabled in remote config.',
+        },
+        // TODO - most of the rest of these are legacy, I think?
+        $sentry_exception: {
+            label: 'Sentry exception',
+            description: 'Raw Sentry exception data',
+            system: true,
+        },
+        $sentry_exception_message: {
+            label: 'Sentry exception message',
+        },
+        $sentry_exception_type: {
+            label: 'Sentry exception type',
+            description: 'Class name of the exception object',
+        },
+        $sentry_tags: {
+            label: 'Sentry tags',
+            description: 'Tags sent to Sentry along with the exception',
         },
 
         // GeoIP
@@ -613,7 +637,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $geoip_accuracy_radius: {
             label: 'GeoIP detection accuracy radius',
-            description: "Accuracy radius of the location matched to this event's IP address.",
+            description: "Accuracy radius of the location matched to this event's IP address (in kilometers).",
             examples: ['50'],
         },
         $geoip_subdivision_1_confidence: {
@@ -652,6 +676,16 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $is_emulator: {
             label: 'Is Emulator',
             description: 'Indicates whether the app is running on an emulator or a physical device',
+            examples: ['true', 'false'],
+        },
+        $is_mac_catalyst_app: {
+            label: 'Is Mac Catalyst App',
+            description: 'Indicates whether the app is a Mac Catalyst app running on macOS',
+            examples: ['true', 'false'],
+        },
+        $is_ios_running_on_mac: {
+            label: 'Is iOS App Running on Mac',
+            description: 'Indicates whether the app is an iOS app running on macOS (Apple Silicon)',
             examples: ['true', 'false'],
         },
         $device_name: {
@@ -1454,11 +1488,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Output State (LLM)',
             description: 'Output state of the LLM agent',
         },
-        $ai_trace_name: {
-            label: 'AI Trace Name (LLM)',
-            description: 'The name given to this trace of LLM API calls',
-            examples: ['LangGraph'],
-        },
         $ai_provider: {
             label: 'AI Provider (LLM)',
             description: 'The provider of the AI model used to generate the output from the LLM API',
@@ -1489,6 +1518,21 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Feedback Text (LLM)',
             description: 'The text provided by the user for feedback on the LLM trace',
             examples: ['"The response was helpful, but it did not use the provided context."'],
+        },
+        $ai_parent_id: {
+            label: 'AI Parent ID (LLM)',
+            description: 'The parent span ID of a span or generation, used to group a trace into a tree view',
+            examples: ['bdf42359-9364-4db7-8958-c001f28c9255'],
+        },
+        $ai_span_id: {
+            label: 'AI Span ID (LLM)',
+            description: 'The unique identifier for a LLM trace, generation, or span.',
+            examples: ['bdf42359-9364-4db7-8958-c001f28c9255'],
+        },
+        $ai_span_name: {
+            label: 'AI Span Name (LLM)',
+            description: 'The name given to this LLM trace, generation, or span.',
+            examples: ['summarize_text'],
         },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
@@ -1528,23 +1572,23 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $end_current_url: {
             label: 'Entry URL',
-            description: 'The first URL visited in this session.',
+            description: 'The last URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $end_pathname: {
             label: 'Entry pathname',
-            description: 'The first pathname visited in this session.',
-            examples: ['/interesting-article?parameter=true'],
+            description: 'The last pathname visited in this session.',
+            examples: ['/interesting-article'],
         },
         $exit_current_url: {
             label: 'Exit URL',
-            description: 'The last URL visited in this session.',
+            description: 'The last URL visited in this session. (deprecated, use $end_current_url)',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $exit_pathname: {
             label: 'Exit pathname',
-            description: 'The last pathname visited in this session.',
-            examples: ['https://example.com/interesting-article?parameter=true'],
+            description: 'The last pathname visited in this session. (deprecated, use $end_pathname)',
+            examples: ['/interesting-article'],
         },
         $pageview_count: {
             label: 'Pageview count',
@@ -1870,4 +1914,14 @@ export function getCoreFilterDefinition(
 export function getFilterLabel(key: PropertyKey, type: TaxonomicFilterGroupType): string {
     const data = getCoreFilterDefinition(key, type)
     return (data ? data.label : key)?.trim() ?? '(empty string)'
+}
+
+export function getPropertyKey(value: string, type: TaxonomicFilterGroupType): string {
+    // Find the key by looking through the mapping
+    const group = CORE_FILTER_DEFINITIONS_BY_GROUP[type]
+    if (group) {
+        const foundKey = Object.entries(group).find(([_, def]) => (def as any).label === value || _ === value)?.[0]
+        return foundKey || value
+    }
+    return value
 }

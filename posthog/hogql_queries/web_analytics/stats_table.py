@@ -550,10 +550,10 @@ GROUP BY session_id, breakdown_value
                 raise NotImplementedError("Breakdown not implemented")
 
     def _processed_breakdown_value(self):
-        if self.query.breakdownBy != WebStatsBreakdown.LANGUAGE:
-            return ast.Field(chain=["breakdown_value"])
+        if self.query.breakdownBy == WebStatsBreakdown.LANGUAGE:
+            return parse_expr("arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 1)")
 
-        return parse_expr("arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 1)")
+        return ast.Field(chain=["breakdown_value"])
 
     def _include_extra_aggregation_value(self):
         return self.query.breakdownBy == WebStatsBreakdown.LANGUAGE

@@ -12,9 +12,10 @@ from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models import Q, Func, F, CharField
 from django.db.models.query import QuerySet
-from sentry_sdk.api import capture_exception, start_span
+from sentry_sdk.api import start_span
 from posthog.metrics import LABEL_TEAM_ID
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
@@ -371,9 +372,11 @@ class FeatureFlagMatcher:
                 return (
                     True,
                     is_match,
-                    FeatureFlagMatchReason.SUPER_CONDITION_VALUE
-                    if evaluation_reason == FeatureFlagMatchReason.CONDITION_MATCH
-                    else evaluation_reason,
+                    (
+                        FeatureFlagMatchReason.SUPER_CONDITION_VALUE
+                        if evaluation_reason == FeatureFlagMatchReason.CONDITION_MATCH
+                        else evaluation_reason
+                    ),
                 )
 
         return False, False, FeatureFlagMatchReason.NO_CONDITION_MATCH

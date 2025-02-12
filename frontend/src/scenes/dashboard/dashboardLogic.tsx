@@ -13,7 +13,8 @@ import {
     sharedListeners,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -22,7 +23,7 @@ import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, isAbortedRequest, shouldCancelQuery, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, getJSHeapMemory, isAbortedRequest, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -254,13 +255,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         updateFiltersAndLayoutsAndVariables: true,
-        overrideVariableValue: (variableId: string, value: any) => ({
+        overrideVariableValue: (variableId: string, value: any, editMode?: boolean) => ({
             variableId,
             value,
             allVariables: values.variables,
+            editMode: editMode ?? true,
         }),
         resetVariables: () => ({ variables: values.insightVariables }),
         setAccessDeniedToDashboard: true,
+        setURLVariables: (variables: Record<string, Partial<HogQLVariable>>) => ({ variables }),
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -493,6 +496,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
                           }
                         : state,
+            },
+        ],
+        urlVariables: [
+            {} as Record<string, Partial<HogQLVariable>>,
+            {
+                setURLVariables: (state, { variables }) => ({
+                    ...state,
+                    ...variables,
+                }),
             },
         ],
         insightVariables: [
@@ -1038,7 +1050,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.dashboard],
             (dashboard): SidePanelSceneContext | null => {
-                return dashboard
+                // Only render the new access control  on side panel if they are not using the old dashboard permissions (v1)
+                return dashboard && dashboard.access_control_version === 'v2'
                     ? {
                           activity_scope: ActivityScope.DASHBOARD,
                           activity_item_id: `${dashboard.id}`,
@@ -1255,6 +1268,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ),
                         min_last_refresh: lastRefresh[0],
                         max_last_refresh: lastRefresh[lastRefresh.length - 1],
+                        ...getJSHeapMemory(),
                     })
                 }
 
@@ -1340,6 +1354,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
                         insights_fetched: insightsToRefresh.length,
                         insights_fetched_cached: 0,
+                        ...getJSHeapMemory(),
                     }
 
                     eventUsageLogic.actions.reportTimeToSeeData(payload)
@@ -1357,8 +1372,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit) {
-                clearDOMTextSelection()
-                lemonToast.info('Now editing the dashboard – save to persist changes')
+                // Note: handled in subscriptions
             } else if (mode === null) {
                 if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                     // cancel edit mode changes
@@ -1473,9 +1487,55 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setBreakdownFilter: () => {
             actions.loadDashboard({ action: 'preview' })
         },
-        overrideVariableValue: () => {
-            actions.setDashboardMode(DashboardMode.Edit, null)
+        overrideVariableValue: ({ editMode }) => {
+            if (editMode) {
+                actions.setDashboardMode(DashboardMode.Edit, null)
+            }
             actions.loadDashboard({ action: 'preview' })
+        },
+    })),
+
+    subscriptions(({ values, actions }) => ({
+        variables: (variables) => {
+            // try to convert url variables to variables
+            const urlVariables = values.urlVariables
+
+            for (const [key, value] of Object.entries(urlVariables)) {
+                const variable = variables.find((variable: HogQLVariable) => variable.code_name === key)
+                if (variable) {
+                    actions.overrideVariableValue(variable.id, value, false)
+                }
+            }
+        },
+        dashboardMode: (dashboardMode, previousDashboardMode) => {
+            if (previousDashboardMode !== DashboardMode.Edit && dashboardMode === DashboardMode.Edit) {
+                clearDOMTextSelection()
+                lemonToast.info('Now editing the dashboard – save to persist changes')
+            }
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        overrideVariableValue: ({ variableId, value, allVariables }) => {
+            const { currentLocation } = router.values
+
+            const currentVariable = allVariables.find((variable: Variable) => variable.id === variableId)
+
+            if (!currentVariable) {
+                return [currentLocation.pathname, currentLocation.searchParams, currentLocation.hashParams]
+            }
+
+            const newUrlVariables = {
+                ...values.urlVariables,
+                [currentVariable.code_name]: value,
+            }
+
+            const newSearchParams = {
+                ...currentLocation.searchParams,
+                ...encodeURLVariables(newUrlVariables),
+            }
+
+            return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         },
     })),
 
@@ -1491,7 +1551,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setDashboardMode(null, null)
         },
 
-        '/dashboard/:id': () => {
+        '/dashboard/:id': (_, searchParams) => {
+            if (values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+                const variables = parseURLVariables(searchParams)
+                actions.setURLVariables(variables)
+            }
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {
@@ -1510,3 +1574,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 ])
+
+// URL can have a "query_variables" param that contains a JSON object of variables
+// we need to parse this and set the variables
+
+const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
+    const variables: Record<string, Partial<HogQLVariable>> = {}
+
+    if (searchParams.query_variables) {
+        try {
+            const parsedVariables = JSON.parse(searchParams.query_variables)
+            Object.assign(variables, parsedVariables)
+        } catch (e) {
+            console.error('Failed to parse query_variables from URL:', e)
+        }
+    }
+
+    return variables
+}
+
+const encodeURLVariables = (variables: Record<string, string>): Record<string, string> => {
+    const encodedVariables: Record<string, string> = {}
+
+    if (Object.keys(variables).length > 0) {
+        encodedVariables.query_variables = JSON.stringify(variables)
+    }
+
+    return encodedVariables
+}

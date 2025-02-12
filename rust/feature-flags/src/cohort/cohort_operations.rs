@@ -38,8 +38,13 @@ impl Cohort {
     // https://github.com/PostHog/posthog/blob/feat/dynamic-cohorts-rust/posthog/models/cohort/cohort.py#L114-L169
     // I'll handle that in a separate PR.
     pub fn parse_filters(&self) -> Result<Vec<PropertyFilter>, FlagError> {
-        let cohort_property: CohortProperty = serde_json::from_value(self.filters.clone())
-            .map_err(|e| {
+        let filters = match &self.filters {
+            Some(filters) => filters,
+            None => return Ok(Vec::new()), // Return empty vec if no filters
+        };
+
+        let cohort_property: CohortProperty =
+            serde_json::from_value(filters.to_owned()).map_err(|e| {
                 tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
                 FlagError::CohortFiltersParsingError
             })?;
@@ -51,8 +56,13 @@ impl Cohort {
 
     /// Extracts dependent CohortIds from the cohort's filters
     pub fn extract_dependencies(&self) -> Result<HashSet<CohortId>, FlagError> {
-        let cohort_property: CohortProperty = serde_json::from_value(self.filters.clone())
-            .map_err(|e| {
+        let filters = match &self.filters {
+            Some(filters) => filters,
+            None => return Ok(HashSet::new()), // Return empty set if no filters
+        };
+
+        let cohort_property: CohortProperty =
+            serde_json::from_value(filters.clone()).map_err(|e| {
                 tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
                 FlagError::CohortFiltersParsingError
             })?;
@@ -208,7 +218,9 @@ mod tests {
             description: None,
             team_id: 1,
             deleted: false,
-            filters: json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$initial_browser_version", "type": "person", "value": ["125"], "negation": false, "operator": "exact"}]}]}}),
+            filters: Some(
+                json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"key": "$initial_browser_version", "type": "person", "value": ["125"], "negation": false, "operator": "exact"}]}]}}),
+            ),
             query: None,
             version: None,
             pending_version: None,

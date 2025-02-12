@@ -7,7 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { UserBasicType } from '~/types'
 
-import { getDefaultTrendsMetric } from '../experimentLogic'
+import { getDefaultTrendsMetric } from '../utils'
 import type { sharedMetricLogicType } from './sharedMetricLogicType'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
@@ -23,12 +23,14 @@ export interface SharedMetric {
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
+    tags: string[]
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
     name: '',
     description: '',
     query: getDefaultTrendsMetric(),
+    tags: [],
 }
 
 export const sharedMetricLogic = kea<sharedMetricLogicType>([

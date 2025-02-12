@@ -5,12 +5,15 @@ import functools
 import io
 import json
 import os
+import re
 import uuid
 from dataclasses import asdict
 from unittest import mock
+from unittest.mock import patch
 
 import aioboto3
 import botocore.exceptions
+import pyarrow as pa
 import pytest
 import pytest_asyncio
 from django.conf import settings
@@ -22,7 +25,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
     iter_model_records,
@@ -55,6 +62,7 @@ from posthog.temporal.tests.utils.s3 import read_parquet_from_s3, read_s3_data_a
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
+TEST_DATA_INTERVAL_END = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 TEST_ROOT_BUCKET = "test-batch-exports"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
@@ -219,7 +227,7 @@ async def assert_clickhouse_records_in_s3(
     batch_export_model: BatchExportModel | BatchExportSchema | None = None,
     compression: str | None = None,
     file_format: str = "JSONLines",
-    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
     allow_duplicates: bool = False,
 ):
     """Assert ClickHouse records are written to JSON in key_prefix in S3 bucket_name.
@@ -278,7 +286,7 @@ async def assert_clickhouse_records_in_s3(
         exclude_events=exclude_events,
         include_events=include_events,
         destination_default_fields=s3_default_fields(),
-        is_backfill=is_backfill,
+        backfill_details=backfill_details,
         use_latest_schema=True,
     ):
         for record in record_batch.to_pylist():
@@ -319,6 +327,14 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
         },
     ),
     BatchExportModel(name="events", schema=None),
+    BatchExportModel(
+        name="events",
+        schema=None,
+        filters=[
+            {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
+            {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
+        ],
+    ),
     BatchExportModel(name="persons", schema=None),
     {
         "fields": [
@@ -399,7 +415,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     events_to_export_created, persons_to_export_created = generate_test_data
-    assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
+    assert (
+        records_exported == len(events_to_export_created)
+        or records_exported == len(persons_to_export_created)
+        or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
+    )
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
@@ -414,7 +434,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         include_events=None,
         compression=compression,
         file_format=file_format,
-        is_backfill=False,
+        backfill_details=None,
     )
 
 
@@ -747,7 +767,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     events_to_export_created, persons_to_export_created = generate_test_data
-    assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
+    assert (
+        records_exported == len(events_to_export_created)
+        or records_exported == len(persons_to_export_created)
+        or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
+    )
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
@@ -762,7 +786,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
         include_events=None,
         compression=compression,
         file_format=file_format,
-        is_backfill=False,
+        backfill_details=None,
     )
 
 
@@ -954,9 +978,9 @@ async def test_s3_export_workflow_with_minio_bucket(
 
 @pytest.mark.parametrize(
     "data_interval_start",
-    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
-    # passed to `generate_test_data` to determine the timestamp for the generated data.
-    [dt.datetime(2023, 4, 24, 15, 0, 0, tzinfo=dt.UTC)],
+    # This is set to 24 hours before the `data_interval_end` to ensure that the data created is outside the batch
+    # interval.
+    [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(hours=24)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -983,14 +1007,19 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     more than an hour ago) when setting `is_earliest_backfill=True`.
     """
     workflow_id = str(uuid.uuid4())
+    backfill_details = BackfillDetails(
+        backfill_id=str(uuid.uuid4()),
+        is_earliest_backfill=True,
+        start_at=None,
+        end_at=data_interval_end.isoformat(),
+    )
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(s3_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        is_backfill=True,
-        is_earliest_backfill=True,
+        backfill_details=backfill_details,
         **s3_batch_export.destination.config,
     )
     _, persons = generate_test_data
@@ -1040,6 +1069,7 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
         exclude_events=exclude_events,
         compression=compression,
         file_format=file_format,
+        backfill_details=backfill_details,
     )
 
 
@@ -1252,7 +1282,7 @@ async def test_s3_export_workflow_with_s3_bucket(
     ],
     indirect=True,
 )
-@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[2], None])
+@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[3], None])
 async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     clickhouse_client,
     ateam,
@@ -1722,7 +1752,7 @@ async def test_insert_into_s3_activity_heartbeats(
 
     We use a function that runs on_heartbeat to check and track the heartbeat contents.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
+    data_interval_end = TEST_DATA_INTERVAL_END
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
     n_expected_parts = 3
@@ -1801,7 +1831,7 @@ async def test_insert_into_s3_activity_resumes_from_heartbeat(
     We mock the upload_part method to raise a `RequestTimeout` error after the first part has been uploaded.
     We then resume from the heartbeat and expect the activity to resume from where it left off.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
+    data_interval_end = TEST_DATA_INTERVAL_END
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
     n_expected_parts = 3
@@ -1984,7 +2014,7 @@ async def test_s3_multi_part_upload_raises_exception_if_invalid_endpoint(bucket_
         await s3_upload.start()
 
 
-@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[2], None])
+@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[3], None])
 async def test_s3_export_workflow_with_request_timeouts(
     clickhouse_client,
     ateam,
@@ -2133,39 +2163,55 @@ async def test_s3_export_workflow_with_request_timeouts(
     )
 
 
-# TODO - this can be removed once we've fully migrated to using distributed events_recent
-# for all teams
-@pytest.mark.parametrize("use_distributed_events_recent_table", [True, False])
-# need to use a recent data_interval_end as events older than 7 days are deleted
+@pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize(
-    "data_interval_end", [dt.datetime.now(tz=dt.UTC).replace(minute=0, second=0, microsecond=0, tzinfo=dt.UTC)]
+    "model",
+    [
+        BatchExportModel(name="events", schema=None),
+    ],
 )
-@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-async def test_insert_into_s3_activity_when_using_distributed_events_recent_table(
+@pytest.mark.parametrize("is_backfill", [False, True])
+@pytest.mark.parametrize("backfill_within_last_6_days", [False, True])
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+async def test_insert_into_s3_activity_executes_the_expected_query_for_events_model(
     clickhouse_client,
     bucket_name,
     minio_client,
+    interval,
     activity_environment,
-    compression,
-    exclude_events,
-    file_format,
     data_interval_start,
     data_interval_end,
     generate_test_data,
     ateam,
-    use_distributed_events_recent_table,
+    model: BatchExportModel,
+    is_backfill: bool,
+    backfill_within_last_6_days: bool,
 ):
-    """We're migrating to using distributed events_recent for all realtime batch exports (except for 5 minute exports).
+    """Test that the insert_into_s3_activity executes the expected ClickHouse query when the model is an events model.
 
-    This test ensures that the insert_into_s3_activity function works as expected when using the
-    distributed events_recent table.
-
-    It can be removed once we've fully migrated to using distributed events_recent for all teams and the tests always
-    use this new table.
+    The query used for the events model is quite complex, and depends on a number of factors:
+    - If it's a backfill
+    - How far in the past we're backfilling
+    - If it's a 5 min batch export
     """
 
-    model = BatchExportModel(name="events", schema=None)
+    if not is_backfill and backfill_within_last_6_days:
+        pytest.skip("No need to test backfill within last 6 days for non-backfill")
 
+    expected_table = "distributed_events_recent"
+    if not is_backfill and interval == "every 5 minutes":
+        expected_table = "events_recent"
+    elif is_backfill and not backfill_within_last_6_days:
+        expected_table = "events"
+
+    if backfill_within_last_6_days:
+        backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
+    else:
+        backfill_start_at = (data_interval_end - dt.timedelta(days=10)).isoformat()
+
+    compression = None
+    exclude_events = None
+    file_format = "JSONLines"
     prefix = str(uuid.uuid4())
 
     insert_inputs = S3InsertInputs(
@@ -2183,29 +2229,96 @@ async def test_insert_into_s3_activity_when_using_distributed_events_recent_tabl
         file_format=file_format,
         batch_export_schema=None,
         batch_export_model=model,
+        is_backfill=is_backfill,
+        backfill_details=BackfillDetails(
+            backfill_id=str(uuid.uuid4()),
+            start_at=backfill_start_at,
+            end_at=data_interval_end,
+            is_earliest_backfill=False,
+        )
+        if is_backfill
+        else None,
     )
 
-    with override_settings(
-        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
-        BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT=1 if use_distributed_events_recent_table else 0,
-    ):  # 5MB, the minimum for Multipart uploads
-        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
+    class MockClickHouseClient:
+        """Helper class to mock ClickHouse client."""
 
-        events_to_export_created, persons_to_export_created = generate_test_data
-        assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
+        def __init__(self):
+            self.mock_client = mock.AsyncMock(spec=ClickHouseClient)
+            self.mock_client_cm = mock.AsyncMock()
+            self.mock_client_cm.__aenter__.return_value = self.mock_client
+            self.mock_client_cm.__aexit__.return_value = None
 
-        await assert_clickhouse_records_in_s3(
-            s3_compatible_client=minio_client,
-            clickhouse_client=clickhouse_client,
-            bucket_name=bucket_name,
-            key_prefix=prefix,
-            team_id=ateam.pk,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            batch_export_model=model,
-            exclude_events=exclude_events,
-            include_events=None,
-            compression=compression,
-            file_format=file_format,
-            is_backfill=False,
-        )
+            # Set up the mock to return our async iterator
+            self.mock_client.astream_query_as_arrow.return_value = self._create_record_batch_iterator()
+
+        def expect_select_from_table(self, table_name: str) -> None:
+            """Assert that the executed query selects from the expected table.
+
+            Args:
+                table_name: The name of the table to check for in the FROM clause.
+
+            The method handles different formatting of the FROM clause, including newlines
+            and varying amounts of whitespace.
+            """
+            assert self.mock_client.astream_query_as_arrow.call_count == 1
+            call_args = self.mock_client.astream_query_as_arrow.call_args
+            query = call_args[0][0]  # First positional argument of the first call
+
+            # Create a pattern that matches "FROM" followed by optional whitespace/newlines and then the table name
+            pattern = rf"FROM\s+{re.escape(table_name)}"
+            assert re.search(pattern, query, re.IGNORECASE), f"Query does not select FROM {table_name}"
+
+        @staticmethod
+        def _create_test_record_batch() -> pa.RecordBatch:
+            """Create a record batch with test data."""
+            schema = pa.schema(
+                [
+                    ("team_id", pa.int64()),
+                    ("timestamp", pa.timestamp("us")),
+                    ("event", pa.string()),
+                    ("distinct_id", pa.string()),
+                    ("uuid", pa.string()),
+                    ("_inserted_at", pa.timestamp("us")),
+                    ("created_at", pa.timestamp("us")),
+                    ("elements_chain", pa.string()),
+                    ("person_id", pa.string()),
+                    ("properties", pa.string()),  # JSON string
+                    ("person_properties", pa.string()),  # JSON string
+                    ("set", pa.string()),  # JSON string
+                    ("set_once", pa.string()),  # JSON string
+                ]
+            )
+
+            now = dt.datetime.now(dt.UTC)
+            arrays = [
+                pa.array([1]),  # team_id
+                pa.array([now]),  # timestamp
+                pa.array(["test_event"]),  # event
+                pa.array(["test_distinct_id"]),  # distinct_id
+                pa.array([str(uuid.uuid4())]),  # uuid
+                pa.array([now]),  # _inserted_at
+                pa.array([now]),  # created_at
+                pa.array(["div > button"]),  # elements_chain
+                pa.array([str(uuid.uuid4())]),  # person_id
+                pa.array([json.dumps({"prop1": "value1"})]),  # properties
+                pa.array([json.dumps({"person_prop1": "value1"})]),  # person_properties
+                pa.array([json.dumps({"set1": "value1"})]),  # set
+                pa.array([json.dumps({"set_once1": "value1"})]),  # set_once
+            ]
+            return pa.RecordBatch.from_arrays(arrays, schema=schema)
+
+        async def _create_record_batch_iterator(self):
+            """Create an async iterator that yields a single record batch with test data."""
+            yield self._create_test_record_batch()
+
+    @contextlib.contextmanager
+    def mock_clickhouse_client():
+        """Context manager to mock ClickHouse client."""
+        mock_client = MockClickHouseClient()
+        with patch("posthog.temporal.batch_exports.spmc.get_client", return_value=mock_client.mock_client_cm):
+            yield mock_client
+
+    with mock_clickhouse_client() as mock_client:
+        await activity_environment.run(insert_into_s3_activity, insert_inputs)
+        mock_client.expect_select_from_table(expected_table)

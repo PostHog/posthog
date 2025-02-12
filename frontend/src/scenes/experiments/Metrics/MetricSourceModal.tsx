@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 
 import { Experiment } from '~/types'
 
-import { experimentLogic, getDefaultFunnelsMetric } from '../experimentLogic'
+import { experimentLogic } from '../experimentLogic'
+import { getDefaultFunnelsMetric } from '../utils'
 
 export function MetricSourceModal({
     experimentId,
@@ -49,7 +50,7 @@ export function MetricSourceModal({
                     <div className="font-semibold">
                         <span>Single-use</span>
                     </div>
-                    <div className="text-muted text-sm leading-relaxed">
+                    <div className="text-secondary text-sm leading-relaxed">
                         Create a new metric specific to this experiment.
                     </div>
                 </div>
@@ -63,7 +64,7 @@ export function MetricSourceModal({
                     <div className="font-semibold">
                         <span>Shared</span>
                     </div>
-                    <div className="text-muted text-sm leading-relaxed">
+                    <div className="text-secondary text-sm leading-relaxed">
                         Use a pre-configured metric that can be reused across experiments.
                     </div>
                 </div>

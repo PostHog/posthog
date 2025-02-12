@@ -104,6 +104,7 @@ const NEW_FLAG: FeatureFlagType = {
     user_access_level: 'editor',
     tags: [],
     is_remote_configuration: false,
+    status: 'ACTIVE',
 }
 const NEW_VARIANT = {
     key: '',
@@ -129,7 +130,7 @@ export function validateFeatureFlagKey(key: string): string | undefined {
         : undefined
 }
 
-function validatePayloadRequired(payload: JsonType, is_remote_configuration: boolean): string | undefined {
+function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
     if (!is_remote_configuration) {
         return undefined
     }
@@ -322,9 +323,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ValidationErrorType
                         >[],
                         payloads: {
-                            true: validatePayloadRequired(filters?.payloads['true'], is_remote_configuration),
-                        } as unknown as DeepPartialMap<Record<string, JsonType>, ValidationErrorType> | undefined,
-                        // Forced cast necessary to prevent Kea's typechecking from raising "Type instantiation
+                            true: validatePayloadRequired(is_remote_configuration, filters?.payloads?.['true']),
+                        } as any,
+                        // Forced any cast necessary to prevent Kea's typechecking from raising "Type instantiation
                         // is excessively deep and possibly infinite" error
                     },
                 }
@@ -792,6 +793,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        experiment: {
+            loadExperiment: async () => {
+                if (values.featureFlag.experiment_set) {
+                    return await api.experiments.get(values.featureFlag.experiment_set[0])
+                }
+            },
+        },
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -872,6 +880,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadFeatureFlagSuccess: async () => {
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
+            actions.loadExperiment()
         },
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
@@ -1024,9 +1033,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ],
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.featureFlag],
-            (featureFlag): SidePanelSceneContext | null => {
-                return featureFlag?.id
+            (s) => [s.featureFlag, s.currentTeam],
+            (featureFlag, currentTeam): SidePanelSceneContext | null => {
+                // Only render the new access control on side panel if they have been migrated
+                return featureFlag?.id && currentTeam?.access_control_version === 'v2'
                     ? {
                           activity_scope: ActivityScope.FEATURE_FLAG,
                           activity_item_id: `${featureFlag.id}`,
@@ -1091,6 +1101,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag) => {
                 return featureFlag?.surveys && featureFlag.surveys.length > 0
+            },
+        ],
+        hasExperiment: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag?.experiment_set && featureFlag.experiment_set.length > 0
+            },
+        ],
+        isDraftExperiment: [
+            (s) => [s.experiment],
+            (experiment) => {
+                // Treat as launched experiment if not yet loaded.
+                if (!experiment) {
+                    return false
+                }
+                return !experiment?.start_date
             },
         ],
     }),

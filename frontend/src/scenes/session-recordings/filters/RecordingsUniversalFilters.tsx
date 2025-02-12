@@ -54,7 +54,7 @@ export const RecordingsUniversalFilters = ({
     }
 
     return (
-        <div className={clsx('divide-y bg-bg-light rounded-t', className)}>
+        <div className={clsx('divide-y bg-surface-primary rounded-t', className)}>
             <div className="flex items-center justify-between px-2 py-1.5">
                 <h3 className="truncate mb-0" title="Filters">
                     Filters

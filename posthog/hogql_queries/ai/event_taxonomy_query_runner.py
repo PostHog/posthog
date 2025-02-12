@@ -50,13 +50,15 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        count_expr = ast.Constant(value=self.query.maxPropertyValues or 5)
+
         if not self.query.properties:
             return parse_select(
                 """
                 SELECT
                     key,
                     -- Pick five latest distinct sample values.
-                    arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS values,
+                    arraySlice(arrayDistinct(groupArray(value)), 1, {count}) AS values,
                     count(distinct value) AS total_count
                 FROM {from_query}
                 ARRAY JOIN kv.1 AS key, kv.2 AS value
@@ -65,14 +67,18 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 ORDER BY total_count DESC
                 LIMIT 500
             """,
-                placeholders={"from_query": self._get_subquery(), "filter": self._get_omit_filter()},
+                placeholders={
+                    "from_query": self._get_subquery(),
+                    "filter": self._get_omit_filter(),
+                    "count": count_expr,
+                },
             )
 
         return parse_select(
             """
                 SELECT
                     key,
-                    arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS values,
+                    arraySlice(arrayDistinct(groupArray(value)), 1, {count}) AS values,
                     count(DISTINCT value) AS total_count
                 FROM {from_query}
                 GROUP BY key
@@ -80,6 +86,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             """,
             placeholders={
                 "from_query": self._get_subquery(),
+                "count": count_expr,
             },
         )
 
@@ -93,8 +100,11 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             r"\$time",
             r"\$set_once",
             r"\$sent_at",
+            "distinct_id",
             # privacy-related
             r"\$ip",
+            # feature flags and experiments
+            r"\$feature\/",
             # flatten-properties-plugin
             "__",
             # other metadata
@@ -106,6 +116,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             "window-id",
             "changed_event",
             "partial_filter",
+            "distinct_id",
         ]
         regex_conditions = "|".join(omit_list)
 

@@ -1,15 +1,18 @@
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
+import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { SharedFunnelsMetricForm } from './SharedFunnelsMetricForm'
 import { sharedMetricLogic } from './sharedMetricLogic'
 import { SharedTrendsMetricForm } from './SharedTrendsMetricForm'
+
 export const scene: SceneExport = {
     component: SharedMetric,
     logic: sharedMetricLogic,
@@ -23,6 +26,8 @@ export function SharedMetric(): JSX.Element {
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+
+    const { tags: allExistingTags } = useValues(tagsModel)
 
     if (!sharedMetric || !sharedMetric.query) {
         return (
@@ -53,7 +58,7 @@ export function SharedMetric(): JSX.Element {
                             <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
                         )}
                     </div>
-                    <div className="text-muted text-sm leading-relaxed">
+                    <div className="text-secondary text-sm leading-relaxed">
                         Track a single event, action or a property value.
                     </div>
                 </div>
@@ -75,7 +80,7 @@ export function SharedMetric(): JSX.Element {
                             <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
                         )}
                     </div>
-                    <div className="text-muted text-sm leading-relaxed">
+                    <div className="text-secondary text-sm leading-relaxed">
                         Analyze conversion rates between sequential steps.
                     </div>
                 </div>
@@ -103,6 +108,22 @@ export function SharedMetric(): JSX.Element {
                         }}
                     />
                 </div>
+                <div className="mb-4">
+                    <LemonLabel>Tags</LemonLabel>
+                    <div className="mt-2">
+                        <ObjectTags
+                            tags={sharedMetric.tags || []}
+                            onChange={(newTags) => {
+                                setSharedMetric({
+                                    tags: newTags,
+                                })
+                            }}
+                            saving={false}
+                            tagsAvailable={allExistingTags}
+                            data-attr="shared-metric-tags"
+                        />
+                    </div>
+                </div>
                 {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
                     <SharedTrendsMetricForm />
                 ) : (
@@ -117,7 +138,7 @@ export function SharedMetric(): JSX.Element {
                     onClick={() => {
                         LemonDialog.open({
                             title: 'Delete this metric?',
-                            content: <div className="text-sm text-muted">This action cannot be undone.</div>,
+                            content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
                             primaryButton: {
                                 children: 'Delete',
                                 type: 'primary',

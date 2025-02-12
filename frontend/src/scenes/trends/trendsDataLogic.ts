@@ -79,6 +79,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'showLegend',
                 'vizSpecificOptions',
                 'yAxisScaleType',
+                'showMultipleYAxes',
                 'resultCustomizationBy',
                 'theme',
             ],

@@ -1,10 +1,10 @@
 REACT_FORMAT_PROMPT = """
-You have access to the following tools:
-{{tools}}
+<agent_instructions>
+You have access to the tools that are listed in the <tools> tag.
 
 Use a JSON blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
 
-Valid "action" values: {{tool_names}}
+Valid "action" values: {{{tool_names}}}
 
 Provide only ONE action per $JSON_BLOB, as shown:
 
@@ -33,6 +33,9 @@ Action:
   "action_input": "Final response to human"
 }
 ```
+
+Generating the observation is strictly prohibited.
+</agent_instructions>
 """.strip()
 
 REACT_PROPERTY_FILTERS_PROMPT = """
@@ -49,7 +52,7 @@ When using a property filter, you must:
 - If the operator requires a value, use the tool to find the property values. Verify that you can answer the question with given property values. If you can't, try to find a different property or event.
 - You set logical operators to combine multiple properties of a single series: AND or OR.
 
-Infer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group. You must make sure that the property name matches the lookup value, e.g. if the user asks to find data about organizations with the name "ACME", you must look for the property like "organization name".
+Infer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group. You must make sure that the property name matches the lookup value, e.g. if the user asks to find data about organizations with the name "ACME", you must look for the property like "organization name."
 
 If the user asks for a specific timeframe, you must not look for a property and include it in the plan, as the next steps will handle it for you.
 
@@ -87,29 +90,34 @@ Ask the user for clarification if:
 - The user's question is ambiguous.
 - You can't find matching events or properties.
 - You're unable to build a plan that effectively answers the user's question.
+Use the tool `ask_user_for_help` to ask the user.
 </human_in_the_loop>
 """.strip()
 
 REACT_FORMAT_REMINDER_PROMPT = """
-Begin! Reminder that you must ALWAYS respond with a valid JSON blob of a single action. Use tools if necessary. Respond directly if appropriate. Format is Action:```$JSON_BLOB``` then Observation.
+Reminder that you must ALWAYS respond with a valid JSON blob of a single action with a valid tool. Format is Thought, Action:```$JSON_BLOB```, then Observation.
 """.strip()
 
 REACT_DEFINITIONS_PROMPT = """
 Here are the event names.
-{{events}}
+{{{events}}}
 """
 
 REACT_SCRATCHPAD_PROMPT = """
-Thought: {{agent_scratchpad}}
+Thought: {{{agent_scratchpad}}}
 """
 
 REACT_USER_PROMPT = """
 Answer the following question as best you can.
-Question: What events, properties and/or property values should I use to answer this question "{{question}}"?
+Question: What events, properties and/or property values should I use to answer this question "{{{question}}}"?{{#react_format_reminder}}
+{{{react_format_reminder}}}
+{{/react_format_reminder}}
 """
 
 REACT_FOLLOW_UP_PROMPT = """
-Improve the previously generated plan based on the feedback: {{feedback}}
+Improve the previously generated plan based on the feedback: {{{feedback}}}{{#react_format_reminder}}
+{{{react_format_reminder}}}
+{{/react_format_reminder}}
 """
 
 REACT_MISSING_ACTION_PROMPT = """
@@ -117,7 +125,7 @@ Your previous answer didn't output the `Action:` block. You must always follow t
 """
 
 REACT_MISSING_ACTION_CORRECTION_PROMPT = """
-{{output}}
+{{{output}}}
 Action: I didn't output the `Action:` block.
 """
 
@@ -129,12 +137,12 @@ REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """
 The action input you previously provided didn't pass the validation and raised a Pydantic validation exception.
 
 <pydantic_exception>
-{{exception}}
+{{{exception}}}
 </pydantic_exception>
 
 You must fix the exception and try again.
 """
 
 CORE_MEMORY_INSTRUCTIONS = """
-You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product.
+You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product. Use the core memory to answer the user's question.
 """.strip()

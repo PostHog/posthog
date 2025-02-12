@@ -19,6 +19,12 @@ class Workload(Enum):
     OFFLINE = "OFFLINE"
 
 
+class NodeRole(Enum):
+    ALL = "ALL"
+    COORDINATOR = "COORDINATOR"
+    DATA = "DATA"
+
+
 _default_workload = Workload.ONLINE
 
 
@@ -46,7 +52,7 @@ class ProxyClient:
         if written_rows > 0:
             return written_rows
         if with_column_types:
-            column_types_driver_format = list(zip(result.column_names, result.column_types))
+            column_types_driver_format = [(a, b.name) for (a, b) in zip(result.column_names, result.column_types)]
             return result.result_set, column_types_driver_format
         return result.result_set
 
