@@ -68,10 +68,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Error tracking',
     },
-    [Scene.ErrorTrackingIssue]: {
-        projectBased: true,
-        name: 'Issue',
-    },
     [Scene.ErrorTrackingConfiguration]: {
         projectBased: true,
         name: 'Configuration',
@@ -79,6 +75,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ErrorTrackingAlert]: {
         projectBased: true,
         name: 'Alert',
+    },
+    [Scene.ErrorTrackingIssue]: {
+        projectBased: true,
+        name: 'Issue',
     },
     [Scene.Insight]: {
         projectBased: true,
@@ -575,9 +575,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.errorTracking()]: [Scene.ErrorTracking, 'errorTracking'],
-    [urls.errorTrackingIssue(':id')]: [Scene.ErrorTrackingIssue, 'errorTrackingIssue'],
     [urls.errorTrackingConfiguration()]: [Scene.ErrorTrackingConfiguration, 'errorTrackingConfiguration'],
     [urls.errorTrackingAlert(':id')]: [Scene.ErrorTrackingAlert, 'errorTrackingAlert'],
+    [urls.errorTrackingIssue(':id')]: [Scene.ErrorTrackingIssue, 'errorTrackingIssue'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
