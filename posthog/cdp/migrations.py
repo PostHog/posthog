@@ -88,6 +88,12 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             if not template:
                 raise Exception(f"Template not found for plugin {plugin_id}")
 
+            if HogFunction.objects.filter(
+                template_id=template.id, type=kind, team_id=team.id, enabled=True, deleted=False
+            ).exists():
+                print(f"Skipping plugin {plugin_name} as it already exists as a hog function")  # noqa: T201
+                continue
+
             data = {
                 "template_id": template.id,
                 "type": kind,
@@ -151,8 +157,31 @@ def migrate_legacy_plugins(
     # Get all legacy plugin_configs that are active with their attachments and global values
     # Plugins are huge (JS and assets) so we only grab the bits we really need
 
-    legacy_plugins = (
-        PluginConfig.objects.values(
+    legacy_plugin_ids = PluginConfig.objects.values("id").filter(enabled=True)
+
+    if kind == "destination":
+        legacy_plugin_ids = legacy_plugin_ids.filter(
+            Q(plugin__capabilities__methods__contains=["onEvent"])
+            | Q(plugin__capabilities__methods__contains=["composeWebhook"])
+        )
+    elif kind == "transformation":
+        legacy_plugin_ids = legacy_plugin_ids.filter(plugin__capabilities__methods__contains=["processEvent"])
+    else:
+        raise ValueError(f"Invalid kind: {kind}")
+
+    if team_ids:
+        team_ids = [int(id) for id in team_ids.split(",")]
+        legacy_plugin_ids = legacy_plugin_ids.filter(team_id__in=team_ids)
+
+    if limit:
+        legacy_plugin_ids = legacy_plugin_ids[:limit]
+
+    legacy_plugin_ids = legacy_plugin_ids.order_by("-id").all()
+    # Do this in batches of batch_size but loading the individual plugin configs as we are modfiying them in the loop
+
+    for i in range(0, len(legacy_plugin_ids), batch_size):
+        batch = legacy_plugin_ids[i : i + batch_size]
+        legacy_plugins = PluginConfig.objects.values(
             "id",
             "config",
             "team_id",
@@ -163,31 +192,6 @@ def migrate_legacy_plugins(
             "plugin__icon",
             "order",
             # Order by order asc but with nulls last
-        )
-        .filter(enabled=True)
-        # Order by id descending. Makes it easier to re run and quickly pick up the latest added plugins
-        .order_by("-id")
-    )
+        ).filter(id__in=batch)
 
-    if kind == "destination":
-        legacy_plugins = legacy_plugins.filter(
-            Q(plugin__capabilities__methods__contains=["onEvent"])
-            | Q(plugin__capabilities__methods__contains=["composeWebhook"])
-        )
-    elif kind == "transformation":
-        legacy_plugins = legacy_plugins.filter(plugin__capabilities__methods__contains=["processEvent"])
-    else:
-        raise ValueError(f"Invalid kind: {kind}")
-
-    if team_ids:
-        team_ids = [int(id) for id in team_ids.split(",")]
-        legacy_plugins = legacy_plugins.filter(team_id__in=team_ids)
-
-    if limit:
-        legacy_plugins = legacy_plugins[:limit]
-
-    paginator = Paginator(legacy_plugins, batch_size)
-    for page_number in paginator.page_range:
-        page = paginator.page(page_number)
-
-        migrate_batch(page.object_list, kind, test_mode, dry_run)
+        migrate_batch(legacy_plugins, kind, test_mode, dry_run)
