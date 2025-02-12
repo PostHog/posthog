@@ -29,7 +29,6 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
-    CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
@@ -42,14 +41,14 @@ from posthog.schema import (
     ExperimentVariantTrendsBaseStats,
     DateRange,
 )
-from typing import Optional, Union
+from typing import Optional
 from datetime import datetime, timedelta, UTC
 
 
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
-    response: Union[ExperimentTrendsQueryResponse, ExperimentFunnelsQueryResponse]
-    cached_response: Union[CachedExperimentTrendsQueryResponse, CachedExperimentFunnelsQueryResponse]
+    response: ExperimentTrendsQueryResponse
+    cached_response: CachedExperimentTrendsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -278,7 +277,9 @@ class ExperimentQueryRunner(QueryRunner):
 
         return experiment_variant_results_query
 
-    def _evaluate_experiment_query(self) -> list[ExperimentVariantTrendsBaseStats]:
+    def _evaluate_experiment_query(
+        self,
+    ) -> list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]:
         response = execute_hogql_query(
             query=self._get_experiment_query(),
             team=self.team,

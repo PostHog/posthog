@@ -6,17 +6,19 @@ import merge from 'lodash.merge'
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import {
     AnyEntityNode,
-    ExperimentQuery,
+    ExperimentMetric,
     type FunnelsQuery,
     NodeKind,
     type TrendsQuery,
 } from '~/queries/schema/schema-general'
+import { ExperimentMetricType } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
 import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ChartDisplayType,
     FeatureFlagFilters,
     FeatureFlagType,
+    FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelTimeConversionMetrics,
     FunnelVizType,
@@ -147,17 +149,17 @@ function seriesToFilter(
 }
 
 export function getViewRecordingFilters(
-    metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery,
+    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
-    if (metric.kind === NodeKind.ExperimentQuery) {
-        if (metric.metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+    if (metric.kind === NodeKind.ExperimentMetric) {
+        if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
             return [
                 {
-                    id: metric.metric.metric_config.event,
-                    name: metric.metric.metric_config.event,
+                    id: metric.metric_config.event,
+                    name: metric.metric_config.event,
                     type: 'events',
                     properties: [
                         {
@@ -287,6 +289,29 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     }
 }
 
+export function getDefaultCountMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.COUNT,
+        metric_config: {
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+        },
+    }
+}
+
+export function getDefaultContinuousMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.CONTINUOUS,
+        metric_config: {
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+            math: 'sum',
+        },
+    }
+}
+
 export function getExperimentMetricFromInsight(
     insight: QueryBasedInsightModel | null
 ): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
@@ -335,4 +360,41 @@ export function getExperimentMetricFromInsight(
     }
 
     return undefined
+}
+
+export function metricToFilter(metric: ExperimentMetric): FilterType {
+    if (!metric.metric_config) {
+        return {
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    math: 'total',
+                    math_property: null,
+                    math_hogql: null,
+                },
+            ],
+            actions: [],
+        }
+    }
+
+    const config = metric.metric_config
+    if (config.kind === NodeKind.ExperimentEventMetricConfig) {
+        return {
+            events: [
+                {
+                    id: config.event,
+                    name: config.event,
+                    type: 'events',
+                    math: config.math,
+                    math_property: config.math_property,
+                    math_hogql: config.math_hogql,
+                },
+            ],
+            actions: [],
+        }
+    }
+
+    return {}
 }

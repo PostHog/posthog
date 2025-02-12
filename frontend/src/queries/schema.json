@@ -12350,6 +12350,9 @@
                     "$ref": "#/definitions/ExperimentTrendsQuery"
                 },
                 {
+                    "$ref": "#/definitions/ExperimentQuery"
+                },
+                {
                     "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {

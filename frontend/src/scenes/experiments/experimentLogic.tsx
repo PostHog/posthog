@@ -35,6 +35,8 @@ import {
     CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
     ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentMetricType,
     ExperimentQuery,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
@@ -134,9 +136,18 @@ const loadMetrics = async ({
     return await Promise.all(
         metrics.map(async (metric, index) => {
             try {
-                const queryWithExperimentId = {
-                    ...metric,
-                    experiment_id: experimentId,
+                let queryWithExperimentId
+                if (metric.kind === NodeKind.ExperimentMetric) {
+                    queryWithExperimentId = {
+                        kind: NodeKind.ExperimentQuery,
+                        metric: metric,
+                        experiment_id: experimentId,
+                    }
+                } else {
+                    queryWithExperimentId = {
+                        ...metric,
+                        experiment_id: experimentId,
+                    }
                 }
                 const response = await performQuery(queryWithExperimentId, undefined, refresh)
 
@@ -255,6 +266,17 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
         }),
+        setMetric: ({
+            metricIdx,
+            name,
+            metric,
+            isSecondary = false,
+        }: {
+            metricIdx: number
+            name?: string
+            metric: ExperimentMetric
+            isSecondary?: boolean
+        }) => ({ metricIdx, name, metric, isSecondary }),
         setTrendsMetric: ({
             metricIdx,
             name,
@@ -427,6 +449,17 @@ export const experimentLogic = kea<experimentLogicType>([
                             ...state.parameters,
                             feature_flag_variants: updatedVariants,
                         },
+                    }
+                },
+                setMetric: (state, { metricIdx, metric, isSecondary }) => {
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
+
+                    metrics[metricIdx] = metric
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
                     }
                 },
                 setTrendsMetric: (state, { metricIdx, name, series, filterTestAccounts, isSecondary }) => {
@@ -1329,11 +1362,20 @@ export const experimentLogic = kea<experimentLogicType>([
         getMetricType: [
             () => [],
             () =>
-                (metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined): InsightType => {
+                (
+                    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined
+                ): InsightType => {
                     return metric &&
-                        (metric?.kind === NodeKind.ExperimentQuery || metric?.kind === NodeKind.ExperimentTrendsQuery)
+                        (metric?.kind === NodeKind.ExperimentMetric || metric?.kind === NodeKind.ExperimentTrendsQuery)
                         ? InsightType.TRENDS
                         : InsightType.FUNNELS
+                },
+        ],
+        getNewMetricType: [
+            () => [],
+            () =>
+                (metric: ExperimentMetric | undefined): ExperimentMetricType => {
+                    return metric?.metric_type || ExperimentMetricType.COUNT
                 },
         ],
         isExperimentRunning: [

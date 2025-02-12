@@ -1,16 +1,14 @@
-import { LemonButton, LemonDialog, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
-import { Experiment, InsightType } from '~/types'
+import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
+import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getDefaultCountMetric, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
-import { FunnelsMetricForm } from './FunnelsMetricForm'
-import { TrendsMetricForm } from './TrendsMetricForm'
+import { NewMetricForm } from './NewMetricForm'
 
-export function MetricModal({
+export function NewMetricModal({
     experimentId,
     isSecondary,
 }: {
@@ -20,12 +18,11 @@ export function MetricModal({
     const {
         experiment,
         experimentLoading,
-        getMetricType,
+        getNewMetricType,
         isPrimaryMetricModalOpen,
         isSecondaryMetricModalOpen,
         editingPrimaryMetricIndex,
         editingSecondaryMetricIndex,
-        featureFlags,
     } = useValues(experimentLogic({ experimentId }))
     const {
         updateExperimentGoal,
@@ -43,9 +40,8 @@ export function MetricModal({
     }
 
     const metrics = experiment[metricsField]
-    const metric = metrics[metricIdx] as ExperimentTrendsQuery | ExperimentFunnelsQuery
-    const metricType = getMetricType(metric)
-    const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
+    const metric = metrics[metricIdx] as ExperimentMetric
+    const metricType = getNewMetricType(metric)
 
     const onClose = (): void => {
         restoreUnmodifiedExperiment()
@@ -66,7 +62,7 @@ export function MetricModal({
                         onClick={() => {
                             LemonDialog.open({
                                 title: 'Delete this metric?',
-                                content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
+                                content: <div className="text-sm text-muted">This action cannot be undone.</div>,
                                 primaryButton: {
                                     children: 'Delete',
                                     type: 'primary',
@@ -95,11 +91,6 @@ export function MetricModal({
                             Cancel
                         </LemonButton>
                         <LemonButton
-                            disabledReason={
-                                metricType === InsightType.FUNNELS &&
-                                funnelStepsLength < 2 &&
-                                'The experiment needs at least two funnel steps.'
-                            }
                             form="edit-experiment-goal-form"
                             onClick={() => {
                                 updateExperimentGoal()
@@ -115,35 +106,32 @@ export function MetricModal({
                 </div>
             }
         >
-            <div className="flex items-center w-full gap-2 mb-4">
-                <span>Metric type</span>
-                <LemonSelect
+            <div className="mb-4">
+                <h4 className="mb-2">Metric type</h4>
+                <LemonRadio
                     data-attr="metrics-selector"
                     value={metricType}
-                    onChange={(newMetricType) => {
-                        const defaultMetric = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
-                            ? getDefaultCountMetric()
-                            : getDefaultFunnelsMetric()
+                    onChange={(newMetricType: ExperimentMetricType) => {
+                        const newMetric = {
+                            ...metrics[metricIdx],
+                            metric_type: newMetricType,
+                        }
                         setExperiment({
                             ...experiment,
                             [metricsField]: [
                                 ...metrics.slice(0, metricIdx),
-                                newMetricType === InsightType.TRENDS ? getDefaultTrendsMetric() : defaultMetric,
+                                newMetric,
                                 ...metrics.slice(metricIdx + 1),
                             ],
                         })
                     }}
                     options={[
-                        { value: InsightType.TRENDS, label: <b>Trends</b> },
-                        { value: InsightType.FUNNELS, label: <b>Funnels</b> },
+                        { value: ExperimentMetricType.COUNT, label: 'Count' },
+                        { value: ExperimentMetricType.CONTINUOUS, label: 'Continuous' },
                     ]}
                 />
             </div>
-            {metricType === InsightType.TRENDS ? (
-                <TrendsMetricForm isSecondary={isSecondary} />
-            ) : (
-                <FunnelsMetricForm isSecondary={isSecondary} />
-            )}
+            <NewMetricForm isSecondary={isSecondary} />
         </LemonModal>
     )
 }

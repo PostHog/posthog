@@ -1,10 +1,11 @@
 import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getDefaultFunnelsMetric } from '../utils'
+import { getDefaultCountMetric, getDefaultFunnelsMetric } from '../utils'
 
 export function MetricSourceModal({
     experimentId,
@@ -13,7 +14,7 @@ export function MetricSourceModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const { experiment, isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen } = useValues(
+    const { experiment, isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen, featureFlags } = useValues(
         experimentLogic({ experimentId })
     )
     const {
@@ -21,8 +22,8 @@ export function MetricSourceModal({
         closePrimaryMetricSourceModal,
         closeSecondaryMetricSourceModal,
         openPrimaryMetricModal,
-        openPrimarySharedMetricModal,
         openSecondaryMetricModal,
+        openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
     } = useActions(experimentLogic({ experimentId }))
 
@@ -40,7 +41,10 @@ export function MetricSourceModal({
                     onClick={() => {
                         closeCurrentModal()
 
-                        const newMetrics = [...experiment[metricsField], getDefaultFunnelsMetric()]
+                        const defaultMetric = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+                            ? getDefaultCountMetric()
+                            : getDefaultFunnelsMetric()
+                        const newMetrics = [...experiment[metricsField], defaultMetric]
                         setExperiment({
                             [metricsField]: newMetrics,
                         })

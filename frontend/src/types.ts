@@ -37,7 +37,7 @@ import type {
     DashboardFilter,
     DatabaseSchemaField,
     ExperimentFunnelsQuery,
-    ExperimentQuery,
+    ExperimentMetric,
     ExperimentTrendsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -3343,8 +3343,8 @@ export interface Experiment {
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
     filters: TrendsFilterType | FunnelsFilterType
-    metrics: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
-    metrics_secondary: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {

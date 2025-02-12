@@ -1,5 +1,6 @@
 import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { PostHogFeature } from 'posthog-js/react'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
@@ -7,10 +8,11 @@ import { ExperimentImplementationDetails } from '../ExperimentImplementationDeta
 import { experimentLogic } from '../experimentLogic'
 import { MetricModal } from '../Metrics/MetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
+import { NewMetricModal } from '../Metrics/NewMetricModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
-import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
+import { ExploreButton, LoadingState, PageHeaderCustom } from './components'
 import { CumulativeExposuresChart } from './CumulativeExposuresChart'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
@@ -59,7 +61,14 @@ const ResultsTab = (): JSX.Element => {
                         <ExploreButton result={metricResults?.[0] || null} size="xsmall" />
                     </div>
                     <div className="pb-4">
-                        <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
+                        {/* TODO: Insight display is not yet supported with the new query runner */}
+                        {/* <ResultsQuery result={metricResults?.[0] || null} showTable={true} /> */}
+                        <p>
+                            TODO: Insight display is not yet supported with the new query runner.
+                            <br />
+                            <br />
+                            <br />
+                        </p>
                     </div>
                 </div>
             )}
@@ -81,7 +90,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, tabKey, featureFlags } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
@@ -119,8 +128,17 @@ export function ExperimentView(): JSX.Element {
                         <MetricSourceModal experimentId={experimentId} isSecondary={true} />
                         <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 
-                        <MetricModal experimentId={experimentId} isSecondary={true} />
-                        <MetricModal experimentId={experimentId} isSecondary={false} />
+                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER] ? (
+                            <>
+                                <NewMetricModal experimentId={experimentId} isSecondary={true} />
+                                <NewMetricModal experimentId={experimentId} isSecondary={false} />
+                            </>
+                        ) : (
+                            <>
+                                <MetricModal experimentId={experimentId} isSecondary={true} />
+                                <MetricModal experimentId={experimentId} isSecondary={false} />
+                            </>
+                        )}
 
                         <SharedMetricModal experimentId={experimentId} isSecondary={true} />
                         <SharedMetricModal experimentId={experimentId} isSecondary={false} />

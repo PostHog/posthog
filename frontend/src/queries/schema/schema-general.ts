@@ -165,6 +165,7 @@ export type QuerySchema =
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
+    | ExperimentQuery
 
     // Web Analytics + Web Vitals
     | WebOverviewQuery
