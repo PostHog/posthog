@@ -13,12 +13,15 @@ export const template: HogFunctionTemplate = {
     hog: `
 // Get the properties to hash from inputs
 let propertiesToHash := inputs.propertiesToHash
-if (empty(propertiesToHash)) {
+let hashDistinctId := inputs.hashDistinctId
+let salt := inputs.salt
+
+if (empty(propertiesToHash) and not hashDistinctId) {
     return event
 }
 
 // Create a deep copy of the event to modify
-let returnEvent := jsonParse(jsonStringify(event))
+let returnEvent := event
 
 // Helper function to get nested property value
 fun getNestedValue(obj, path) {
@@ -53,12 +56,26 @@ fun setNestedValue(obj, path, value) {
     current[lastPart] := value
 }
 
-// Hash each property value
+// Hash distinct_id if enabled also potentially using a salt
+if (hashDistinctId and notEmpty(event.distinct_id)) {
+    if(notEmpty(salt)) {
+        returnEvent.distinct_id := sha256Hex(concat(toString(event.distinct_id), salt))
+    } else {
+        returnEvent.distinct_id := sha256Hex(toString(event.distinct_id))
+    }
+}
+
+// Hash each property value potentially using a salt
 for (let _, path in propertiesToHash) {
     let value := getNestedValue(event.properties, path)
     if (notEmpty(value)) {
-        let hashedValue := sha256Hex(toString(value))
-        setNestedValue(returnEvent.properties, path, hashedValue)
+        if(notEmpty(salt)) {
+            let hashedValue := sha256Hex(concat(toString(value), salt))
+            setNestedValue(returnEvent.properties, path, hashedValue)
+        } else {
+            let hashedValue := sha256Hex(toString(value))
+            setNestedValue(returnEvent.properties, path, hashedValue)
+        }
     }
 }
 
@@ -75,6 +92,24 @@ return returnEvent
             },
             secret: false,
             required: true,
+        },
+        {
+            key: 'hashDistinctId',
+            type: 'boolean',
+            label: 'Hash Distinct ID',
+            description: 'Whether to hash the distinct_id field',
+            default: false,
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'salt',
+            type: 'string',
+            label: 'Salt',
+            description: 'Optional salt to add to the hashed values for additional security',
+            default: '',
+            secret: true,
+            required: false,
         },
     ],
 }
