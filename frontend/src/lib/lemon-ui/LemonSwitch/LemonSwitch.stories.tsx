@@ -41,6 +41,18 @@ export const Overview = (): JSX.Element => {
             <div className="w-20">
                 <LemonSwitch label="Bordered with a really long label" bordered />
             </div>
+            <div className="w-20">
+                <LemonSwitch label="extra extra small" size="xxsmall" bordered />
+            </div>
+            <div className="w-20">
+                <LemonSwitch label="extra small" size="xsmall" bordered />
+            </div>
+            <div className="w-20">
+                <LemonSwitch label="small" size="small" bordered />
+            </div>
+            <div className="w-20">
+                <LemonSwitch label="medium (default)" size="medium" bordered />
+            </div>
         </div>
     )
 }
