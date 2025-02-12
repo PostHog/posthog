@@ -339,6 +339,9 @@ class MutationRunner:
         else:
             command = self.command
 
+        if (command_kind_match := re.match(r"^(\w+) ", command.lstrip())) is None:
+            raise ValueError(f"could not determine command kind from {command!r}")
+
         results = client.execute(
             f"""
             SELECT mutation_id
@@ -349,16 +352,17 @@ class MutationRunner:
                 -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
                 -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
                 AND NOT throwIf(
-                    length(splitByString('UPDATE', replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {command}$__sql$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
+                    length(splitByString(%(__command_kind)s, replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {command}$__sql$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
                     'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
                 )
-                AND command = 'UPDATE ' || trim(lines[2])
+                AND command = %(__command_kind)s || ' ' || trim(lines[2])
                 AND NOT is_killed  -- ok to restart a killed mutation
             ORDER BY create_time DESC
             """,
             {
                 f"__database": settings.CLICKHOUSE_DATABASE,
                 f"__table": self.table,
+                f"__command_kind": command_kind_match.group(1),
                 **self.parameters,
             },
         )
