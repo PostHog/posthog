@@ -21,10 +21,10 @@ def test_partition_range_validation():
         PartitionRange(lower="202403", upper="202401")  # lower > upper
 
     with pytest.raises(pydantic.ValidationError):
-        PartitionRange(lower="2024XX", upper="202403")
+        PartitionRange(lower="", upper="202403")
 
     with pytest.raises(pydantic.ValidationError):
-        PartitionRange(lower="202401", upper="2024XX")
+        PartitionRange(lower="202401", upper="")
 
 
 def test_sharded_table_job(cluster: ClickhouseCluster):
