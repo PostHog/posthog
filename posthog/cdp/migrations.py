@@ -156,7 +156,7 @@ def migrate_legacy_plugins(
     # Get all legacy plugin_configs that are active with their attachments and global values
     # Plugins are huge (JS and assets) so we only grab the bits we really need
 
-    legacy_plugin_ids = PluginConfig.objects.values("id").filter(enabled=True)
+    legacy_plugin_ids = PluginConfig.objects.values("id").filter(enabled=True).order_by("-id").all()
 
     if kind == "destination":
         legacy_plugin_ids = legacy_plugin_ids.filter(
@@ -175,7 +175,6 @@ def migrate_legacy_plugins(
     if limit:
         legacy_plugin_ids = legacy_plugin_ids[:limit]
 
-    legacy_plugin_ids = legacy_plugin_ids.order_by("-id").all()
     # Do this in batches of batch_size but loading the individual plugin configs as we are modfiying them in the loop
 
     for i in range(0, len(legacy_plugin_ids), batch_size):
@@ -191,6 +190,6 @@ def migrate_legacy_plugins(
             "plugin__icon",
             "order",
             # Order by order asc but with nulls last
-        ).filter(id__in=batch)
+        ).filter(id__in=[x["id"] for x in batch])
 
         migrate_batch(legacy_plugins, kind, test_mode, dry_run)
