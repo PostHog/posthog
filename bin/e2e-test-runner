@@ -46,6 +46,12 @@ do
     fi
 done
 
+# Ensure one of the test runners is set before running any commands
+if [ "$START_CYPRESS" -ne 1 ] 2>/dev/null && [ "$START_PLAYWRIGHT" -ne 1 ] 2>/dev/null; then
+  echo "Must set START_CYPRESS or START_PLAYWRIGHT to 1"
+  exit 1
+fi
+
 export CYPRESS_BASE_URL=http://localhost:8080
 export SECURE_COOKIES=0
 export SKIP_SERVICE_VERSION_REQUIREMENTS=1
@@ -110,6 +116,4 @@ if [ "$START_CYPRESS" -eq 1 ] 2>/dev/null; then
   pnpm cypress open --config-file cypress.e2e.config.ts
 elif [ "$START_PLAYWRIGHT" -eq 1 ] 2>/dev/null; then
   pnpm exec playwright test --ui
-else
-  echo "Must set START_CYPRESS or START_PLAYWRIGHT to 1"
 fi
