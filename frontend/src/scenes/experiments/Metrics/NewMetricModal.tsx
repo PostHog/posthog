@@ -6,7 +6,6 @@ import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getDefaultCountMetric } from '../utils'
 import { NewMetricForm } from './NewMetricForm'
 
 export function NewMetricModal({
@@ -48,8 +47,6 @@ export function NewMetricModal({
         restoreUnmodifiedExperiment()
         isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
     }
-
-    console.log('experiment', experiment)
 
     return (
         <LemonModal
@@ -115,7 +112,6 @@ export function NewMetricModal({
                     data-attr="metrics-selector"
                     value={metricType}
                     onChange={(newMetricType: ExperimentMetricType) => {
-                        console.log('newMetricType', newMetricType)
                         const newMetric = {
                             ...metrics[metricIdx],
                             metric_type: newMetricType,
