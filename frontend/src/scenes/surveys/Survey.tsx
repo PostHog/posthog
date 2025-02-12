@@ -143,17 +143,17 @@ export function SurveyDisplaySummary({
                 </div>
             )}
             {survey.conditions?.deviceTypes && (
-                <div className="flex flex-col font-medium gap-1">
-                    <div className="flex-row">
-                        <span>
-                            Device Types{' '}
-                            {SurveyMatchTypeLabels[
-                                survey.conditions?.deviceTypesMatchType || SurveyMatchType.Contains
-                            ].slice(2)}
-                            :
-                        </span>{' '}
-                        <LemonTag>{survey.conditions.deviceTypes?.join(', ')}</LemonTag>
-                    </div>
+                <div className="flex font-medium gap-1 items-center">
+                    <span>
+                        Device Types{' '}
+                        {SurveyMatchTypeLabels[
+                            survey.conditions?.deviceTypesMatchType || SurveyMatchType.Contains
+                        ].slice(2)}
+                        :
+                    </span>{' '}
+                    {survey.conditions.deviceTypes.map((type) => (
+                        <LemonTag key={type}>{type}</LemonTag>
+                    ))}
                 </div>
             )}
             {survey.conditions?.selector && (
@@ -187,10 +187,12 @@ export function SurveyDisplaySummary({
                 </div>
             )}
             {targetingFlagFilters && (
-                <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
-                    <span className="font-medium">User properties:</span>{' '}
-                    <FeatureFlagReleaseConditions readOnly excludeTitle filters={targetingFlagFilters} />
-                </BindLogic>
+                <div>
+                    <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
+                        <span className="font-medium">User properties:</span>{' '}
+                        <FeatureFlagReleaseConditions readOnly excludeTitle filters={targetingFlagFilters} />
+                    </BindLogic>
+                </div>
             )}
         </div>
     )

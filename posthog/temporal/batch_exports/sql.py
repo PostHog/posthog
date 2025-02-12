@@ -1,5 +1,9 @@
 from string import Template
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.parser import parse_expr
+
 SELECT_FROM_PERSONS_VIEW = """
 SELECT
     persons.team_id AS team_id,
@@ -297,4 +301,55 @@ SETTINGS
     max_bytes_before_external_sort=50000000000,
     optimize_aggregation_in_order=1
 """
+)
+
+
+class HogQLQueryBatchExportSettings(HogQLQuerySettings):
+    optimize_aggregation_in_order: bool | None = True
+    max_bytes_before_external_sort: int | None = 50000000000
+    max_bytes_before_external_group_by: int | None = 50000000000
+
+
+SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
+    select=[
+        parse_expr("session_id as session_id"),
+        parse_expr("toString(session_id_v7) as session_id_v7"),
+        parse_expr("team_id"),
+        parse_expr("distinct_id as distinct_id"),
+        parse_expr("$start_timestamp as start_timestamp"),
+        parse_expr("$end_timestamp as end_timestamp"),
+        parse_expr("$urls as urls"),
+        parse_expr("$num_uniq_urls as num_uniq_urls"),
+        parse_expr("$entry_current_url as entry_current_url"),
+        parse_expr("$entry_pathname as entry_pathname"),
+        parse_expr("$entry_hostname as entry_hostname"),
+        parse_expr("$end_current_url as end_current_url"),
+        parse_expr("$end_pathname as end_pathname"),
+        parse_expr("$end_hostname as end_hostname"),
+        parse_expr("$entry_utm_source as entry_utm_source"),
+        parse_expr("$entry_utm_campaign as entry_utm_campaign"),
+        parse_expr("$entry_utm_medium as entry_utm_medium"),
+        parse_expr("$entry_utm_term as entry_utm_term"),
+        parse_expr("$entry_utm_content as entry_utm_content"),
+        parse_expr("$entry_referring_domain as entry_referring_domain"),
+        parse_expr("$entry_gclid as entry_gclid"),
+        parse_expr("$entry_fbclid as entry_fbclid"),
+        parse_expr("$entry_gad_source as entry_gad_source"),
+        parse_expr("$pageview_count as pageview_count"),
+        parse_expr("$autocapture_count as autocapture_count"),
+        parse_expr("$screen_count as screen_count"),
+        parse_expr("$channel_type as channel_type"),
+        parse_expr("$session_duration as session_duration"),
+        parse_expr("duration as duration"),
+        parse_expr("$is_bounce as is_bounce"),
+        parse_expr("$last_external_click_url as last_external_click_url"),
+        parse_expr("$page_screen_autocapture_count_up_to as page_screen_autocapture_count_up_to"),
+        parse_expr("$exit_current_url as exit_current_url"),
+        parse_expr("$exit_pathname as exit_pathname"),
+        parse_expr("$vitals_lcp as vitals_lcp"),
+        parse_expr("$end_timestamp as _inserted_at"),
+    ],
+    select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
+    order_by=[ast.OrderExpr(expr=ast.Field(chain=["_inserted_at"]), order="ASC")],
+    settings=HogQLQueryBatchExportSettings(),
 )

@@ -137,11 +137,11 @@ class AssistantGenericPropertyFilter3(BaseModel):
 
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
+    TOOL = "tool"
     AI = "ai"
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
-    AI_ROUTER = "ai/router"
 
 
 class RetentionReference(StrEnum):
@@ -161,6 +161,25 @@ class AssistantSingleValuePropertyFilterOperator(StrEnum):
     NOT_ICONTAINS = "not_icontains"
     REGEX = "regex"
     NOT_REGEX = "not_regex"
+
+
+class AssistantToolCall(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    args: dict[str, Any]
+    id: str
+    name: str
+
+
+class AssistantToolCallMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    tool_call_id: str
+    type: Literal["tool"] = "tool"
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -736,6 +755,21 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentMetricMath(StrEnum):
+    TOTAL = "total"
+    SUM = "sum"
+    AVG = "avg"
+    MEDIAN = "median"
+    MIN = "min"
+    MAX = "max"
+
+
+class ExperimentMetricType(StrEnum):
+    COUNT = "count"
+    CONTINUOUS = "continuous"
+    FUNNEL = "funnel"
+
+
 class ExperimentSignificanceCode(StrEnum):
     SIGNIFICANT = "significant"
     NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
@@ -1069,8 +1103,12 @@ class NodeKind(StrEnum):
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
-    EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
+    EXPERIMENT_METRIC = "ExperimentMetric"
+    EXPERIMENT_QUERY = "ExperimentQuery"
+    EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
+    EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
+    EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
@@ -1303,15 +1341,6 @@ class RevenueTrackingEventItem(BaseModel):
     revenueProperty: str
 
 
-class RouterMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["ai/router"] = "ai/router"
-
-
 class SamplingRate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1367,6 +1396,7 @@ class StickinessFilterLegacy(BaseModel):
     display: Optional[ChartDisplayType] = None
     hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
     show_legend: Optional[bool] = None
+    show_multiple_y_axes: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
 
 
@@ -1695,10 +1725,8 @@ class AssistantFunnelsFilter(BaseModel):
         description=(
             "Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a"
             " step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default)."
-            " `time_to_convert` - shows a histogram of the time it took to complete the funnel. Use this if the user"
-            " asks about the average time it takes to complete the funnel. `trends` - shows a trend of the whole"
-            " sequence's conversion rate over time. Use this if the user wants to see how the conversion rate changes"
-            " over time."
+            " `time_to_convert` - shows a histogram of the time it took to complete the funnel. `trends` - shows trends"
+            " of the conversion rate of the whole sequence over time."
         ),
     )
     funnelWindowInterval: Optional[int] = Field(
@@ -2169,6 +2197,43 @@ class EventTaxonomyItem(BaseModel):
     property: str
     sample_count: int
     sample_values: list[str]
+
+
+class ExperimentDataWarehouseMetricConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id_field: str
+    id_field: str
+    kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
+    math: Optional[ExperimentMetricMath] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    table_name: str
+    timestamp_field: str
+
+
+class ExperimentEventMetricConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
+    math: Optional[ExperimentMetricMath] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+
+
+class ExperimentMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterTestAccounts: Optional[bool] = None
+    inverse: Optional[bool] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_config: Union[ExperimentEventMetricConfig, ExperimentDataWarehouseMetricConfig]
+    metric_type: ExperimentMetricType
+    name: Optional[str] = None
 
 
 class FeaturePropertyFilter(BaseModel):
@@ -2649,6 +2714,7 @@ class StickinessFilter(BaseModel):
     display: Optional[ChartDisplayType] = None
     hiddenLegendIndexes: Optional[list[int]] = None
     showLegend: Optional[bool] = None
+    showMultipleYAxes: Optional[bool] = None
     showValuesOnSeries: Optional[bool] = None
     stickinessCriteria: Optional[StickinessCriteria] = None
 
@@ -3166,6 +3232,7 @@ class AssistantMessage(BaseModel):
     content: str
     id: Optional[str] = None
     meta: Optional[AssistantMessageMetadata] = None
+    tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
 
 
@@ -6588,6 +6655,35 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     useSessionsTable: Optional[bool] = None
 
 
+class CachedExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    count_query: Optional[TrendsQuery] = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: Optional[TrendsQuery] = None
+    insight: list[dict[str, Any]]
+    is_cached: bool
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    p_value: float
+    probability: dict[str, float]
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    timezone: str
+    variants: list[ExperimentVariantTrendsBaseStats]
+
+
 class CachedExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6756,6 +6852,23 @@ class EventsQuery(BaseModel):
     response: Optional[EventsQueryResponse] = None
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
+
+
+class ExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: Optional[TrendsQuery] = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: Optional[TrendsQuery] = None
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class ExperimentTrendsQueryResponse(BaseModel):
@@ -7187,11 +7300,9 @@ class RetentionQuery(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[
-        Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
-    ]
+    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
 ):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
@@ -7252,6 +7363,20 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     significant: bool
     stats_version: Optional[int] = None
     variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class ExperimentQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: Optional[int] = None
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMetric
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    name: Optional[str] = None
+    response: Optional[ExperimentTrendsQueryResponse] = None
 
 
 class ExperimentTrendsQuery(BaseModel):

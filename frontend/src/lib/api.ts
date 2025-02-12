@@ -1995,8 +1995,8 @@ const api = {
     },
 
     errorTracking: {
-        async getIssue(id: ErrorTrackingIssue['id']): Promise<ErrorTrackingRelationalIssue> {
-            return await new ApiRequest().errorTrackingIssue(id).get()
+        async getIssue(id: ErrorTrackingIssue['id'], fingerprint?: string): Promise<ErrorTrackingRelationalIssue> {
+            return await new ApiRequest().errorTrackingIssue(id).withQueryString(toParams({ fingerprint })).get()
         },
 
         async updateIssue(

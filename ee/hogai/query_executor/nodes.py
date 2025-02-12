@@ -6,17 +6,18 @@ from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from langchain_core.runnables import RunnableConfig
 from rest_framework.exceptions import APIException
-from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.query_executor.format import (
-    compress_and_format_funnels_results,
-    compress_and_format_retention_results,
-    compress_and_format_trends_results,
+    FunnelResultsFormatter,
+    RetentionResultsFormatter,
+    TrendsResultsFormatter,
 )
 from ee.hogai.query_executor.prompts import (
-    QUERY_RESULTS_PROMPT,
     FALLBACK_EXAMPLE_PROMPT,
-    FUNNELS_EXAMPLE_PROMPT,
+    FUNNEL_STEPS_EXAMPLE_PROMPT,
+    FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
+    FUNNEL_TRENDS_EXAMPLE_PROMPT,
+    QUERY_RESULTS_PROMPT,
     RETENTION_EXAMPLE_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
 )
@@ -25,15 +26,16 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssis
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     AssistantFunnelsQuery,
-    AssistantMessage,
     AssistantRetentionQuery,
+    AssistantToolCallMessage,
     AssistantTrendsQuery,
     FailureMessage,
+    FunnelVizType,
     VisualizationMessage,
 )
 
@@ -41,12 +43,16 @@ from posthog.schema import (
 class QueryExecutorNode(AssistantNode):
     name = AssistantNodeName.QUERY_EXECUTOR
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
         if not isinstance(viz_message, VisualizationMessage):
             raise ValueError("Can only run summarization with a visualization message as the last one in the state")
         if viz_message.answer is None:
             raise ValueError("Did not find query in the visualization message")
+
+        tool_call_id = state.root_tool_call_id
+        if not tool_call_id:
+            return None
 
         try:
             results_response = process_query_dict(  # type: ignore
@@ -102,50 +108,47 @@ class QueryExecutorNode(AssistantNode):
             results = json.dumps(results_response["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
             example_prompt = FALLBACK_EXAMPLE_PROMPT
 
+        formatted_query_result = QUERY_RESULTS_PROMPT.format(
+            example=example_prompt,
+            query_kind=viz_message.answer.kind,
+            results=results,
+            utc_datetime_display=self.utc_now,
+            project_datetime_display=self.project_now,
+            project_timezone=self.project_timezone,
+        )
+
         return PartialAssistantState(
             messages=[
-                AssistantMessage(
-                    content=QUERY_RESULTS_PROMPT.format(
-                        example=example_prompt,
-                        query_kind=viz_message.answer.kind,
-                        results=results,
-                        utc_datetime_display=self.utc_now,
-                        project_datetime_display=self.project_now,
-                        project_timezone=self.project_timezone,
-                    ),
-                    id=str(uuid4()),
-                )
-            ]
+                AssistantToolCallMessage(content=formatted_query_result, id=str(uuid4()), tool_call_id=tool_call_id)
+            ],
+            # Resetting values to empty strings because Nones are not supported by LangGraph.
+            root_tool_call_id="",
+            root_tool_insight_plan="",
+            root_tool_insight_type="",
         )
 
     def _compress_results(self, viz_message: VisualizationMessage, results: list[dict]) -> str:
         if isinstance(viz_message.answer, AssistantTrendsQuery):
-            return compress_and_format_trends_results(results)
+            return TrendsResultsFormatter(viz_message.answer, results).format()
         elif isinstance(viz_message.answer, AssistantFunnelsQuery):
-            query_date_range = QueryDateRange(
-                viz_message.answer.dateRange, self._team, viz_message.answer.interval, self._utc_now_datetime
-            )
-            funnel_step_reference = (
-                viz_message.answer.funnelsFilter.funnelStepReference if viz_message.answer.funnelsFilter else None
-            )
-            return compress_and_format_funnels_results(
-                results,
-                date_from=query_date_range.date_from_str,
-                date_to=query_date_range.date_to_str,
-                funnel_step_reference=funnel_step_reference,
-            )
+            return FunnelResultsFormatter(viz_message.answer, results, self._team, self._utc_now_datetime).format()
         elif isinstance(viz_message.answer, AssistantRetentionQuery):
-            return compress_and_format_retention_results(
-                results,
-                viz_message.answer.retentionFilter.period,
-            )
+            return RetentionResultsFormatter(viz_message.answer, results).format()
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
 
     def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:
         if isinstance(viz_message.answer, AssistantTrendsQuery):
             return TRENDS_EXAMPLE_PROMPT
         if isinstance(viz_message.answer, AssistantFunnelsQuery):
-            return FUNNELS_EXAMPLE_PROMPT
+            if (
+                not viz_message.answer.funnelsFilter
+                or not viz_message.answer.funnelsFilter.funnelVizType
+                or viz_message.answer.funnelsFilter.funnelVizType == FunnelVizType.STEPS
+            ):
+                return FUNNEL_STEPS_EXAMPLE_PROMPT
+            if viz_message.answer.funnelsFilter.funnelVizType == FunnelVizType.TIME_TO_CONVERT:
+                return FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT
+            return FUNNEL_TRENDS_EXAMPLE_PROMPT
         if isinstance(viz_message.answer, AssistantRetentionQuery):
             return RETENTION_EXAMPLE_PROMPT
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
