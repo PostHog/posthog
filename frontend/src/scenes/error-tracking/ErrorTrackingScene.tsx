@@ -114,8 +114,24 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
         return null
     }
 
-    return (
-        <div className="flex items-center justify-between min-w-64">
+    const [data, labels] =
+        sparklineSelectedPeriod === '24h'
+            ? [record.aggregations.volumeDay, sparklineLabelsDay]
+            : sparklineSelectedPeriod === '1m'
+            ? [record.aggregations.volumeMonth, sparklineLabelsMonth]
+            : customSparklineConfig
+            ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]
+            : [null, null]
+
+    return data ? <Sparkline className="h-8" data={data} labels={labels} /> : null
+}
+
+const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
+    const { sparklineSelectedPeriod: period, sparklineOptions: options } = useValues(errorTrackingLogic)
+    const { setSparklineSelectedPeriod: onChange } = useActions(errorTrackingLogic)
+
+    return period ? (
+        <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
             <LemonSegmentedButton size="xsmall" value={period} options={options} onChange={onChange} />
         </div>
@@ -149,9 +165,13 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="space-x-1">
-                            <TZLabel time={record.first_seen} className="border-b border-dotted" />
+                            <TZLabel time={record.first_seen} className="border-dotted border-b" />
                             <span>|</span>
-                            <TZLabel time={record.last_seen} className="border-b border-dotted" />
+                            {record.last_seen ? (
+                                <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                            ) : (
+                                <LemonSkeleton />
+                            )}
                         </div>
                     </div>
                 }
