@@ -1,5 +1,6 @@
+from dataclasses import dataclass
 import datetime
-from functools import partial, reduce
+from functools import reduce
 import itertools
 from collections.abc import Iterator
 from typing import ClassVar
@@ -94,6 +95,20 @@ class MaterializeColumnConfig(dagster.Config):
         }
 
 
+@dataclass
+class MaterializeColumnInPartitionTask:
+    table: str
+    column: str
+    partition: str
+
+    def run(self, client: Client) -> None:
+        MutationRunner(
+            self.table,
+            "MATERIALIZE COLUMN %(column)s IN PARTITION %(partition)s",
+            {"column": self.column, "partition": self.partition},
+        ).enqueue(client).wait()
+
+
 @dagster.op
 def run_materialize_mutations(
     context: dagster.OpExecutionContext,
@@ -118,21 +133,12 @@ def run_materialize_mutations(
         len(requested_partitions - remaining_partitions),
     )
 
-    def materialize_column_in_partition(partition: str, client: Client):
-        mutation = MutationRunner(
-            config.table,
-            "MATERIALIZE COLUMN %(column)s IN PARTITION %(partition)s",
-            {"column": config.column, "partition": partition},
-        ).enqueue(client)
-        mutation.wait()
-
     for partition in sorted(remaining_partitions, reverse=True):
         shard_tasks = {
-            shard: partial(materialize_column_in_partition, partition)
-            for shard, partitions in remaining_partitions_by_shard.values()
-            if partition in partitions
+            shard_num: MaterializeColumnInPartitionTask(config.table, config.column, partition).run
+            for shard_num, remaining_partitions_for_shard in remaining_partitions_by_shard.values()
+            if partition in remaining_partitions_for_shard
         }
-        context.log.info("Materializing partition %r in shard(s): %r", partition, shard_tasks.keys())
         cluster.map_any_host_in_shards(shard_tasks).result()
 
 
