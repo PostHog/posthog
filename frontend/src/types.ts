@@ -520,6 +520,32 @@ export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
 
+export type HTMLInputType =
+    | 'password'
+    | 'color'
+    | 'date'
+    | 'datetime-local'
+    | 'email'
+    | 'month'
+    | 'number'
+    | 'range'
+    | 'search'
+    | 'tel'
+    | 'text'
+    | 'time'
+    | 'url'
+    | 'week'
+    | 'textarea'
+    | 'select'
+
+export type SessionRecordingMaskingInputOptions = Partial<Record<HTMLInputType, boolean>>
+
+export interface SessionRecordingMaskingConfig {
+    maskAllInputs?: boolean
+    maskInputOptions?: SessionRecordingMaskingInputOptions
+    maskTextSelector?: string
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -541,6 +567,7 @@ export interface TeamType extends TeamBasicType {
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
+    session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean

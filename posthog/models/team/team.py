@@ -260,6 +260,7 @@ class Team(UUIDClassicModel):
     )
     session_recording_linked_flag = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)
+    session_recording_masking_config = models.JSONField(null=True, blank=True)
     session_recording_url_trigger_config = ArrayField(
         models.JSONField(null=True, blank=True), default=list, blank=True, null=True
     )

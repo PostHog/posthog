@@ -106,6 +106,12 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "recordBody": true,
           "recordHeaders": true,
         },
+        "session_recording_masking_config": {
+          "maskAllInputs": true,
+          "maskInputOptions": {
+            "password": true,
+          },
+        },
         "session_recording_opt_in": true,
         "session_recording_sample_rate": "1.0",
         "session_replay_config": null,

@@ -426,6 +426,48 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["networkPayloadCapture"], {"recordHeaders": True})
 
+    def test_session_recording_masking_config(self, *args):
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"]["maskingConfig"], None)
+
+        self._update_team({"session_recording_masking_config": {"maskAllInputs": True, "maskTextSelector": True}})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["sessionRecording"]["maskingConfig"], {"maskAllInputs": True, "maskTextSelector": True}
+        )
+
+        self._update_team(
+            {"session_recording_masking_config": {"maskAllInputs": True, "maskInputOptions": {"password": True}}}
+        )
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["sessionRecording"]["maskingConfig"],
+            {"maskAllInputs": True, "maskInputOptions": {"password": True}},
+        )
+
+        self._update_team(
+            {
+                "session_recording_masking_config": {
+                    "maskAllInputs": True,
+                    "maskInputOptions": {"password": True, "email": False, "text": True},
+                }
+            }
+        )
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["sessionRecording"]["maskingConfig"],
+            {"maskAllInputs": True, "maskInputOptions": {"password": True, "email": False, "text": True}},
+        )
+
     def test_session_recording_empty_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching
 
