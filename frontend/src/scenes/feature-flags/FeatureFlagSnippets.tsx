@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { GroupType } from '~/types'
@@ -185,11 +184,7 @@ export function GolangSnippet({
             <>
                 <CodeSnippet language={Language.Go} wrap>
                     {`// Must initialize SDK with a personal API key to enable payload decryption
-decryptedFlagPayload, err := ${clientSuffix}GetDecryptedFeatureFlagPayload(
-    FeatureFlagPayload{
-        Key: "${flagKey}"
-    }
-)`}
+decryptedFlagPayload, err := ${clientSuffix}GetDecryptedFeatureFlagPayload("${flagKey}")`}
                 </CodeSnippet>
             </>
         )
@@ -512,8 +507,7 @@ function App() {
     )
 }
 
-export function APISnippet({ groupType, encryptedPayload }: FeatureFlagSnippet): JSX.Element {
-    const { featureFlag } = useValues(featureFlagLogic)
+export function APISnippet({ flagKey, groupType, encryptedPayload }: FeatureFlagSnippet): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const groupAddition = groupType
@@ -526,7 +520,7 @@ export function APISnippet({ groupType, encryptedPayload }: FeatureFlagSnippet):
             <>
                 <CodeSnippet language={Language.Bash} wrap>
                     {`curl ${apiHostOrigin()}/api/projects/${currentTeam?.id || ':projectId'}/feature_flags/${
-                        featureFlag.id || ':featureFlagId'
+                        flagKey || ':featureFlagKey'
                     }/remote_config/ \\
 -H 'Content-Type: application/json' \\
 -H 'Authorization: Bearer [personal_api_key]'`}
