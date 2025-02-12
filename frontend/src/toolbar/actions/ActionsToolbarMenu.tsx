@@ -32,13 +32,12 @@ const ActionsListToolbarMenu = (): JSX.Element => {
         <ToolbarMenu>
             <ToolbarMenu.Header>
                 <LemonInput
-                    autoFocus
-                    fullWidth
+                    autoFocus={true}
+                    fullWidth={true}
                     placeholder="Search"
                     type="search"
                     value={searchTerm}
                     onChange={(s) => setSearchTerm(s)}
-                    className="Toolbar__top_input"
                 />
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
