@@ -225,8 +225,9 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
 
 @receiver(models.signals.post_save, sender=Team)
 def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    if settings.DISABLE_MMDB:
+    if settings.DISABLE_MMDB or not created:
         return
+
     # New way: Create GeoIP transformation
     from posthog.models.hog_functions.hog_function import HogFunction
 
