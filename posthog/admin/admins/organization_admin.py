@@ -132,6 +132,10 @@ class OrganizationAdmin(admin.ModelAdmin):
         return super().changelist_view(request, extra_context=extra_context)
 
     def run_rbac_team_migration(self, request, organization_id):
+        if not request.user.groups.filter(name="Billing Team").exists():
+            messages.error(request, "You are not authorized to run RBAC team migrations.")
+            return redirect(reverse("admin:posthog_organization_changelist"))
+
         try:
             organization = Organization.objects.get(id=organization_id)
             rbac_team_access_control_migration(organization.id)
@@ -141,6 +145,10 @@ class OrganizationAdmin(admin.ModelAdmin):
         return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
 
     def run_rbac_feature_flag_migration(self, request, organization_id):
+        if not request.user.groups.filter(name="Billing Team").exists():
+            messages.error(request, "You are not authorized to run RBAC feature flag migrations.")
+            return redirect(reverse("admin:posthog_organization_changelist"))
+
         try:
             organization = Organization.objects.get(id=organization_id)
             rbac_feature_flag_role_access_migration(organization.id)
