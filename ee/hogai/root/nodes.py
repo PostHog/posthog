@@ -45,6 +45,8 @@ root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight])
 
 
 class RootNode(AssistantNode):
+    MAX_TOOL_CALLS = 4
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -121,7 +123,7 @@ class RootNode(AssistantNode):
         return history
 
     def _is_hard_limit_reached(self, state: AssistantState) -> bool:
-        return state.root_tool_calls_count is not None and state.root_tool_calls_count >= 4
+        return state.root_tool_calls_count is not None and state.root_tool_calls_count >= self.MAX_TOOL_CALLS
 
 
 class RootNodeTools(AssistantNode):
