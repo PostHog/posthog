@@ -12,9 +12,9 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 
 
 def test_partition_range():
-    assert set(PartitionRange(lower="202401", upper="202403")) == {"202401", "202402", "202403"}
+    assert set(PartitionRange(lower="202401", upper="202403").iter()) == {"202401", "202402", "202403"}
 
-    assert set(PartitionRange(lower="202403", upper="202401")) == set()
+    assert set(PartitionRange(lower="202403", upper="202401").iter()) == set()
 
     with pytest.raises(pydantic.ValidationError):
         PartitionRange(lower="2024XX", upper="202403")
@@ -30,13 +30,13 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
     config = MaterializeColumnConfig(
         table="sharded_events",
         column=column,
-        partitions=PartitionRange(upper="202401", lower="202412"),
+        partitions=PartitionRange(lower="202401", upper="202412"),
     )
 
     # TODO: make sure all parts are wide
     remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
     for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
-        assert shard_partitions_remaining == set(config.partitions)
+        assert shard_partitions_remaining == set(config.partitions.iter())
 
     materialize_column.execute_in_process(
         run_config=dagster.RunConfig(
@@ -45,4 +45,6 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
         resources={"cluster": cluster},
     )
 
-    # TODO: check if column was materialized in all parts
+    remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
+    for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
+        assert shard_partitions_remaining == set()

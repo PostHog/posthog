@@ -19,7 +19,7 @@ class PartitionRange(dagster.Config):
 
     FORMAT: ClassVar[str] = "%Y%m"
 
-    def __iter__(self) -> Iterator[str]:
+    def iter(self) -> Iterator[str]:
         date_lower = self.parse_date(self.lower)
         date_upper = self.parse_date(self.upper)
         seq = itertools.count()
@@ -64,25 +64,25 @@ class MaterializeColumnConfig(dagster.Config):
             partition
             for [partition] in client.execute(
                 """
-            SELECT partition
-            FROM system.parts_columns
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND part_type != 'Compact'  -- can't get column sizes from compact parts; should be small enough to ignore anyway
-                AND active
-                AND column IN (%(key_column)s, %(column)s)
-                AND partition IN %(partitions)s
-            GROUP BY partition
-            HAVING countIf(column = %(key_column)s) > countIf(column = %(column)s)
-            ORDER BY partition DESC
-            """,
+                SELECT partition
+                FROM system.parts_columns
+                WHERE
+                    database = %(database)s
+                    AND table = %(table)s
+                    AND part_type != 'Compact'  -- can't get column sizes from compact parts; should be small enough to ignore anyway
+                    AND active
+                    AND column IN (%(key_column)s, %(column)s)
+                    AND partition IN %(partitions)s
+                GROUP BY partition
+                HAVING countIf(column = %(key_column)s) > countIf(column = %(column)s)
+                ORDER BY partition DESC
+                """,
                 {
                     "database": settings.CLICKHOUSE_DATABASE,
                     "table": self.table,
                     "key_column": key_column,
                     "column": self.column,
-                    "partitions": [*self.partitions],
+                    "partitions": [*self.partitions.iter()],
                 },
             )
         }
@@ -99,7 +99,7 @@ def run_materialize_mutations(
         # have the same set of partitions already materialized, or that a materialization mutation already exists (and
         # is running) if they are lagging behind. (If _this_ host is lagging behind the others, the mutation runner
         # should prevent us from scheduling duplicate mutations on the shard.)
-        requested_partitions = set(config.partitions)
+        requested_partitions = set(config.partitions.iter())
         remaining_partitions = set(config.get_remaining_partitions(client))
         context.log.info(
             "Materializing %s of %s requested partitions (%s already materialized)",
