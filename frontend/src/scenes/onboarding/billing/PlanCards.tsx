@@ -64,9 +64,16 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
     const projectLimitFeature = platformPlan?.features.find((feature) => feature.key === 'organizations_projects')
 
     const features = [
-        ...(projectLimitFeature?.limit ? [{ name: `${projectLimitFeature.limit} projects`, available: true }] : []),
+        ...(projectLimitFeature?.limit
+            ? [
+                  {
+                      name: `${projectLimitFeature.limit} project${projectLimitFeature.limit === 1 ? '' : 's'}`,
+                      available: true,
+                  },
+              ]
+            : []),
         ...(dataRetentionFeature?.limit
-            ? [{ name: `${dataRetentionFeature.limit} year data retention`, available: true }]
+            ? [{ name: `${dataRetentionFeature.limit}-year data retention`, available: true }]
             : []),
         ...planData.features,
     ]
