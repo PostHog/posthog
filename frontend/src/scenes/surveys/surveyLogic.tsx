@@ -6,7 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, hasFormErrors, isObject } from 'lib/utils'
+import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,6 +18,7 @@ import {
     AnyPropertyFilter,
     BaseMathType,
     Breadcrumb,
+    EventPropertyFilter,
     FeatureFlagFilters,
     MultipleSurveyQuestion,
     PropertyFilterType,
@@ -41,20 +42,20 @@ const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: Prop
         value: PropertyOperator.IContains,
     },
     [SurveyQuestionType.Rating]: {
-        label: allOperatorsMapping[PropertyOperator.LessThan],
-        value: PropertyOperator.LessThan,
+        label: allOperatorsMapping[PropertyOperator.Exact],
+        value: PropertyOperator.Exact,
     },
     [SurveyQuestionType.SingleChoice]: {
-        label: allOperatorsMapping[PropertyOperator.IContains],
-        value: PropertyOperator.IContains,
+        label: allOperatorsMapping[PropertyOperator.Exact],
+        value: PropertyOperator.Exact,
     },
     [SurveyQuestionType.MultipleChoice]: {
-        label: allOperatorsMapping[PropertyOperator.IContains],
-        value: PropertyOperator.IContains,
+        label: allOperatorsMapping[PropertyOperator.Exact],
+        value: PropertyOperator.Exact,
     },
     [SurveyQuestionType.Link]: {
-        label: allOperatorsMapping[PropertyOperator.IContains],
-        value: PropertyOperator.IContains,
+        label: allOperatorsMapping[PropertyOperator.Exact],
+        value: PropertyOperator.Exact,
     },
 }
 
@@ -147,6 +148,12 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     }
 }
 
+function getFilterForQuestion(questionIndex: number, filters: EventPropertyFilter[]): AnyPropertyFilter[] {
+    return filters.filter(
+        (f) => f.key === (questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`)
+    )
+}
+
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
@@ -209,8 +216,8 @@ export const surveyLogic = kea<surveyLogicType>([
         resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
-        setAnswerFilters: (filters: AnyPropertyFilter[]) => ({ filters }),
-        addAnswerFilter: (filter: AnyPropertyFilter) => ({ filter }),
+        setAnswerFilters: (filters: EventPropertyFilter[]) => ({ filters }),
+        addAnswerFilter: (filter: EventPropertyFilter) => ({ filter }),
         removeAnswerFilter: (index: number) => ({ index }),
     }),
     loaders(({ props, actions, values }) => ({
@@ -333,7 +340,7 @@ export const surveyLogic = kea<surveyLogicType>([
                                     AND {filters})
                     `,
                     filters: {
-                        properties: values.propertyFilters,
+                        properties: [...values.propertyFilters, ...values.answerFilters],
                     },
                 }
 
@@ -382,7 +389,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         GROUP BY survey_response
                     `,
                     filters: {
-                        properties: values.propertyFilters,
+                        properties: [
+                            ...values.propertyFilters,
+                            ...getFilterForQuestion(questionIndex, values.answerFilters),
+                        ],
                     },
                 }
 
@@ -437,7 +447,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         GROUP BY survey_response, survey_iteration
                     `,
                     filters: {
-                        properties: values.propertyFilters,
+                        properties: [
+                            ...values.propertyFilters,
+                            ...getFilterForQuestion(questionIndex, values.answerFilters),
+                        ],
                     },
                 }
 
@@ -520,7 +533,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         GROUP BY survey_response
                     `,
                     filters: {
-                        properties: values.propertyFilters,
+                        properties: [
+                            ...values.propertyFilters,
+                            ...getFilterForQuestion(questionIndex, values.answerFilters),
+                        ],
                     },
                 }
 
@@ -567,7 +583,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         ORDER BY count() DESC
                     `,
                     filters: {
-                        properties: values.propertyFilters,
+                        properties: [
+                            ...values.propertyFilters,
+                            ...getFilterForQuestion(questionIndex, values.answerFilters),
+                        ],
                     },
                 }
 
@@ -624,7 +643,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         LIMIT 20
                     `,
                     filters: {
-                        properties: values.propertyFilters,
+                        properties: [
+                            ...values.propertyFilters,
+                            ...getFilterForQuestion(questionIndex, values.answerFilters),
+                        ],
                     },
                 }
 
@@ -644,29 +666,34 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     listeners(({ actions, values }) => {
-        const reloadAllSurveyResults = (): void => {
+        const reloadAllSurveyResults = debounce((): void => {
             // Load survey user stats
             actions.loadSurveyUserStats()
 
             // Load results for each question
             values.survey.questions.forEach((question, index) => {
-                if (question.type === SurveyQuestionType.Rating) {
-                    actions.loadSurveyRatingResults({
-                        questionIndex: index,
-                        iteration: values.survey.current_iteration,
-                    })
-                    if (values.survey.iteration_count && values.survey.iteration_count > 0) {
-                        actions.loadSurveyRecurringNPSResults({ questionIndex: index })
-                    }
-                } else if (question.type === SurveyQuestionType.SingleChoice) {
-                    actions.loadSurveySingleChoiceResults({ questionIndex: index })
-                } else if (question.type === SurveyQuestionType.MultipleChoice) {
-                    actions.loadSurveyMultipleChoiceResults({ questionIndex: index })
-                } else if (question.type === SurveyQuestionType.Open) {
-                    actions.loadSurveyOpenTextResults({ questionIndex: index })
+                switch (question.type) {
+                    case SurveyQuestionType.Rating:
+                        actions.loadSurveyRatingResults({
+                            questionIndex: index,
+                            iteration: values.survey.current_iteration,
+                        })
+                        if (values.survey.iteration_count && values.survey.iteration_count > 0) {
+                            actions.loadSurveyRecurringNPSResults({ questionIndex: index })
+                        }
+                        break
+                    case SurveyQuestionType.SingleChoice:
+                        actions.loadSurveySingleChoiceResults({ questionIndex: index })
+                        break
+                    case SurveyQuestionType.MultipleChoice:
+                        actions.loadSurveyMultipleChoiceResults({ questionIndex: index })
+                        break
+                    case SurveyQuestionType.Open:
+                        actions.loadSurveyOpenTextResults({ questionIndex: index })
+                        break
                 }
             })
-        }
+        }, 1000)
 
         return {
             createSurveySuccess: ({ survey }) => {
@@ -1005,7 +1032,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         answerFilters: [
-            [] as AnyPropertyFilter[],
+            [] as EventPropertyFilter[],
             {
                 setAnswerFilters: (_, { filters }) => filters,
                 addAnswerFilter: (state, { filter }) => [...state, filter],

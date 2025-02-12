@@ -5,6 +5,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
+    EventPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     Survey,
@@ -1553,5 +1554,157 @@ describe('survey filters', () => {
                     }),
                 }),
             })
+    })
+})
+
+describe('answer filters', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = surveyLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    it('applies answer filters to queries', async () => {
+        const answerFilter: EventPropertyFilter = {
+            key: '$survey_response',
+            value: 'test response',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Event,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setAnswerFilters([answerFilter])
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setAnswerFilters'])
+            .toMatchValues({
+                answerFilters: [answerFilter],
+                dataTableQuery: partial({
+                    source: partial({
+                        properties: expect.arrayContaining([answerFilter]),
+                    }),
+                }),
+            })
+    })
+
+    it('only applies relevant answer filter to question-specific queries', async () => {
+        const answerFilters: EventPropertyFilter[] = [
+            {
+                key: '$survey_response',
+                value: 'first question',
+                operator: PropertyOperator.IContains,
+                type: PropertyFilterType.Event,
+            },
+            {
+                key: '$survey_response_1',
+                value: 'second question',
+                operator: PropertyOperator.IContains,
+                type: PropertyFilterType.Event,
+            },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess({
+                ...MULTIPLE_CHOICE_SURVEY,
+                questions: [
+                    MULTIPLE_CHOICE_SURVEY.questions[0],
+                    { ...MULTIPLE_CHOICE_SURVEY.questions[0], question: 'Second question' },
+                ],
+            })
+            logic.actions.setAnswerFilters(answerFilters)
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setAnswerFilters'])
+            .toMatchValues({
+                answerFilters: answerFilters,
+            })
+
+        // Mock the query response
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/': () => [
+                    200,
+                    {
+                        results: [
+                            [336, '"Tutorials"'],
+                            [312, '"Customer case studies"'],
+                        ],
+                    },
+                ],
+            },
+        })
+
+        // Load results for first question
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveyMultipleChoiceResults({ questionIndex: 0 })
+        }).toMatchValues({
+            dataTableQuery: partial({
+                source: partial({
+                    properties: expect.arrayContaining([answerFilters[0]]),
+                }),
+            }),
+        })
+
+        // Load results for second question
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveyMultipleChoiceResults({ questionIndex: 1 })
+        }).toMatchValues({
+            dataTableQuery: partial({
+                source: partial({
+                    properties: expect.arrayContaining([answerFilters[1]]),
+                }),
+            }),
+        })
+    })
+
+    it('can add and remove answer filters', async () => {
+        const firstFilter: EventPropertyFilter = {
+            key: '$survey_response',
+            value: 'first response',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Event,
+        }
+        const secondFilter: EventPropertyFilter = {
+            key: '$survey_response_1',
+            value: 'second response',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Event,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.addAnswerFilter(firstFilter)
+            logic.actions.addAnswerFilter(secondFilter)
+        })
+            .toDispatchActions(['loadSurveySuccess', 'addAnswerFilter', 'addAnswerFilter'])
+            .toMatchValues({
+                answerFilters: expect.arrayContaining([firstFilter, secondFilter]),
+            })
+
+        await expectLogic(logic, () => {
+            logic.actions.removeAnswerFilter(0)
+        })
+            .toDispatchActions(['removeAnswerFilter'])
+            .toMatchValues({
+                answerFilters: [secondFilter],
+            })
+    })
+
+    it('reloads survey results when answer filters change', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        const answerFilter: EventPropertyFilter = {
+            key: '$survey_response',
+            value: 'test response',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Event,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.setAnswerFilters([answerFilter])
+        }).toDispatchActions(['setAnswerFilters', 'loadSurveyUserStats', 'loadSurveyMultipleChoiceResults'])
     })
 })

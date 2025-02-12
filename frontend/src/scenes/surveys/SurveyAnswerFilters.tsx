@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { allOperatorsMapping } from 'lib/utils'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
+import { EventPropertyFilter, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
 
@@ -20,8 +20,8 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
     [SurveyQuestionType.Rating]: [
         { label: allOperatorsMapping[PropertyOperator.Exact], value: PropertyOperator.Exact },
         { label: allOperatorsMapping[PropertyOperator.IsNot], value: PropertyOperator.IsNot },
-        { label: allOperatorsMapping[PropertyOperator.GreaterThan], value: PropertyOperator.GreaterThan },
-        { label: allOperatorsMapping[PropertyOperator.LessThan], value: PropertyOperator.LessThan },
+        { label: allOperatorsMapping[PropertyOperator.Regex], value: PropertyOperator.Regex },
+        { label: allOperatorsMapping[PropertyOperator.NotRegex], value: PropertyOperator.NotRegex },
     ],
     [SurveyQuestionType.SingleChoice]: [
         { label: allOperatorsMapping[PropertyOperator.IContains], value: PropertyOperator.IContains },
@@ -59,19 +59,22 @@ export function SurveyAnswerFilters(): JSX.Element {
         )
 
         if (filterIndex >= 0) {
+            // Ensure we're working with an EventPropertyFilter
+            const existingFilter = newFilters[filterIndex]
             newFilters[filterIndex] = {
-                ...newFilters[filterIndex],
+                ...existingFilter,
                 [field]: value,
+                type: PropertyFilterType.Event, // Ensure type is always set
             }
             setAnswerFilters(newFilters)
         }
     }
 
-    const getFilterForQuestion = (questionIndex: number): AnyPropertyFilter | undefined => {
-        if (questionIndex === 0) {
-            return answerFilters.find((f) => f.key === '$survey_response')
-        }
-        return answerFilters.find((f) => f.key === `$survey_response_${questionIndex}`)
+    const getFilterForQuestion = (questionIndex: number): EventPropertyFilter | undefined => {
+        const filter = answerFilters.find(
+            (f) => f.key === (questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`)
+        )
+        return filter
     }
 
     return (
@@ -111,24 +114,27 @@ export function SurveyAnswerFilters(): JSX.Element {
                                     />
                                 </div>
                                 <div className="col-span-2">
-                                    {![PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(
-                                        currentFilter?.operator as PropertyOperator
-                                    ) && (
-                                        <PropertyValue
-                                            propertyKey={index === 0 ? '$survey_response' : `$survey_response_${index}`}
-                                            type={PropertyFilterType.Event}
-                                            operator={currentFilter?.operator as PropertyOperator}
-                                            value={currentFilter?.value || []}
-                                            onSet={(value: string[]) => handleUpdateFilter(index, 'value', value)}
-                                            placeholder={
-                                                question.type === SurveyQuestionType.Rating
-                                                    ? 'Enter a number'
-                                                    : question.type === SurveyQuestionType.Open
-                                                    ? 'Enter text to match'
-                                                    : 'Select values'
-                                            }
-                                        />
-                                    )}
+                                    {currentFilter?.operator &&
+                                        ![PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(
+                                            currentFilter.operator
+                                        ) && (
+                                            <PropertyValue
+                                                propertyKey={
+                                                    index === 0 ? '$survey_response' : `$survey_response_${index}`
+                                                }
+                                                type={PropertyFilterType.Event}
+                                                operator={currentFilter.operator}
+                                                value={currentFilter.value || []}
+                                                onSet={(value: any) => handleUpdateFilter(index, 'value', value)}
+                                                placeholder={
+                                                    question.type === SurveyQuestionType.Rating
+                                                        ? 'Enter a number'
+                                                        : question.type === SurveyQuestionType.Open
+                                                        ? 'Enter text to match'
+                                                        : 'Select values'
+                                                }
+                                            />
+                                        )}
                                 </div>
                             </div>
                         )
