@@ -53,14 +53,14 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>, 
         distinctId = new UUID7().toString()
     }
 
-    let flattened = {}
+    let additionalProperties = {}
     if (hint) {
-        flattened = {
+        additionalProperties = {
             level: hint?.level,
             ...(hint.tags || {}),
             ...(hint.extra || {}),
         }
     }
-    posthog.captureException(exception, distinctId, flattened)
+    posthog.captureException(exception, distinctId, additionalProperties)
     return sentryId
 }
