@@ -591,6 +591,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # TRICKY: We pass in `team` here as access to `user.current_team` can fail if it was deleted
         report_user_action(user, f"team deleted", team=team)
 
+    # Override patch method to only require team:read scope - this is a temporary change until we
+    # split the patch requests into ones allowed vs ones not allowed
+    @action(required_scopes=["team:read"])
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+
     @action(
         methods=["PATCH"],
         detail=True,
@@ -630,6 +636,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["PATCH"],
         detail=True,
+        required_scopes=["team:read"],
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
@@ -683,7 +690,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
 
-    @action(methods=["PATCH"], detail=True)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        required_scopes=["team:read"],
+    )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
         product_type = request.data.get("product_type")

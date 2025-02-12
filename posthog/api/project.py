@@ -570,6 +570,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["PATCH"],
         detail=True,
+        required_scopes=["team:read"],
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
@@ -609,7 +610,17 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
 
-    @action(methods=["PATCH"], detail=True)
+    # Override patch method to only require team:read scope - this is a temporary change until we
+    # split the patch requests into ones allowed vs ones not allowed
+    @action(required_scopes=["team:read"])
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        required_scopes=["team:read"],
+    )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
         team = project.passthrough_team
