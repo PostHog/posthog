@@ -44,11 +44,7 @@ export function TreeView(): JSX.Element {
                                                 {data?.type === 'folder' || data?.type === 'project' ? (
                                                     <LemonButton
                                                         onClick={() => {
-                                                            const folder = prompt(
-                                                                'Folder name?',
-                                                                (data.folder ? data.folder + '/' : '') +
-                                                                    (data.name ? data.name + '/' : '')
-                                                            )
+                                                            const folder = prompt('Folder name?', data.path)
                                                             if (folder) {
                                                                 addFolder(folder)
                                                             }
@@ -63,7 +59,7 @@ export function TreeView(): JSX.Element {
                                                         const oldPath = data.path
                                                         const folder = prompt('New name?', oldPath)
                                                         if (folder && folder !== oldPath) {
-                                                            if (data.meta.custom) {
+                                                            if (data.meta?.custom) {
                                                                 renameItem(oldPath, folder)
                                                             } else {
                                                                 for (const item of rawProjectTree) {
@@ -72,7 +68,6 @@ export function TreeView(): JSX.Element {
                                                                         item.path === oldPath ||
                                                                         item.path.startsWith(oldPath + '/')
                                                                     ) {
-                                                                        console.log({ item })
                                                                         createItem({
                                                                             ...item,
                                                                             path:
