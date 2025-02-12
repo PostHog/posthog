@@ -4,11 +4,8 @@ import { LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { Query } from '~/queries/Query/Query'
-import { ExperimentQuery, NodeKind, ExperimentMetricType, ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -16,11 +13,8 @@ import { commonActionFilterProps } from './Selectors'
 import { metricToFilter } from '../utils'
 
 export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
-    const { experiment, isExperimentRunning, editingPrimaryMetricIndex, editingSecondaryMetricIndex } =
-        useValues(experimentLogic)
+    const { experiment, editingPrimaryMetricIndex, editingSecondaryMetricIndex } = useValues(experimentLogic)
     const { setMetric } = useActions(experimentLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     const metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
     const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
@@ -29,8 +23,9 @@ export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }
         return <></>
     }
 
-    // Cast to unknown first to avoid type errors when transitioning to the new ExperimentQuery type
-    const currentMetric = metrics[metricIdx] as unknown as ExperimentMetric
+    // TODO: We have to verify that all metrics are of type ExperimentMetric
+    // before we hit any new code paths.
+    const currentMetric = metrics[metricIdx] as ExperimentMetric
 
     return (
         <>
