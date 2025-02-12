@@ -57,7 +57,7 @@ class RootNode(AssistantNode):
         utc_now = datetime.datetime.now(datetime.UTC)
         project_now = utc_now.astimezone(self._team.timezone_info)
 
-        message: LangchainAIMessage = chain.invoke(
+        message = chain.invoke(
             {
                 "core_memory": self.core_memory_text,
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -66,6 +66,7 @@ class RootNode(AssistantNode):
             },
             config,
         )
+        message = cast(LangchainAIMessage, message)
 
         return PartialAssistantState(
             messages=[
@@ -80,7 +81,7 @@ class RootNode(AssistantNode):
             ]
         )
 
-    def _get_model(self, state: AssistantState) -> ChatOpenAI:
+    def _get_model(self, state: AssistantState):
         # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
         base_model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True)
