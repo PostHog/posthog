@@ -65,7 +65,8 @@ export PGPASSWORD="${PGPASSWORD:=posthog}"
 export PGPORT="${PGPORT:=5432}"
 export DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DATABASE}"
 export CLOUD_DEPLOYMENT=E2E
-export START_CYPRESS="${START_CYPRESS:-1}"
+export START_CYPRESS="${START_CYPRESS:-0}"
+export START_PLAYWRIGHT="${START_PLAYWRIGHT:-0}"
 
 source ./bin/celery-queues.env
 
@@ -99,16 +100,16 @@ $SKIP_RECREATE_DATABASE || recreateDatabases
 $SKIP_MIGRATE || migrateDatabases
 $SKIP_SETUP_DEV || setupDev
 
-if [ "$START_CYPRESS" ]; then
-  # parallel block
-  # Only start webpack if not already running
-  nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
-  pnpm cypress open --config-file cypress.e2e.config.ts &
-  python manage.py run_autoreload_celery --type=worker &
-  python manage.py runserver 8080
+# parallel block
+# Only start webpack if not already running
+nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
+python manage.py run_autoreload_celery --type=worker &
+python manage.py runserver 8080 &
+
+if [ "$START_CYPRESS" -eq 1 ] 2>/dev/null; then
+  pnpm cypress open --config-file cypress.e2e.config.ts
+elif [ "$START_PLAYWRIGHT" -eq 1 ] 2>/dev/null; then
+  pnpm exec playwright test --ui
 else
-  # parallel block
-  # Only start webpack if not already running
-  nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
-  python manage.py runserver 8080
+  echo "Must set START_CYPRESS or START_PLAYWRIGHT to 1"
 fi
