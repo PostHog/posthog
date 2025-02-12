@@ -286,7 +286,35 @@ def get_decide(request: HttpRequest):
         flags_response = {}
         disable_flags = process_bool(data.get("disable_flags")) is True
 
-        if not disable_flags:
+        if disable_flags:
+            flags_response = {
+                "featureFlags": {},
+                "errorsWhileComputingFlags": False,
+                "featureFlagPayloads": {},
+            }
+        elif settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
+            from ee.billing.quota_limiting import (
+                QuotaLimitingCaches,
+                QuotaResource,
+                list_limited_team_attributes,
+            )
+
+            limited_tokens_flags = list_limited_team_attributes(
+                QuotaResource.FEATURE_FLAGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+
+            if token in limited_tokens_flags:
+                flags_response = {
+                    "quotaLimited": ["feature_flags"],
+                    "featureFlags": {},
+                    "errorsWhileComputingFlags": False,
+                    "featureFlagPayloads": {},
+                }
+            else:
+                flags_response = compute_feature_flags(
+                    request, data, team, token, api_version, is_request_sampled_for_logging
+                )
+        else:
             flags_response = compute_feature_flags(
                 request, data, team, token, api_version, is_request_sampled_for_logging
             )
@@ -298,9 +326,10 @@ def get_decide(request: HttpRequest):
         if flags_response.get("quotaLimited"):
             response["quotaLimited"] = flags_response["quotaLimited"]
             response["featureFlags"] = {}
+            response["errorsWhileComputingFlags"] = False
             if "featureFlagPayloads" in flags_response:
                 response["featureFlagPayloads"] = {}
-        elif not disable_flags:  # Only update flags if not disabled
+        else:  # Only update flags if not quota limited
             response.update(flags_response)
         # NOTE: Whenever you add something to decide response, update this test:
         # `test_decide_doesnt_error_out_when_database_is_down`
