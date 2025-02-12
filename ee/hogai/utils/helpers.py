@@ -20,7 +20,7 @@ def remove_line_breaks(line: str) -> str:
     return line.replace("\n", " ")
 
 
-def filter_messages(
+def filter_and_merge_messages(
     messages: Sequence[AssistantMessageUnion],
     entity_filter: Union[tuple[type[AssistantMessageUnion], ...], type[AssistantMessageUnion]] = (
         AssistantMessage,
