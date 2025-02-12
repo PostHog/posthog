@@ -3,11 +3,11 @@ from collections.abc import Generator, Iterator
 from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
+import posthoganalytics
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-import posthoganalytics
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
@@ -38,6 +38,7 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
+    AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
@@ -157,7 +158,7 @@ class Assistant:
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
-            "recursion_limit": 24,
+            "recursion_limit": 40,
             "callbacks": callbacks,
             "configurable": {"thread_id": self._conversation.id},
         }
@@ -250,7 +251,14 @@ class Assistant:
             if node_val := state_update.get(node_name):
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
-                    return node_val.messages[0]
+                    message = node_val.messages[0]
+                    # Filter out tool calls and empty assistant messages
+                    if not isinstance(message, AssistantToolCallMessage) and (
+                        not isinstance(message, AssistantMessage)
+                        or isinstance(message, AssistantMessage)
+                        and message.content
+                    ):
+                        return message
 
         return None
 
@@ -286,7 +294,7 @@ class Assistant:
             output += f"event: {AssistantEventType.STATUS}\n"
         else:
             output += f"event: {AssistantEventType.MESSAGE}\n"
-        return output + f"data: {message.model_dump_json(exclude_none=True)}\n\n"
+        return output + f"data: {message.model_dump_json(exclude_none=True, exclude={'tool_calls'})}\n\n"
 
     def _serialize_conversation(self) -> str:
         output = f"event: {AssistantEventType.CONVERSATION}\n"

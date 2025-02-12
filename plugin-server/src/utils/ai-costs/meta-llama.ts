@@ -9,6 +9,13 @@ export const costs: ModelRow[] = [
         },
     },
     {
+        model: 'llama-3.3-70b-instruct:nitro',
+        cost: {
+            prompt_token: 0.00000059,
+            completion_token: 0.00000079,
+        },
+    },
+    {
         model: 'llama-3.2-3b-instruct:free',
         cost: {
             prompt_token: 0,
@@ -109,8 +116,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.1-8b-instruct:nitro',
         cost: {
-            prompt_token: 0.00000018,
-            completion_token: 0.00000018,
+            prompt_token: 0.00000005,
+            completion_token: 0.00000008,
         },
     },
     {
@@ -153,13 +160,6 @@ export const costs: ModelRow[] = [
         cost: {
             prompt_token: 0.00000003,
             completion_token: 0.00000006,
-        },
-    },
-    {
-        model: 'llama-3-8b-instruct:extended',
-        cost: {
-            prompt_token: 0.0000001875,
-            completion_token: 0.000001125,
         },
     },
     {

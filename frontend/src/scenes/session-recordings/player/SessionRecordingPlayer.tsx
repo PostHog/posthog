@@ -6,7 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -130,7 +130,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         [isFullScreen]
     )
 
-    usePageVisibility((pageIsVisible) => {
+    usePageVisibilityCb((pageIsVisible) => {
         if (!pageIsVisible) {
             setPause()
         }

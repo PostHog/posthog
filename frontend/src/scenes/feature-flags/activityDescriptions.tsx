@@ -254,6 +254,7 @@ const featureFlagActionsMapping: Record<
     surveys: () => null,
     user_access_level: () => null,
     is_remote_configuration: () => null,
+    status: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
