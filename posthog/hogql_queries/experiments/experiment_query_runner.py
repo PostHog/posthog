@@ -30,11 +30,11 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
-    CachedExperimentTrendsQueryResponse,
+    CachedExperimentQueryResponse,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
-    ExperimentFunnelsQueryResponse,
     ExperimentMetricType,
+    ExperimentQueryResponse,
     ExperimentSignificanceCode,
     ExperimentQuery,
     ExperimentTrendsQueryResponse,
@@ -49,8 +49,8 @@ from datetime import datetime, timedelta, UTC
 
 class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
-    response: ExperimentTrendsQueryResponse
-    cached_response: CachedExperimentTrendsQueryResponse
+    response: ExperimentQueryResponse
+    cached_response: CachedExperimentQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -388,43 +388,32 @@ class ExperimentQueryRunner(QueryRunner):
                 case _:
                     raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
         else:
-            probabilities = calculate_probabilities(control_variant, test_variants)
-            significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
+            probabilities = calculate_probabilities(
+                cast(ExperimentVariantTrendsBaseStats, control_variant),
+                cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+            )
+            significance_code, p_value = are_results_significant(
+                cast(ExperimentVariantTrendsBaseStats, control_variant),
+                cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                probabilities,
+            )
             credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
 
-        if self.metric.metric_type == ExperimentMetricType.FUNNEL:
-            return ExperimentFunnelsQueryResponse(
-                kind="ExperimentFunnelsQuery",
-                funnels_query=None,
-                insight=[[{"name": "foo"}], [{"name": "bar"}]],
-                variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
-                probability={
-                    variant.key: probability
-                    for variant, probability in zip([control_variant, *test_variants], probabilities)
-                },
-                significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
-                significance_code=significance_code,
-                stats_version=self.stats_version,
-                expected_loss=0,
-                credible_intervals=credible_intervals,
-            )
-        else:
-            return ExperimentTrendsQueryResponse(
-                kind="ExperimentTrendsQuery",
-                insight=[],
-                count_query=None,
-                exposure_query=None,
-                variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
-                probability={
-                    variant.key: probability
-                    for variant, probability in zip([control_variant, *test_variants], probabilities)
-                },
-                significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
-                significance_code=significance_code,
-                stats_version=self.stats_version,
-                p_value=p_value,
-                credible_intervals=credible_intervals,
-            )
+        return ExperimentQueryResponse(
+            kind="ExperimentQuery",
+            insight=[],
+            metric=self.metric,
+            variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
+            probability={
+                variant.key: probability
+                for variant, probability in zip([control_variant, *test_variants], probabilities)
+            },
+            significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
+            significance_code=significance_code,
+            stats_version=self.stats_version,
+            p_value=p_value,
+            credible_intervals=credible_intervals,
+        )
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.metric.kind} to query")

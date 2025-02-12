@@ -1835,11 +1835,10 @@ export interface ExperimentQuery extends DataNode<ExperimentTrendsQueryResponse>
 }
 
 export interface ExperimentQueryResponse {
-    kind: NodeKind.ExperimentTrendsQuery
+    kind: NodeKind.ExperimentQuery
     insight: Record<string, any>[]
-    count_query?: TrendsQuery
-    exposure_query?: TrendsQuery
-    variants: ExperimentVariantTrendsBaseStats[]
+    metric: ExperimentMetric
+    variants: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
     probability: Record<string, number>
     significant: boolean
     significance_code: ExperimentSignificanceCode
