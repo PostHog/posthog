@@ -32,7 +32,7 @@ function initSnippet() {
     !function(w,d){if(!w.rdt){var p=w.rdt=function(){p.sendEvent?p.sendEvent.apply(p,arguments):p.callQueue.push(arguments)};p.callQueue=[];var t=d.createElement("script");t.src="https://www.redditstatic.com/ads/pixel.js",t.async=!0;var s=d.getElementsByTagName("script")[0];s.parentNode.insertBefore(t,s)}}(window,document);
 }
 
-export function onLoad({ inputs }) {
+export function onLoad({ inputs, posthog }) {
     initSnippet();
     let userProperties = {};
     for (const [key, value] of Object.entries(inputs.userProperties)) {
@@ -41,7 +41,7 @@ export function onLoad({ inputs }) {
         }
     };
     if (posthog.config.debug) {
-        console.log('[PostHog.js] rdt init', inputs.pixelId, userProperties);
+        console.log('[PostHog] rdt init', inputs.pixelId, userProperties);
     }
     rdt('init', inputs.pixelId, userProperties);
 }
@@ -70,7 +70,7 @@ export function onEvent({ inputs, posthog }) {
         eventProperties.customEventName = inputs.eventType;
     }
     if (posthog.config.debug) {
-        console.log('[PostHog.js] rdt track', eventName, eventProperties);
+        console.log('[PostHog] rdt track', eventName, eventProperties);
     }
     rdt('track', eventName, eventProperties);
 }
