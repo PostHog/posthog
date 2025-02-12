@@ -11,6 +11,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { LegacySharedFunnelsMetricForm } from './LegacySharedFunnelsMetricForm'
 import { LegacySharedTrendsMetricForm } from './LegacySharedTrendsMetricForm'
+import { SharedExperimentMetricForm } from './SharedExperimentMetricForm'
 import { sharedMetricLogic } from './sharedMetricLogic'
 
 export const scene: SceneExport = {
@@ -39,52 +40,54 @@ export function SharedMetric(): JSX.Element {
 
     return (
         <div className="max-w-[800px]">
-            <div className="flex gap-4 mb-4">
-                <div
-                    className={`flex-1 cursor-pointer p-4 rounded border ${
-                        sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
-                            ? 'border-accent-primary bg-accent-primary-highlight'
-                            : 'border-border'
-                    }`}
-                    onClick={() => {
-                        setSharedMetric({
-                            query: getDefaultTrendsMetric(),
-                        })
-                    }}
-                >
-                    <div className="font-semibold flex justify-between items-center">
-                        <span>Trend</span>
-                        {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
-                            <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
-                        )}
+            {sharedMetric.query.kind !== NodeKind.ExperimentMetric && (
+                <div className="flex gap-4 mb-4">
+                    <div
+                        className={`flex-1 cursor-pointer p-4 rounded border ${
+                            sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
+                                ? 'border-accent-primary bg-accent-primary-highlight'
+                                : 'border-border'
+                        }`}
+                        onClick={() => {
+                            setSharedMetric({
+                                query: getDefaultTrendsMetric(),
+                            })
+                        }}
+                    >
+                        <div className="font-semibold flex justify-between items-center">
+                            <span>Trend</span>
+                            {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
+                                <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
+                            )}
+                        </div>
+                        <div className="text-secondary text-sm leading-relaxed">
+                            Track a single event, action or a property value.
+                        </div>
                     </div>
-                    <div className="text-secondary text-sm leading-relaxed">
-                        Track a single event, action or a property value.
+                    <div
+                        className={`flex-1 cursor-pointer p-4 rounded border ${
+                            sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
+                                ? 'border-accent-primary bg-accent-primary-highlight'
+                                : 'border-border'
+                        }`}
+                        onClick={() => {
+                            setSharedMetric({
+                                query: getDefaultFunnelsMetric(),
+                            })
+                        }}
+                    >
+                        <div className="font-semibold flex justify-between items-center">
+                            <span>Funnel</span>
+                            {sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
+                                <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
+                            )}
+                        </div>
+                        <div className="text-secondary text-sm leading-relaxed">
+                            Analyze conversion rates between sequential steps.
+                        </div>
                     </div>
                 </div>
-                <div
-                    className={`flex-1 cursor-pointer p-4 rounded border ${
-                        sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
-                            ? 'border-accent-primary bg-accent-primary-highlight'
-                            : 'border-border'
-                    }`}
-                    onClick={() => {
-                        setSharedMetric({
-                            query: getDefaultFunnelsMetric(),
-                        })
-                    }}
-                >
-                    <div className="font-semibold flex justify-between items-center">
-                        <span>Funnel</span>
-                        {sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
-                            <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
-                        )}
-                    </div>
-                    <div className="text-secondary text-sm leading-relaxed">
-                        Analyze conversion rates between sequential steps.
-                    </div>
-                </div>
-            </div>
+            )}
             <div className={`border rounded ${isDarkModeOn ? 'bg-light' : 'bg-white'} p-4`}>
                 <div className="mb-4">
                     <LemonLabel>Name</LemonLabel>
@@ -124,7 +127,9 @@ export function SharedMetric(): JSX.Element {
                         />
                     </div>
                 </div>
-                {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
+                {sharedMetric.query.kind === NodeKind.ExperimentMetric ? (
+                    <SharedExperimentMetricForm />
+                ) : sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
                     <LegacySharedTrendsMetricForm />
                 ) : (
                     <LegacySharedFunnelsMetricForm />

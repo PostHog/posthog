@@ -205,8 +205,14 @@ export function SharedMetricModal({
                                     {
                                         title: 'Type',
                                         key: 'type',
-                                        render: (_, metric: SharedMetric) =>
-                                            metric.query.kind === NodeKind.ExperimentTrendsQuery ? 'Trend' : 'Funnel',
+                                        render: (_, metric: SharedMetric) => {
+                                            if (metric.query.kind === NodeKind.ExperimentMetric) {
+                                                return metric.query.metric_type
+                                            }
+                                            return metric.query.kind === NodeKind.ExperimentTrendsQuery
+                                                ? 'Trend'
+                                                : 'Funnel'
+                                        },
                                     },
                                 ]}
                                 footer={
