@@ -104,7 +104,7 @@ export function ChartFilter(): JSX.Element {
                     labelInMenu: (
                         <ChartFilterOptionLabel
                             label="Pie chart"
-                            description="Proportions of a whole plotted as a pie."
+                            description="Proportions of a whole as a pie."
                         />
                     ),
                 },
