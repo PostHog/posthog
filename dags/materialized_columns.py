@@ -127,12 +127,13 @@ def run_materialize_mutations(
         mutation.wait()
 
     for partition in sorted(remaining_partitions, reverse=True):
-        # TODO: need a cluster function to target one host per shard based on key
-        _tasks = {
-            shard: partial(materialize_column_in_partition, partition)
-            for shard, partitions in remaining_partitions_by_shard.values()
-            if partition in partitions
-        }
+        cluster.map_any_host_in_shards(
+            {
+                shard: partial(materialize_column_in_partition, partition)
+                for shard, partitions in remaining_partitions_by_shard.values()
+                if partition in partitions
+            }
+        ).result()
 
 
 @dagster.job
