@@ -116,7 +116,7 @@ export function ChartFilter(): JSX.Element {
                     labelInMenu: (
                         <ChartFilterOptionLabel
                             label="Bar chart"
-                            description="Total values plotted as horizontal bars."
+                            description="Total values as horizontal bars."
                         />
                     ),
                 },
