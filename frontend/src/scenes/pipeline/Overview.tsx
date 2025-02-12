@@ -67,10 +67,6 @@ export function Overview(): JSX.Element {
                         hideFeedback={true}
                         hideAddDestinationButton={false}
                     />
-                    <div className="mt-8">
-                        <h2>Legacy Transformations</h2>
-                        <p className="mt-2 mb-4 text-muted">These transformations are deprecated.</p>
-                    </div>
                 </div>
                 <div>
                     <Link to={urls.pipeline(PipelineTab.Destinations)}>
