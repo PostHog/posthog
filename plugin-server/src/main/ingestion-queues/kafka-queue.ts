@@ -1,7 +1,8 @@
-import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
@@ -235,7 +236,7 @@ export const setupEventHandlers = (consumer: Consumer): void => {
         offsets = {}
         status.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
         clearInterval(statusInterval)
-        Sentry.captureException(error, {
+        captureException(error, {
             extra: { detected_at: `kafka-queue.ts on consumer crash` },
         })
         killGracefully()
@@ -311,7 +312,7 @@ export const instrumentEachBatchKafkaJS = async (
                 }
             }
             if (logToSentry) {
-                Sentry.captureException(error, {
+                captureException(error, {
                     extra: { detected_at: `kafka-queue.ts instrumentEachBatch` },
                 })
             }

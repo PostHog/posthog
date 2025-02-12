@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import {
     CronItem,
     makeWorkerUtils,
@@ -10,6 +9,8 @@ import {
     WorkerUtils,
 } from 'graphile-worker'
 import { Pool } from 'pg'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { EnqueuedJob, Hub } from '../../types'
 import { instrument } from '../../utils/metrics'
@@ -174,7 +175,7 @@ export class GraphileWorker {
     }
 
     private onConnectionError(error: Error) {
-        Sentry.captureException(error)
+        captureException(error)
         status.error('🔴', 'Unhandled PostgreSQL error encountered in Graphile Worker!\n', error)
 
         // TODO: throw a wrench in the gears

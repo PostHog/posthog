@@ -1,5 +1,4 @@
 import { Upload } from '@aws-sdk/lib-storage'
-import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, createWriteStream } from 'fs'
 import { stat, unlink } from 'fs/promises'

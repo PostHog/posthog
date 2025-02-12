@@ -1,8 +1,9 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { ONE_HOUR } from '../../config/constants'
 import { TopicMessage } from '../../kafka/producer'
@@ -426,7 +427,7 @@ export class PersonState {
                 )
             }
         } catch (e) {
-            Sentry.captureException(e, {
+            captureException(e, {
                 tags: { team_id: this.teamId, pipeline_step: 'processPersonsStep' },
                 extra: {
                     location: 'handleIdentifyOrAlias',

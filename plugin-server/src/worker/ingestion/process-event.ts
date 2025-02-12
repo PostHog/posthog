@@ -1,8 +1,9 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import {
@@ -164,7 +165,7 @@ export class EventsProcessor {
                     properties
                 )
             } catch (err) {
-                Sentry.captureException(err, { tags: { team_id: team.id } })
+                captureException(err, { tags: { team_id: team.id } })
                 status.warn('⚠️', 'Failed to update property definitions for an event', {
                     event,
                     properties,
@@ -211,7 +212,7 @@ export class EventsProcessor {
         try {
             elementsChain = this.getElementsChain(properties)
         } catch (error) {
-            Sentry.captureException(error, { tags: { team_id: teamId } })
+            captureException(error, { tags: { team_id: teamId } })
             status.warn('⚠️', 'Failed to process elements', {
                 uuid,
                 teamId: teamId,

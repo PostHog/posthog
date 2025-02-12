@@ -1,7 +1,8 @@
-import * as Sentry from '@sentry/node'
 import { Message } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { configure } from 'safe-stable-stringify'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -216,7 +217,7 @@ export class AppMetrics {
                 ),
             }
         } catch (err) {
-            Sentry.captureException(err)
+            captureException(err)
             status.warn('⚠️', 'Failed to serialize error for app metrics. Not reporting this error.', err)
             return {}
         }
