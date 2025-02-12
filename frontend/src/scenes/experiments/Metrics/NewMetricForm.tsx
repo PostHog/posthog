@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -57,7 +57,7 @@ export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }
                             metric: {
                                 ...currentMetric,
                                 metric_config: {
-                                    kind: 'ExperimentEventMetricConfig',
+                                    kind: NodeKind.ExperimentEventMetricConfig,
                                     event: entity.id as string,
                                     math: entity.math,
                                     math_property: entity.math_property,
