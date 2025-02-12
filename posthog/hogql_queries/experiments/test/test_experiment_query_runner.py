@@ -380,6 +380,39 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         properties={feature_flag_property: variant},
                     )
 
+        # These events should be too early to be included
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_early_control_1",
+            timestamp="2019-01-01T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_early_control_1",
+            timestamp="2019-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_early_test_1",
+            timestamp="2019-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
