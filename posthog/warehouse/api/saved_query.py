@@ -116,7 +116,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         with transaction.atomic():
             view.save()
             try:
-                sync_saved_query_workflow(view, create=True)
                 DataWarehouseModelPath.objects.create_from_saved_query(view)
             except Exception:
                 # For now, do not fail saved query creation if we cannot model-ize it.
@@ -129,15 +128,18 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     def update(self, instance: Any, validated_data: Any) -> Any:
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
         was_sync_frequency_updated = False
-        if sync_frequency:
-            sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
-            validated_data["sync_frequency_interval"] = sync_frequency_interval
-            was_sync_frequency_updated = True
-            instance.sync_frequency_interval = sync_frequency_interval
-
-        schedule_exists = saved_query_workflow_exists(str(instance.id))
-        if was_sync_frequency_updated:
-            sync_saved_query_workflow(instance, create=not schedule_exists)
+        if sync_frequency == "never":
+            delete_saved_query_schedule(str(instance.id))
+            instance.sync_frequency_interval = None
+        else:
+            if sync_frequency:
+                sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
+                validated_data["sync_frequency_interval"] = sync_frequency_interval
+                was_sync_frequency_updated = True
+                instance.sync_frequency_interval = sync_frequency_interval
+            schedule_exists = saved_query_workflow_exists(str(instance.id))
+            if was_sync_frequency_updated:
+                sync_saved_query_workflow(instance, create=not schedule_exists)
 
         with transaction.atomic():
             view: DataWarehouseSavedQuery = super().update(instance, validated_data)

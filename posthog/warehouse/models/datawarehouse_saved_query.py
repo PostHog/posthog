@@ -20,7 +20,6 @@ from posthog.warehouse.models.util import (
 from posthog.hogql.database.s3_table import S3Table
 from posthog.warehouse.util import database_sync_to_async
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from datetime import timedelta
 
 
 def validate_saved_query_name(value):
@@ -69,7 +68,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         null=True,
         help_text="The timestamp of this SavedQuery's last run (if any).",
     )
-    sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
+    sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
 
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
 

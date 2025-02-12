@@ -5,7 +5,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import TabScroller from 'scenes/data-warehouse/editor/OutputPaneTabs/TabScroller'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
-import { DataWarehouseSyncInterval } from '~/types'
+import { DataWarehouseSyncInterval, OrNever } from '~/types'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
@@ -15,6 +15,10 @@ interface InfoTabProps {
 }
 
 const OPTIONS = [
+    {
+        value: 'never' as OrNever,
+        label: ' No resync',
+    },
     {
         value: '5min' as DataWarehouseSyncInterval,
         label: ' Resync every 5 mins',
@@ -69,7 +73,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                         <LemonTag type="warning">BETA</LemonTag>
                     </div>
                     <div>
-                        {savedQuery ? (
+                        {savedQuery?.sync_frequency || savedQuery?.last_run_at ? (
                             <div>
                                 {savedQuery?.last_run_at ? (
                                     `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
@@ -91,10 +95,14 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                     </LemonButton>
                                     <LemonSelect
                                         className="h-9"
+                                        disabledReason={
+                                            savedQuery?.status === 'Running' ? 'Query is already running' : false
+                                        }
                                         value={
                                             editingView
-                                                ? dataWarehouseSavedQueryMapById[editingView.id]?.sync_frequency
-                                                : '24hour'
+                                                ? dataWarehouseSavedQueryMapById[editingView.id]?.sync_frequency ||
+                                                  'never'
+                                                : 'never'
                                         }
                                         onChange={(newValue) => {
                                             if (editingView && newValue) {
@@ -110,11 +118,26 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                 </div>
                             </div>
                         ) : (
-                            <p>
-                                Saved views are automatically materialized as way to pre-compute data in your data
-                                warehouse. This allows you to run queries faster and more efficiently. You will be able
-                                to modify the schedule of how often the view is materialized.
-                            </p>
+                            <div>
+                                <p>
+                                    Materialized views are a way to pre-compute data in your data warehouse. This allows
+                                    you to run queries faster and more efficiently.
+                                </p>
+                                <LemonButton
+                                    onClick={() =>
+                                        editingView &&
+                                        updateDataWarehouseSavedQuery({
+                                            id: editingView.id,
+                                            sync_frequency: '24hour',
+                                            types: [[]],
+                                        })
+                                    }
+                                    type="primary"
+                                    disabledReason={editingView ? undefined : 'You must save the view first'}
+                                >
+                                    Materialize
+                                </LemonButton>
+                            </div>
                         )}
                     </div>
                 </div>
