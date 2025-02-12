@@ -137,11 +137,11 @@ class AssistantGenericPropertyFilter3(BaseModel):
 
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
+    TOOL = "tool"
     AI = "ai"
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
-    AI_ROUTER = "ai/router"
 
 
 class RetentionReference(StrEnum):
@@ -161,6 +161,25 @@ class AssistantSingleValuePropertyFilterOperator(StrEnum):
     NOT_ICONTAINS = "not_icontains"
     REGEX = "regex"
     NOT_REGEX = "not_regex"
+
+
+class AssistantToolCall(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    args: dict[str, Any]
+    id: str
+    name: str
+
+
+class AssistantToolCallMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    tool_call_id: str
+    type: Literal["tool"] = "tool"
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -1322,15 +1341,6 @@ class RevenueTrackingEventItem(BaseModel):
     revenueProperty: str
 
 
-class RouterMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["ai/router"] = "ai/router"
-
-
 class SamplingRate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1715,10 +1725,8 @@ class AssistantFunnelsFilter(BaseModel):
         description=(
             "Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a"
             " step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default)."
-            " `time_to_convert` - shows a histogram of the time it took to complete the funnel. Use this if the user"
-            " asks about the average time it takes to complete the funnel. `trends` - shows a trend of the whole"
-            " sequence's conversion rate over time. Use this if the user wants to see how the conversion rate changes"
-            " over time."
+            " `time_to_convert` - shows a histogram of the time it took to complete the funnel. `trends` - shows trends"
+            " of the conversion rate of the whole sequence over time."
         ),
     )
     funnelWindowInterval: Optional[int] = Field(
@@ -3224,6 +3232,7 @@ class AssistantMessage(BaseModel):
     content: str
     id: Optional[str] = None
     meta: Optional[AssistantMessageMetadata] = None
+    tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
 
 
@@ -7291,11 +7300,9 @@ class RetentionQuery(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[
-        Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
-    ]
+    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
 ):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):

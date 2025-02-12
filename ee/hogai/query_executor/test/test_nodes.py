@@ -3,11 +3,23 @@ from unittest.mock import patch
 from rest_framework.exceptions import ValidationError
 
 from ee.hogai.query_executor.nodes import QueryExecutorNode
+from ee.hogai.query_executor.prompts import (
+    FUNNEL_STEPS_EXAMPLE_PROMPT,
+    FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
+    FUNNEL_TRENDS_EXAMPLE_PROMPT,
+    RETENTION_EXAMPLE_PROMPT,
+    TRENDS_EXAMPLE_PROMPT,
+)
 from ee.hogai.utils.types import AssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantMessage,
+    AssistantRetentionFilter,
+    AssistantRetentionQuery,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
+    FunnelVizType,
     HumanMessage,
     QueryStatus,
     VisualizationMessage,
@@ -25,15 +37,29 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             AssistantState(
                 messages=[
                     HumanMessage(content="Text", id="test"),
+                    AssistantMessage(
+                        content="Text",
+                        id="test2",
+                        tool_calls=[
+                            {
+                                "id": "tool1",
+                                "name": "create_and_query_insight",
+                                "args": {"query_kind": "trends", "query_description": "test query"},
+                            }
+                        ],
+                    ),
                     VisualizationMessage(
                         answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
                         plan="Plan",
-                        id="test2",
+                        id="test3",
                         initiator="test",
                     ),
                 ],
                 plan="Plan",
                 start_id="test",
+                root_tool_call_id="tool1",
+                root_tool_insight_plan="test query",
+                root_tool_insight_type="trends",
             ),
             {},
         )
@@ -42,8 +68,12 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         self.assertIn(
             "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
         )
-        self.assertEqual(msg.type, "ai")
+        self.assertEqual(msg.type, "tool")
+        self.assertEqual(msg.tool_call_id, "tool1")
         self.assertIsNotNone(msg.id)
+        self.assertFalse(new_state.root_tool_call_id)
+        self.assertFalse(new_state.root_tool_insight_plan)
+        self.assertFalse(new_state.root_tool_insight_type)
 
     @patch(
         "ee.hogai.query_executor.nodes.process_query_dict",
@@ -64,6 +94,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                 ],
                 plan="Plan",
                 start_id="test",
+                root_tool_call_id="tool1",
+                root_tool_insight_plan="test query",
+                root_tool_insight_type="trends",
             ),
             {},
         )
@@ -94,6 +127,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                 ],
                 plan="Plan",
                 start_id="test",
+                root_tool_call_id="tool1",
+                root_tool_insight_plan="test query",
+                root_tool_insight_type="trends",
             ),
             {},
         )
@@ -119,6 +155,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                     ],
                     plan="Plan",
                     start_id="test",
+                    root_tool_call_id="tool1",
+                    root_tool_insight_plan="test query",
+                    root_tool_insight_type="trends",
                 ),
                 {},
             )
@@ -134,6 +173,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                     ],
                     plan="Plan",
                     start_id="test",
+                    root_tool_call_id="tool1",
+                    root_tool_insight_plan="test query",
+                    root_tool_insight_type="trends",
                 ),
                 {},
             )
@@ -158,6 +200,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                     ],
                     plan="Plan",
                     start_id="test",
+                    root_tool_call_id="tool1",
+                    root_tool_insight_plan="test query",
+                    root_tool_insight_type="trends",
                 ),
                 {},
             )
@@ -166,5 +211,59 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             self.assertIn(
                 "Here is the results table of the TrendsQuery I created to answer your latest question:", msg.content
             )
-            self.assertEqual(msg.type, "ai")
+            self.assertEqual(msg.type, "tool")
             self.assertIsNotNone(msg.id)
+
+    def test_get_example_prompt(self):
+        node = QueryExecutorNode(self.team)
+
+        # Test Trends Query
+        trends_message = VisualizationMessage(
+            answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
+            plan="Plan",
+            id="test",
+            initiator="test",
+        )
+        self.assertEqual(node._get_example_prompt(trends_message), TRENDS_EXAMPLE_PROMPT)
+
+        # Test Funnel Query - Steps (default)
+        funnel_steps_message = VisualizationMessage(
+            answer=AssistantFunnelsQuery(series=[]),
+            plan="Plan",
+            id="test",
+            initiator="test",
+        )
+        self.assertEqual(node._get_example_prompt(funnel_steps_message), FUNNEL_STEPS_EXAMPLE_PROMPT)
+
+        # Test Funnel Query - Time to Convert
+        funnel_time_message = VisualizationMessage(
+            answer=AssistantFunnelsQuery(
+                series=[],
+                funnelsFilter={"funnelVizType": FunnelVizType.TIME_TO_CONVERT},
+            ),
+            plan="Plan",
+            id="test",
+            initiator="test",
+        )
+        self.assertEqual(node._get_example_prompt(funnel_time_message), FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT)
+
+        # Test Funnel Query - Trends
+        funnel_trends_message = VisualizationMessage(
+            answer=AssistantFunnelsQuery(
+                series=[],
+                funnelsFilter={"funnelVizType": FunnelVizType.TRENDS},
+            ),
+            plan="Plan",
+            id="test",
+            initiator="test",
+        )
+        self.assertEqual(node._get_example_prompt(funnel_trends_message), FUNNEL_TRENDS_EXAMPLE_PROMPT)
+
+        # Test Retention Query
+        retention_message = VisualizationMessage(
+            answer=AssistantRetentionQuery(retentionFilter=AssistantRetentionFilter()),
+            plan="Plan",
+            id="test",
+            initiator="test",
+        )
+        self.assertEqual(node._get_example_prompt(retention_message), RETENTION_EXAMPLE_PROMPT)
