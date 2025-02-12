@@ -44,6 +44,10 @@ export const AddVariableButton = (): JSX.Element => {
                                 label: 'List',
                                 onClick: () => openNewVariableModal('List'),
                             },
+                            {
+                                label: 'Date',
+                                onClick: () => openNewVariableModal('Date'),
+                            },
                         ],
                     },
                     {
