@@ -1,7 +1,13 @@
+import dagster
 import pydantic
 import pytest
 
-from dags.materialized_columns import PartitionRange
+from dags.materialized_columns import (
+    PartitionRange,
+    materialize_column,
+    run_materialize_mutations,
+)
+from posthog.clickhouse.cluster import ClickhouseCluster
 
 
 def test_partition_range():
@@ -16,5 +22,18 @@ def test_partition_range():
         PartitionRange(lower="202401", upper="2024XX")
 
 
-def test_job():
-    raise NotImplementedError
+def test_job(cluster: ClickhouseCluster):
+    materialize_column.execute_in_process(
+        run_config=dagster.RunConfig(
+            {
+                run_materialize_mutations.name: {
+                    "config": {
+                        "table": "sharded_events",
+                        "column": "mat_$ip",
+                        "partitions": {"upper": "202401", "lower": "202412"},
+                    }
+                }
+            }
+        ),
+        resources={"cluster": cluster},
+    )
