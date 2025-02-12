@@ -516,9 +516,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                         <>
                             {question.scale === 10 && (
                                 <div>
-                                    <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                    <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
-                                    <SurveyNPSResults survey={survey as Survey} />
+                                    <SurveyNPSResults surveyNPSScore={surveyNPSScore} survey={survey as Survey} />
                                 </div>
                             )}
 
@@ -591,9 +589,17 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     )
 }
 
-function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
+function SurveyNPSResults({
+    surveyNPSScore,
+    survey,
+}: {
+    surveyNPSScore: string | undefined
+    survey: Survey
+}): JSX.Element {
     return (
         <>
+            <div className="text-4xl font-bold">{surveyNPSScore}</div>
+            <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
             <Query
                 query={{
                     kind: NodeKind.InsightVizNode,
