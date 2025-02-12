@@ -13617,6 +13617,10 @@
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
+                "cumulative": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
