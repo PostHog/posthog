@@ -33,7 +33,7 @@ jobs:
                         # the dependencies more clear if we separated the backend/frontend
                         # code completely
                         - 'ee/**'
-                        - 'posthog/**'
+                        - 'posthog/!(temporal/**)/**'
                         - 'bin/*'
                         - frontend/**/*
                         - requirements.txt
