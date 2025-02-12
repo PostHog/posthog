@@ -42,22 +42,23 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
     const isTruncatedPath = node.name.slice(1) === '_...'
 
     return (
-        <Tooltip title={pageUrl(node)} placement="right">
-            <div
-                className="absolute cursor-pointer"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    width: NODE_LABEL_WIDTH,
-                    height: NODE_LABEL_HEIGHT,
-                    left: node.x0 + NODE_LABEL_LEFT_OFFSET,
-                    top: node.y0 + NODE_LABEL_TOP_OFFSET,
-                }}
-                onClick={openModal}
-            >
-                <div className="flex items-center justify-between w-full">
+        <div
+            className="absolute"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                width: NODE_LABEL_WIDTH,
+                height: NODE_LABEL_HEIGHT,
+                left: node.x0 + NODE_LABEL_LEFT_OFFSET,
+                top: node.y0 + NODE_LABEL_TOP_OFFSET,
+            }}
+        >
+            <div className="flex items-center justify-bsetween w-full">
+                <Tooltip title={pageUrl(node)} placement="right">
                     <div className="font-semibold overflow-hidden max-h-16 text-xs break-words">
                         {pageUrl(node, isPath)}
                     </div>
+                </Tooltip>
+                {!isTruncatedPath && (
                     <LemonMenu
                         items={[
                             { label: 'Set as path start', onClick: setAsPathStart },
@@ -70,24 +71,15 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                                 : []),
                             { label: 'Copy path item name', onClick: copyName },
                         ]}
-                        placement="bottom-end"
                     >
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconEllipsis />}
-                            disabledReason={
-                                isTruncatedPath
-                                    ? 'Multiple paths truncated and combined for efficiency during querying. No further analysis possible.'
-                                    : undefined
-                            }
-                        />
+                        <IconEllipsis className="ml-1 cursor-pointer text-muted hover:text-default" />
                     </LemonMenu>
-                </div>
-
-                <LemonButton size="xsmall" onClick={openModal} noPadding>
-                    <span className="font-normal">{node.value}</span>
-                </LemonButton>
+                )}
             </div>
-        </Tooltip>
+
+            <LemonButton size="xsmall" onClick={openModal} noPadding>
+                <span className="font-normal">{node.value}</span>
+            </LemonButton>
+        </div>
     )
 }
