@@ -201,6 +201,7 @@ class TestPlugin(BaseTest):
             self.assertEqual(geoip.icon_url, "/static/transformations/geoip.png")
             self.assertEqual(geoip.enabled, True)
             self.assertEqual(geoip.execution_order, 1)
+            self.assertEqual(geoip.template_id, "plugin-posthog-plugin-geoip")
 
         # Verify no plugins were enabled
         plugin_configs = PluginConfig.objects.filter(team=team)
