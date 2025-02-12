@@ -1658,39 +1658,6 @@ describe('answer filters', () => {
         })
     })
 
-    it('can add and remove answer filters', async () => {
-        const firstFilter: EventPropertyFilter = {
-            key: '$survey_response',
-            value: 'first response',
-            operator: PropertyOperator.IContains,
-            type: PropertyFilterType.Event,
-        }
-        const secondFilter: EventPropertyFilter = {
-            key: '$survey_response_1',
-            value: 'second response',
-            operator: PropertyOperator.IContains,
-            type: PropertyFilterType.Event,
-        }
-
-        await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
-            logic.actions.addAnswerFilter(firstFilter)
-            logic.actions.addAnswerFilter(secondFilter)
-        })
-            .toDispatchActions(['loadSurveySuccess', 'addAnswerFilter', 'addAnswerFilter'])
-            .toMatchValues({
-                answerFilters: expect.arrayContaining([firstFilter, secondFilter]),
-            })
-
-        await expectLogic(logic, () => {
-            logic.actions.removeAnswerFilter(0)
-        })
-            .toDispatchActions(['removeAnswerFilter'])
-            .toMatchValues({
-                answerFilters: [secondFilter],
-            })
-    })
-
     it('reloads survey results when answer filters change', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)

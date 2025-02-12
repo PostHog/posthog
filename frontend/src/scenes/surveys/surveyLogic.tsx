@@ -217,8 +217,6 @@ export const surveyLogic = kea<surveyLogicType>([
         setFlagPropertyErrors: (errors: any) => ({ errors }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
         setAnswerFilters: (filters: EventPropertyFilter[]) => ({ filters }),
-        addAnswerFilter: (filter: EventPropertyFilter) => ({ filter }),
-        removeAnswerFilter: (index: number) => ({ index }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -777,12 +775,6 @@ export const surveyLogic = kea<surveyLogicType>([
             setAnswerFilters: () => {
                 reloadAllSurveyResults()
             },
-            addAnswerFilter: () => {
-                reloadAllSurveyResults()
-            },
-            removeAnswerFilter: () => {
-                reloadAllSurveyResults()
-            },
         }
     }),
     reducers({
@@ -1035,8 +1027,6 @@ export const surveyLogic = kea<surveyLogicType>([
             [] as EventPropertyFilter[],
             {
                 setAnswerFilters: (_, { filters }) => filters,
-                addAnswerFilter: (state, { filter }) => [...state, filter],
-                removeAnswerFilter: (state, { index }) => state.filter((_, i) => i !== index),
             },
         ],
     }),
