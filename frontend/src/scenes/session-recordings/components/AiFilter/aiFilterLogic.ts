@@ -15,6 +15,14 @@ export interface AiFilterLogicProps {
     resetFilters: () => void
 }
 
+interface AiFilterResponse {
+    result: 'filter' | 'question'
+    data: any
+}
+
+const TIMEOUT_LIMIT = 10000
+const IS_DEBUG = false
+
 export const aiFilterLogic = kea<aiFilterLogicType>([
     path(['lib', 'components', 'AiFilter', 'aiFilterLogicType']),
     props({} as AiFilterLogicProps),
@@ -74,17 +82,39 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
         handleAi: async ({ newMessages }) => {
             actions.setIsLoading(true)
 
-            const content = await api.recordings.aiFilters(newMessages as ChatCompletionUserMessageParam[])
+            try {
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Request timed out')), TIMEOUT_LIMIT)
+                })
 
-            if (content.hasOwnProperty('result') && content.result === 'filter') {
-                props.setFilters(content.data)
-            }
-            if (content.hasOwnProperty('result') && content.result === 'question') {
+                const contentPromise = api.recordings.aiFilters(newMessages as ChatCompletionUserMessageParam[])
+                const content = (await Promise.race([contentPromise, timeoutPromise])) as AiFilterResponse
+
+                if (content.hasOwnProperty('result') && content.result === 'filter') {
+                    props.setFilters(content.data)
+                    actions.setMessages([
+                        ...newMessages,
+                        {
+                            role: 'assistant',
+                            content: IS_DEBUG ? JSON.stringify(content.data) ?? '' : 'Done! Filters have been updated',
+                        } as ChatCompletionAssistantMessageParam,
+                    ])
+                }
+                if (content.hasOwnProperty('result') && content.result === 'question') {
+                    actions.setMessages([
+                        ...newMessages,
+                        {
+                            role: 'assistant',
+                            content: content.data.question ?? '',
+                        } as ChatCompletionAssistantMessageParam,
+                    ])
+                }
+            } catch (error) {
                 actions.setMessages([
                     ...newMessages,
                     {
                         role: 'assistant',
-                        content: content.data.question ?? '',
+                        content: 'Sorry, I was unable to process your request. Please try again.',
                     } as ChatCompletionAssistantMessageParam,
                 ])
             }
