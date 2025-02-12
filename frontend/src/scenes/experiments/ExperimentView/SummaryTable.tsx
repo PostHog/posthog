@@ -313,9 +313,14 @@ export function SummaryTable({
             const percentage = result?.probability?.[variantKey] != undefined && result.probability?.[variantKey] * 100
             const isWinning = variantKey === winningVariant
 
+            // Only show the win probability if the conversion rate exists
+            // TODO: move this to the backend
+            const conversionRate = conversionRateForVariant(result, variantKey)
+            const hasValidConversionRate = conversionRate !== null && conversionRate !== undefined
+
             return (
                 <>
-                    {percentage ? (
+                    {percentage && hasValidConversionRate ? (
                         <span className="inline-flex items-center w-52 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
