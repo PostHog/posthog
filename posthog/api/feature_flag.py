@@ -815,7 +815,7 @@ class FeatureFlagViewSet(
                         else:
                             cohort = (
                                 Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-                                .filter(id=id, team__project_idid=self.project_id, deleted=False)
+                                .filter(id=id, team__project_id=self.project_id, deleted=False)
                                 .first()
                             )
                             seen_cohorts_cache[id] = cohort or ""
