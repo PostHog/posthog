@@ -353,6 +353,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const responseJSON = await api.query(query)
+                // TODO:Dylan - I don't like how we lose our types here
+                // would be cool if we could parse this in a more type-safe way
                 const { results } = responseJSON
 
                 let total = 0
