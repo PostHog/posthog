@@ -24,7 +24,7 @@ export function SharedMetricModal({
 }): JSX.Element {
     const {
         experiment,
-        sharedMetrics,
+        compatibleSharedMetrics,
         isPrimarySharedMetricModalOpen,
         isSecondarySharedMetricModalOpen,
         editingSharedMetricId,
@@ -44,7 +44,7 @@ export function SharedMetricModal({
 
     const { hasAvailableFeature } = useValues(userLogic)
 
-    if (!sharedMetrics) {
+    if (!compatibleSharedMetrics) {
         return <></>
     }
 
@@ -66,7 +66,7 @@ export function SharedMetricModal({
         }
     }
 
-    const availableSharedMetrics = sharedMetrics.filter(
+    const availableSharedMetrics = compatibleSharedMetrics.filter(
         (metric: SharedMetric) =>
             !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
     )
@@ -78,7 +78,7 @@ export function SharedMetricModal({
                 .flatMap((metric: SharedMetric) => metric.tags)
                 .filter(Boolean)
         )
-    ).sort() as string[]
+    ).sort()
 
     return (
         <LemonModal
@@ -233,7 +233,7 @@ export function SharedMetricModal({
                                 to: urls.experimentsSharedMetric('new'),
                             }}
                         >
-                            {sharedMetrics.length > 0
+                            {compatibleSharedMetrics.length > 0
                                 ? 'All of your shared metrics are already in this experiment.'
                                 : "You don't have any shared metrics that match the experiment type. Shared metrics let you create reusable metrics that you can quickly add to any experiment."}
                         </LemonBanner>
@@ -244,7 +244,7 @@ export function SharedMetricModal({
             {editingSharedMetricId && (
                 <div>
                     {(() => {
-                        const metric = sharedMetrics.find((m: SharedMetric) => m.id === editingSharedMetricId)
+                        const metric = compatibleSharedMetrics.find((m: SharedMetric) => m.id === editingSharedMetricId)
                         if (!metric) {
                             return <></>
                         }
