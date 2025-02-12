@@ -310,7 +310,7 @@ export function SummaryTable({
         },
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
-            const percentage = result?.probability?.[variantKey] != undefined && result.probability?.[variantKey] * 100
+            const percentage = result?.probability?.[variantKey] !== undefined && result.probability?.[variantKey] * 100
             const isWinning = variantKey === winningVariant
 
             // Only show the win probability if the conversion rate exists
