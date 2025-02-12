@@ -1,5 +1,4 @@
 from random import random
-from typing import Any
 
 import structlog
 from django.conf import settings
@@ -283,43 +282,9 @@ def get_decide(request: HttpRequest):
         structlog.contextvars.bind_contextvars(team_id=team.id)
 
         # --- 5. Handle feature flags ---
-        flags_response = {}
-        disable_flags = process_bool(data.get("disable_flags")) is True
-
-        if disable_flags:
-            flags_response = {
-                "featureFlags": {},
-                "errorsWhileComputingFlags": False,
-                "featureFlagPayloads": {},
-            }
-        elif settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
-            from ee.billing.quota_limiting import (
-                QuotaLimitingCaches,
-                QuotaResource,
-                list_limited_team_attributes,
-            )
-
-            limited_tokens_flags = list_limited_team_attributes(
-                QuotaResource.FEATURE_FLAGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-            )
-
-            if token in limited_tokens_flags:
-                flags_response = {
-                    "quotaLimited": ["feature_flags"],
-                    "featureFlags": {},
-                    "errorsWhileComputingFlags": False,
-                    "featureFlagPayloads": {},
-                }
-            else:
-                flags_response = compute_feature_flags(
-                    request, data, team, token, api_version, is_request_sampled_for_logging
-                )
-        else:
-            flags_response = compute_feature_flags(
-                request, data, team, token, api_version, is_request_sampled_for_logging
-            )
-
-        # --- 6. Build and return full response from the base config and the flags response ---
+        flags_response = get_feature_flags_response(
+            request, data, team, token, api_version, is_request_sampled_for_logging
+        )
         response = get_base_config(token, team, request, skip_db=flags_response.get("errorsWhileComputingFlags", False))
 
         # For remote config, we need to ensure quota limiting is reflected
@@ -327,8 +292,7 @@ def get_decide(request: HttpRequest):
             response["quotaLimited"] = flags_response["quotaLimited"]
             response["featureFlags"] = {}
             response["errorsWhileComputingFlags"] = False
-            if "featureFlagPayloads" in flags_response:
-                response["featureFlagPayloads"] = {}
+            response["featureFlagPayloads"] = {}
         else:  # Only update flags if not quota limited
             response.update(flags_response)
         # NOTE: Whenever you add something to decide response, update this test:
@@ -352,11 +316,35 @@ def get_decide(request: HttpRequest):
     return cors_response(request, JsonResponse(response))
 
 
-def compute_feature_flags(request, data, team, token, api_version, is_request_sampled_for_logging):
-    """Compute feature flags for the given request. Extracted from get_decide for clarity."""
-    flags_response: dict[str, Any] = {}
+def get_feature_flags_response(
+    request: HttpRequest, data: dict, team: Team, token: str, api_version: int, is_request_sampled_for_logging: bool
+) -> dict:
+    """Determine feature flag response based on various conditions."""
 
-    # --- 1. Validate distinct_id ---
+    # Early exit if flags are disabled via request
+    if process_bool(data.get("disable_flags")) is True:
+        return {
+            "featureFlags": {},
+            "errorsWhileComputingFlags": False,
+            "featureFlagPayloads": {},
+        }
+
+    # Check if team is quota limited for feature flags
+    if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
+        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+        limited_tokens_flags = list_limited_team_attributes(
+            QuotaResource.FEATURE_FLAGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+        if token in limited_tokens_flags:
+            return {
+                "quotaLimited": ["feature_flags"],
+                "featureFlags": {},
+                "errorsWhileComputingFlags": False,
+                "featureFlagPayloads": {},
+            }
+
+    # Validate distinct_id
     distinct_id = data.get("distinct_id")
     if distinct_id is None:
         return cors_response(
@@ -371,30 +359,7 @@ def compute_feature_flags(request, data, team, token, api_version, is_request_sa
         )
     distinct_id = str(distinct_id)
 
-    # --- 2. Check feature flag quota limits ---
-    if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
-        from ee.billing.quota_limiting import (
-            QuotaLimitingCaches,
-            QuotaResource,
-            list_limited_team_attributes,
-        )
-
-        limited_tokens_flags = list_limited_team_attributes(
-            QuotaResource.FEATURE_FLAGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        )
-
-        if token in limited_tokens_flags:
-            flags_response.update(
-                {
-                    "quotaLimited": ["feature_flags"],
-                    "featureFlags": {},
-                    "errorsWhileComputingFlags": False,
-                    "featureFlagPayloads": {},
-                }
-            )
-            return flags_response
-
-    # --- 3. Gather property overrides ---
+    # Get property overrides
     property_overrides = {}
     if process_bool(data.get("geoip_disable")) is False:
         property_overrides = get_geoip_properties(get_ip_address(request))
@@ -404,7 +369,7 @@ def compute_feature_flags(request, data, team, token, api_version, is_request_sa
         **(data.get("person_properties") or {}),
     }
 
-    # --- 4. Compute feature flags ---
+    # Compute feature flags
     feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
         team.pk,
         distinct_id,
@@ -414,27 +379,38 @@ def compute_feature_flags(request, data, team, token, api_version, is_request_sa
         group_property_value_overrides=(data.get("group_properties") or {}),
     )
 
-    # --- 5. Format response based on API version ---
+    # Record metrics and handle billing
+    _record_feature_flag_metrics(team, feature_flags, errors, data, is_request_sampled_for_logging)
+
+    # Format response based on API version
+    return _format_feature_flags_response(feature_flags, feature_flag_payloads, errors, api_version)
+
+
+def _format_feature_flags_response(
+    feature_flags: dict, feature_flag_payloads: dict, errors: bool, api_version: int
+) -> dict:
+    """Format feature flags response according to API version."""
     active_flags = {key: value for key, value in feature_flags.items() if value}
 
     if api_version == 2:
-        # v2: Return only active flags as a dict
-        flags_response["featureFlags"] = active_flags
+        return {"featureFlags": active_flags}
     elif api_version >= 3:
-        # v3: Return all flags, error status, and payloads
-        flags_response.update(
-            {
-                "featureFlags": feature_flags,
-                "errorsWhileComputingFlags": errors,
-                "featureFlagPayloads": feature_flag_payloads,
-            }
-        )
-    else:
-        # v1: Return active flag keys as a list
-        flags_response["featureFlags"] = list(active_flags.keys())
+        return {
+            "featureFlags": feature_flags,
+            "errorsWhileComputingFlags": errors,
+            "featureFlagPayloads": feature_flag_payloads,
+        }
+    else:  # v1
+        return {"featureFlags": list(active_flags.keys())}
 
-    # --- 6. Record metrics and logs ---
-    # Track feature flag evaluation metrics
+
+def _record_feature_flag_metrics(
+    team: Team, feature_flags: dict, errors: bool, data: dict, is_request_sampled_for_logging: bool
+):
+    """Record metrics and handle billing for feature flag computations."""
+    if not feature_flags:
+        return
+
     team_id_label = label_for_team_id_to_track(team.pk)
     FLAG_EVALUATION_COUNTER.labels(
         team_id=team_id_label,
@@ -446,20 +422,16 @@ def compute_feature_flags(request, data, team, token, api_version, is_request_sa
         logger.warn(
             "DECIDE_REQUEST_SUCCEEDED",
             team_id=team.id,
-            distinct_id=distinct_id,
+            distinct_id=data.get("distinct_id"),
             errors_while_computing=errors or False,
             has_hash_key_override=bool(data.get("$anon_distinct_id")),
         )
 
-    # --- 7. Handle billing analytics ---
-    if feature_flags:
-        # Only count non-survey targeting flags for billing
-        if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
-            if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
-                count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
-                increment_request_count(team.pk, count)
-
-    return flags_response
+    # Handle billing analytics
+    if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
+        if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+            count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+            increment_request_count(team.pk, count)
 
 
 def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> bool:

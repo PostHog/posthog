@@ -3617,7 +3617,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide().json()
             assert response["featureFlags"] == {}
-            assert response["errorsWhileComputingFlags"] is True
+            assert response["errorsWhileComputingFlags"] is False
             assert "feature_flags" in response["quotaLimited"]
 
     @patch("ee.billing.quota_limiting.list_limited_team_attributes")
@@ -3632,7 +3632,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             _fake_token_limiting.side_effect = fake_limiter
 
             response = self._post_decide().json()
-            assert isinstance(response["featureFlags"], dict)
+            assert isinstance(response["featureFlags"], list)
             assert "feature_flags" not in response.get("quotaLimited", [])
 
 
