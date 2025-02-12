@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0661_errortrackingissuefingerprintv2_first_seen"),
+        ("posthog", "0667_encrypt_feature_flag_config"),
     ]
 
     operations = [
