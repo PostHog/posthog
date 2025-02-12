@@ -1,5 +1,5 @@
-import concurrent.futures
 import datetime
+from functools import partial, reduce
 import itertools
 from collections.abc import Iterator
 from typing import ClassVar
@@ -100,31 +100,39 @@ def run_materialize_mutations(
     config: MaterializeColumnConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
-    def materialize_column_for_shard(client: Client) -> None:
-        # Since this is only being run on a single host in the shard, we're assuming that the other hosts either
-        # have the same set of partitions already materialized, or that a materialization mutation already exists (and
-        # is running) if they are lagging behind. (If _this_ host is lagging behind the others, the mutation runner
-        # should prevent us from scheduling duplicate mutations on the shard.)
-        requested_partitions = set(config.partitions.iter())
-        remaining_partitions = set(config.get_remaining_partitions(client))
-        context.log.info(
-            "Materializing %s of %s requested partitions (%s already materialized)",
-            len(remaining_partitions),
-            len(requested_partitions),
-            len(requested_partitions - remaining_partitions),
-        )
-        for partition in remaining_partitions:
-            mutation = MutationRunner(
-                config.table,
-                "MATERIALIZE COLUMN %(column)s IN PARTITION %(partition)s",
-                {"column": config.column, "partition": partition},
-            ).enqueue(client)
-            mutation.wait()
+    # Since this is only being run on a single host in the shard, we're assuming that the other hosts either have the
+    # same set of partitions already materialized, or that a materialization mutation already exists (and is running) if
+    # they are lagging behind. (If _this_ host is lagging behind the others, the mutation runner should prevent us from
+    # scheduling duplicate mutations on the shard.)
+    remaining_partitions_by_shard = {
+        host.shard_num: partitions
+        for host, partitions in cluster.map_one_host_per_shard(config.get_remaining_partitions).result().items()
+    }
 
-    cluster.map_one_host_per_shard(materialize_column_for_shard).result(
-        # avoid getting into a situation where some shards stop making progress while others continue
-        return_when=concurrent.futures.FIRST_EXCEPTION,
+    requested_partitions = set(config.partitions.iter())
+    remaining_partitions = reduce(lambda x, y: x | y, remaining_partitions_by_shard.values())
+    context.log.info(
+        "Materializing %s of %s requested partitions (%s already materialized)",
+        len(remaining_partitions),
+        len(requested_partitions),
+        len(requested_partitions - remaining_partitions),
     )
+
+    def materialize_column_in_partition(partition: str, client: Client):
+        mutation = MutationRunner(
+            config.table,
+            "MATERIALIZE COLUMN %(column)s IN PARTITION %(partition)s",
+            {"column": config.column, "partition": partition},
+        ).enqueue(client)
+        mutation.wait()
+
+    for partition in sorted(remaining_partitions, reverse=True):
+        # TODO: need a cluster function to target one host per shard based on key
+        _tasks = {
+            shard: partial(materialize_column_in_partition, partition)
+            for shard, partitions in remaining_partitions_by_shard.values()
+            if partition in partitions
+        }
 
 
 @dagster.job
