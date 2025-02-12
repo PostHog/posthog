@@ -10,7 +10,7 @@
       "cargo": {
         "pkg-path": "cargo",
         "pkg-group": "rust-toolchain",
-        "version": "1.80.1"
+        "version": "1.82.0"
       },
       "clippy": {
         "pkg-path": "clippy",
