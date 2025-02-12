@@ -114,6 +114,7 @@ class BatchExportRun(UUIDModel):
         on_delete=models.SET_NULL,
         help_text="The backfill this run belongs to.",
         null=True,
+        blank=True,
         related_name="runs",
         related_query_name="run",
     )
