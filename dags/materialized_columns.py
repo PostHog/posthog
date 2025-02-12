@@ -133,6 +133,8 @@ def run_materialize_mutations(
         len(requested_partitions - remaining_partitions),
     )
 
+    # Step through the remaining partitions, materializing the column in any shards where the column hasn't already been
+    # materialized.
     for partition in sorted(remaining_partitions, reverse=True):
         shard_tasks = {
             shard_num: MaterializeColumnInPartitionTask(config.table, config.column, partition).run
