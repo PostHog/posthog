@@ -77,6 +77,10 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         response["config"] = {"enable_collect_everything": True}
         response["surveys"] = True if len(response["surveys"]) > 0 else False
 
+        # Ensure featureFlags is always present
+        if "featureFlags" not in response:
+            response["featureFlags"] = {}
+
         # Remove some stuff that is specific to the new RemoteConfig
         del response["hasFeatureFlags"]
         del response["token"]
@@ -289,7 +293,15 @@ def get_decide(request: HttpRequest):
 
         # --- 6. Build and return full response from the base config and the flags response ---
         response = get_base_config(token, team, request, skip_db=flags_response.get("errorsWhileComputingFlags", False))
-        response.update(flags_response)
+
+        # For remote config, we need to ensure quota limiting is reflected
+        if flags_response.get("quotaLimited"):
+            response["quotaLimited"] = flags_response["quotaLimited"]
+            response["featureFlags"] = {}
+            if "featureFlagPayloads" in flags_response:
+                response["featureFlagPayloads"] = {}
+        elif not disable_flags:  # Only update flags if not disabled
+            response.update(flags_response)
         # NOTE: Whenever you add something to decide response, update this test:
         # `test_decide_doesnt_error_out_when_database_is_down`
         # which ensures that decide doesn't error out when the database is down
