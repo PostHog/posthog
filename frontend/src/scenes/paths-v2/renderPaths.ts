@@ -43,6 +43,13 @@ export const NODE_LABEL_LEFT_OFFSET = 0 - NODE_BORDER_RADIUS
 /** Space between two nodes, should fit the node label and it's vertical margins. */
 const NODE_PADDING = NODE_LABEL_MARGIN_TOP + NODE_LABEL_HEIGHT + NODE_LABEL_MARGIN_BOTTOM
 
+/*
+ * Node links
+ */
+const LINK_OPACITY = 0.1
+const LINK_OPACITY_EMPHASIZED = 0.25
+const LINK_OPACITY_DEEMPHASIZED = 0.05
+
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
         .select(canvasRef.current)
@@ -112,83 +119,83 @@ const appendPathNodes = (
         })
         .attr('id', (d: PathNodeData) => `node-${d.index}`)
         .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
-            // apply effect to hovered node
-            svg.select(`#node-${data.index}`).attr('fill', 'var(--paths-link-hover)')
+            svg.selectAll('path').attr('opacity', LINK_OPACITY_DEEMPHASIZED)
 
-            // recursively apply effect to incoming paths
+            // apply effect to hovered node
+            const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, data)
+            const nodeColor = isStartOrEndNode ? 'var(--paths-node-start-or-end-hover)' : 'var(--paths-node-hover)'
+            svg.select(`#node-${data.index}`).attr('fill', nodeColor)
+
+            // recursively apply effect to incoming links
             const sourceNodes = [data]
             while (sourceNodes.length > 0) {
                 const _node = sourceNodes.pop()
                 _node?.targetLinks.forEach((link: PathTargetLink) => {
-                    svg.select(`#path-${link.index}`).attr('stroke', '#0f0')
+                    svg.select(`#path-${link.index}`).attr('opacity', LINK_OPACITY_EMPHASIZED)
                     sourceNodes.push(link.source) // add source node to recursion
                 })
             }
 
-            // recursively apply effect to outgoing paths
+            // recursively apply effect to outgoing links
             const targetNodes = [data]
             while (targetNodes.length > 0) {
                 const node = targetNodes.pop()
                 node?.sourceLinks.forEach((link: PathTargetLink) => {
-                    svg.select(`#path-${link.index}`).attr('stroke', 'var(--paths-link-hover)')
+                    svg.select(`#path-${link.index}`).attr('opacity', LINK_OPACITY_EMPHASIZED)
                     targetNodes.push(link.target) // add target node to recursion
                 })
             }
         })
         .on('mouseleave', (_event: MouseEvent, data: PathNodeData) => {
             // reset hovered node
-            // :TODO: handle start and end nodes
-            svg.select(`#node-${data.index}`).attr('fill', 'var(--paths-node)')
+            const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, data)
+            const nodeColor = isStartOrEndNode ? 'var(--paths-node-start-or-end)' : 'var(--paths-node)'
+            svg.select(`#node-${data.index}`).attr('fill', nodeColor)
 
-            // reset all paths
-            svg.selectAll('path').attr('stroke', 'var(--paths-link)')
+            // reset all links
+            svg.selectAll('path').attr('opacity', LINK_OPACITY)
         })
 }
 
 const appendPathLinks = (svg: any, links: PathNodeData[]): void => {
-    const link = svg
-        .append('g')
-        .attr('fill', 'none')
-        .selectAll('g')
+    svg.selectAll('path')
         .data(links)
-        .join('g')
-        .attr('stroke', 'var(--paths-link)')
-        .attr('opacity', 0.1)
-
-    link.append('path')
+        .join('path')
         .attr('d', Sankey.sankeyLinkHorizontal())
         .attr('id', (d: PathNodeData) => `path-${d.index}`)
-        .attr('stroke-width', (d: PathNodeData) => {
-            return Math.max(1, d.width)
-        })
-        .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
-            // apply effect to hovered path
-            svg.select(`#path-${data.index}`).attr('stroke', '#f00')
+        .attr('fill', 'none')
+        .attr('stroke', 'var(--paths-link)')
+        .attr('stroke-width', (d: PathNodeData) => Math.max(1, d.width))
+        .attr('opacity', LINK_OPACITY)
+    // .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
+    //     // apply effect to hovered path
+    //     // svg.select(`#path-${data.index}`).attr('stroke', '#f00')
+    //     svg.select(`#path-${data.index}`).attr('opacity', 1)
+    //     // // recursively apply effect to incoming paths
+    //     // const sourceNodes = [data.source]
+    //     // while (sourceNodes.length > 0) {
+    //     //     const _node = sourceNodes.pop()
+    //     //     _node?.targetLinks.forEach((link: PathTargetLink) => {
+    //     //         svg.select(`#path-${link.index}`).attr('stroke', '#0f0')
+    //     //         sourceNodes.push(link.source) // add source node to recursion
+    //     //     })
+    //     // }
+    //     // // recursively apply effect to outgoing paths
+    //     // const targetNodes = [data.target]
+    //     // while (targetNodes.length > 0) {
+    //     //     const node = targetNodes.pop()
+    //     //     node?.sourceLinks.forEach((link: PathTargetLink) => {
+    //     //         svg.select(`#path-${link.index}`).attr('stroke', '#00f')
+    //     //         targetNodes.push(link.target) // add target node to recursion
+    //     //     })
+    //     // }
+    // })
+    // .on('mouseleave', (_event: MouseEvent, data: PathNodeData) => {
+    //     // reset all paths
+    //     // svg.selectAll('path').attr('stroke', 'var(--paths-link)')
 
-            // // recursively apply effect to incoming paths
-            // const sourceNodes = [data.source]
-            // while (sourceNodes.length > 0) {
-            //     const _node = sourceNodes.pop()
-            //     _node?.targetLinks.forEach((link: PathTargetLink) => {
-            //         svg.select(`#path-${link.index}`).attr('stroke', '#0f0')
-            //         sourceNodes.push(link.source) // add source node to recursion
-            //     })
-            // }
-
-            // // recursively apply effect to outgoing paths
-            // const targetNodes = [data.target]
-            // while (targetNodes.length > 0) {
-            //     const node = targetNodes.pop()
-            //     node?.sourceLinks.forEach((link: PathTargetLink) => {
-            //         svg.select(`#path-${link.index}`).attr('stroke', '#00f')
-            //         targetNodes.push(link.target) // add target node to recursion
-            //     })
-            // }
-        })
-        .on('mouseleave', () => {
-            // reset all paths
-            svg.selectAll('path').attr('stroke', 'var(--paths-link)')
-        })
+    //     svg.select(`#path-${data.index}`).attr('opacity', 0.1)
+    // })
 }
 
 export function renderPaths(
