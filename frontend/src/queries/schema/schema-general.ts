@@ -100,8 +100,12 @@ export enum NodeKind {
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
 
     // Experiment queries
-    ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
+    ExperimentMetric = 'ExperimentMetric',
+    ExperimentQuery = 'ExperimentQuery',
+    ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
+    ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
+    ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -1184,6 +1188,7 @@ export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
+    showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
     stickinessCriteria?: {
         operator: StickinessOperator
@@ -1658,6 +1663,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     issueId?: ErrorTrackingIssue['id']
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
+    status?: ErrorTrackingIssue['status'] | 'all'
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
@@ -1825,6 +1831,65 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
 }
+
+export enum ExperimentMetricType {
+    COUNT = 'count',
+    CONTINUOUS = 'continuous',
+    FUNNEL = 'funnel',
+}
+
+export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
+
+export interface ExperimentMetric {
+    kind: NodeKind.ExperimentMetric
+    name?: string
+    metric_type: ExperimentMetricType
+    filterTestAccounts?: boolean
+    inverse?: boolean
+    metric_config: ExperimentEventMetricConfig | ExperimentDataWarehouseMetricConfig
+}
+
+export interface ExperimentEventMetricConfig {
+    kind: NodeKind.ExperimentEventMetricConfig
+    event: string
+    math?: ExperimentMetricMath
+    math_hogql?: string
+    math_property?: string
+}
+
+export interface ExperimentDataWarehouseMetricConfig {
+    kind: NodeKind.ExperimentDataWarehouseMetricConfig
+    table_name: string
+    id_field: string
+    distinct_id_field: string
+    timestamp_field: string
+    math?: ExperimentMetricMath
+    math_hogql?: string
+    math_property?: string
+}
+
+export interface ExperimentQuery extends DataNode<ExperimentTrendsQueryResponse> {
+    kind: NodeKind.ExperimentQuery
+    metric: ExperimentMetric
+    experiment_id?: integer
+    name?: string
+}
+
+export interface ExperimentQueryResponse {
+    kind: NodeKind.ExperimentTrendsQuery
+    insight: Record<string, any>[]
+    count_query?: TrendsQuery
+    exposure_query?: TrendsQuery
+    variants: ExperimentVariantTrendsBaseStats[]
+    probability: Record<string, number>
+    significant: boolean
+    significance_code: ExperimentSignificanceCode
+    stats_version?: integer
+    p_value: number
+    credible_intervals: Record<string, [number, number]>
+}
+
+export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
 
 /**
  * @discriminator kind

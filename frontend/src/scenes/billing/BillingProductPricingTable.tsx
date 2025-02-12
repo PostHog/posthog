@@ -195,7 +195,7 @@ export const BillingProductPricingTable = ({
 
     return (
         <div className="pl-16 pb-8">
-            {product.tiered && tableTierData ? (
+            {(product.tiered || product.type === 'mobile_replay') && tableTierData ? (
                 <>
                     <LemonTable
                         stealth
@@ -212,7 +212,7 @@ export const BillingProductPricingTable = ({
                         }}
                     />
                     <FeatureFlagUsageNotice product={product as BillingProductV2Type} />
-                    <LemonBanner type="warning" className="text-sm pt-2">
+                    <LemonBanner type="warning" className="text-sm pt-2 mt-2">
                         Tier breakdowns are updated once daily and may differ from the gauge above.
                     </LemonBanner>
                 </>

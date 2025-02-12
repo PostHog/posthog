@@ -112,15 +112,15 @@ class HogQLQueryExecutor:
                 self.select_query = replace_placeholders(self.select_query, self.placeholders)
 
     def _apply_limit(self):
+        if self.limit_context == LimitContext.SAVED_QUERY:
+            self.context.limit_top_select = False
+
         with self.timings.measure("max_limit"):
             for one_query in extract_select_queries(self.select_query):
                 if one_query.limit is None:
-                    if self.limit_context == LimitContext.SAVED_QUERY:
-                        self.context.limit_top_select = False
-                    else:
-                        one_query.limit = ast.Constant(
-                            value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
-                        )
+                    one_query.limit = ast.Constant(
+                        value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
+                    )
 
     def _generate_hogql(self):
         with self.timings.measure("hogql"):

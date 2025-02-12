@@ -2,12 +2,13 @@ import datetime
 from typing import Literal, cast
 from uuid import uuid4
 
-from langchain_core.messages import AIMessage as LangchainAIMessage, HumanMessage as LangchainHumanMessage, BaseMessage
+from langchain_core.messages import AIMessage as LangchainAIMessage, BaseMessage, HumanMessage as LangchainHumanMessage
+from langchain_core.output_parsers import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
-from langchain_core.output_parsers import PydanticToolsParser
+
 from ee.hogai.root.prompts import POST_QUERY_USER_PROMPT, ROOT_INSIGHT_DESCRIPTION_PROMPT, ROOT_SYSTEM_PROMPT
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -82,9 +83,9 @@ class RootNode(AssistantNode):
     def _model(self):
         # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
-        return ChatOpenAI(
-            model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True, parallel_tool_calls=False
-        ).bind_tools([retrieve_data_for_question])
+        return ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True).bind_tools(
+            [retrieve_data_for_question], parallel_tool_calls=False
+        )
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         history: list[BaseMessage] = []
