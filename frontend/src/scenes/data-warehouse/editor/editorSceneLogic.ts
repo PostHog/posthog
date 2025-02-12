@@ -5,7 +5,12 @@ import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema'
+import {
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaField,
+    DatabaseSchemaTable,
+    DatabaseSchemaTableCommon,
+} from '~/queries/schema'
 import { DataWarehouseSavedQuery, DataWarehouseViewLink } from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
@@ -14,20 +19,16 @@ import { viewLinkLogic } from '../viewLinkLogic'
 import type { editorSceneLogicType } from './editorSceneLogicType'
 
 const isDataWarehouseTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
+    table: DatabaseSchemaTableCommon | DataWarehouseSavedQuery
 ): table is DatabaseSchemaDataWarehouseTable => {
     return 'type' in table && table.type === 'data_warehouse'
 }
 
-const isPostHogTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
-): table is DatabaseSchemaTable => {
+const isPostHogTable = (table: DatabaseSchemaTableCommon | DataWarehouseSavedQuery): table is DatabaseSchemaTable => {
     return 'type' in table && table.type === 'posthog'
 }
 
-const isViewTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
-): table is DataWarehouseSavedQuery => {
+const isViewTable = (table: DatabaseSchemaTableCommon | DataWarehouseSavedQuery): table is DataWarehouseSavedQuery => {
     return 'query' in table
 }
 
@@ -39,7 +40,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'editorSceneLogic']),
     actions({
         setSidebarOverlayOpen: (isOpen: boolean) => ({ isOpen }),
-        selectSchema: (schema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery) => ({
+        selectSchema: (schema: DatabaseSchemaTableCommon | DataWarehouseSavedQuery | null) => ({
             schema,
         }),
     }),
@@ -70,7 +71,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         selectedSchema: [
-            null as DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
+            null as DatabaseSchemaTableCommon | DataWarehouseSavedQuery | null,
             {
                 selectSchema: (_, { schema }) => schema,
             },
