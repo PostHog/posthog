@@ -144,13 +144,7 @@ export const RecordingsUniversalFilters = ({
                     <RecordingsUniversalFilterGroup size="xsmall" />
                 </UniversalFilters>
                 {resetFilters && (totalFiltersCount ?? 0) > 0 && (
-                    <LemonButton
-                        status="danger"
-                        type="secondary"
-                        size="xsmall"
-                        onClick={resetFilters}
-                        icon={<IconRevert />}
-                    >
+                    <LemonButton type="tertiary" size="xsmall" onClick={resetFilters} icon={<IconRevert />}>
                         Reset
                     </LemonButton>
                 )}
