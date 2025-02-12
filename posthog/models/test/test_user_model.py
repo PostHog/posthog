@@ -4,10 +4,14 @@ from posthog.test.base import BaseTest
 
 class TestUser(BaseTest):
     def test_create_user_with_distinct_id(self):
-        with self.settings(TEST=False):
+        with self.settings(TEST=False, EMAIL_DOMAIN_BLOCKLIST=["email.io"]):
             user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)
         self.assertNotEqual(user.distinct_id, "")
         self.assertNotEqual(user.distinct_id, None)
+
+    def test_cannot_create_user_on_blocklist(self):
+        with self.assertRaises(ValueError), self.settings(EMAIL_DOMAIN_BLOCKLIST=["email.io"]):
+            User.objects.create_user(first_name="Tim", email="tim@email.io", password=None)
 
     def test_analytics_metadata(self):
         self.maxDiff = None

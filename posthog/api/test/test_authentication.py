@@ -160,6 +160,18 @@ class TestLoginAPI(APIBaseTest):
         mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthoganalytics.capture")
+    def test_user_on_blocklist_cant_login(self, mock_capture):
+        with self.settings(EMAIL_DOMAIN_BLOCKLIST=["email.io"]):
+            response = self.client.post("/api/login", {"email": "test@email.io", "password": "password"})
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
+            # Assert user is not logged in
+            response = self.client.get("/api/users/@me/")
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
+            assert "email" not in response.json()
+            # Events never get reported
+            mock_capture.assert_not_called()
+
+    @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):
         invalid_passwords = ["1234", "abcdefgh", "testpassword1234", "😈😈😈"]
 

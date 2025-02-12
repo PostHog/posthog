@@ -2,6 +2,7 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Optional, TypedDict
 
+import posthoganalytics
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
 from django.db.models import Q
@@ -18,6 +19,11 @@ from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
 from .utils import UUIDClassicModel, generate_random_token, sane_repr
+from django.conf import settings
+
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class Notifications(TypedDict, total=False):
@@ -47,6 +53,23 @@ ROLE_CHOICES = (
 )
 
 
+def is_on_blocklist(email: str) -> bool:
+    try:
+        if "@" not in email:
+            return False
+        email_domain = email.split("@")[-1]
+        email_domain_blocklist = settings.EMAIL_DOMAIN_BLOCKLIST or []
+        return any(
+            email_domain.endswith("." + blocked_domain.lower()) or email_domain == blocked_domain.lower()
+            for blocked_domain in email_domain_blocklist
+        )
+    except Exception as e:
+        posthoganalytics.capture_exception(
+            e, distinct_id=email, properties={"current_blocklist": settings.EMAIL_DOMAIN_BLOCKLIST}
+        )
+        return False
+
+
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
@@ -61,6 +84,10 @@ class UserManager(BaseUserManager):
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("Email must be provided!")
+        if is_on_blocklist(email):
+            logger.warn("Attempted registration with blocked email", extra={"email": email})
+            raise ValueError("Email domain cannot be registered")
+
         email = self.normalize_email(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
@@ -81,6 +108,10 @@ class UserManager(BaseUserManager):
         is_staff: bool = False,
         **user_fields,
     ) -> tuple["Organization", "Team", "User"]:
+        if is_on_blocklist(email):
+            logger.warn("Attempted registraion with blocked email", extra={"email": email})
+            raise ValueError("Email domain cannot be registered")
+
         """Instead of doing the legwork of creating a user from scratch, delegate the details with bootstrap."""
         with transaction.atomic():
             organization_fields = organization_fields or {}
