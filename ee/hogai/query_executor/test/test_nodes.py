@@ -3,12 +3,23 @@ from unittest.mock import patch
 from rest_framework.exceptions import ValidationError
 
 from ee.hogai.query_executor.nodes import QueryExecutorNode
+from ee.hogai.query_executor.prompts import (
+    FUNNEL_STEPS_EXAMPLE_PROMPT,
+    FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
+    FUNNEL_TRENDS_EXAMPLE_PROMPT,
+    RETENTION_EXAMPLE_PROMPT,
+    TRENDS_EXAMPLE_PROMPT,
+)
 from ee.hogai.utils.types import AssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.schema import (
+    AssistantFunnelsQuery,
     AssistantMessage,
+    AssistantRetentionFilter,
+    AssistantRetentionQuery,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
+    FunnelVizType,
     HumanMessage,
     QueryStatus,
     VisualizationMessage,
@@ -202,3 +213,57 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             )
             self.assertEqual(msg.type, "tool")
             self.assertIsNotNone(msg.id)
+
+    def test_get_example_prompt(self):
+        node = QueryExecutorNode(self.team)
+
+        # Test Trends Query
+        trends_message = VisualizationMessage(
+            answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
+            plan="Plan",
+            id="test",
+            initiator="test",
+        )
+        self.assertEqual(node._get_example_prompt(trends_message), TRENDS_EXAMPLE_PROMPT)
+
+        # Test Funnel Query - Steps (default)
+        funnel_steps_message = VisualizationMessage(
+            answer=AssistantFunnelsQuery(series=[]),
+            plan="Plan",
+            id="test",
+            initiator="test",
+        )
+        self.assertEqual(node._get_example_prompt(funnel_steps_message), FUNNEL_STEPS_EXAMPLE_PROMPT)
+
+        # Test Funnel Query - Time to Convert
+        funnel_time_message = VisualizationMessage(
+            answer=AssistantFunnelsQuery(
+                series=[],
+                funnelsFilter={"funnelVizType": FunnelVizType.TIME_TO_CONVERT},
+            ),
+            plan="Plan",
+            id="test",
+            initiator="test",
+        )
+        self.assertEqual(node._get_example_prompt(funnel_time_message), FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT)
+
+        # Test Funnel Query - Trends
+        funnel_trends_message = VisualizationMessage(
+            answer=AssistantFunnelsQuery(
+                series=[],
+                funnelsFilter={"funnelVizType": FunnelVizType.TRENDS},
+            ),
+            plan="Plan",
+            id="test",
+            initiator="test",
+        )
+        self.assertEqual(node._get_example_prompt(funnel_trends_message), FUNNEL_TRENDS_EXAMPLE_PROMPT)
+
+        # Test Retention Query
+        retention_message = VisualizationMessage(
+            answer=AssistantRetentionQuery(retentionFilter=AssistantRetentionFilter()),
+            plan="Plan",
+            id="test",
+            initiator="test",
+        )
+        self.assertEqual(node._get_example_prompt(retention_message), RETENTION_EXAMPLE_PROMPT)
