@@ -1,4 +1,6 @@
 import os
+
+from django.conf import settings
 from django.core.asgi import get_asgi_application
 from django.http.response import HttpResponse
 
@@ -18,4 +20,22 @@ def lifetime_wrapper(func):
     return inner
 
 
-application = lifetime_wrapper(get_asgi_application())
+# PostHogConfig.ready() handles setting the global analytics key in WSGI. The same code couldn't run
+# in ASGI because ready() doesn't expose an async interface.
+def wrap_debug_analytics(func):
+    async def inner(scope, receive, send):
+        if not getattr(inner, "debug_analytics_initialized", False):
+            from posthog.utils import aset_debugging_analytics_key
+
+            await aset_debugging_analytics_key()
+            # Set a flag to indicate that the analytics key has been set, so we don't run the code on every request.
+            inner.debug_analytics_initialized = True
+        return await func(scope, receive, send)
+
+    return inner
+
+
+if settings.DEBUG:
+    application = lifetime_wrapper(wrap_debug_analytics(get_asgi_application()))
+else:
+    application = lifetime_wrapper(get_asgi_application())

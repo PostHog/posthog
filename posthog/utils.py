@@ -40,7 +40,6 @@ from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
-from posthog.exceptions_capture import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -48,6 +47,7 @@ from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
@@ -515,6 +515,37 @@ def get_self_capture_api_token(user: Optional[Union["AbstractBaseUser", "Anonymo
     if team:
         return team.api_token
     return None
+
+
+async def aset_debugging_analytics_key():
+    """
+    ASGI alternative to get_self_capture_api_token.
+    """
+    from django.apps import apps
+
+    User = apps.get_model("posthog", "User")
+    Team = apps.get_model("posthog", "Team")
+    try:
+        user = (
+            await User.objects.filter(last_login__isnull=False)
+            .order_by("-last_login")
+            .select_related("current_team")
+            .afirst()
+        )
+        # Get the current user's team (or first team in the instance) to set self capture configs
+        team = None
+        if user and getattr(user, "team", None):
+            team = user.current_team
+        else:
+            team = await Team.objects.only("api_token").afirst()
+        local_api_key = team.api_token
+    except:
+        local_api_key = None
+    # apps.ready() is already called, so reset the already set config.
+    if local_api_key is not None:
+        posthoganalytics.api_key = local_api_key
+        posthoganalytics.host = settings.SITE_URL
+        posthoganalytics.disabled = False
 
 
 def get_default_event_name(team: "Team"):
