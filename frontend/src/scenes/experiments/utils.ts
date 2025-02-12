@@ -369,7 +369,7 @@ export function getExperimentMetricFromInsight(
 
 export function getNewExperimentMetricFromInsight(
     insight: QueryBasedInsightModel | null
-): ExperimentQuery | undefined {
+): ExperimentMetric | undefined {
     if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
         return undefined
     }
@@ -381,17 +381,13 @@ export function getNewExperimentMetricFromInsight(
         const event = firstSeries.kind === NodeKind.EventsNode ? firstSeries.event : undefined
 
         return {
-            kind: NodeKind.ExperimentQuery,
-            metric: {
-                kind: 'ExperimentMetric',
-                metric_type: ExperimentMetricType.FUNNEL,
-                metric_config: {
-                    kind: 'ExperimentEventMetricConfig',
-                    event: event as string,
-                },
-                filterTestAccounts: insight.query.source.filterTestAccounts,
-            },
+            kind: NodeKind.ExperimentMetric,
             name: metricName,
+            metric_type: ExperimentMetricType.FUNNEL,
+            metric_config: {
+                kind: 'ExperimentEventMetricConfig',
+                event: event as string,
+            },
         }
     }
 
@@ -400,17 +396,13 @@ export function getNewExperimentMetricFromInsight(
         const event = firstSeries.kind === NodeKind.EventsNode ? firstSeries.event : undefined
 
         return {
-            kind: NodeKind.ExperimentQuery,
-            metric: {
-                kind: 'ExperimentMetric',
-                metric_type: ExperimentMetricType.COUNT,
-                metric_config: {
-                    kind: 'ExperimentEventMetricConfig',
-                    event: event as string,
-                },
-                filterTestAccounts: insight.query.source.filterTestAccounts,
-            },
+            kind: NodeKind.ExperimentMetric,
             name: metricName,
+            metric_type: ExperimentMetricType.COUNT,
+            metric_config: {
+                kind: 'ExperimentEventMetricConfig',
+                event: event as string,
+            },
         }
     }
 
