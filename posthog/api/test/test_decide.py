@@ -4858,6 +4858,18 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             sorted_flags[2],
         )
 
+        self.assertDictContainsSubset(
+            {
+                "name": "Inactive feature",
+                "key": "inactive-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                "deleted": False,
+                "active": False,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[3],
+        )
+
         self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company"})
 
     @patch("posthog.api.feature_flag.report_user_action")
