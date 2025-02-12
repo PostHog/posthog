@@ -13,15 +13,11 @@ const FILTER_OPTIONS = [
     },
     {
         label: 'New issue created',
-        value: '$error_tracking_alert_created',
+        value: '$error_tracking_issue_created',
     },
     {
-        label: 'Resolved issue reoccurs',
-        value: '$error_tracking_alert_reoccurred',
-    },
-    {
-        label: 'Assigned issue',
-        value: '$error_tracking_alert_assigned',
+        label: 'Resolved issue reopened',
+        value: '$error_tracking_issue_reopened',
     },
 ]
 
