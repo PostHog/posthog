@@ -148,12 +148,6 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     }
 }
 
-function getFilterForQuestion(questionIndex: number, filters: EventPropertyFilter[]): AnyPropertyFilter[] {
-    return filters.filter(
-        (f) => f.key === (questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`)
-    )
-}
-
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
@@ -387,10 +381,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         GROUP BY survey_response
                     `,
                     filters: {
-                        properties: [
-                            ...values.propertyFilters,
-                            ...getFilterForQuestion(questionIndex, values.answerFilters),
-                        ],
+                        properties: [...values.propertyFilters, ...values.answerFilters],
                     },
                 }
 
@@ -445,10 +436,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         GROUP BY survey_response, survey_iteration
                     `,
                     filters: {
-                        properties: [
-                            ...values.propertyFilters,
-                            ...getFilterForQuestion(questionIndex, values.answerFilters),
-                        ],
+                        properties: [...values.propertyFilters, ...values.answerFilters],
                     },
                 }
 
@@ -531,10 +519,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         GROUP BY survey_response
                     `,
                     filters: {
-                        properties: [
-                            ...values.propertyFilters,
-                            ...getFilterForQuestion(questionIndex, values.answerFilters),
-                        ],
+                        properties: [...values.propertyFilters, ...values.answerFilters],
                     },
                 }
 
@@ -581,10 +566,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         ORDER BY count() DESC
                     `,
                     filters: {
-                        properties: [
-                            ...values.propertyFilters,
-                            ...getFilterForQuestion(questionIndex, values.answerFilters),
-                        ],
+                        properties: [...values.propertyFilters, ...values.answerFilters],
                     },
                 }
 
@@ -641,10 +623,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         LIMIT 20
                     `,
                     filters: {
-                        properties: [
-                            ...values.propertyFilters,
-                            ...getFilterForQuestion(questionIndex, values.answerFilters),
-                        ],
+                        properties: [...values.propertyFilters, ...values.answerFilters],
                     },
                 }
 

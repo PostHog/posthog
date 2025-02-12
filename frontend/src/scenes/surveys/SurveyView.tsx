@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -493,9 +493,22 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyAsInsightURL,
     } = useValues(surveyLogic)
 
+    const isAnyResultsLoading =
+        surveyUserStatsLoading ||
+        !surveyRatingResultsReady ||
+        !surveySingleChoiceResultsReady ||
+        !surveyMultipleChoiceResultsReady ||
+        !surveyOpenTextResultsReady
+
     return (
         <div className="space-y-4">
             <SurveyResultsFilters />
+            {isAnyResultsLoading && (
+                <div className="flex gap-1">
+                    <span className="text-sm text-secondary">Loading results...</span>
+                    <Spinner />
+                </div>
+            )}
             <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
