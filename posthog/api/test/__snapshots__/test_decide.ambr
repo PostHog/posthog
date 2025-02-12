@@ -1,7 +1,4 @@
 # serializer version: 1
-# name: TestDatabaseCheckForDecide.test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached
-  'SELECT 1'
-# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down
   '''
   SELECT "posthog_user"."id",
@@ -1015,9 +1012,10 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.34
@@ -1417,9 +1415,10 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.11
@@ -1814,8 +1813,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.19
@@ -1867,8 +1867,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.21
@@ -2473,9 +2474,10 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.11
@@ -2870,8 +2872,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.19
@@ -2919,8 +2922,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.21
@@ -3422,9 +3426,10 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_web_app_queries.10
@@ -5714,9 +5719,10 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.41
@@ -6383,9 +6389,10 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.11
@@ -7094,8 +7101,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.25
@@ -7513,8 +7521,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.33
@@ -8043,9 +8052,10 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.11
@@ -8754,8 +8764,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.25
@@ -9169,8 +9180,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.33

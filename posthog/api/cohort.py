@@ -761,6 +761,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
                     try:
                         match = FeatureFlagMatcher(
+                            team_id,
                             project_id,
                             [feature_flag],
                             distinct_id,

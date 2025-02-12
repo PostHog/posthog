@@ -138,6 +138,7 @@ class FeatureFlagMatcher:
 
     def __init__(
         self,
+        team_id: int,
         project_id: int,
         feature_flags: list[FeatureFlag],
         distinct_id: str,
@@ -157,6 +158,7 @@ class FeatureFlagMatcher:
             hash_key_overrides = {}
         if groups is None:
             groups = {}
+        self.team_id = team_id
         self.project_id = project_id
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
@@ -473,14 +475,13 @@ class FeatureFlagMatcher:
             # and not just the database query.
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
                 all_conditions: dict = {}
-                team_id = self.feature_flags[0].team_id
                 person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                    team_id=team_id,
+                    team_id=self.team_id,
                     persondistinctid__distinct_id=self.distinct_id,
-                    persondistinctid__team_id=team_id,
+                    persondistinctid__team_id=self.team_id,
                 )
                 basic_group_query: QuerySet = Group.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                    team_id=team_id
+                    team_id=self.team_id
                 )
                 group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
@@ -783,6 +784,7 @@ def get_feature_flag_hash_key_overrides(
 # Return a Dict with all flags and their values
 def _get_all_feature_flags(
     feature_flags: list[FeatureFlag],
+    team_id: int,
     project_id: int,
     distinct_id: str,
     person_overrides: Optional[dict[str, str]] = None,
@@ -801,6 +803,7 @@ def _get_all_feature_flags(
 
     if feature_flags:
         return FeatureFlagMatcher(
+            team_id,
             project_id,
             feature_flags,
             distinct_id,
@@ -852,6 +855,7 @@ def get_all_feature_flags(
         if not is_database_alive or not flags_have_experience_continuity_enabled:
             return _get_all_feature_flags(
                 all_feature_flags,
+                team.id,
                 team.project_id,
                 distinct_id,
                 groups=groups,
@@ -886,7 +890,7 @@ def get_all_feature_flags(
                             WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
                         )
                         SELECT key FROM posthog_featureflag flag
-                        JOIN posthog_team team ON posthog_featureflag.team_id = posthog_team.id
+                        JOIN posthog_team team ON flag.team_id = team.id
                         WHERE team.project_id = %(project_id)s
                             AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
                             AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
@@ -959,6 +963,7 @@ def get_all_feature_flags(
             # This automatically sets 'errorsWhileComputingFlags' to True.
             return _get_all_feature_flags(
                 all_feature_flags,
+                team.id,
                 team.project_id,
                 distinct_id,
                 groups=groups,
@@ -969,6 +974,7 @@ def get_all_feature_flags(
 
     return _get_all_feature_flags(
         all_feature_flags,
+        team.id,
         team.project_id,
         distinct_id,
         person_overrides,
@@ -1003,7 +1009,7 @@ def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], has
                     ),
                     flags_to_override AS (
                         SELECT key FROM posthog_featureflag flag
-                        JOIN posthog_team team ON posthog_featureflag.team_id = posthog_team.id
+                        JOIN posthog_team team ON flag.team_id = team.id
                         WHERE team.project_id = %(project_id)s
                             AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
                             AND flag.key NOT IN (SELECT feature_flag_key FROM existing_overrides)
