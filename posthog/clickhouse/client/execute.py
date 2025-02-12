@@ -121,25 +121,25 @@ def sync_execute(
     if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
 
+    start_time = perf_counter()
+
+    prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
+    query_id = validated_client_query_id()
+    core_settings = {**default_settings(), **(settings or {})}
+    tags["query_settings"] = core_settings
+
+    query_type = tags.get("query_type", "Other")
+    set_tag("query_type", query_type)
+    if team_id is not None:
+        set_tag("team_id", team_id)
+
+    settings = {
+        **core_settings,
+        "log_comment": json.dumps(tags, separators=(",", ":")),
+        "query_id": query_id,
+    }
+
     with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
-        start_time = perf_counter()
-
-        prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
-        query_id = validated_client_query_id()
-        core_settings = {**default_settings(), **(settings or {})}
-        tags["query_settings"] = core_settings
-
-        query_type = tags.get("query_type", "Other")
-        set_tag("query_type", query_type)
-        if team_id is not None:
-            set_tag("team_id", team_id)
-
-        settings = {
-            **core_settings,
-            "log_comment": json.dumps(tags, separators=(",", ":")),
-            "query_id": query_id,
-        }
-
         try:
             result = client.execute(
                 prepared_sql,
@@ -196,9 +196,7 @@ def query_with_columns(
     return rows
 
 
-@patchable
 def _prepare_query(
-    client: SyncClient,
     query: str,
     args: QueryArgs,
     workload: Workload = Workload.DEFAULT,
