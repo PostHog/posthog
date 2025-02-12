@@ -4514,6 +4514,22 @@ class ExperimentMetric(BaseModel):
     name: Optional[str] = None
 
 
+class ExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMetric
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+
+
 class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6133,6 +6149,34 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     )
 
 
+class CachedExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    is_cached: bool
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    last_refresh: AwareDatetime
+    metric: ExperimentMetric
+    next_allowed_client_refresh: AwareDatetime
+    p_value: float
+    probability: dict[str, float]
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    timezone: str
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+
+
 class CachedHogQLQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6674,35 +6718,6 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     useSessionsTable: Optional[bool] = None
 
 
-class CachedExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    count_query: Optional[TrendsQuery] = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: Optional[TrendsQuery] = None
-    insight: list[dict[str, Any]]
-    is_cached: bool
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    p_value: float
-    probability: dict[str, float]
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    timezone: str
-    variants: list[ExperimentVariantTrendsBaseStats]
-
-
 class CachedExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6871,23 +6886,6 @@ class EventsQuery(BaseModel):
     response: Optional[EventsQueryResponse] = None
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
-
-
-class ExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: Optional[TrendsQuery] = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: Optional[TrendsQuery] = None
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class ExperimentTrendsQueryResponse(BaseModel):
