@@ -9,7 +9,7 @@ from dateutil import parser
 from collections.abc import Sequence
 
 from dlt.common.schema.typing import TTableSchemaColumns
-from dlt.common import logger, json as orjson
+from dlt.common import logger
 from dlt.common.configuration import with_config
 from dlt.common.destination import DestinationCapabilitiesContext
 from dlt.common.json import custom_encode, map_nested_in_place
@@ -184,7 +184,7 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
 
 def json_dumps(obj: Any) -> str:
     try:
-        return orjson.dumps(obj)
+        return json.dumps(obj)
     except TypeError as e:
         if str(e) == "Integer exceeds 64-bit range":
             return json.dumps(obj)
