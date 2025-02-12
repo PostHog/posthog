@@ -9,3 +9,5 @@ AIRBYTE_BUCKET_DOMAIN = os.getenv("AIRBYTE_BUCKET_DOMAIN", None)
 BUCKET_URL = os.getenv("BUCKET_URL", None)
 AIRBYTE_BUCKET_NAME = os.getenv("AIRBYTE_BUCKET_NAME", None)
 BUCKET = "test-pipeline"
+
+PIPELINE_STEP = os.getenv("PIPELINE_STEP", 10)

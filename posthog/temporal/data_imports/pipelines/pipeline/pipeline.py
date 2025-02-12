@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLS
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from django.conf import settings
 
 
 class PipelineNonDLT:
@@ -34,6 +35,7 @@ class PipelineNonDLT:
     _delta_table_helper: DeltaTableHelper
     _internal_schema = HogQLSchema()
     _load_id: int
+    _step: int = 10
 
     def __init__(
         self, source: DltSource, logger: FilteringBoundLogger, job_id: str, is_incremental: bool, reset_pipeline: bool
@@ -56,6 +58,7 @@ class PipelineNonDLT:
 
         self._delta_table_helper = DeltaTableHelper(resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
+        self._step = int(settings.PIPELINE_STEP)
 
     def run(self):
         try:
@@ -79,77 +82,83 @@ class PipelineNonDLT:
                 self._schema.save()
 
             for item in self._resource:
-                py_table = None
+                if self._step >= 8:
+                    py_table = None
 
-                if isinstance(item, list):
-                    if len(buffer) > 0:
-                        buffer.extend(item)
-                        if len(buffer) >= chunk_size:
-                            py_table = table_from_py_list(buffer)
-                            buffer = []
-                    else:
-                        if len(item) >= chunk_size:
-                            py_table = table_from_py_list(item)
-                        else:
+                    if isinstance(item, list):
+                        if len(buffer) > 0:
                             buffer.extend(item)
+                            if len(buffer) >= chunk_size:
+                                py_table = table_from_py_list(buffer)
+                                buffer = []
+                        else:
+                            if len(item) >= chunk_size:
+                                py_table = table_from_py_list(item)
+                            else:
+                                buffer.extend(item)
+                                continue
+                    elif isinstance(item, dict):
+                        buffer.append(item)
+                        if len(buffer) < chunk_size:
                             continue
-                elif isinstance(item, dict):
-                    buffer.append(item)
-                    if len(buffer) < chunk_size:
-                        continue
 
-                    py_table = table_from_py_list(buffer)
-                    buffer = []
-                elif isinstance(item, pa.Table):
-                    py_table = item
-                else:
-                    raise Exception(f"Unhandled item type: {item.__class__.__name__}")
+                        py_table = table_from_py_list(buffer)
+                        buffer = []
+                    elif isinstance(item, pa.Table):
+                        py_table = item
+                    else:
+                        raise Exception(f"Unhandled item type: {item.__class__.__name__}")
 
-                assert py_table is not None
+                    assert py_table is not None
 
-                self._process_pa_table(pa_table=py_table, index=chunk_index)
+                    self._process_pa_table(pa_table=py_table, index=chunk_index)
 
-                row_count += py_table.num_rows
-                chunk_index += 1
+                    row_count += py_table.num_rows
+                    chunk_index += 1
 
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
                 self._process_pa_table(pa_table=py_table, index=chunk_index)
                 row_count += py_table.num_rows
 
-            self._post_run_operations(row_count=row_count)
+            if self._step >= 8:
+                self._post_run_operations(row_count=row_count)
         finally:
-            # Help reduce the memory footprint of each job
-            delta_table = self._delta_table_helper.get_delta_table()
-            self._delta_table_helper.get_delta_table.cache_clear()
-            if delta_table:
-                del delta_table
+            if self._step >= 7:
+                # Help reduce the memory footprint of each job
+                delta_table = self._delta_table_helper.get_delta_table()
+                self._delta_table_helper.get_delta_table.cache_clear()
+                if delta_table:
+                    del delta_table
 
-            del self._resource
-            del self._delta_table_helper
+                del self._resource
+                del self._delta_table_helper
 
-            if "buffer" in locals() and buffer is not None:
-                del buffer
-            if "py_table" in locals() and py_table is not None:
-                del py_table
-            gc.collect()
+                if "buffer" in locals() and buffer is not None:
+                    del buffer
+                if "py_table" in locals() and py_table is not None:
+                    del py_table
+                gc.collect()
 
     def _process_pa_table(self, pa_table: pa.Table, index: int):
-        delta_table = self._delta_table_helper.get_delta_table()
+        if self._step >= 9:
+            delta_table = self._delta_table_helper.get_delta_table()
 
-        pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
-        pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
-        pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
+            pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+            pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+            pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
-        table_primary_keys = _get_primary_keys(self._resource)
-        delta_table = self._delta_table_helper.write_to_deltalake(
-            pa_table, self._is_incremental, index, table_primary_keys
-        )
+            table_primary_keys = _get_primary_keys(self._resource)
 
-        self._internal_schema.add_pyarrow_table(pa_table)
+            if self._step >= 10:
+                delta_table = self._delta_table_helper.write_to_deltalake(
+                    pa_table, self._is_incremental, index, table_primary_keys
+                )
 
-        _update_incremental_state(self._schema, pa_table, self._logger)
-        _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
+            self._internal_schema.add_pyarrow_table(pa_table)
+
+            _update_incremental_state(self._schema, pa_table, self._logger)
+            _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
 
     def _post_run_operations(self, row_count: int):
         delta_table = self._delta_table_helper.get_delta_table()
