@@ -61,7 +61,7 @@ export function ChartFilter(): JSX.Element {
                     labelInMenu: (
                         <ChartFilterOptionLabel
                             label="Bar chart"
-                            description="Trends over time data with vertical bars."
+                            description="Trends over time as vertical bars."
                         />
                     ),
                 },
