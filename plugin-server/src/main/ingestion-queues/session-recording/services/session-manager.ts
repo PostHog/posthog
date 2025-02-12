@@ -10,6 +10,8 @@ import { pipeline } from 'stream/promises'
 import { Tail } from 'tail'
 import * as zlib from 'zlib'
 
+import { captureException } from '~/src/utils/posthog'
+
 import { PluginsServerConfig } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
@@ -161,7 +163,7 @@ export class SessionManager {
 
     private captureMessage(message: string, extra: Record<string, any> = {}): void {
         const context = this.logContext()
-        captureMessage(message, {
+        captureException(message, {
             extra: { ...context, ...extra },
             tags: { teamId: context.teamId, sessionId: context.sessionId, partition: context.partition },
         })
