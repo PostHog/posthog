@@ -2,7 +2,7 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.temporal.common.codec import EncryptionCodec
 from django.conf import settings
 
-REDACTED_PAYLOAD_VALUE = "********* (encrypted)"
+REDACTED_PAYLOAD_VALUE = '"********* (encrypted)"'
 
 
 def get_decrypted_flag_payloads(request, encrypted_payloads: dict) -> dict:

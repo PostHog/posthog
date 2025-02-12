@@ -38,7 +38,6 @@ from posthog.helpers.dashboard_templates import (
 from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads,
-    REDACTED_PAYLOAD_VALUE,
 )
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import (
@@ -336,8 +335,7 @@ class FeatureFlagSerializer(
                 json.dumps(json_value)
 
             except json.JSONDecodeError:
-                if value != REDACTED_PAYLOAD_VALUE:
-                    raise serializers.ValidationError("Payload value is not valid JSON")
+                raise serializers.ValidationError("Payload value is not valid JSON")
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):
