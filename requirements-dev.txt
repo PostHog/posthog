@@ -606,9 +606,10 @@ sortedcontainers==2.4.0
     # via
     #   -c requirements.txt
     #   fakeredis
-sqlalchemy==2.0.31
+sqlalchemy==2.0.38
     # via
     #   -c requirements.txt
+    #   -r requirements-dev.in
     #   langchain
     #   langchain-community
 sqlparse==0.4.4
