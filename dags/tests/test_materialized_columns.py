@@ -1,11 +1,12 @@
-from collections.abc import Iterator, Mapping
 import contextlib
+from collections.abc import Iterator, Mapping
 from datetime import datetime
 from uuid import UUID
-from clickhouse_driver import Client
+
 import dagster
 import pydantic
 import pytest
+from clickhouse_driver import Client
 
 from dags.materialized_columns import (
     MaterializeColumnConfig,
@@ -14,6 +15,7 @@ from dags.materialized_columns import (
     run_materialize_mutations,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.hogql.test.test_printer import materialized  # bad idea
 
 
 def test_partition_range_validation():
@@ -27,6 +29,15 @@ def test_partition_range_validation():
 
     with pytest.raises(pydantic.ValidationError):
         PartitionRange(lower="202401", upper="")
+
+
+@contextlib.contextmanager
+def stop_merges(cluster: ClickhouseCluster, table: str):
+    try:
+        cluster.map_all_hosts(lambda c: c.execute(f"SYSTEM STOP MERGES {table}")).result()
+        yield
+    finally:
+        cluster.map_all_hosts(lambda c: c.execute(f"SYSTEM START MERGES {table}")).result()
 
 
 @contextlib.contextmanager
@@ -45,14 +56,10 @@ def override_mergetree_settings(cluster: ClickhouseCluster, table: str, settings
 
 
 def test_sharded_table_job(cluster: ClickhouseCluster):
-    config = MaterializeColumnConfig(
-        table="sharded_events",
-        column="mat_$ip",  # TODO: create new materialized column
-        partitions=PartitionRange(lower="202401", upper="202412"),
-    )
+    partitions = PartitionRange(lower="202401", upper="202412")
 
     def populate_test_data(client: Client) -> None:
-        for date in config.partitions.iter_dates():
+        for date in partitions.iter_dates():
             dt = datetime(date.year, date.month, date.day)
             client.execute(
                 "INSERT INTO writable_events (timestamp, uuid) VALUES",
@@ -61,22 +68,29 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
 
     with override_mergetree_settings(
         cluster,
-        config.table,
+        "sharded_events",
         {"min_bytes_for_wide_part": "1", "min_rows_for_wide_part": "1"},
     ):
         cluster.any_host(populate_test_data).result()
 
-    remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
-    for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
-        assert shard_partitions_remaining == set(config.partitions.iter_ids())
+    with stop_merges(cluster, "sharded_events"), materialized("events", "$xyz") as column:
+        config = MaterializeColumnConfig(
+            table="sharded_events",
+            column=column.name,
+            partitions=partitions,
+        )
 
-    materialize_column.execute_in_process(
-        run_config=dagster.RunConfig(
-            {run_materialize_mutations.name: {"config": config.model_dump()}},
-        ),
-        resources={"cluster": cluster},
-    )
+        remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
+        for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
+            assert shard_partitions_remaining == set(config.partitions.iter_ids())
 
-    remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
-    for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
-        assert shard_partitions_remaining == set()
+        materialize_column.execute_in_process(
+            run_config=dagster.RunConfig(
+                {run_materialize_mutations.name: {"config": config.model_dump()}},
+            ),
+            resources={"cluster": cluster},
+        )
+
+        remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
+        for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
+            assert shard_partitions_remaining == set()

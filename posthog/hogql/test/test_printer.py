@@ -36,8 +36,7 @@ def materialized(table, property):
         pytest.xfail(str(e))
 
     try:
-        materialize(table, property)
-        yield
+        yield materialize(table, property)
     finally:
         cleanup_materialized_columns()
 
