@@ -82,14 +82,13 @@ source "$PYTHON_DIR/bin/activate"
 
 # Install Python dependencies (this is practically instant thanks to uv)
 uv pip install -q -r requirements.txt -r requirements-dev.txt
-echo "Python dependencies ready"
 
 # Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)
 # This also sets up pre-commit hooks via Husky
 if [ ! -d "node_modules" ]; then
   echo "Installing Node dependencies..."
   pnpm install -s
-  echo "Node dependencies ready"
+  echo "Node dependencies installed"
 fi
 
 if [[ -t 0 ]]; then # The block below only runs when in an interactive shell
