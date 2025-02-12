@@ -28,12 +28,15 @@ amqp==5.1.1
     # via kombu
 annotated-types==0.7.0
     # via pydantic
+anthropic==0.44.0
+    # via -r requirements.in
 antlr4-python3-runtime==4.13.1
     # via
     #   -r requirements.in
     #   dagster
 anyio==4.6.2.post1
     # via
+    #   anthropic
     #   gql
     #   httpx
     #   openai
@@ -55,26 +58,23 @@ attrs==23.2.0
     #   jsonschema
     #   outcome
     #   referencing
-    #   service-identity
     #   trio
-    #   twisted
     #   zeep
-autobahn==24.4.2
-    # via daphne
-automat==24.8.1
-    # via twisted
 backoff==2.2.1
     # via
     #   gql
     #   posthoganalytics
 bcrypt==4.1.3
     # via paramiko
+beautifulsoup4==4.12.3
+    # via -r requirements.in
 billiard==4.1.0
     # via celery
 boto3==1.28.16
     # via
     #   -r requirements.in
     #   aiobotocore
+    #   dagster-aws
 botocore==1.31.64
     # via
     #   aiobotocore
@@ -92,15 +92,15 @@ celery==5.3.4
     #   sentry-sdk
 celery-redbeat==2.1.1
     # via -r requirements.in
-certifi==2019.11.28
+certifi==2024.12.14
     # via
     #   clickhouse-connect
     #   httpcore
     #   httpx
     #   requests
+    #   selenium
     #   sentry-sdk
     #   snowflake-connector-python
-    #   urllib3
 cffi==1.16.0
     # via
     #   cryptography
@@ -142,8 +142,6 @@ coloredlogs==14.0
     # via dagster
 conditional-cache==1.2
     # via -r requirements.in
-croniter==5.0.1
-    # via dagster
 cryptography==39.0.2
     # via
     #   -r requirements.in
@@ -152,27 +150,29 @@ cryptography==39.0.2
     #   pyopenssl
     #   snowflake-connector-python
     #   social-auth-core
-    #   urllib3
 cssselect==1.1.0
     # via toronado
 cssutils==1.0.2
     # via toronado
-dagster==1.9.8
+dagster==1.9.9
     # via
     #   -r requirements.in
+    #   dagster-aws
     #   dagster-celery
     #   dagster-graphql
     #   dagster-postgres
     #   dagster-webserver
-dagster-celery==0.25.8
+dagster-aws==0.25.9
     # via -r requirements.in
-dagster-graphql==1.9.8
+dagster-celery==0.25.9
+    # via -r requirements.in
+dagster-graphql==1.9.9
     # via dagster-webserver
-dagster-pipes==1.9.8
+dagster-pipes==1.9.9
     # via dagster
-dagster-postgres==0.25.8
+dagster-postgres==0.25.9
     # via -r requirements.in
-dagster-webserver==1.9.8
+dagster-webserver==1.9.9
     # via -r requirements.in
 dataclasses-json==0.6.7
     # via langchain-community
@@ -185,7 +185,9 @@ defusedxml==0.6.0
 deltalake==0.23.2
     # via -r requirements.in
 distro==1.9.0
-    # via openai
+    # via
+    #   anthropic
+    #   openai
 dj-database-url==0.5.0
     # via -r requirements.in
 django==4.2.18
@@ -351,7 +353,7 @@ h11==0.13.0
     #   wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.47
+hogql-parser==1.0.459
     # via -r requirements.in
 httpcore==1.0.2
     # via httpx
@@ -359,6 +361,7 @@ httptools==0.6.4
     # via uvicorn
 httpx==0.26.0
     # via
+    #   anthropic
     #   langgraph-sdk
     #   langsmith
     #   openai
@@ -373,7 +376,6 @@ idna==3.10
     #   requests
     #   snowflake-connector-python
     #   trio
-    #   urllib3
     #   yarl
 infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
     # via -r requirements.in
@@ -388,7 +390,9 @@ isodate==0.6.1
 jinja2==3.1.5
     # via dagster
 jiter==0.5.0
-    # via openai
+    # via
+    #   anthropic
+    #   openai
 jmespath==1.0.0
     # via
     #   boto3
@@ -444,7 +448,7 @@ langsmith==0.1.132
     #   langchain
     #   langchain-community
     #   langchain-core
-lxml==4.9.4
+lxml==5.2.1
     # via
     #   -r requirements.in
     #   python3-saml
@@ -502,7 +506,6 @@ numpy==1.23.3
     #   langchain
     #   langchain-community
     #   pandas
-    #   pyarrow
     #   scikit-learn
     #   scipy
 oauthlib==3.1.0
@@ -528,6 +531,7 @@ packaging==24.1
     # via
     #   aiokafka
     #   dagster
+    #   dagster-aws
     #   dlt
     #   google-cloud-bigquery
     #   langchain-core
@@ -559,7 +563,7 @@ pluggy==1.5.0
     # via dlt
 ply==3.11
     # via jsonpath-ng
-posthoganalytics==3.8.4
+posthoganalytics==3.11.0
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
@@ -593,7 +597,7 @@ psycopg2-binary==2.9.7
     #   dagster-postgres
 py==1.11.0
     # via retry
-pyarrow==17.0.0
+pyarrow==18.1.0
     # via
     #   -r requirements.in
     #   deltalake
@@ -602,16 +606,14 @@ pyasn1==0.5.0
     # via
     #   pyasn1-modules
     #   rsa
-    #   service-identity
 pyasn1-modules==0.3.0
-    # via
-    #   google-auth
-    #   service-identity
+    # via google-auth
 pycparser==2.20
     # via cffi
 pydantic==2.9.2
     # via
     #   -r requirements.in
+    #   anthropic
     #   dagster
     #   langchain
     #   langchain-core
@@ -639,10 +641,7 @@ pynacl==1.5.0
 pyodbc==5.1.0
     # via -r requirements.in
 pyopenssl==23.0.0
-    # via
-    #   snowflake-connector-python
-    #   twisted
-    #   urllib3
+    # via snowflake-connector-python
 pypng==0.20220715.0
     # via qrcode
 pysocks==1.7.1
@@ -653,7 +652,6 @@ python-dateutil==2.8.2
     #   botocore
     #   celery
     #   celery-redbeat
-    #   croniter
     #   google-cloud-bigquery
     #   graphene
     #   pandas
@@ -669,14 +667,13 @@ python-statsd==2.1.0
     # via django-statsd
 python3-openid==3.1.0
     # via social-auth-core
-python3-saml==1.12.0
+python3-saml==1.16.0
     # via -r requirements.in
 pytz==2023.3
     # via
     #   -r requirements.in
     #   clickhouse-connect
     #   clickhouse-driver
-    #   croniter
     #   dagster
     #   dlt
     #   infi-clickhouse-orm
@@ -711,6 +708,7 @@ requests==2.32.3
     # via
     #   -r requirements.in
     #   dagster
+    #   dagster-aws
     #   dagster-graphql
     #   dlt
     #   geoip2
@@ -762,7 +760,7 @@ scikit-learn==1.5.0
     # via -r requirements.in
 scipy==1.12.0
     # via scikit-learn
-selenium==4.1.5
+selenium==4.28.1
     # via -r requirements.in
 semantic-version==2.8.5
     # via -r requirements.in
@@ -770,17 +768,12 @@ semver==3.0.2
     # via dlt
 sentry-sdk==1.44.1
     # via -r requirements.in
-service-identity==24.2.0
-    # via twisted
 setuptools==75.8.0
     # via
-    #   autobahn
     #   dagster
     #   dlt
     #   gunicorn
-    #   incremental
     #   infi-clickhouse-orm
-    #   zope-interface
 simple-salesforce==1.12.6
     # via -r requirements.in
 simplejson==3.19.2
@@ -788,6 +781,7 @@ simplejson==3.19.2
 six==1.16.0
     # via
     #   astunparse
+    #   dagster
     #   djangorestframework-csv
     #   google-auth
     #   isodate
@@ -799,6 +793,7 @@ smmap==5.0.1
     # via gitdb
 sniffio==1.3.1
     # via
+    #   anthropic
     #   anyio
     #   httpx
     #   openai
@@ -819,6 +814,8 @@ sortedcontainers==2.4.0
     # via
     #   snowflake-connector-python
     #   trio
+soupsieve==2.6
+    # via beautifulsoup4
 sqlalchemy==2.0.31
     # via
     #   -r requirements.in
@@ -897,6 +894,7 @@ types-setuptools==69.0.0.0
 typing-extensions==4.12.2
     # via
     #   alembic
+    #   anthropic
     #   dagster
     #   dlt
     #   graphene
@@ -906,6 +904,7 @@ typing-extensions==4.12.2
     #   pydantic
     #   pydantic-core
     #   qrcode
+    #   selenium
     #   simple-salesforce
     #   snowflake-connector-python
     #   sqlalchemy
@@ -939,8 +938,6 @@ urllib3==1.26.18
     #   requests
     #   selenium
     #   sentry-sdk
-urllib3-secure-extra==0.1.0
-    # via urllib3
 uvicorn==0.34.0
     # via dagster-webserver
 uvloop==0.21.0
@@ -958,6 +955,8 @@ wcwidth==0.2.6
     # via prompt-toolkit
 webdriver-manager==4.0.2
     # via -r requirements.in
+websocket-client==1.8.0
+    # via selenium
 websockets==14.1
     # via uvicorn
 wheel==0.42.0
@@ -968,7 +967,7 @@ wrapt==1.15.0
     # via aiobotocore
 wsproto==1.2.0
     # via trio-websocket
-xmlsec==1.3.13
+xmlsec==1.3.14
     # via
     #   -r requirements.in
     #   python3-saml
@@ -978,8 +977,6 @@ yarl==1.18.3
     #   gql
 zeep==4.2.1
     # via simple-salesforce
-zope-interface==7.2
-    # via twisted
 zstandard==0.23.0
     # via clickhouse-connect
 zstd==1.5.5.1

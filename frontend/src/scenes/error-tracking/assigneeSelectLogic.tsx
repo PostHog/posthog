@@ -30,7 +30,7 @@ const userDisplay = (member: OrganizationMemberType): AssigneeDisplayType => ({
 
 const unassignedUser = {
     id: 'unassigned',
-    icon: <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />,
+    icon: <IconPerson className="rounded-full border border-dashed border-muted text-secondary p-0.5" />,
 }
 
 export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
@@ -81,20 +81,22 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
         groupOptions: [(s) => [s.filteredGroups], (groups): AssigneeDisplayType[] => groups.map(groupDisplay)],
         memberOptions: [(s) => [s.filteredMembers], (members): AssigneeDisplayType[] => members.map(userDisplay)],
 
-        displayAssignee: [
-            (s, p) => [s.userGroups, s.meFirstMembers, p.assignee],
-            (groups, members, assignee): AssigneeDisplayType => {
-                if (assignee) {
-                    if (assignee.type === 'user_group') {
-                        const assignedGroup = groups.find((group) => group.id === assignee.id)
-                        return assignedGroup ? groupDisplay(assignedGroup, 0) : unassignedUser
+        computeAssignee: [
+            (s) => [s.userGroups, s.meFirstMembers],
+            (groups, members): ((assignee: ErrorTrackingIssue['assignee']) => AssigneeDisplayType) => {
+                return (assignee: ErrorTrackingIssue['assignee']) => {
+                    if (assignee) {
+                        if (assignee.type === 'user_group') {
+                            const assignedGroup = groups.find((group) => group.id === assignee.id)
+                            return assignedGroup ? groupDisplay(assignedGroup, 0) : unassignedUser
+                        }
+
+                        const assignedMember = members.find((member) => member.user.id === assignee.id)
+                        return assignedMember ? userDisplay(assignedMember) : unassignedUser
                     }
 
-                    const assignedMember = members.find((member) => member.user.id === assignee.id)
-                    return assignedMember ? userDisplay(assignedMember) : unassignedUser
+                    return unassignedUser
                 }
-
-                return unassignedUser
             },
         ],
     }),

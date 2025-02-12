@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Experiment
 from posthog.schema import ExperimentTrendsQuery, ExperimentFunnelsQuery
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 import logging
 from datetime import datetime
 
@@ -27,9 +27,9 @@ class Command(BaseCommand):
                 # Update main metric
                 main_experiment_query = self.create_experiment_query(
                     filters=experiment.filters,
-                    custom_exposure_filter=experiment.parameters.get("custom_exposure_filter")
-                    if experiment.parameters
-                    else None,
+                    custom_exposure_filter=(
+                        experiment.parameters.get("custom_exposure_filter") if experiment.parameters else None
+                    ),
                 )
                 experiment.metrics = [main_experiment_query.model_dump()]
 

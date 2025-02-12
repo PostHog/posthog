@@ -213,7 +213,7 @@ export function InsightsTable({
         })
     }
 
-    if (hasInsightColors) {
+    if (hasInsightColors && !isMainInsightView) {
         columns.push({
             title: <ColorCustomizationColumnTitle />,
             render: (_, item) => <ColorCustomizationColumnItem item={item} />,

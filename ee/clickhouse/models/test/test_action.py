@@ -13,7 +13,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
 )
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION
 
 
 @dataclasses.dataclass

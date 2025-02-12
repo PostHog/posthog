@@ -9,6 +9,11 @@ export type PersistedRecordingMessage = {
 
 export type EachBatchHandler = (messages: Message[], context: { heartbeat: () => void }) => Promise<void>
 
+export interface PartitionOffset {
+    partition: number
+    offset: number
+}
+
 export type CaptureIngestionWarningFn = (
     teamId: number,
     type: string,

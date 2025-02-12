@@ -1,13 +1,13 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, TracesQuery, TracesQueryResponse } from '~/queries/schema'
+import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
-import { llmObservabilityLogic } from './llmObservabilityLogic'
 import type { llmObservabilityTraceLogicType } from './llmObservabilityTraceLogicType'
 
 export interface LLMObservabilityTraceDataNodeLogicParams {
@@ -39,58 +39,57 @@ export function getDataNodeLogicProps({
 export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     path(['scenes', 'llm-observability', 'llmObservabilityTraceLogic']),
 
-    connect(() => ({
-        values: [
-            llmObservabilityLogic,
-            ['tracesQuery'],
-            dataNodeLogic({ key: 'InsightViz.new-AdHoc.DataNode.llm-observability-traces' } as DataNodeLogicProps),
-            ['response as cachedTracesResults'],
-        ],
-    })),
-
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
         setEventId: (eventId: string | null) => ({ eventId }),
+        setDateFrom: (dateFrom: string) => ({ dateFrom }),
     }),
 
     reducers({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
+        dateFrom: [null as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
     }),
 
     selectors({
         query: [
-            (s) => [s.tracesQuery, s.traceId],
-            (tracesQuery, traceId): DataTableNode => ({
-                ...tracesQuery,
-                source: {
-                    ...(tracesQuery.source as TracesQuery),
+            (s) => [s.traceId, s.dateFrom],
+            (traceId, dateFrom): DataTableNode => {
+                const tracesQuery: TracesQuery = {
+                    kind: NodeKind.TracesQuery,
                     traceId,
-                },
-            }),
-        ],
-        cachedTraceResponse: [
-            (s) => [s.cachedTracesResults, s.traceId],
-            (cachedTracesResults, traceId) => {
-                if (!cachedTracesResults) {
-                    return null
+                    dateRange: dateFrom
+                        ? // dateFrom is a minimum timestamp of an event for a trace.
+                          {
+                              date_from: dateFrom,
+                              date_to: dayjs(dateFrom).add(10, 'minutes').toISOString(),
+                          }
+                        : // By default will look for traces from the beginning.
+                          {
+                              date_from: dayjs.utc(new Date(2025, 0, 10)).toISOString(),
+                          },
                 }
-                const response = cachedTracesResults as TracesQueryResponse
 
                 return {
-                    ...response,
-                    results: response.results.filter((trace) => trace.id === traceId),
+                    kind: NodeKind.DataTableNode,
+                    source: tracesQuery,
                 }
             },
         ],
+
         breadcrumbs: [
             (s) => [s.traceId],
             (traceId): Breadcrumb[] => {
                 return [
                     {
                         key: 'LLMObservability',
+                        name: 'LLM observability',
+                        path: urls.llmObservabilityDashboard(),
+                    },
+                    {
+                        key: 'LLMObservability',
                         name: 'Traces',
-                        path: urls.llmObservability('traces'),
+                        path: urls.llmObservabilityTraces(),
                     },
                     {
                         key: ['LLMObservability', traceId || ''],
@@ -102,9 +101,10 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        [urls.llmObservabilityTrace(':id')]: ({ id }, { event }) => {
+        [urls.llmObservabilityTrace(':id')]: ({ id }, { event, timestamp }) => {
             actions.setTraceId(id ?? '')
             actions.setEventId(event || null)
+            actions.setDateFrom(timestamp || null)
         },
     })),
 ])

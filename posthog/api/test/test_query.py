@@ -6,9 +6,11 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.services.query import process_query_dict
-from posthog.hogql.query import LimitContext
+
+
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
+from posthog.hogql.constants import LimitContext
 from posthog.schema import (
     CachedEventsQueryResponse,
     DataWarehouseNode,
@@ -176,7 +178,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 event="sign out",
                 distinct_id="4",
-                properties={"key": "test_val3"},
+                properties={"key": "test_val3", "path": "a/b/c"},
             )
         flush_persons_and_events()
 
@@ -1007,6 +1009,36 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_without_dashboard_filters.results, [(2,)])
         assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
         self.assertEqual(response_with_dashboard_filters.results, [(1,)])
+
+
+class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
+    def test_async_query_invalid_json(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/query_awaited/", data="invalid json", content_type="application/json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response["Content-Type"], "text/event-stream")
+
+        content = b"".join(response.streaming_content)  # type: ignore[attr-defined]
+        error_data_str = content.decode().strip()
+        error_data = json.loads(error_data_str.split("data: ")[1])
+        assert isinstance(error_data, dict)  # Type guard for mypy
+        self.assertEqual(error_data.get("type"), "invalid_request")
+        self.assertEqual(error_data.get("code"), "parse_error")
+
+    def test_async_auth(self):
+        self.client.logout()
+        query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query_awaited/",
+            data=json.dumps({"query": query.dict()}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_returns_405(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/query_awaited/")
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
 class TestQueryRetrieve(APIBaseTest):

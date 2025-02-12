@@ -12,7 +12,8 @@ COMMON_INPUTS_SCHEMA = [
 ]
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="free",
+    status="stable",
+    free=True,
     type="destination",
     id="template-discord",
     name="Discord",

@@ -209,9 +209,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                 cohortsById,
                                 mathDefinitions,
                             }),
-                        onRename: async (name: string) => {
-                            await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
-                        },
+                        onRename: insightLogicRef?.logic.values.canEditInsight
+                            ? async (name: string) => {
+                                  await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
+                              }
+                            : undefined,
                     },
                 ]
             },
@@ -385,12 +387,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }: {
             insightMode?: ItemMode
             insightId?: InsightShortId | 'new' | null
-        }): string | undefined =>
-            insightId && insightId !== 'new'
-                ? insightMode === ItemMode.View
-                    ? urls.insightView(insightId)
-                    : urls.insightEdit(insightId)
-                : undefined
+        }): string | undefined => {
+            if (!insightId || insightId === 'new') {
+                return undefined
+            }
+
+            const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
+            const searchParams = window.location.search
+            return searchParams ? `${baseUrl}${searchParams}` : baseUrl
+        }
 
         return {
             setInsightId: actionToUrl,

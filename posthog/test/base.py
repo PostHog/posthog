@@ -90,6 +90,11 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
+from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
+    SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL,
+    DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL,
+)
 from posthog.test.assert_faster_than import assert_faster_than
 
 # Make sure freezegun ignores our utils class that times functions
@@ -162,7 +167,18 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
     # replace explicit timestamps in cohort queries
-    query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
+    query = re.sub(
+        r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_redacted_timestamp'", query
+    )
+    # and where the HogQL doesn't match the above
+    # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
+    if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
+        # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
+        query = re.sub(
+            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, 'UTC'\)",
+            r"toDateTime64('explicit_redacted_timestamp\1', 6, 'UTC')",
+            query,
+        )
     # replace cohort generated conditions
     query = re.sub(
         r"_condition_\d+_level",
@@ -1030,7 +1046,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL,
+                CHANNEL_DEFINITION_DICTIONARY_SQL(),
                 SESSIONS_TABLE_SQL(),
                 RAW_SESSIONS_TABLE_SQL(),
             ]
@@ -1040,6 +1056,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
                 DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             ]
@@ -1074,6 +1091,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
                 DROP_SESSION_TABLE_SQL(),
@@ -1086,8 +1104,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 PERSONS_TABLE_SQL(),
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(),
                 CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL,
+                CHANNEL_DEFINITION_DICTIONARY_SQL(),
                 SESSIONS_TABLE_SQL(),
                 RAW_SESSIONS_TABLE_SQL(),
             ]
@@ -1097,6 +1116,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
                 DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             ]
@@ -1112,7 +1132,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         )
 
 
-def snapshot_clickhouse_queries(fn):
+def snapshot_clickhouse_queries(fn_or_class):
     """
     Captures and snapshots SELECT queries from test using `syrupy` library.
 
@@ -1122,10 +1142,18 @@ def snapshot_clickhouse_queries(fn):
     Update snapshots via --snapshot-update.
     """
 
-    @wraps(fn)
+    # check if fn_or_class is a class
+    if inspect.isclass(fn_or_class):
+        # wrap every class method that starts with test_ with this decorator
+        for attr in dir(fn_or_class):
+            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
+                setattr(fn_or_class, attr, snapshot_clickhouse_queries(getattr(fn_or_class, attr)))
+        return fn_or_class
+
+    @wraps(fn_or_class)
     def wrapped(self, *args, **kwargs):
         with self.capture_select_queries() as queries:
-            fn(self, *args, **kwargs)
+            fn_or_class(self, *args, **kwargs)
 
         for query in queries:
             if "FROM system.columns" not in query:

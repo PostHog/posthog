@@ -282,6 +282,7 @@ def select_from_sessions_table_v1(
             ),
             gad_source=aggregate_fields["$entry_gad_source"],
         ),
+        timings=context.timings,
     )
 
     # aliases for people reverting from v2 to v1

@@ -40,7 +40,7 @@ from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -355,24 +355,24 @@ def render_template(
         context["debug"] = True
         context["git_branch"] = get_git_branch()
 
-    context["js_posthog_ui_host"] = "''"
+    context["js_posthog_ui_host"] = ""
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
-        context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
-        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
-        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
+        context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
+        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
         api_token = get_self_capture_api_token(request.user)
 
         if api_token:
-            context["js_posthog_api_key"] = f"'{api_token}'"
-            context["js_posthog_host"] = "window.location.origin"
+            context["js_posthog_api_key"] = api_token
+            context["js_posthog_host"] = None
     else:
-        context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
-        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
+        context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
+        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
@@ -454,6 +454,8 @@ def render_template(
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 
+    # JSON dumps here since there may be objects like Queries
+    # that are not serializable by Django's JSON serializer
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
     if posthog_distinct_id:
@@ -925,6 +927,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
     - if on PostHog Cloud
     - if running end-to-end tests
     - if there's no organization yet
+    - if DEBUG is True
     - if an appropriate license is active and MULTI_ORG_ENABLED is True
     """
     from posthog.models.organization import Organization
@@ -933,6 +936,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
         is_cloud()  # There's no limit of organizations on Cloud
         or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
+        or settings.DEBUG
         or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
     ):
         return True

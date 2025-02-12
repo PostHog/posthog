@@ -1,18 +1,18 @@
-import { IconDownload, IconEllipsis, IconNotebook, IconPin, IconPinFilled, IconShare, IconTrash } from '@posthog/icons'
+import { IconDownload, IconEllipsis, IconNotebook, IconPin, IconPinFilled, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Fragment } from 'react'
+import { Fragment, useMemo } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
+import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
 import { NotebookNodeType } from '~/types'
@@ -69,7 +69,7 @@ function PinToPlaylistButton({
 
 export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
+    const { setPause } = useActions(sessionRecordingPlayerLogic)
 
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
@@ -78,15 +78,6 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
         // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
         const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
         return Math.floor(playerTime / 1000)
-    }
-
-    const onShare = (): void => {
-        setPause()
-        setIsFullScreen(false)
-        openPlayerShareDialog({
-            seconds: getCurrentPlayerTime(),
-            id: sessionRecordingId,
-        })
     }
 
     const commonProps: Partial<LemonButtonProps> = {
@@ -136,9 +127,7 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                         {buttonContent('Comment')}
                     </NotebookSelectButton>
 
-                    <LemonButton icon={<IconShare />} onClick={onShare} {...commonProps} tooltip="Share this recording">
-                        {buttonContent('Share')}
-                    </LemonButton>
+                    <PlayerShareMenu iconsOnly={iconsOnly} />
 
                     {nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
                         <LemonButton
@@ -163,48 +152,60 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
 
 const MenuActions = (): JSX.Element => {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { exportRecordingToFile, deleteRecording, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
+    const { deleteRecording, setIsFullScreen, exportRecordingToFile } = useActions(sessionRecordingPlayerLogic)
 
     const hasMobileExportFlag = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
     const hasMobileExport = window.IMPERSONATED_SESSION || hasMobileExportFlag
 
-    const onDelete = (): void => {
-        setIsFullScreen(false)
-        LemonDialog.open({
-            title: 'Delete recording',
-            description: 'Are you sure you want to delete this recording? This cannot be undone.',
-            secondaryButton: {
-                children: 'Cancel',
-            },
-            primaryButton: {
-                children: 'Delete',
-                status: 'danger',
-                onClick: deleteRecording,
-            },
-        })
-    }
+    const onDelete = useMemo(
+        () => () => {
+            setIsFullScreen(false)
+            LemonDialog.open({
+                title: 'Delete recording',
+                description: 'Are you sure you want to delete this recording? This cannot be undone.',
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: deleteRecording,
+                },
+            })
+        },
+        [deleteRecording, setIsFullScreen]
+    )
 
-    const items: LemonMenuItems = [
-        {
-            label: 'Export to file',
-            onClick: () => exportRecordingToFile(false),
-            icon: <IconDownload />,
-            tooltip: 'Export recording to a file. This can be loaded later into PostHog for playback.',
-        },
-        hasMobileExport && {
-            label: 'Export mobile replay to file',
-            onClick: () => exportRecordingToFile(true),
-            tooltip:
-                'DEBUG ONLY - Export untransformed recording to a file. This can be loaded later into PostHog for playback.',
-            icon: <IconDownload />,
-        },
-        logicProps.playerKey !== 'modal' && {
-            label: 'Delete recording',
-            status: 'danger',
-            onClick: onDelete,
-            icon: <IconTrash />,
-        },
-    ]
+    const items: LemonMenuItems = useMemo(() => {
+        const itemsArray: LemonMenuItems = [
+            {
+                label: '.json',
+                status: 'default',
+                icon: <IconDownload />,
+                onClick: () => exportRecordingToFile(false),
+                tooltip: 'Export recording to a JSON file. This can be loaded later into PostHog for playback.',
+            },
+        ]
+        if (hasMobileExport) {
+            itemsArray.push({
+                label: 'DEBUG - mobile.json',
+                status: 'default',
+                icon: <IconDownload />,
+                onClick: () => exportRecordingToFile(true),
+                tooltip:
+                    'DEBUG - ONLY VISIBLE TO POSTHOG STAFF - Export untransformed recording to a file. This can be loaded later into PostHog for playback.',
+            })
+        }
+        if (logicProps.playerKey !== 'modal') {
+            itemsArray.push({
+                label: 'Delete recording',
+                status: 'danger',
+                onClick: onDelete,
+                icon: <IconTrash />,
+            })
+        }
+        return itemsArray
+    }, [logicProps.playerKey, onDelete, exportRecordingToFile, hasMobileExport])
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">

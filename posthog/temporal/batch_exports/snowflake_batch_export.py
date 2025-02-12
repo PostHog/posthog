@@ -10,6 +10,8 @@ import typing
 
 import pyarrow as pa
 import snowflake.connector
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.cursor import ResultMetadata
@@ -20,11 +22,12 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     SnowflakeBatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -66,6 +69,10 @@ NON_RETRYABLE_ERROR_TYPES = [
     "SnowflakeConnectionError",
     # Raised when a table is not found in Snowflake.
     "SnowflakeTableNotFoundError",
+    # Raised when a using key-pair auth and the private key or passphrase is not valid.
+    "InvalidPrivateKeyError",
+    # Raised when a valid authentication method is not provided.
+    "SnowflakeAuthenticationError",
 ]
 
 
@@ -106,6 +113,20 @@ class SnowflakeTableNotFoundError(Exception):
         super().__init__(f"Table '{table_name}' not found in Snowflake")
 
 
+class SnowflakeAuthenticationError(Exception):
+    """Raised when a valid authentication method is not provided."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
+class InvalidPrivateKeyError(Exception):
+    """Raised when a private key is not valid."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 @dataclasses.dataclass
 class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The Snowflake batch export details included in every heartbeat."""
@@ -113,62 +134,110 @@ class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     pass
 
 
-@dataclasses.dataclass
-class SnowflakeInsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class SnowflakeInsertInputs(BatchExportInsertInputs):
     """Inputs for Snowflake."""
 
     # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
     # to keep track of where credentials are being stored and increases the
     # attach surface for credential leaks.
 
-    team_id: int
     user: str
-    password: str
     account: str
     database: str
     warehouse: str
     schema: str
     table_name: str
-    data_interval_start: str | None
-    data_interval_end: str
+    authentication_type: str = "password"
+    password: str | None = None
+    private_key: str | None = None
+    private_key_passphrase: str | None = None
     role: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
 SnowflakeField = tuple[str, str]
+
+
+def load_private_key(private_key: str, passphrase: str | None) -> bytes:
+    try:
+        p_key = serialization.load_pem_private_key(
+            private_key.encode("utf-8"),
+            password=passphrase.encode() if passphrase is not None else None,
+            backend=default_backend(),
+        )
+    except (ValueError, TypeError) as e:
+        msg = "Invalid private key"
+        if passphrase is not None and "Incorrect password?" in str(e):
+            msg = "Could not load private key: incorrect passphrase?"
+        elif "Password was not given but private key is encrypted" in str(e):
+            msg = "Could not load private key: passphrase was not given but private key is encrypted"
+        raise InvalidPrivateKeyError(msg)
+
+    return p_key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
 
 
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
     def __init__(
-        self, user: str, password: str, account: str, warehouse: str, database: str, schema: str, role: str | None
+        self,
+        user: str,
+        account: str,
+        warehouse: str,
+        database: str,
+        schema: str,
+        role: str | None = None,
+        password: str | None = None,
+        private_key: bytes | None = None,
     ):
+        if password is None and private_key is None:
+            raise SnowflakeAuthenticationError("Either password or private key must be provided")
+
+        self.role = role
         self.user = user
         self.password = password
+        self.private_key = private_key
         self.account = account
         self.warehouse = warehouse
         self.database = database
         self.schema = schema
-        self.role = role
         self._connection: SnowflakeConnection | None = None
 
     @classmethod
     def from_inputs(cls, inputs: SnowflakeInsertInputs) -> typing.Self:
         """Initialize `SnowflakeClient` from `SnowflakeInsertInputs`."""
+
+        # User could have specified both password and private key in their batch export config.
+        # (for example, if they've already created a batch export with password auth and are now switching to keypair auth)
+        # Therefore we decide which one to use based on the authentication_type.
+        password = None
+        private_key = None
+        if inputs.authentication_type == "password":
+            password = inputs.password
+            if password is None:
+                raise SnowflakeAuthenticationError("Password is required for password authentication")
+        elif inputs.authentication_type == "keypair":
+            if inputs.private_key is None:
+                raise SnowflakeAuthenticationError("Private key is required for keypair authentication")
+
+            private_key = load_private_key(inputs.private_key, inputs.private_key_passphrase)
+
+        else:
+            raise SnowflakeAuthenticationError(f"Invalid authentication type: {inputs.authentication_type}")
+
         return cls(
             user=inputs.user,
-            password=inputs.password,
             account=inputs.account,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
             role=inputs.role,
+            password=password,
+            private_key=private_key,
         )
 
     @property
@@ -194,6 +263,7 @@ class SnowflakeClient:
                 database=self.database,
                 schema=self.schema,
                 role=self.role,
+                private_key=self.private_key,
             )
 
         except OperationalError as err:
@@ -671,15 +741,18 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 model_name = model.name
                 extra_query_parameters = model.schema["values"] if model.schema is not None else None
                 fields = model.schema["fields"] if model.schema is not None else None
+                filters = model.filters
             else:
                 model_name = "events"
                 extra_query_parameters = None
                 fields = None
+                filters = None
         else:
             model = inputs.batch_export_schema
             model_name = "custom"
             extra_query_parameters = model["values"] if model is not None else {}
             fields = model["fields"] if model is not None else None
+            filters = None
 
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -689,14 +762,16 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
-        producer_task = producer.start(
+        producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
-            is_backfill=inputs.is_backfill,
+            is_backfill=inputs.get_is_backfill(),
+            backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
             fields=fields,
+            filters=filters,
             destination_default_fields=snowflake_default_fields(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -746,7 +821,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         )
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stagle_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            if requires_merge
+            else inputs.table_name
         )
 
         async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:
@@ -816,8 +893,10 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -826,7 +905,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -850,8 +929,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
             user=inputs.user,
-            password=inputs.password,
             account=inputs.account,
+            authentication_type=inputs.authentication_type,
+            password=inputs.password,
+            private_key=inputs.private_key,
+            private_key_passphrase=inputs.private_key_passphrase,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
@@ -862,7 +944,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
         )

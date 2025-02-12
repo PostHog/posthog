@@ -1,4 +1,3 @@
-import { TZLabel } from '@posthog/apps-common'
 import {
     LemonBanner,
     LemonButton,
@@ -13,6 +12,7 @@ import { JSONContent } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { TZLabel } from 'lib/components/TZLabel'
 import { useMemo } from 'react'
 
 import { ActivityScope } from '~/types'
@@ -63,10 +63,10 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                 <span className="flex-1">
                                     <b>{name}</b> {changedContent ? 'made changes' : 'created this'}
                                 </span>
-                                <span className="text-muted-alt">
+                                <span className="text-secondary">
                                     <TZLabel time={logItem.created_at} />
                                 </span>
-                                {isCurrent ? <span className="text-muted-alt">(Current)</span> : null}
+                                {isCurrent ? <span className="text-secondary">(Current)</span> : null}
                             </span>
                         )
 

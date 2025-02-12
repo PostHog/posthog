@@ -21,7 +21,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     connect({
         values: [
             errorTrackingLogic,
-            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'sparklineSelectedPeriod', 'searchQuery'],
+            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig', 'searchQuery'],
         ],
         actions: [
             errorTrackingLogic,
@@ -31,6 +31,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     actions({
         setOrderBy: (orderBy: ErrorTrackingQuery['orderBy']) => ({ orderBy }),
+        setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
         setSelectedIssueIds: (ids: string[]) => ({ ids }),
     }),
 
@@ -42,6 +43,13 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 setOrderBy: (_, { orderBy }) => orderBy,
             },
         ],
+        status: [
+            'active' as ErrorTrackingQuery['status'],
+            { persist: true },
+            {
+                setStatus: (_, { status }) => status,
+            },
+        ],
         selectedIssueIds: [
             [] as string[],
             {
@@ -50,38 +58,25 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         ],
     }),
 
-    selectors({
+    selectors(({ values }) => ({
         query: [
-            (s) => [
-                s.orderBy,
-                s.dateRange,
-                s.assignee,
-                s.filterTestAccounts,
-                s.filterGroup,
-                s.sparklineSelectedPeriod,
-                s.searchQuery,
-            ],
-            (
-                orderBy,
-                dateRange,
-                assignee,
-                filterTestAccounts,
-                filterGroup,
-                sparklineSelectedPeriod,
-                searchQuery
-            ): DataTableNode =>
+            (s) => [s.orderBy, s.status, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.searchQuery],
+            (orderBy, status, dateRange, assignee, filterTestAccounts, filterGroup, searchQuery): DataTableNode =>
                 errorTrackingQuery({
                     orderBy,
+                    status,
                     dateRange,
                     assignee,
                     filterTestAccounts,
                     filterGroup,
-                    sparklineSelectedPeriod,
+                    // we do not want to recompute the query when then sparkline selection changes
+                    // because we have already fetched the alternative option (1d, 1m, custom)
+                    customVolume: values.customSparklineConfig,
                     searchQuery,
-                    columns: ['error', 'occurrences', 'sessions', 'users', 'assignee'],
+                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
                 }),
         ],
-    }),
+    })),
 
     subscriptions(({ actions }) => ({
         query: () => actions.setSelectedIssueIds([]),
@@ -98,6 +93,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         ] => {
             const searchParams: Params = {
                 orderBy: values.orderBy,
+                status: values.status,
                 filterTestAccounts: values.filterTestAccounts,
             }
 
@@ -125,6 +121,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
         return {
             setOrderBy: () => buildURL(),
+            setStatus: () => buildURL(),
             setDateRange: () => buildURL(),
             setFilterGroup: () => buildURL(),
             setSearchQuery: () => buildURL(),
@@ -136,6 +133,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         const urlToAction = (_: any, params: Params): void => {
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
+            }
+            if (params.status && !equal(params.status, values.status)) {
+                actions.setStatus(params.status)
             }
             if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
                 actions.setDateRange(params.dateRange)

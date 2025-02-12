@@ -1,3 +1,4 @@
+from posthog.temporal.data_imports.deltalake_compaction_job import DeltalakeCompactionJobWorkflow, run_compaction
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     create_external_data_job_model_activity,
@@ -6,10 +7,9 @@ from posthog.temporal.data_imports.external_data_job import (
     update_external_data_job_model,
     check_billing_limits_activity,
     sync_new_schemas_activity,
-    trigger_pipeline_v2,
 )
 
-WORKFLOWS = [ExternalDataJobWorkflow]
+WORKFLOWS = [ExternalDataJobWorkflow, DeltalakeCompactionJobWorkflow]
 
 ACTIVITIES = [
     create_external_data_job_model_activity,
@@ -18,5 +18,5 @@ ACTIVITIES = [
     create_source_templates,
     check_billing_limits_activity,
     sync_new_schemas_activity,
-    trigger_pipeline_v2,
+    run_compaction,
 ]

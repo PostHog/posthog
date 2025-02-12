@@ -1,6 +1,6 @@
-import { TZLabel } from '@posthog/apps-common'
 import { LemonButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 
 import { ExternalDataJob } from '~/types'
 
@@ -44,7 +44,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                 {
                     title: 'Rows synced',
                     render: (_, job) => {
-                        return job.rows_synced
+                        return job.rows_synced.toLocaleString()
                     },
                 },
                 {

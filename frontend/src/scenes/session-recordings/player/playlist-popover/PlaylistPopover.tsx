@@ -126,7 +126,7 @@ export function PlaylistPopoverButton({
                         ) : playlistsLoading ? (
                             <LemonSkeleton className="my-2 h-4" repeat={3} />
                         ) : (
-                            <div className="p-2 text-center text-muted">No playlists found</div>
+                            <div className="p-2 text-center text-secondary">No playlists found</div>
                         )}
                     </div>
                 }

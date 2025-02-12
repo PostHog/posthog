@@ -19,6 +19,17 @@ export const DisplayTab = (): JSX.Element => {
     return (
         <div className="flex flex-col w-full">
             <div className="mt-1 mb-2 flex flex-col">
+                <LemonSwitch
+                    className="flex-1 mb-3 w-full"
+                    label="Show legend"
+                    checked={chartSettings.showLegend ?? false}
+                    onChange={(value) => {
+                        updateChartSettings({ showLegend: value })
+                    }}
+                />
+            </div>
+
+            <div className="mt-1 mb-2 flex flex-col">
                 <h3>Left Y-axis</h3>
                 <LemonField.Pure label="Scale" className="gap-0 mb-3">
                     <LemonSelect

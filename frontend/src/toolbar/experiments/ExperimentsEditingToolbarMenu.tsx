@@ -5,6 +5,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { useEffect, useMemo } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -65,12 +66,14 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                     </div>
                 </ToolbarMenu.Header>
                 <ToolbarMenu.Body>
-                    <div>
-                        <div className="flex w-full m-1">
+                    <div className="space-y-6 p-2">
+                        <div className="flex w-full">
                             {selectedExperimentId === 'new' ? (
-                                <>
+                                <div className="w-full">
+                                    <LemonLabel>Name</LemonLabel>
                                     <LemonInput
-                                        placeholder="Enter experiment name"
+                                        className="w-2/3"
+                                        placeholder="Example: Pricing page conversion"
                                         onChange={(newName: string) => {
                                             experimentForm.name = newName
                                             setExperimentFormValue('name', experimentForm.name)
@@ -78,56 +81,58 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                         value={experimentForm.name}
                                         status={experimentFormErrors.name ? 'danger' : 'default'}
                                     />
-                                </>
+                                </div>
                             ) : (
                                 <h4 className="col-span-2">{experimentForm.name}</h4>
                             )}
                         </div>
-                        <Group name="variants">
-                            <div>
-                                <LemonCollapse
-                                    size="medium"
-                                    activeKey={selectedVariant}
-                                    onChange={(variant) => {
-                                        if (variant) {
-                                            selectVariant(variant)
-                                            applyVariant(selectedVariant, variant)
-                                        }
-                                    }}
-                                    panels={Object.keys(experimentForm.variants || {})
-                                        .sort((a, b) => (b === 'control' ? 0 : a.localeCompare(b)))
-                                        .map((variant) => {
-                                            return {
-                                                key: variant,
-                                                header: <WebExperimentVariantHeader variant={variant} />,
-                                                content:
-                                                    variant == 'control' ? (
-                                                        <span className="m-2">
-                                                            {' '}
-                                                            The control variant represents your page in its original
-                                                            state.{' '}
-                                                        </span>
-                                                    ) : (
-                                                        <WebExperimentVariant variant={variant} />
-                                                    ),
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <LemonLabel>Variants</LemonLabel>
+                                {addVariantAvailable && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconPlus />}
+                                        onClick={addNewVariant}
+                                    >
+                                        Add variant
+                                    </LemonButton>
+                                )}
+                            </div>
+                            <Group name="variants">
+                                <div>
+                                    <LemonCollapse
+                                        size="medium"
+                                        activeKey={selectedVariant}
+                                        onChange={(newVariant) => {
+                                            if (newVariant) {
+                                                selectVariant(newVariant)
+                                                applyVariant(newVariant)
                                             }
-                                        })}
-                                />
-                            </div>
-                        </Group>
-                        {addVariantAvailable && (
-                            <div className="grid grid-cols-3 mt-2 mb-1">
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    className="col-span-1"
-                                    sideIcon={<IconPlus />}
-                                    onClick={addNewVariant}
-                                >
-                                    Add variant
-                                </LemonButton>
-                            </div>
-                        )}
+                                        }}
+                                        panels={Object.keys(experimentForm.variants || {})
+                                            .sort((a, b) => (b === 'control' ? 0 : a.localeCompare(b)))
+                                            .map((variant) => {
+                                                return {
+                                                    key: variant,
+                                                    header: <WebExperimentVariantHeader variant={variant} />,
+                                                    content:
+                                                        variant == 'control' ? (
+                                                            <span className="m-2">
+                                                                {' '}
+                                                                The control variant represents your page in its original
+                                                                state.{' '}
+                                                            </span>
+                                                        ) : (
+                                                            <WebExperimentVariant variant={variant} />
+                                                        ),
+                                                }
+                                            })}
+                                    />
+                                </div>
+                            </Group>
+                        </div>
                     </div>
                 </ToolbarMenu.Body>
                 <ToolbarMenu.Footer>

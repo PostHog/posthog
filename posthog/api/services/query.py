@@ -4,7 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
-from hogvm.python.debugger import color_bytecode
+from common.hogvm.python.debugger import color_bytecode
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.compiler.bytecode import execute_hog

@@ -7,7 +7,13 @@ export class BackgroundRefresher<T> {
     private cachedValuePromise: Promise<T> | null = null
     private lastRefreshTime = 0
 
-    constructor(private readonly refreshFunction: () => Promise<T>, private readonly maxAgeMs: number = 1000 * 60) {}
+    constructor(
+        private readonly refreshFunction: () => Promise<T>,
+        private readonly maxAgeMs: number = 1000 * 60,
+        private readonly errorHandler: (e: unknown) => void = (e) => {
+            throw e
+        }
+    ) {}
 
     public async refresh(): Promise<T> {
         if (this.cachedValuePromise) {
@@ -34,7 +40,7 @@ export class BackgroundRefresher<T> {
 
         if (Date.now() - this.lastRefreshTime > this.maxAgeMs) {
             // We trigger the refresh but we don't use it
-            void this.refresh()
+            void this.refresh().catch(this.errorHandler)
         }
 
         return this.cachedValue!

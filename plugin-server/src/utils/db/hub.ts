@@ -12,6 +12,7 @@ import { EncryptedFields } from '../../cdp/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
+import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
 import {
@@ -141,6 +142,8 @@ export async function createHub(
     const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
+    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
+
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
         // such that we can a response immediately on error, and thus bubble up
@@ -199,6 +202,7 @@ export async function createHub(
         ),
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
+        cookielessManager,
     }
 
     return hub as Hub
@@ -210,6 +214,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
+    hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
         // Break circular references to allow the hub to be GCed when running unit tests

@@ -14,12 +14,12 @@ import {
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
+import { InsightLabel } from 'lib/components/InsightLabel'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -28,11 +28,20 @@ import { Query } from '~/queries/Query/Query'
 import {
     ExperimentFunnelsQueryResponse,
     ExperimentTrendsQueryResponse,
+    FunnelsQuery,
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { Experiment, Experiment as ExperimentType, ExperimentIdType, InsightShortId } from '~/types'
+import {
+    ActionFilter,
+    AnyPropertyFilter,
+    Experiment,
+    Experiment as ExperimentType,
+    ExperimentIdType,
+    InsightShortId,
+} from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
@@ -84,7 +93,7 @@ export function VariantTag({
                 }}
             />
             <span
-                className={`ml-2 font-semibold truncate ${muted ? 'text-[var(--text-secondary-3000)]' : ''}`}
+                className={`ml-2 font-semibold truncate ${muted ? 'text-secondary' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -184,7 +193,7 @@ export function ExploreButton({
             size={size}
             type="primary"
             icon={<IconAreaChart />}
-            to={urls.insightNew(undefined, undefined, query)}
+            to={urls.insightNew({ query })}
             targetBlank
         >
             Explore as Insight
@@ -238,8 +247,8 @@ export function EllipsisAnimation(): JSX.Element {
 export function ExperimentLoadingAnimation(): JSX.Element {
     return (
         <div className="flex flex-col flex-1 justify-center items-center">
-            <Animation type={AnimationType.LaptopHog} />
-            <div className="text-xs text-muted w-44">
+            <LoadingBar />
+            <div className="text-xs text-secondary w-44">
                 <span className="mr-1">Fetching experiment results</span>
                 <EllipsisAnimation />
             </div>
@@ -255,8 +264,7 @@ export function PageHeaderCustom(): JSX.Element {
         isExperimentStopped,
         isPrimaryMetricSignificant,
         isSingleVariantShipped,
-        featureFlags,
-        hasGoalSet,
+        hasPrimaryMetricSet,
         isCreatingExperimentDashboard,
     } = useValues(experimentLogic)
     const {
@@ -281,7 +289,9 @@ export function PageHeaderCustom(): JSX.Element {
                                 data-attr="launch-experiment"
                                 onClick={() => launchExperiment()}
                                 disabledReason={
-                                    !hasGoalSet ? 'Add the main goal before launching the experiment' : undefined
+                                    !hasPrimaryMetricSet
+                                        ? 'Add at least one primary metric before launching the experiment'
+                                        : undefined
                                 }
                             >
                                 Launch
@@ -325,7 +335,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Stop this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-secondary">
                                                     This action will end data collection. The experiment can be
                                                     restarted later if needed.
                                                 </div>
@@ -355,7 +365,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Archive this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-secondary">
                                                     This action will move the experiment to the archived tab. It can be
                                                     restored at any time.
                                                 </div>
@@ -379,22 +389,16 @@ export function PageHeaderCustom(): JSX.Element {
                             )}
                         </div>
                     )}
-                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_MAKE_DECISION] &&
-                        isPrimaryMetricSignificant(0) &&
-                        !isSingleVariantShipped && (
-                            <>
-                                <Tooltip title="Choose a variant and roll it out to all users">
-                                    <LemonButton
-                                        type="primary"
-                                        icon={<IconFlask />}
-                                        onClick={() => openShipVariantModal()}
-                                    >
-                                        <b>Ship a variant</b>
-                                    </LemonButton>
-                                </Tooltip>
-                                <ShipVariantModal experimentId={experimentId} />
-                            </>
-                        )}
+                    {isPrimaryMetricSignificant(0) && !isSingleVariantShipped && (
+                        <>
+                            <Tooltip title="Choose a variant and roll it out to all users">
+                                <LemonButton type="primary" icon={<IconFlask />} onClick={() => openShipVariantModal()}>
+                                    <b>Ship a variant</b>
+                                </LemonButton>
+                            </Tooltip>
+                            <ShipVariantModal experimentId={experimentId} />
+                        </>
+                    )}
                 </>
             }
         />
@@ -494,11 +498,11 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
             title: 'Reset this experiment?',
             content: (
                 <>
-                    <div className="text-sm text-muted">
+                    <div className="text-sm text-secondary">
                         All data collected so far will be discarded and the experiment will go back to draft mode.
                     </div>
                     {experiment.archived && (
-                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                        <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
                     )}
                 </>
             ),
@@ -540,5 +544,58 @@ export function LoadingState(): JSX.Element {
             <LemonSkeleton />
             <LemonSkeleton className="w-2/3 h-4" />
         </div>
+    )
+}
+
+export function MetricDisplayTrends({ query }: { query: TrendsQuery | undefined }): JSX.Element {
+    const event = query?.series?.[0] as unknown as ActionFilter
+
+    if (!event) {
+        return <></>
+    }
+
+    return (
+        <>
+            <div className="mb-2">
+                <div className="flex mb-1">
+                    <b>
+                        <InsightLabel action={event} showCountedByTag={true} hideIcon showEventName />
+                    </b>
+                </div>
+                <div className="space-y-1">
+                    {event.properties?.map((prop: AnyPropertyFilter) => (
+                        <PropertyFilterButton key={prop.key} item={prop} />
+                    ))}
+                </div>
+            </div>
+        </>
+    )
+}
+
+export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.Element {
+    return (
+        <>
+            {(query.series || []).map((event: any, idx: number) => (
+                <div key={idx} className="mb-2">
+                    <div className="flex mb-1">
+                        <div
+                            className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ backgroundColor: 'var(--bg-table)' }}
+                        >
+                            {idx + 1}
+                        </div>
+                        <b>
+                            <InsightLabel action={event} hideIcon showEventName />
+                        </b>
+                    </div>
+                    <div className="space-y-1">
+                        {event.properties?.map((prop: AnyPropertyFilter) => (
+                            <PropertyFilterButton key={prop.key} item={prop} />
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </>
     )
 }

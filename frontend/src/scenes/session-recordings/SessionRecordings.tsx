@@ -64,7 +64,7 @@ function Header(): JSX.Element {
                             <LemonMenu
                                 items={[
                                     {
-                                        label: 'Playback from file',
+                                        label: 'Playback from PostHog JSON file',
                                         to: urls.replayFilePlayback(),
                                     },
                                 ]}

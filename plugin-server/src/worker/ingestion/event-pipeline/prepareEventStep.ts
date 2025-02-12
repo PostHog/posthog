@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
-import { PreIngestionEvent } from 'types'
+
+import { PreIngestionEvent } from '~/src/types'
 
 import { status } from '../../../utils/status'
 import { parseEventTimestamp } from '../timestamps'

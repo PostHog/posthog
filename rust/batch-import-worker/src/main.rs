@@ -1,4 +1,11 @@
-use std::{future::ready, sync::Arc, time::Duration};
+use std::{
+    future::ready,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use anyhow::Error;
 use axum::{routing::get, Router};
@@ -9,6 +16,7 @@ use batch_import_worker::{
 };
 use common_metrics::{serve, setup_metrics_routes};
 use envconfig::Envconfig;
+use health::HealthHandle;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -58,7 +66,15 @@ pub async fn main() -> Result<(), Error> {
 
     start_health_liveness_server(&config, context.clone());
 
+    let liveness = context
+        .health_registry
+        .register("main-loop".to_string(), Duration::from_secs(30))
+        .await;
+
+    let liveness = Arc::new(liveness);
+
     while context.is_running() {
+        liveness.report_healthy().await;
         info!("Looking for next job");
         let Some(model) = JobModel::claim_next_job(context.clone()).await? else {
             if !context.is_running() {
@@ -71,8 +87,12 @@ pub async fn main() -> Result<(), Error> {
 
         info!("Claimed job: {:?}", model.id);
 
+        let init_liveness_run = start_init_liveness_loop(liveness.clone());
         let mut next_step = Some(Job::new(model, context.clone()).await?);
+        init_liveness_run.store(false, Ordering::Relaxed);
+
         while let Some(job) = next_step {
+            liveness.report_healthy().await;
             if !context.is_running() {
                 info!("Shutting down, dropping job");
                 // if we're shutting down, we just drop the job - it'll remain leased for a few minutes, then another
@@ -97,4 +117,22 @@ pub async fn main() -> Result<(), Error> {
     info!("Shutting down");
 
     Ok(())
+}
+
+// During job init, we can hang for a long time initialising sinks or sources, so we kick off a task to
+// report that we're alive while we do it.
+fn start_init_liveness_loop(liveness: Arc<HealthHandle>) -> Arc<AtomicBool> {
+    let run = Arc::new(AtomicBool::new(true));
+    let liveness = liveness.clone();
+    let run_weak = Arc::downgrade(&run); // Use a weak so if the returned arc is dropped the task will exit
+    tokio::task::spawn(async move {
+        let Some(flag) = run_weak.upgrade() else {
+            return;
+        };
+        while flag.load(Ordering::Relaxed) {
+            liveness.report_healthy().await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+    run
 }

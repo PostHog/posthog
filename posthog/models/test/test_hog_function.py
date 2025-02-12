@@ -2,7 +2,7 @@ import json
 from django.test import TestCase
 from inline_snapshot import snapshot
 
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.user import User

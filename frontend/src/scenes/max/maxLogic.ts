@@ -5,7 +5,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { uuid } from 'lib/utils'
-import { isAssistantMessage, isHumanMessage, isReasoningMessage, isVisualizationMessage } from 'scenes/max/utils'
+import { isAssistantMessage, isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
@@ -59,6 +59,7 @@ export const maxLogic = kea<maxLogicType>([
         retryLastMessage: true,
         scrollThreadToBottom: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
+        setTraceId: (traceId: string) => ({ traceId }),
     }),
     reducers({
         question: [
@@ -91,7 +92,6 @@ export const maxLogic = kea<maxLogicType>([
                     },
                     ...state.slice(index + 1),
                 ],
-                setThreadLoaded: (state) => state.filter((message) => !isReasoningMessage(message)),
             },
         ],
         threadLoading: [
@@ -107,6 +107,7 @@ export const maxLogic = kea<maxLogicType>([
                 setVisibleSuggestions: (_, { suggestions }) => suggestions,
             },
         ],
+        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId }],
     }),
     loaders({
         // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
@@ -165,9 +166,14 @@ export const maxLogic = kea<maxLogicType>([
         askMax: async ({ prompt }) => {
             actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
             try {
+                // Generate a trace ID for the conversation run
+                const traceId = uuid()
+                actions.setTraceId(traceId)
+
                 const response = await api.conversations.create({
                     content: prompt,
                     conversation: values.conversation?.id,
+                    trace_id: traceId,
                 })
                 const reader = response.body?.getReader()
 
@@ -293,10 +299,7 @@ export const maxLogic = kea<maxLogicType>([
                 }
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
-                    if (
-                        finalMessageSoFar?.type === AssistantMessageType.Human ||
-                        (finalMessageSoFar?.id && finalMessageSoFar.type !== AssistantMessageType.Reasoning)
-                    ) {
+                    if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
                         // If now waiting for the current node to start streaming, add "Thinking" message
                         // so that there's _some_ indication of processing
                         const thinkingMessage: ReasoningMessage & ThreadMessage = {

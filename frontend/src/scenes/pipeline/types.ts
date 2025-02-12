@@ -12,6 +12,7 @@ export enum PipelineBackend {
     Plugin = 'plugin',
     HogFunction = 'hog_function',
     ManagedSource = 'managed_source',
+    SelfManagedSource = 'self_managed',
 }
 
 // Base - we're taking a discriminated union approach here, so that TypeScript can discern types for free
@@ -76,7 +77,8 @@ export type NewDestinationItemType = {
     name: string
     description: string
     backend: PipelineBackend
-    status?: 'stable' | 'beta' | 'alpha' | 'free' | 'deprecated' | 'client-side'
+    free: boolean
+    status?: 'stable' | 'alpha' | 'beta' | 'deprecated'
 }
 
 export type NewDestinationFilters = {

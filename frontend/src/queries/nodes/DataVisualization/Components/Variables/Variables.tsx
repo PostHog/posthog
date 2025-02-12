@@ -251,11 +251,17 @@ const VariableComponent = ({
     // Dont show the popover overlay for list variables not in edit mode
     if (!showEditingUI && variable.type === 'List') {
         return (
-            <LemonSelect
-                value={variable.value ?? variable.default_value}
-                onChange={(value) => onChange(variable.id, value)}
-                options={variable.values.map((n) => ({ label: n, value: n }))}
-            />
+            <LemonField.Pure
+                label={variable.name}
+                className="gap-0"
+                info={`Use this variable in your HogQL by referencing {variables.${variable.code_name}}`}
+            >
+                <LemonSelect
+                    value={variable.value ?? variable.default_value}
+                    onChange={(value) => onChange(variable.id, value)}
+                    options={variable.values.map((n) => ({ label: n, value: n }))}
+                />
+            </LemonField.Pure>
         )
     }
 

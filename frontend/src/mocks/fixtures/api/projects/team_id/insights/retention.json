@@ -12,8 +12,8 @@
             "values": []
         },
         "target_entity": {
-            "id": "$pageview",
-            "name": "$pageview",
+            "id": "signed up",
+            "name": "signed up",
             "type": "events"
         },
         "retention_type": "retention_first_time",

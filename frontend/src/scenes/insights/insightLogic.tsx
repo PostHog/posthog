@@ -2,9 +2,11 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -12,6 +14,8 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -22,7 +26,15 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
-import { InsightLogicProps, InsightShortId, ItemMode, QueryBasedInsightModel, SetInsightOptions } from '~/types'
+import { isValidQueryForExperiment } from '~/queries/utils'
+import {
+    AccessControlResourceType,
+    InsightLogicProps,
+    InsightShortId,
+    ItemMode,
+    QueryBasedInsightModel,
+    SetInsightOptions,
+} from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic } from './insightDataLogic'
@@ -58,6 +70,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['mathDefinitions'],
             userLogic,
             ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
+            sceneLogic,
+            ['activeScene'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -144,12 +160,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
-                    const editMode =
-                        insightSceneLogic.isMounted() &&
-                        insightSceneLogic.values.insight === values.insight &&
-                        insightSceneLogic.values.insightMode === ItemMode.Edit
-
-                    if (editMode) {
+                    // new insight
+                    if (values.insight.short_id == null) {
                         return { ...values.insight, ...metadataUpdate }
                     }
 
@@ -301,10 +313,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.insight],
-            (insight) =>
-                insight.effective_privilege_level == undefined ||
-                insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
+            (s) => [s.insight, s.featureFlags],
+            (insight, featureFlags) => {
+                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
+                    return insight.user_access_level
+                        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
+                        : true
+                }
+                return (
+                    insight.effective_privilege_level == undefined ||
+                    insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+                )
+            },
         ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight],
@@ -317,6 +337,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         ],
         showPersonsModal: [() => [(s) => s.query], (query) => !query || !query.hidePersonsModal],
+        supportsCreatingExperiment: [
+            (s) => [s.insight, s.activeScene],
+            (insight: QueryBasedInsightModel, activeScene: Scene) =>
+                insight?.query &&
+                isValidQueryForExperiment(insight.query) &&
+                ![
+                    Scene.Experiment,
+                    Scene.Experiments,
+                    Scene.ExperimentsSharedMetric,
+                    Scene.ExperimentsSharedMetrics,
+                ].includes(activeScene),
+        ],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {

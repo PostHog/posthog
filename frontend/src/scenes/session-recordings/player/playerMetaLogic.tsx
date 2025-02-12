@@ -1,15 +1,16 @@
 import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
-import { eventWithTime } from '@rrweb/types'
+import { eventWithTime } from '@posthog/rrweb-types'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
-import { ceilMsToClosestSecond, findLastIndex, humanFriendlyDuration, objectsEqual } from 'lib/utils'
+import { ceilMsToClosestSecond, findLastIndex, humanFriendlyDuration, objectsEqual, percentage } from 'lib/utils'
 import posthog from 'posthog-js'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
+import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     sessionRecordingPlayerLogic,
@@ -61,6 +62,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 'sessionEventsData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
+                'snapshotsLoading',
                 'windowIds',
                 'trackedWindow',
             ],
@@ -104,9 +106,9 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     selectors(() => ({
         loading: [
-            (s) => [s.sessionPlayerMetaDataLoading, s.recordingPropertiesLoading],
-            (sessionPlayerMetaDataLoading, recordingPropertiesLoading) =>
-                sessionPlayerMetaDataLoading || recordingPropertiesLoading,
+            (s) => [s.sessionPlayerMetaDataLoading, s.snapshotsLoading, s.recordingPropertiesLoading],
+            (sessionPlayerMetaDataLoading, snapshotsLoading, recordingPropertiesLoading) =>
+                sessionPlayerMetaDataLoading || snapshotsLoading || recordingPropertiesLoading,
         ],
         sessionPerson: [
             (s) => [s.sessionPlayerData],
@@ -143,6 +145,18 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     // stops PlayerMeta from re-rendering on every player position
                     return objectsEqual(prev, next)
                 },
+            },
+        ],
+        resolutionDisplay: [
+            (s) => [s.resolution],
+            (resolution) => {
+                return `${resolution?.width || '--'} x ${resolution?.height || '--'}`
+            },
+        ],
+        scaleDisplay: [
+            (s) => [s.scale],
+            (scale) => {
+                return `${percentage(scale, 1, true)}`
             },
         ],
         startTime: [
@@ -212,7 +226,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 if (startTime) {
                     items.push({
                         label: 'Start',
-                        value: <SimpleTimeLabel muted={false} size="small" isUTC={true} startTime={startTime} />,
+                        value: (
+                            <SimpleTimeLabel
+                                muted={false}
+                                size="small"
+                                timestampFormat={TimestampFormat.UTC}
+                                startTime={startTime}
+                            />
+                        ),
                         type: 'text',
                     })
                 }

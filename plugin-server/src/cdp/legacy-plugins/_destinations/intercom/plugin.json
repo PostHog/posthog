@@ -1,0 +1,42 @@
+{
+    "name": "Intercom",
+    "url": "TODO",
+    "description": "Send event data to Intercom on PostHog events.",
+    "main": "index.ts",
+    "config": [
+        {
+            "key": "intercomApiKey",
+            "hint": "Create an [Intercom app](https://developers.intercom.com/building-apps/), then go to Configure > Authentication to find your key.",
+            "name": "Intercom API Key",
+            "type": "string",
+            "default": "",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "triggeringEvents",
+            "hint": "A comma-separated list of PostHog events you want to send to Intercom (e.g.: '$identify,mycustomevent' ).",
+            "name": "Triggering events",
+            "type": "string",
+            "default": "$identify",
+            "required": true
+        },
+        {
+            "key": "ignoredEmailDomains",
+            "hint": "A comma-separated list of email domains to ignore and not send events for in Intercom (e.g. 'posthog.com,dev.posthog.com' ).",
+            "name": "Email domains to skip",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "useEuropeanDataStorage",
+            "hint": "Send events to api.eu.intercom.com, if you are using Intercom's European Data Hosting.",
+            "name": "Send events to European Data Hosting",
+            "type": "choice",
+            "default": "No",
+            "choices": ["Yes", "No"],
+            "required": false
+        }
+    ]
+}

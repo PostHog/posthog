@@ -48,6 +48,7 @@ services:
             - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./posthog/docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
             - clickhouse-data:/var/lib/clickhouse
     zookeeper:
@@ -218,6 +219,34 @@ services:
             - kafka
             - objectstorage
             - temporal
+
+    cyclotron-fetch:
+        extends:
+            file: docker-compose.base.yml
+            service: cyclotron-fetch
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            KAFKA_HOSTS: 'kafka:9092'
+            SENTRY_DSN: $SENTRY_DSN
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+
+    cyclotron-janitor:
+        extends:
+            file: docker-compose.base.yml
+            service: cyclotron-janitor
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            KAFKA_HOSTS: 'kafka:9092'
+            SENTRY_DSN: $SENTRY_DSN
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
 
 volumes:
     zookeeper-data:

@@ -212,6 +212,7 @@ export function ChainedErrorStack(): JSX.Element {
                                     source: '/posthog-python/example2.py',
                                     resolved_name: 'will_raise',
                                     line: 33,
+                                    in_app: true,
                                 },
                                 {
                                     source: '/posthog-python/example2.py',
@@ -232,11 +233,13 @@ export function ChainedErrorStack(): JSX.Element {
                                     source: '/Users/neilkakkar/Project/posthog-python/example2.py',
                                     resolved_name: '<module>',
                                     line: 37,
+                                    in_app: true,
                                 },
                                 {
                                     source: '/Users/neilkakkar/Project/posthog-python/example2.py',
                                     resolved_name: 'will_raise',
                                     line: 35,
+                                    in_app: true,
                                 },
                             ],
                         },

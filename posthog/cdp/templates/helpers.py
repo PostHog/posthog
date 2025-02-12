@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.cdp.validation import compile_hog
 from posthog.test.base import BaseTest
-from hogvm.python.execute import execute_bytecode
+from common.hogvm.python.execute import execute_bytecode
 
 
 class BaseHogFunctionTemplateTest(BaseTest):

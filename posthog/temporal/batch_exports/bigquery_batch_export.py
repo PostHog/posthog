@@ -17,11 +17,12 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -137,11 +138,10 @@ class BigQueryHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     pass
 
 
-@dataclasses.dataclass
-class BigQueryInsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
 
-    team_id: int
     project_id: str
     dataset_id: str
     table_id: str
@@ -149,16 +149,7 @@ class BigQueryInsertInputs:
     private_key_id: str
     token_uri: str
     client_email: str
-    data_interval_start: str | None
-    data_interval_end: str
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
     use_json_type: bool = False
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
 
 
 class BigQueryQuotaExceededError(Exception):
@@ -643,15 +634,18 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                 model_name = model.name
                 extra_query_parameters = model.schema["values"] if model.schema is not None else None
                 fields = model.schema["fields"] if model.schema is not None else None
+                filters = model.filters
             else:
                 model_name = "events"
                 extra_query_parameters = None
                 fields = None
+                filters = None
         else:
             model = inputs.batch_export_schema
             model_name = "custom"
             extra_query_parameters = model["values"] if model is not None else {}
             fields = model["fields"] if model is not None else None
+            filters = None
 
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -661,14 +655,16 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
-        producer_task = producer.start(
+        producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
-            is_backfill=inputs.is_backfill,
+            is_backfill=inputs.get_is_backfill(),
+            backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
             fields=fields,
+            filters=filters,
             destination_default_fields=bigquery_default_fields(),
             use_latest_schema=True,
             exclude_events=inputs.exclude_events,
@@ -717,7 +713,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in schema
         ]
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}"
+        stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
 
         with bigquery_client(inputs) as bq_client:
             async with bq_client.managed_table(
@@ -801,8 +797,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -811,7 +809,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -847,7 +845,8 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             use_json_type=inputs.use_json_type,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,

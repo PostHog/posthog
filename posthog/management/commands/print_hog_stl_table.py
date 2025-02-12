@@ -10,8 +10,8 @@ class Command(BaseCommand):
 
         hogql_functions = set(HOGQL_COMPARISON_MAPPING.keys()).union(set(HOGQL_CLICKHOUSE_FUNCTIONS.keys()))
 
-        from hogvm.python.stl import STL
-        from hogvm.python.stl.bytecode import BYTECODE_STL
+        from common.hogvm.python.stl import STL
+        from common.hogvm.python.stl.bytecode import BYTECODE_STL
 
         hog_functions = set(STL.keys()).union(set(BYTECODE_STL.keys()))
 

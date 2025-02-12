@@ -39,4 +39,5 @@ def cors_response(request, response):
     response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
         "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
     )
+    response["Vary"] = "Origin"
     return response

@@ -3,6 +3,7 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -50,14 +51,14 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         caption: <Caption />,
         fields: [
             {
-                name: 'account_id',
+                name: 'stripe_account_id',
                 label: 'Account id',
                 type: 'text',
                 required: false,
-                placeholder: 'acct_...',
+                placeholder: 'stripe_account_id',
             },
             {
-                name: 'client_secret',
+                name: 'stripe_secret_key',
                 label: 'Client secret',
                 type: 'password',
                 required: true,
@@ -102,7 +103,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '5432',
             },
             {
-                name: 'dbname',
+                name: 'database',
                 label: 'Database',
                 type: 'text',
                 required: true,
@@ -233,7 +234,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '3306',
             },
             {
-                name: 'dbname',
+                name: 'database',
                 label: 'Database',
                 type: 'text',
                 required: true,
@@ -382,7 +383,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '1433',
             },
             {
-                name: 'dbname',
+                name: 'database',
                 label: 'Database',
                 type: 'text',
                 required: true,
@@ -871,21 +872,19 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
-                    const newSchema = state.map((s) => ({
+                    return state.map((s) => ({
                         ...s,
                         should_sync: s.table === schema.table ? shouldSync : s.should_sync,
                     }))
-                    return newSchema
                 },
                 updateSchemaSyncType: (state, { schema, syncType, incrementalField, incrementalFieldType }) => {
-                    const newSchema = state.map((s) => ({
+                    return state.map((s) => ({
                         ...s,
                         sync_type: s.table === schema.table ? syncType : s.sync_type,
                         incremental_field: s.table === schema.table ? incrementalField : s.incremental_field,
                         incremental_field_type:
                             s.table === schema.table ? incrementalFieldType : s.incremental_field_type,
                     }))
-                    return newSchema
                 },
             },
         ],
@@ -1235,7 +1234,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.onNext()
         },
         selectConnector: () => {
-            actions.addProductIntent({ product_type: ProductKey.DATA_WAREHOUSE, intent_context: 'selected connector' })
+            actions.addProductIntent({
+                product_type: ProductKey.DATA_WAREHOUSE,
+                intent_context: ProductIntentContext.SELECTED_CONNECTOR,
+            })
         },
     })),
     urlToAction(({ actions }) => ({
@@ -1300,9 +1302,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         fileReader.onerror = (e) => reject(e)
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
-                                    const jsonConfig = JSON.parse(loadedFile)
-
-                                    fieldPayload[name] = jsonConfig
+                                    fieldPayload[name] = JSON.parse(loadedFile)
                                 } catch (e) {
                                     return lemonToast.error('File is not valid')
                                 }
@@ -1371,7 +1371,7 @@ export const getErrorsForFields = (
                 }
             } else {
                 errorsObj[field.name] = {}
-                const selection = valueObj[field.name]['selection']
+                const selection = valueObj[field.name]?.['selection']
                 field.options
                     .find((n) => n.value === selection)
                     ?.fields?.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))

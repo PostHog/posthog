@@ -10,14 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    AvailableOnboardingProducts,
-    BillingProductV2AddonType,
-    Breadcrumb,
-    OnboardingProduct,
-    ProductKey,
-    ReplayTabs,
-} from '~/types'
+import { AvailableOnboardingProducts, Breadcrumb, OnboardingProduct, ProductKey, ReplayTabs } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 
@@ -36,6 +29,7 @@ export enum OnboardingStepKey {
     INVITE_TEAMMATES = 'invite_teammates',
     DASHBOARD_TEMPLATE = 'dashboard_template',
     DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
+    SESSION_REPLAY = 'session_replay',
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
@@ -281,10 +275,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 if (!isCloudOrDev || !billing?.products || !billingProduct) {
                     return false
                 }
-                const hasAllAddons = billingProduct?.addons?.every(
-                    (addon: BillingProductV2AddonType) => addon.subscribed
-                )
-                return !billingProduct?.subscribed || !hasAllAddons || subscribedDuringOnboarding
+
+                return !billingProduct?.subscribed || subscribedDuringOnboarding
             },
         ],
         shouldShowReverseProxyStep: [

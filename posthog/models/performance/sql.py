@@ -7,6 +7,7 @@ from posthog.clickhouse.kafka_engine import (
     kafka_engine,
     ttl_period,
 )
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import (
     Distributed,
     MergeTreeEngine,
@@ -95,16 +96,18 @@ unload_event_end Float64,
 unload_event_start Float64,
 """.strip().rstrip(",")
 
-PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTreeEngine(
-    "performance_events", replication_scheme=ReplicationScheme.SHARDED
-)
+
+def PERFORMANCE_EVENT_TABLE_ENGINE():
+    return MergeTreeEngine("performance_events", replication_scheme=ReplicationScheme.SHARDED)
 
 
-PERFORMANCE_EVENT_DATA_TABLE = lambda: "sharded_performance_events"
+def PERFORMANCE_EVENT_DATA_TABLE():
+    return "sharded_performance_events"
+
 
 PERFORMANCE_EVENTS_TABLE_BASE_SQL = (
     lambda: """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     {columns}
     {extra_fields}
@@ -112,31 +115,34 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 """
 )
 
-PERFORMANCE_EVENTS_TABLE_SQL = lambda: (
-    PERFORMANCE_EVENTS_TABLE_BASE_SQL()
-    + """PARTITION BY toYYYYMM(timestamp)
+
+def PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
+    return (
+        PERFORMANCE_EVENTS_TABLE_BASE_SQL()
+        + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
 {ttl_period}
 {storage_policy}
 """
-).format(
-    columns=PERFORMANCE_EVENT_COLUMNS,
-    table_name=PERFORMANCE_EVENT_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
-    ttl_period=ttl_period(field="timestamp"),
-    storage_policy=STORAGE_POLICY(),
-)
+    ).format(
+        columns=PERFORMANCE_EVENT_COLUMNS,
+        table_name=PERFORMANCE_EVENT_DATA_TABLE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+        ttl_period=ttl_period(field="timestamp"),
+        storage_policy=STORAGE_POLICY(),
+    )
 
 
-KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
-    columns=PERFORMANCE_EVENT_COLUMNS,
-    table_name="kafka_performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_PERFORMANCE_EVENTS),
-    extra_fields="",
-)
+def KAFKA_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
+    return PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
+        columns=PERFORMANCE_EVENT_COLUMNS,
+        table_name="kafka_performance_events",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(topic=KAFKA_PERFORMANCE_EVENTS),
+        extra_fields="",
+    )
 
 
 def _clean_line(line: str) -> str:
@@ -156,27 +162,31 @@ def _column_names_from_column_definitions(column_definitions: str) -> str:
     return ", ".join([cl for cl in column_names if cl])
 
 
-DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
-    columns=PERFORMANCE_EVENT_COLUMNS,
-    table_name="performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(
-        data_table=PERFORMANCE_EVENT_DATA_TABLE(),
-        sharding_key="sipHash64(session_id)",
-    ),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
-)
+def DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
+    return PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
+        columns=PERFORMANCE_EVENT_COLUMNS,
+        table_name="performance_events",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=Distributed(
+            data_table=PERFORMANCE_EVENT_DATA_TABLE(),
+            sharding_key="sipHash64(session_id)",
+        ),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    )
 
-WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
-    columns=PERFORMANCE_EVENT_COLUMNS,
-    table_name="writeable_performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(
-        data_table=PERFORMANCE_EVENT_DATA_TABLE(),
-        sharding_key="sipHash64(session_id)",
-    ),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
-)
+
+def WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
+    return PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
+        columns=PERFORMANCE_EVENT_COLUMNS,
+        table_name="writeable_performance_events",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=Distributed(
+            data_table=PERFORMANCE_EVENT_DATA_TABLE(),
+            sharding_key="sipHash64(session_id)",
+        ),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    )
+
 
 PERFORMANCE_EVENTS_TABLE_MV_SQL = (
     lambda: """
@@ -211,6 +221,6 @@ order by timestamp desc
 
 TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {PERFORMANCE_EVENT_DATA_TABLE()}"
 
-UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL = lambda: (
-    f"ALTER TABLE {PERFORMANCE_EVENT_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY TTL toDate(timestamp) + toIntervalWeek(%(weeks)s)"
-)
+
+def UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL():
+    return f"ALTER TABLE {PERFORMANCE_EVENT_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY TTL toDate(timestamp) + toIntervalWeek(%(weeks)s)"

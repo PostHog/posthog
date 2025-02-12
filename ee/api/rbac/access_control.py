@@ -6,6 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
+from posthog.api.documentation import extend_schema
 
 from ee.models.rbac.access_control import AccessControl
 from posthog.models.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
@@ -179,6 +180,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(exclude=True)
     @action(methods=["GET", "PUT"], detail=True)
     def access_controls(self, request: Request, *args, **kwargs):
         if request.method == "PUT":
@@ -186,6 +188,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         return self._get_access_controls(request)
 
+    @extend_schema(exclude=True)
     @action(methods=["GET", "PUT"], detail=True)
     def global_access_controls(self, request: Request, *args, **kwargs):
         if request.method == "PUT":

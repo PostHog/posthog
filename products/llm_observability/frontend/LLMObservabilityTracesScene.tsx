@@ -1,5 +1,7 @@
-import { Link, TZLabel, urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { LLMTrace } from '~/queries/schema'
@@ -7,7 +9,7 @@ import { QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 
 import { llmObservabilityLogic } from './llmObservabilityLogic'
-import { formatLLMCost, formatLLMUsage } from './utils'
+import { formatLLMCost, formatLLMUsage, removeMilliseconds } from './utils'
 
 export function LLMObservabilityTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
@@ -60,9 +62,14 @@ export function LLMObservabilityTraces(): JSX.Element {
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     return (
-        <Link className="ph-no-capture font-semibold" to={urls.llmObservabilityTrace(row.id)}>
-            {row.id}
-        </Link>
+        <strong>
+            <Link
+                className="ph-no-capture"
+                to={urls.llmObservabilityTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+            >
+                {row.id.slice(0, 4)}...{row.id.slice(-4)}
+            </Link>
+        </strong>
     )
 }
 

@@ -30,14 +30,14 @@ export interface SessionRecordingPreviewProps {
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
     if (recordingDuration === undefined) {
-        return <div className="flex text-muted text-xs">-</div>
+        return <div className="flex text-secondary text-xs">-</div>
     }
 
     const formattedDuration = colonDelimitedDuration(recordingDuration)
     const [hours, minutes, seconds] = formattedDuration.split(':')
 
     return (
-        <div className="flex text-muted text-xs">
+        <div className="flex text-secondary text-xs">
             {hours != '00' && <span>{hours}:</span>}
             <span>
                 {minutes}:{seconds}
@@ -123,7 +123,7 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
 function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     const firstPath = props.startUrl?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
     return (
-        <span className="flex overflow-hidden text-muted text-xs">
+        <span className="flex overflow-hidden text-secondary text-xs">
             <span title={`First URL: ${props.startUrl}`} className="truncate">
                 {firstPath}
             </span>
@@ -181,7 +181,7 @@ export function SessionRecordingPreview({
     const loading = !recordingProperties && recordingPropertiesLoading
     const iconProperties = gatherIconProperties(recordingProperties, recording)
 
-    const iconClassNames = 'text-muted-alt shrink-0'
+    const iconClassNames = 'text-secondary shrink-0'
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -201,19 +201,20 @@ export function SessionRecordingPreview({
 
                         {playlistTimestampFormat === TimestampFormat.Relative ? (
                             <TZLabel
-                                className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
+                                className="overflow-hidden text-ellipsis text-xs text-secondary shrink-0"
                                 time={recording.start_time}
                                 placement="right"
                             />
-                        ) : playlistTimestampFormat === TimestampFormat.UTC ? (
-                            <SimpleTimeLabel startTime={recording.start_time} isUTC={true} />
                         ) : (
-                            <SimpleTimeLabel startTime={recording.start_time} isUTC={false} />
+                            <SimpleTimeLabel
+                                startTime={recording.start_time}
+                                timestampFormat={playlistTimestampFormat}
+                            />
                         )}
                     </div>
 
                     <div className="flex justify-between items-center space-x-0.5">
-                        <div className="flex space-x-2 text-muted text-sm">
+                        <div className="flex space-x-2 text-secondary text-sm">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
                                 iconClassNames={iconClassNames}

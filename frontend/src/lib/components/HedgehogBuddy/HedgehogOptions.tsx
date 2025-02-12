@@ -135,7 +135,7 @@ function HedgehogAccessories(): JSX.Element {
                                     key={acc}
                                     className={clsx(
                                         'border-2',
-                                        accessories.includes(acc) ? 'border-primary' : 'border-transparent'
+                                        accessories.includes(acc) ? 'border-accent-primary' : 'border-transparent'
                                     )}
                                     size="small"
                                     onClick={() => onClick(acc)}
@@ -170,7 +170,7 @@ function HedgehogColor(): JSX.Element {
                         className={clsx(
                             'border-2',
                             !hedgehogConfig.color && hedgehogConfig.skin === option
-                                ? 'border-primary'
+                                ? 'border-accent-primary'
                                 : 'border-transparent'
                         )}
                         size="small"
@@ -186,7 +186,7 @@ function HedgehogColor(): JSX.Element {
                         key={option}
                         className={clsx(
                             'border-2',
-                            hedgehogConfig.color === option ? 'border-primary' : 'border-transparent'
+                            hedgehogConfig.color === option ? 'border-accent-primary' : 'border-transparent'
                         )}
                         size="small"
                         onClick={() => patchHedgehogConfig({ color: option as any, skin: 'default' })}

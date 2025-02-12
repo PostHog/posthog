@@ -10,10 +10,18 @@ import pyarrow as pa
 import temporalio.common
 from django.conf import settings
 
-from posthog.temporal.batch_exports.batch_exports import (
-    wait_for_delta_past_data_interval_end,
+from posthog.batch_exports.service import BackfillDetails
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.hogql import ast
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.property import property_to_expr
+from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
 )
-from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -32,7 +40,6 @@ from posthog.temporal.batch_exports.sql import (
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     BytesSinceLastFlush,
-    DateRange,
     FlushCounter,
     IsLast,
     RecordsSinceLastFlush,
@@ -46,6 +53,7 @@ from posthog.temporal.batch_exports.utils import (
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
+from posthog.warehouse.util import database_sync_to_async
 
 
 class RecordBatchQueue(asyncio.Queue):
@@ -508,19 +516,33 @@ def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime]) ->
     return False
 
 
-def use_distributed_events_recent_table(is_backfill: bool, team_id: int) -> bool:
-    if is_backfill:
-        return False
+def use_distributed_events_recent_table(
+    is_backfill: bool, backfill_details: BackfillDetails | None, data_interval_start: dt.datetime | None
+) -> bool:
+    """We should use the distributed_events_recent table if it's not a backfill (backfill_details is None) or the
+    backfill is within the last 6 days.
 
-    events_recent_rollout: float = settings.BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT
-    # sanity check
-    if events_recent_rollout < 0:
-        events_recent_rollout = 0
-    elif events_recent_rollout > 1:
-        events_recent_rollout = 1
+    We also check the data_interval_start to make sure it's also within the last 6 days (should always be the case for
+    realtime batch exports but for tests it may not be the case)
 
-    bucket = team_id % 10
-    return bucket < events_recent_rollout * 10
+    The events_recent table, and by extension, the distributed_events_recent table, only have event data from the last 7
+    days (we use 6 days to give some buffer).
+    """
+
+    if (
+        not is_backfill
+        and data_interval_start
+        and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6))
+    ):
+        return True
+
+    backfill_start_at = None
+    if backfill_details and backfill_details.start_at:
+        backfill_start_at = dt.datetime.fromisoformat(backfill_details.start_at)
+    if backfill_start_at and backfill_start_at > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
+        return True
+
+    return False
 
 
 class Producer:
@@ -541,11 +563,13 @@ class Producer:
             raise ValueError("Producer task is not initialized, have you called `Producer.start()`?")
         return self._task
 
-    def start(
+    async def start(
         self,
         queue: RecordBatchQueue,
         model_name: str,
+        # TODO: remove once all backfill inputs are migrated
         is_backfill: bool,
+        backfill_details: BackfillDetails | None,
         team_id: int,
         full_range: tuple[dt.datetime | None, dt.datetime],
         done_ranges: list[tuple[dt.datetime, dt.datetime]],
@@ -554,6 +578,7 @@ class Producer:
         use_latest_schema: bool = False,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
+        filters: list[dict[str, str | list[str]]] | None = None,
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -561,6 +586,18 @@ class Producer:
                 fields = default_fields()
             else:
                 fields = destination_default_fields
+
+        extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
+
+        if filters is not None and len(filters) > 0:
+            filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+                filters, team_id=team_id, values=extra_query_parameters
+            )
+        else:
+            filters_str, extra_query_parameters = "", extra_query_parameters
+
+        # TODO: this can be simplified once all backfill inputs are migrated
+        is_backfill = (backfill_details is not None) or is_backfill
 
         if model_name == "persons":
             if is_backfill and full_range[0] is None:
@@ -591,7 +628,9 @@ class Producer:
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
             # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
             # which is a distributed table that sits in front of the `events_recent` table
-            elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
+            elif use_distributed_events_recent_table(
+                is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+            ):
                 self.logger.info("Using distributed_events_recent table for batch export")
                 query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
@@ -615,11 +654,12 @@ class Producer:
 
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-            query = query_template.substitute(fields=query_fields)
+            if filters_str:
+                filters_str = f"AND {filters_str}"
+
+            query = query_template.safe_substitute(fields=query_fields, filters=filters_str)
 
         parameters["team_id"] = team_id
-
-        extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
         parameters = {**parameters, **extra_query_parameters}
 
         self._task = asyncio.create_task(
@@ -810,3 +850,79 @@ def generate_query_ranges(
             continue
 
         yield (candidate_start_at, candidate_end_at)
+
+
+def compose_filters_clause(
+    filters: list[dict[str, str | list[str]]],
+    team_id: int,
+    values: dict[str, str] | None = None,
+) -> tuple[str, dict[str, str]]:
+    """Compose a clause of matching filters for a batch exports query.
+
+    `values` must be set if already replacing other values as otherwise there will
+    be collisions with the values returned by this function.
+
+    Arguments:
+        filters: A list of serialized HogQL filters.
+        team_id: Team we are running for.
+        values: HogQL placeholder values already in use.
+
+    Returns:
+        A printed string with the ClickHouse SQL clause, and a dictionary
+        of placeholder to values to be used as query parameters.
+    """
+    from posthog.models import Team
+
+    team = Team.objects.get(id=team_id)
+    context = HogQLContext(
+        team=team,
+        team_id=team.id,
+        enable_select_queries=True,
+        limit_top_select=False,
+        within_non_hogql_query=True,
+        values=values or {},
+        modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+    )
+    context.database = create_hogql_database(team.id, context.modifiers)
+
+    exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
+    and_expr = ast.And(exprs=exprs)
+    # This query only supports events at the moment.
+    # TODO: Extend for other models that also wish to implement property filtering.
+    select_query = ast.SelectQuery(
+        select=[parse_expr("properties as properties")],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=and_expr,
+    )
+    prepared_select_query: ast.SelectQuery = typing.cast(
+        ast.SelectQuery, prepare_ast_for_printing(select_query, context=context, dialect="hogql", stack=[select_query])
+    )
+    prepared_and_expr = prepare_ast_for_printing(
+        and_expr, context=context, dialect="clickhouse", stack=[prepared_select_query]
+    )
+
+    printed = print_prepared_ast(
+        prepared_and_expr,  # type: ignore
+        context=context,
+        dialect="clickhouse",
+        stack=[prepared_select_query],
+    )
+
+    return printed, context.values
+
+
+async def wait_for_delta_past_data_interval_end(
+    data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=30)
+) -> None:
+    """Wait for some time after `data_interval_end` before querying ClickHouse."""
+    if settings.TEST:
+        return
+
+    target = data_interval_end.astimezone(dt.UTC)
+    now = dt.datetime.now(dt.UTC)
+
+    while target + delta > now:
+        now = dt.datetime.now(dt.UTC)
+        remaining = (target + delta) - now
+        # Sleep between 1-10 seconds, there shouldn't ever be the need to wait too long.
+        await asyncio.sleep(min(max(remaining.total_seconds(), 1), 10))

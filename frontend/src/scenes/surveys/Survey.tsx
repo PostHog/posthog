@@ -6,14 +6,15 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useEffect } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { FeatureFlagFilters, Survey, SurveyUrlMatchType } from '~/types'
+import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
-import { NewSurvey, SurveyUrlMatchTypeLabels } from './constants'
+import { NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
 import { surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
@@ -27,7 +28,15 @@ export const scene: SceneExport = {
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
+    const { editingSurvey, setSelectedPageIndex } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
+
+    useEffect(() => {
+        return () => {
+            editingSurvey(false)
+            setSelectedPageIndex(0)
+        }
+    }, [editingSurvey, setSelectedPageIndex])
 
     if (surveyMissing) {
         return <NotFound object="survey" />
@@ -109,7 +118,7 @@ export function SurveyDisplaySummary({
     return (
         <div className="flex flex-col mt-2 gap-2">
             <div className="font-semibold">Display conditions summary</div>
-            <span className="text-muted">
+            <span className="text-secondary">
                 {hasConditions || hasFeatureFlags
                     ? 'Surveys will be displayed to users that match the following conditions:'
                     : 'Surveys will be displayed to everyone.'}
@@ -119,13 +128,27 @@ export function SurveyDisplaySummary({
                     <div className="flex-row">
                         <span>
                             URL{' '}
-                            {SurveyUrlMatchTypeLabels[
-                                survey.conditions?.urlMatchType || SurveyUrlMatchType.Contains
-                            ].slice(2)}
+                            {SurveyMatchTypeLabels[survey.conditions?.urlMatchType || SurveyMatchType.Contains].slice(
+                                2
+                            )}
                             :
                         </span>{' '}
                         <LemonTag>{survey.conditions.url}</LemonTag>
                     </div>
+                </div>
+            )}
+            {survey.conditions?.deviceTypes && (
+                <div className="flex font-medium gap-1 items-center">
+                    <span>
+                        Device Types{' '}
+                        {SurveyMatchTypeLabels[
+                            survey.conditions?.deviceTypesMatchType || SurveyMatchType.Contains
+                        ].slice(2)}
+                        :
+                    </span>{' '}
+                    {survey.conditions.deviceTypes.map((type) => (
+                        <LemonTag key={type}>{type}</LemonTag>
+                    ))}
                 </div>
             )}
             {survey.conditions?.selector && (
@@ -159,10 +182,12 @@ export function SurveyDisplaySummary({
                 </div>
             )}
             {targetingFlagFilters && (
-                <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
-                    <span className="font-medium">User properties:</span>{' '}
-                    <FeatureFlagReleaseConditions readOnly excludeTitle filters={targetingFlagFilters} />
-                </BindLogic>
+                <div>
+                    <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
+                        <span className="font-medium">User properties:</span>{' '}
+                        <FeatureFlagReleaseConditions readOnly excludeTitle filters={targetingFlagFilters} />
+                    </BindLogic>
+                </div>
             )}
         </div>
     )

@@ -8,11 +8,11 @@ from django_deprecate_fields import deprecate_field
 import numpy
 import snowflake.connector
 from django.conf import settings
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
 import psycopg2
+from psycopg2 import sql
 import pymysql
 from .external_data_source import ExternalDataSource
 from posthog.warehouse.data_load.service import (
@@ -24,6 +24,7 @@ from posthog.warehouse.data_load.service import (
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
@@ -52,8 +53,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_last_value_v2": any }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "reset_pipeline": bool }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -68,6 +68,10 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
+
+    @property
+    def normalized_name(self):
+        return NamingConvention().normalize_identifier(self.name)
 
     @property
     def is_incremental(self):
@@ -103,12 +107,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         else:
             last_value_json = str(last_value_py)
 
-        if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-            key = "incremental_field_last_value_v2"
-        else:
-            key = "incremental_field_last_value"
-
-        self.sync_type_config[key] = last_value_json
+        self.sync_type_config["incremental_field_last_value"] = last_value_json
         self.save()
 
     def soft_delete(self):
@@ -307,6 +306,59 @@ def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[t
             results.append((column_name, IncrementalFieldType.Integer))
 
     return results
+
+
+def get_postgres_row_count(
+    host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
+) -> dict[str, int]:
+    def get_row_count(postgres_host: str, postgres_port: int):
+        connection = psycopg2.connect(
+            host=postgres_host,
+            port=postgres_port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode="prefer",
+            connect_timeout=5,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+        )
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s",
+                    {"schema": schema},
+                )
+                tables = cursor.fetchall()
+
+                if not tables:
+                    return {}
+
+                counts = [
+                    sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
+                        table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
+                    )
+                    for table in tables
+                ]
+
+                union_counts = sql.SQL(" UNION ALL ").join(counts)
+                cursor.execute(union_counts)
+                row_count_result = cursor.fetchall()
+                row_counts = {row[0]: row[1] for row in row_count_result}
+            return row_counts
+        finally:
+            connection.close()
+
+    if ssh_tunnel.enabled:
+        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
+
+            return get_row_count(tunnel.local_bind_host, tunnel.local_bind_port)
+
+    return get_row_count(host, int(port))
 
 
 def get_postgres_schemas(

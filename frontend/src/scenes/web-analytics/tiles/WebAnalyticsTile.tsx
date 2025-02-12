@@ -1,14 +1,16 @@
-import { IconTrending } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconRewindPlay, IconTrending, IconWarning } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { percentage, UnexpectedNeverError } from 'lib/utils'
+import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
@@ -21,6 +23,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
+    DataVisualizationNode,
     InsightVizNode,
     NodeKind,
     QuerySchema,
@@ -28,7 +31,14 @@ import {
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
+import {
+    FilterLogicalOperator,
+    InsightLogicProps,
+    ProductKey,
+    PropertyFilterType,
+    PropertyOperator,
+    ReplayTabs,
+} from '~/types'
 
 const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -184,6 +194,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { breakdownBy } = source
 
     switch (breakdownBy) {
+        case WebStatsBreakdown.ExitPage:
+        case WebStatsBreakdown.InitialPage:
+        case WebStatsBreakdown.Page:
+            return <>{source.doPathCleaning ? parseAliasToReadable(value as string) : value}</>
+
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
                 const [width, height] = value
@@ -367,6 +382,18 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         action_name: {
             title: 'Action',
         },
+        replay_url: {
+            title: ' ',
+            render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => (
+                <RenderReplayButton
+                    date_from={(query.source as any)?.dateRange?.date_from}
+                    date_to={(query.source as any)?.dateRange?.date_to}
+                    breakdownBy={(query.source as any)?.breakdownBy}
+                    value={record[0] ?? ''}
+                />
+            ),
+            align: 'right',
+        },
     },
 }
 
@@ -399,17 +426,10 @@ export const WebStatsTrendTile = ({
     const context = useMemo((): QueryContext => {
         return {
             ...webAnalyticsDataTableQueryContext,
-            chartRenderingMetadata: {
-                [ChartDisplayType.WorldMap]: {
-                    countryProps: (countryCode, values) => {
-                        return {
-                            onClick:
-                                values && (values.count > 0 || values.aggregated_value > 0)
-                                    ? () => onWorldMapClick(countryCode)
-                                    : undefined,
-                        }
-                    },
-                },
+            onDataPointClick({ breakdown }, data) {
+                if (breakdown === 'string' && data && (data.count > 0 || data.aggregated_value > 0)) {
+                    onWorldMapClick(breakdown)
+                }
             },
             insightProps: {
                 ...insightProps,
@@ -419,7 +439,7 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
@@ -452,7 +472,6 @@ export const WebStatsTableTile = ({
     control?: JSX.Element
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
-    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -469,17 +488,14 @@ export const WebStatsTableTile = ({
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
-            if (
-                (breakdownBy === WebStatsBreakdown.InitialPage || breakdownBy === WebStatsBreakdown.Page) &&
-                isPathCleaningEnabled
-            ) {
-                // if the path cleaning is enabled, don't allow toggling a path by clicking a row, as this wouldn't
-                // work due to the order that the regex and filters are applied
+            // `onClick` won't know how to handle the breakdown value if these don't exist,
+            // so let's prevent from `onClick` from being set up in the first place to avoid a noop click
+            if (!key || !type) {
                 return {}
             }
 
+            // Tricky to calculate because the breakdown is a computed value rather than a DB column, make it non-filterable for now
             if (breakdownBy === WebStatsBreakdown.Language || breakdownBy === WebStatsBreakdown.Timezone) {
-                // Slightly trickier to calculate, make it non-filterable for now
                 return {}
             }
 
@@ -488,10 +504,9 @@ export const WebStatsTableTile = ({
                 return {}
             }
 
-            return {
-                onClick: key && type ? () => onClick(breakdownValue) : undefined,
-            }
+            return { onClick: () => onClick(breakdownValue) }
         }
+
         return {
             ...webAnalyticsDataTableQueryContext,
             insightProps,
@@ -500,7 +515,7 @@ export const WebStatsTableTile = ({
     }, [onClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
             <Query query={query} readOnly={true} context={context} />
         </div>
@@ -571,7 +586,7 @@ export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<Data
     }
 
     return (
-        <div className="border rounded bg-bg-light flex-1">
+        <div className="border rounded bg-surface-primary flex-1">
             <div className="flex flex-row-reverse p-2">
                 <LemonButton to={urls.actions()} sideIcon={<IconOpenInNew />} type="secondary" size="small">
                     Manage actions
@@ -589,7 +604,7 @@ export const WebExternalClicksTile = ({
     const { shouldStripQueryParams } = useValues(webAnalyticsLogic)
     const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             <div className="flex flex-row items-center justify-end m-2 mr-4">
                 <div className="flex flex-row items-center space-x-2">
                     <LemonSwitch
@@ -608,15 +623,27 @@ export const WebExternalClicksTile = ({
 export const WebVitalsPathBreakdownTile = ({
     query,
     insightProps,
-    control,
-}: QueryWithInsightProps<WebVitalsPathBreakdownQuery> & {
-    control?: JSX.Element
-}): JSX.Element => {
+}: QueryWithInsightProps<WebVitalsPathBreakdownQuery>): JSX.Element => {
+    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
+    const { setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+
     return (
         <div>
-            <div className="flex flex-row items-center justify-between m-2 mr-4">
+            <div className="flex flex-row items-center gap-1 m-2">
                 <h3 className="text-lg font-semibold">Path Breakdown</h3>
-                {control}
+                {!isPathCleaningEnabled && (
+                    <Tooltip
+                        title={
+                            <span>
+                                Path Breakdown is more useful when path cleaning is turned on.{' '}
+                                <Link onClick={() => setIsPathCleaningEnabled(true)}>Enable it.</Link>
+                            </span>
+                        }
+                        interactive
+                    >
+                        <IconWarning className="mb-2" fontSize="18" />
+                    </Tooltip>
+                )}
             </div>
             <Query query={query} readOnly context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
         </div>
@@ -656,8 +683,204 @@ export const WebQuery = ({
     }
 
     if (query.kind === NodeKind.WebVitalsPathBreakdownQuery) {
-        return <WebVitalsPathBreakdownTile query={query} insightProps={insightProps} control={control} />
+        return <WebVitalsPathBreakdownTile query={query} insightProps={insightProps} />
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
+}
+
+/**
+ * Map breakdown types to their corresponding property filter type
+ * Outside the renderReplayButton function
+ */
+const BREAKDOWN_TYPE_MAP: Partial<
+    Record<WebStatsBreakdown, PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session>
+> = {
+    [WebStatsBreakdown.DeviceType]: PropertyFilterType.Person,
+    [WebStatsBreakdown.InitialPage]: PropertyFilterType.Session,
+    [WebStatsBreakdown.ExitPage]: PropertyFilterType.Session,
+    [WebStatsBreakdown.Page]: PropertyFilterType.Event,
+    [WebStatsBreakdown.Browser]: PropertyFilterType.Person,
+    [WebStatsBreakdown.OS]: PropertyFilterType.Person,
+    [WebStatsBreakdown.InitialChannelType]: PropertyFilterType.Session,
+    [WebStatsBreakdown.InitialReferringDomain]: PropertyFilterType.Session,
+    [WebStatsBreakdown.InitialUTMSource]: PropertyFilterType.Session,
+    [WebStatsBreakdown.InitialUTMCampaign]: PropertyFilterType.Session,
+    [WebStatsBreakdown.InitialUTMMedium]: PropertyFilterType.Session,
+    [WebStatsBreakdown.InitialUTMContent]: PropertyFilterType.Session,
+    [WebStatsBreakdown.InitialUTMTerm]: PropertyFilterType.Session,
+}
+
+/**
+ * Map breakdown types to their corresponding property filter key
+ * Outside the renderReplayButton function
+ */
+const BREAKDOWN_KEY_MAP: Partial<Record<WebStatsBreakdown, string>> = {
+    [WebStatsBreakdown.DeviceType]: '$device_type',
+    [WebStatsBreakdown.InitialPage]: '$entry_pathname',
+    [WebStatsBreakdown.ExitPage]: '$end_pathname',
+    [WebStatsBreakdown.Page]: '$pathname',
+    [WebStatsBreakdown.Browser]: '$browser',
+    [WebStatsBreakdown.OS]: '$os',
+    [WebStatsBreakdown.InitialChannelType]: '$channel_type',
+    [WebStatsBreakdown.InitialReferringDomain]: '$entry_referring_domain',
+    [WebStatsBreakdown.InitialUTMSource]: '$entry_utm_source',
+    [WebStatsBreakdown.InitialUTMCampaign]: '$entry_utm_campaign',
+    [WebStatsBreakdown.InitialUTMMedium]: '$entry_utm_medium',
+    [WebStatsBreakdown.InitialUTMContent]: '$entry_utm_content',
+    [WebStatsBreakdown.InitialUTMTerm]: '$entry_utm_term',
+}
+
+/**
+ * Render a button that opens the recordings page with the correct filters
+ *
+ * @param date_from
+ * @param date_to
+ * @param breakdownBy
+ * @param value
+ * @returns JSX.Element
+ */
+const RenderReplayButton = ({
+    date_from,
+    date_to,
+    breakdownBy,
+    value,
+}: {
+    date_from: string
+    date_to: string
+    breakdownBy: WebStatsBreakdown
+    value: string
+}): JSX.Element => {
+    const sharedButtonProps = {
+        icon: <IconRewindPlay />,
+        type: 'tertiary' as const,
+        size: 'xsmall' as const,
+        tooltip: 'View recordings',
+        className: 'float-right no-underline',
+        targetBlank: true,
+        onClick: (e: React.MouseEvent) => {
+            e.stopPropagation()
+            void addProductIntentForCrossSell({
+                from: ProductKey.WEB_ANALYTICS,
+                to: ProductKey.SESSION_REPLAY,
+                intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+            })
+        },
+    }
+
+    /** If value is null - just open session replay home page */
+    if (value === null) {
+        return <LemonButton {...sharedButtonProps} to={urls.replay(ReplayTabs.Home, { date_from, date_to })} />
+    }
+
+    /** View port is a unique case, so we need to handle it differently */
+    if (breakdownBy === WebStatsBreakdown.Viewport) {
+        return (
+            <LemonButton
+                {...sharedButtonProps}
+                to={urls.replay(ReplayTabs.Home, {
+                    date_from: date_from,
+                    date_to: date_to,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: '$viewport_width',
+                                        type: PropertyFilterType.Event,
+                                        value: [value[0]],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                    {
+                                        key: '$viewport_height',
+                                        type: PropertyFilterType.Event,
+                                        value: [value[1]],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })}
+            />
+        )
+    }
+
+    /** UTM source, medium, campaign is a unique case, so we need to handle it differently, as combining them with AND */
+    if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign) {
+        const values = value.split(' / ')
+        return (
+            <LemonButton
+                {...sharedButtonProps}
+                to={urls.replay(ReplayTabs.Home, {
+                    date_from: date_from,
+                    date_to: date_to,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: '$entry_utm_source',
+                                        type: PropertyFilterType.Session,
+                                        value: [values[0] || ''],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                    {
+                                        key: '$entry_utm_medium',
+                                        type: PropertyFilterType.Session,
+                                        value: [values[1] || ''],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                    {
+                                        key: '$entry_utm_campaign',
+                                        type: PropertyFilterType.Session,
+                                        value: [values[2] || ''],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })}
+            />
+        )
+    }
+
+    const type = BREAKDOWN_TYPE_MAP[breakdownBy] || PropertyFilterType.Person
+    const key = BREAKDOWN_KEY_MAP[breakdownBy]
+    if (!key || !type) {
+        /** If the breakdown is not supported, return an empty element */
+        return <></>
+    }
+
+    /** Render the button */
+    return (
+        <LemonButton
+            {...sharedButtonProps}
+            to={urls.replay(ReplayTabs.Home, {
+                date_from: date_from,
+                date_to: date_to,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: key,
+                                    type: type,
+                                    value: [value],
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })}
+        />
+    )
 }

@@ -391,7 +391,8 @@ class TestExternalDataSource(APIBaseTest):
         assert len(results) == 1
 
         result = results[0]
-        assert result.get("job_inputs") is None
+        # we should scrape out `stripe_secret_key` from job_inputs
+        assert result.get("job_inputs") == {}
 
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
@@ -412,6 +413,7 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "last_run_at",
                 "schemas",
+                "job_inputs",
             ],
         )
         self.assertEqual(
@@ -485,7 +487,7 @@ class TestExternalDataSource(APIBaseTest):
                 "source_type": "Postgres",
                 "host": settings.PG_HOST,
                 "port": int(settings.PG_PORT),
-                "dbname": settings.PG_DATABASE,
+                "database": settings.PG_DATABASE,
                 "user": settings.PG_USER,
                 "password": settings.PG_PASSWORD,
                 "schema": "public",
@@ -601,7 +603,11 @@ class TestExternalDataSource(APIBaseTest):
         "posthog.warehouse.api.external_data_source.get_sql_schemas_for_source_type",
         return_value={"table_1": [("id", "integer")]},
     )
-    def test_internal_postgres(self, patch_get_sql_schemas_for_source_type):
+    @patch(
+        "posthog.warehouse.api.external_data_source.get_postgres_row_count",
+        return_value={"table_1": 42},
+    )
+    def test_internal_postgres(self, patch_get_sql_schemas_for_source_type, patch_get_postgres_row_count):
         # This test checks handling of project ID 2 in Cloud US and project ID 1 in Cloud EU,
         # so let's make sure there are no projects with these IDs in the test DB
         Project.objects.filter(id__in=[1, 2]).delete()
@@ -615,7 +621,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
-                    "dbname": settings.PG_DATABASE,
+                    "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -626,6 +632,7 @@ class TestExternalDataSource(APIBaseTest):
                 {
                     "table": "table_1",
                     "should_sync": False,
+                    "rows": 42,
                     "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
                     "incremental_available": True,
                     "incremental_field": "id",
@@ -641,7 +648,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
-                    "dbname": settings.PG_DATABASE,
+                    "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -657,8 +664,9 @@ class TestExternalDataSource(APIBaseTest):
                 data={
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
+                    "rows": 42,
                     "port": int(settings.PG_PORT),
-                    "dbname": settings.PG_DATABASE,
+                    "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -670,6 +678,7 @@ class TestExternalDataSource(APIBaseTest):
                 {
                     "table": "table_1",
                     "should_sync": False,
+                    "rows": 42,
                     "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
                     "incremental_available": True,
                     "incremental_field": "id",
@@ -685,7 +694,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "host": "172.16.0.0",
                     "port": int(settings.PG_PORT),
-                    "dbname": settings.PG_DATABASE,
+                    "database": settings.PG_DATABASE,
                     "user": settings.PG_USER,
                     "password": settings.PG_PASSWORD,
                     "schema": "public",
@@ -818,8 +827,8 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "  sk_test_123   ",
-                    "account_id": "  blah   ",
+                    "stripe_secret_key": "  sk_test_123   ",
+                    "stripe_account_id": "  blah   ",
                     "schemas": [
                         {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
                     ],

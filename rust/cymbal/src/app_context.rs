@@ -1,14 +1,14 @@
 use aws_config::{BehaviorVersion, Region};
 use common_kafka::{
-    kafka_consumer::SingleTopicConsumer,
-    kafka_producer::{create_kafka_producer, KafkaContext},
+    kafka_consumer::SingleTopicConsumer, kafka_producer::KafkaContext,
+    transaction::TransactionalProducer,
 };
 use health::{HealthHandle, HealthRegistry};
-use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tracing::info;
+use uuid::Uuid;
 
 use crate::{
     config::{init_global_state, Config},
@@ -27,7 +27,7 @@ pub struct AppContext {
     pub health_registry: HealthRegistry,
     pub worker_liveness: HealthHandle,
     pub kafka_consumer: SingleTopicConsumer,
-    pub kafka_producer: FutureProducer<KafkaContext>,
+    pub kafka_producer: Mutex<TransactionalProducer<KafkaContext>>,
     pub pool: PgPool,
     pub catalog: Catalog,
     pub resolver: Resolver,
@@ -47,9 +47,13 @@ impl AppContext {
 
         let kafka_consumer =
             SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
-        let kafka_producer = create_kafka_producer(&config.kafka, kafka_liveness)
-            .await
-            .expect("failed to create kafka producer");
+
+        let kafka_producer = TransactionalProducer::with_context(
+            &config.kafka,
+            &Uuid::now_v7().to_string(),
+            Duration::from_secs(30),
+            KafkaContext::from(kafka_liveness),
+        )?;
 
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
@@ -101,7 +105,7 @@ impl AppContext {
             health_registry,
             worker_liveness,
             kafka_consumer,
-            kafka_producer,
+            kafka_producer: Mutex::new(kafka_producer),
             pool,
             catalog,
             resolver,

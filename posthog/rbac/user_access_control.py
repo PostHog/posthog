@@ -142,16 +142,10 @@ class UserAccessControl:
 
     @property
     def access_controls_supported(self) -> bool:
-        # NOTE: This is a proxy feature. We may want to consider making it explicit later
-        # ADVANCED_PERMISSIONS was only for dashboard collaborators, PROJECT_BASED_PERMISSIONING for project permissions
-        # both now apply to this generic access control
-
         if not self._organization:
             return False
 
-        return self._organization.is_feature_available(
-            AvailableFeature.PROJECT_BASED_PERMISSIONING
-        ) or self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        return self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
     def _filter_options(self, filters: dict[str, Any]) -> Q:
         """
@@ -467,7 +461,8 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
-        # NOTE: The user_access_control is typically on the view but in specific cases such as the posthog_app_context it is set at the context level
+        # NOTE: The user_access_control is typically on the view but in specific cases,
+        # such as rendering HTML (`render_template()`), it is set at the context level
         if "user_access_control" in self.context:
             # Get it directly from the context
             return self.context["user_access_control"]

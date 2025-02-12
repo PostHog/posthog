@@ -1,4 +1,5 @@
 import { transform } from '@babel/standalone'
+
 import { presets } from './presets'
 
 process.stdin.setEncoding('utf8')
@@ -22,7 +23,7 @@ const { wrapper, ...options } = presets[type]
 
 let code = ''
 process.stdin.on('readable', () => {
-    let chunk: string | Buffer
+    let chunk: string
     while ((chunk = process.stdin.read())) {
         code += chunk
     }

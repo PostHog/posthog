@@ -471,6 +471,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "created_at",
                 "last_modified_at",
                 "tags",
+                "user_access_level",
             },
         )
 

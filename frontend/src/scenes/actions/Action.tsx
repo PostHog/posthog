@@ -60,6 +60,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                                         kind: NodeKind.EventsQuery,
                                         select: defaultDataTableColumns(NodeKind.EventsQuery),
                                         actionId: id,
+                                        after: '-24h',
                                     },
                                     full: true,
                                     showEventFilter: false,
