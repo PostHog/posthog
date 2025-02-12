@@ -615,6 +615,8 @@ sqlparse==0.4.4
     # via
     #   -c requirements.txt
     #   django
+stpyv8==13.1.201.22
+    # via -r requirements-dev.in
 syrupy==4.6.4
     # via -r requirements-dev.in
 tabulate==0.9.0

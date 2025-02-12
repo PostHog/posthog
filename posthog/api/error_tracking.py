@@ -6,6 +6,7 @@ from rest_framework import serializers, viewsets, status
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 
+from django.http import JsonResponse
 from django.conf import settings
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -16,10 +17,10 @@ from posthog.models.error_tracking import (
     ErrorTrackingSymbolSet,
     ErrorTrackingStackFrame,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
 )
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
-
 
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
@@ -66,6 +67,23 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
+
+    def retrieve(self, request, *args, **kwargs):
+        fingerprint = self.request.GET.get("fingerprint")
+        if fingerprint:
+            fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue").filter(
+                team=self.team
+            )
+            record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
+
+            if record:
+                if not record.issue_id == self.request.GET.get("pk"):
+                    return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
+
+                serializer = self.get_serializer(record.issue)
+                return Response(serializer.data)
+
+        return super().retrieve(request, *args, **kwargs)
 
     @action(methods=["POST"], detail=True)
     def merge(self, request, **kwargs):
