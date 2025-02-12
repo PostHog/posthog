@@ -59,10 +59,7 @@ export function ChartFilter(): JSX.Element {
                     icon: <IconGraph />,
                     label: 'Bar chart',
                     labelInMenu: (
-                        <ChartFilterOptionLabel
-                            label="Bar chart"
-                            description="Trends over time as vertical bars."
-                        />
+                        <ChartFilterOptionLabel label="Bar chart" description="Trends over time as vertical bars." />
                     ),
                 },
             ],
@@ -102,10 +99,7 @@ export function ChartFilter(): JSX.Element {
                     label: 'Pie chart',
                     disabledReason: trendsOnlyDisabledReason,
                     labelInMenu: (
-                        <ChartFilterOptionLabel
-                            label="Pie chart"
-                            description="Proportions of a whole as a pie."
-                        />
+                        <ChartFilterOptionLabel label="Pie chart" description="Proportions of a whole as a pie." />
                     ),
                 },
                 {
@@ -114,10 +108,7 @@ export function ChartFilter(): JSX.Element {
                     label: 'Bar chart',
                     disabledReason: trendsOnlyDisabledReason,
                     labelInMenu: (
-                        <ChartFilterOptionLabel
-                            label="Bar chart"
-                            description="Total values as horizontal bars."
-                        />
+                        <ChartFilterOptionLabel label="Bar chart" description="Total values as horizontal bars." />
                     ),
                 },
                 {
