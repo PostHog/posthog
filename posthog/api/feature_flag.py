@@ -984,7 +984,13 @@ class FeatureFlagViewSet(
         required_scopes=["feature_flag:read"],
     )
     def remote_config(self, request: request.Request, **kwargs):
-        feature_flag = FeatureFlag.objects.get(pk=kwargs["pk"])
+        is_flag_id_provided = kwargs["pk"].isdigit()
+
+        feature_flag = (
+            FeatureFlag.objects.get(pk=kwargs["pk"])
+            if is_flag_id_provided
+            else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
+        )
 
         if not feature_flag.is_remote_configuration:
             return Response("", status=status.HTTP_404_NOT_FOUND)
