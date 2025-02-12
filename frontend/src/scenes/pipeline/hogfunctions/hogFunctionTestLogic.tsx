@@ -210,6 +210,17 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 editor.revealLineInCenter(pos.lineNumber)
             }
         },
+
+        setTestResult: ({ result }) => {
+            if (result) {
+                setTimeout(() => {
+                    const testResults = document.querySelector('[data-attr="test-results"]')
+                    if (testResults) {
+                        testResults.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }
+                }, 100)
+            }
+        },
     })),
 
     forms(({ props, actions, values }) => ({
