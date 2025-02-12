@@ -75,9 +75,11 @@ export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }
                 }}
                 typeKey="experiment-metric"
                 buttonCopy="Add graph series"
-                showSeriesIndicator={true}
+                showSeriesIndicator={false}
+                hideRename={true}
                 entitiesLimit={1}
                 showNumericalPropsOnly={true}
+                mathAvailability={MathAvailability.None}
                 {...commonActionFilterProps}
             />
         </>
