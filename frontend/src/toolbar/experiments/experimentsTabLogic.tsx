@@ -82,7 +82,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             element: HTMLElement,
             variant: string,
             index: number | null,
-            selector: string | null
+            selector?: string | null
         ) => ({
             element,
             variant,
