@@ -59,12 +59,11 @@ export function SurveyAnswerFilters(): JSX.Element {
         )
 
         if (filterIndex >= 0) {
-            // Ensure we're working with an EventPropertyFilter
             const existingFilter = newFilters[filterIndex]
             newFilters[filterIndex] = {
                 ...existingFilter,
                 [field]: value,
-                type: PropertyFilterType.Event, // Ensure type is always set
+                type: PropertyFilterType.Event,
             }
             setAnswerFilters(newFilters)
         }
@@ -79,14 +78,12 @@ export function SurveyAnswerFilters(): JSX.Element {
 
     return (
         <>
-            {/* Header */}
             <div className="border rounded-t">
                 <div className="grid grid-cols-6 gap-2 px-2 py-2 border-b bg-bg-light">
                     <div className="col-span-3 font-semibold">Question</div>
                     <div className="font-semibold">Filter type</div>
                     <div className="col-span-2 font-semibold">Value</div>
                 </div>
-                {/* Rows */}
                 <div>
                     {(survey as Survey).questions.map((question, index) => {
                         const currentFilter = getFilterForQuestion(index)
