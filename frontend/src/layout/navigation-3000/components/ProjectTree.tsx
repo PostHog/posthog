@@ -17,8 +17,8 @@ export function TreeView(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, rawProjectTreeLoading } = useValues(projectTreeLogic)
-    const { addFolder, renameItem } = useActions(projectTreeLogic)
+    const { rawProjectTree, treeData, rawProjectTreeLoading } = useValues(projectTreeLogic)
+    const { addFolder, renameItem, createItem, deleteItem } = useActions(projectTreeLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -63,15 +63,61 @@ export function TreeView(): JSX.Element {
                                                         const oldName =
                                                             (data.folder ? data.folder + '/' : '') +
                                                             (data.name ? data.name : '')
-                                                        const folder = prompt('Folder name?', oldName)
+                                                        const folder = prompt('New name?', oldName)
                                                         if (folder && folder !== oldName) {
-                                                            renameItem(oldName, folder)
+                                                            if (data.meta.custom) {
+                                                                renameItem(oldName, folder)
+                                                            } else {
+                                                                for (const item of rawProjectTree) {
+                                                                    // find all starting with the old path in case this was a folder
+                                                                    const itemName =
+                                                                        (item.folder ? item.folder + '/' : '') +
+                                                                        item.name
+                                                                    if (
+                                                                        itemName === oldName ||
+                                                                        itemName.startsWith(oldName + '/')
+                                                                    ) {
+                                                                        const newItemName =
+                                                                            folder + itemName.slice(oldName.length)
+                                                                        createItem({
+                                                                            ...item,
+                                                                            name: newItemName.split('/').pop() || '',
+                                                                            folder: newItemName
+                                                                                .split('/')
+                                                                                .slice(0, -1)
+                                                                                .join('/'),
+                                                                        })
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                     }}
                                                     fullWidth
                                                 >
                                                     Rename
                                                 </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        void navigator.clipboard.writeText(
+                                                            (data.folder ? data.folder + '/' : '') + data.name
+                                                        )
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    Copy Path
+                                                </LemonButton>
+                                                {data?.meta?.custom ? (
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            if (confirm('Are you sure you want to delete this item?')) {
+                                                                deleteItem(data)
+                                                            }
+                                                        }}
+                                                        fullWidth
+                                                    >
+                                                        Delete
+                                                    </LemonButton>
+                                                ) : null}
                                             </>
                                         }
                                     />

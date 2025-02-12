@@ -90,6 +90,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadProjectTree: true,
         addFolder: (folder: string) => ({ folder }),
         renameItem: (oldName: string, newName: string) => ({ oldName, newName }),
+        createItem: (item: ProjectTreeItem) => ({ item }),
+        deleteItem: (item: ProjectTreeItem) => ({ item }),
     }),
     loaders({
         rawProjectTree: [
@@ -115,7 +117,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             name: splitFolder[splitFolder.length - 1],
                             folder: splitFolder.slice(0, -1).join('/'),
                             type: 'folder',
-                            meta: {},
+                            meta: { custom: true },
                         },
                     ]
                 },
@@ -128,6 +130,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 ...item,
                                 name: splitName[splitName.length - 1],
                                 folder: splitName.slice(0, -1).join('/'),
+                                meta: { ...item.meta, custom: true },
                             }
                         } else if (itemName.startsWith(oldName + '/')) {
                             const fullNewName = newName + itemName.slice(oldName.length)
@@ -136,9 +139,27 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 ...item,
                                 name: splitName[splitName.length - 1],
                                 folder: splitName.slice(0, -1).join('/'),
+                                meta: { ...item.meta, custom: true },
                             }
                         }
                         return item
+                    })
+                },
+                createItem: (state, { item }) => {
+                    return [
+                        ...state,
+                        {
+                            ...item,
+                            id: uuid(),
+                            meta: { ...item.meta, custom: true },
+                        },
+                    ]
+                },
+                deleteItem: (state, { item }) => {
+                    const deleteName = (item.folder ? item.folder + '/' : '') + item.name
+                    return state.filter((i) => {
+                        const itemName = (i.folder ? i.folder + '/' : '') + i.name
+                        return !(itemName === deleteName || itemName.startsWith(deleteName + '/'))
                     })
                 },
             },
@@ -146,10 +167,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     }),
     selectors({
         takenUrls: [
-            (s) => [s.rawProjectTree, s.customProjectTree],
-            (rawProjectTree, customProjectTree) => {
+            (s) => [s.customProjectTree],
+            (customProjectTree): Set<string> => {
                 const urls = new Set<string>()
-                for (const item of [...rawProjectTree, ...customProjectTree]) {
+                for (const item of [...customProjectTree]) {
                     if (item.href) {
                         urls.add(item.href)
                     }
@@ -158,8 +179,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         projectTree: [
-            (s) => [s.rawProjectTree, s.customProjectTree],
-            (rawProjectTree, customProjectTree): TreeDataItem[] => {
+            (s) => [s.rawProjectTree, s.customProjectTree, s.takenUrls],
+            (rawProjectTree, customProjectTree, takenUrls): TreeDataItem[] => {
                 // The top-level nodes for our project tree
                 const rootNodes: TreeDataItem[] = []
 
@@ -187,8 +208,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return folderNode
                 }
+
+                const viableNodes = [
+                    ...rawProjectTree.filter((item) => item.href && !takenUrls.has(item.href)),
+                    ...customProjectTree,
+                ]
+
                 // Iterate over each raw project item.
-                for (const item of [...rawProjectTree, ...customProjectTree]) {
+                for (const item of viableNodes) {
                     // Get the folder string; if empty, the item goes at the root.
                     const folderPath = item.folder || ''
                     // Split the folder path by "/" (ignoring empty parts).
