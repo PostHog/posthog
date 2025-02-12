@@ -122,6 +122,12 @@ class ExperimentQueryRunner(QueryRunner):
             for property in self.team.test_account_filters:
                 test_accounts_filter.append(property_to_expr(property, self.team))
 
+        # Property filters
+        metric_property_filters: list[ast.Expr] = []
+        if isinstance(self.metric.metric_config, ExperimentEventMetricConfig) and self.metric.metric_config.properties:
+            for property in self.metric.metric_config.properties:
+                metric_property_filters.append(property_to_expr(property, self.team))
+
         date_range_query = QueryDateRange(
             date_range=self.date_range,
             team=self.team,
@@ -240,6 +246,7 @@ class ExperimentQueryRunner(QueryRunner):
                                 op=ast.CompareOperationOp.GtEq,
                             ),
                             parse_expr(f"event = '{metric_config.event}'"),
+                            *metric_property_filters,
                         ],
                     ),
                 )

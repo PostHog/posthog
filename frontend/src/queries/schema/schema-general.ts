@@ -1812,6 +1812,8 @@ export interface ExperimentEventMetricConfig {
     math?: ExperimentMetricMath
     math_hogql?: string
     math_property?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
 }
 
 export interface ExperimentDataWarehouseMetricConfig {
