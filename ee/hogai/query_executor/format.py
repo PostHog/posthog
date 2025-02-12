@@ -215,7 +215,11 @@ class TrendsResultsFormatter:
             if custom_name is not None:
                 name = custom_name
         if series.get("breakdown_value") is not None:
-            name += " (breakdown)"
+            if isinstance(series["breakdown_value"], list):
+                breakdown_label = ", ".join(str(v) for v in series["breakdown_value"])
+            else:
+                breakdown_label = str(series["breakdown_value"])
+            name += f" breakdown for the value `{breakdown_label}`"
 
         return _replace_breakdown_labels(name)
 
