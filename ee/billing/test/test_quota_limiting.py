@@ -933,8 +933,56 @@ class TestQuotaLimiting(BaseTest):
             }
             self.organization.save()
 
+            # Test immediate limiting with trust score 0
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-
+            org_id = str(self.organization.id)
+            assert quota_limited_orgs["feature_flags"] == {org_id: 1612137599}
+            assert quota_limiting_suspended_orgs["feature_flags"] == {}
             assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                 f"@posthog/quota-limits/feature_flags", 0, -1
             )
+
+            # Test medium trust score (7) - should get 1 day suspension
+            self.organization.customer_trust_scores["feature_flags"] = 7
+            self.organization.usage["feature_flags"] = {"usage": 110, "limit": 100}
+            self.organization.save()
+            self.redis_client.delete(f"@posthog/quota-limits/feature_flags")
+
+            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert quota_limited_orgs["feature_flags"] == {}
+            assert quota_limiting_suspended_orgs["feature_flags"] == {org_id: 1611705600}  # 1 day suspension
+            assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                f"@posthog/quota-limiting-suspended/feature_flags", 0, -1
+            )
+
+            # Test suspension expiry leads to limiting
+            with freeze_time("2021-01-27T00:00:00Z"):  # 2 days later
+                quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+                assert quota_limited_orgs["feature_flags"] == {org_id: 1612137599}
+                assert quota_limiting_suspended_orgs["feature_flags"] == {}
+                assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                    f"@posthog/quota-limits/feature_flags", 0, -1
+                )
+
+            # Test medium-high trust score (10) - should get 3 day suspension
+            with freeze_time("2021-01-25T00:00:00Z"):
+                self.organization.customer_trust_scores["feature_flags"] = 10
+                self.organization.usage["feature_flags"] = {"usage": 110, "limit": 100}
+                self.organization.save()
+                self.redis_client.delete(f"@posthog/quota-limits/feature_flags")
+
+                quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+                assert quota_limited_orgs["feature_flags"] == {}
+                assert quota_limiting_suspended_orgs["feature_flags"] == {org_id: 1611878400}  # 3 day suspension
+                assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                    f"@posthog/quota-limiting-suspended/feature_flags", 0, -1
+                )
+
+            # Test never_drop_data organization is not limited
+            self.organization.never_drop_data = True
+            self.organization.save()
+            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert quota_limited_orgs["feature_flags"] == {}
+            assert quota_limiting_suspended_orgs["feature_flags"] == {}
+            assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flags", 0, -1) == []
+            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/feature_flags", 0, -1) == []
