@@ -167,3 +167,66 @@ class TestTemplateRedditAds(BaseSiteDestinationFunctionTest):
                 "value": 42,
             },
         ]
+
+    def test_custom_event(self):
+        def add_custom_mapping(payload):
+            payload["mappings"].append(
+                {
+                    "filters": {"events": [{"id": "Event Not In Spec", "name": "Event Not In Spec", "type": "events"}]},
+                    "inputs": {
+                        "eventType": {"value": "Mapped Event Not In Spec"},
+                        "eventProperties": {
+                            "value": {
+                                "conversion_id": "{event.uuid}",
+                                "products": "{event.properties.products ? arrayMap(product -> ({'id': product.product_id, 'category': product.category, 'name': product.name}), event.properties.products) : event.properties.product_id ? [{'id': event.properties.product_id, 'category': event.properties.category, 'name': event.properties.name}] : undefined}",
+                                "value": "{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}",
+                                "currency": "{event.properties.currency}",
+                            }
+                        },
+                    },
+                    "inputs_schema": [
+                        {
+                            "key": "eventType",
+                            "type": "string",
+                            "label": "Event Type",
+                            "description": "description",
+                            "default": "Mapped Event Not In Spec",
+                            "required": True,
+                        },
+                        {
+                            "key": "eventProperties",
+                            "type": "dictionary",
+                            "description": "description",
+                            "label": "Event parameters",
+                            "default": {
+                                "conversion_id": "{event.uuid}",
+                                "products": "{event.properties.products ? arrayMap(product -> ({'id': product.product_id, 'category': product.category, 'name': product.name}), event.properties.products) : event.properties.product_id ? [{'id': event.properties.product_id, 'category': event.properties.category, 'name': event.properties.name}] : undefined}",
+                                "value": "{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}",
+                                "currency": "{event.properties.currency}",
+                            },
+                            "secret": False,
+                            "required": False,
+                        },
+                    ],
+                    "name": "Event Not In Spec",
+                },
+            )
+            return payload
+
+        event_id, calls = self._process_event(
+            "Event Not In Spec",
+            {},
+            {"email": TEST_EMAIL},
+            edit_payload=add_custom_mapping,
+        )
+
+        assert len(calls) == 2
+        assert calls[0] == ["init", TEST_PIXEL_ID, {"email": TEST_EMAIL}]
+        assert calls[1] == [
+            "track",
+            "Custom",
+            {
+                "conversion_id": event_id,
+                "customEventName": "Mapped Event Not In Spec",
+            },
+        ]

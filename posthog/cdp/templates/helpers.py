@@ -1,17 +1,19 @@
+import functools
 import json
+from collections.abc import Callable
 from typing import Any, Optional, cast
 from unittest.mock import MagicMock
 
+import STPyV8
+
+from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.stl import now
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.cdp.validation import compile_hog
 from posthog.models import HogFunction
 from posthog.models.utils import uuid7
 from posthog.test.base import BaseTest, APIBaseTest
-from common.hogvm.python.execute import execute_bytecode
-from common.hogvm.python.stl import now
-
-import STPyV8
 
 
 class BaseHogFunctionTemplateTest(BaseTest):
@@ -103,11 +105,9 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
     template: HogFunctionTemplate
     track_fn: str
     inputs: dict
-    _transpiled: str
 
-    def setUp(self):
-        super().setUp()
-
+    @functools.lru_cache
+    def _get_transpiled(self, edit_payload: Optional[Callable[[dict], dict]] = None):
         # TODO do this without calling the API. There's a lot of logic in the endpoint which would need to be extracted
         payload = {
             "description": self.template.description,
@@ -129,19 +129,26 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
             "template_id": self.template.id,
             "type": self.template.type,
         }
+        if edit_payload:
+            payload = edit_payload(payload)
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data=payload,
         )
+        assert response.status_code in (200, 201)
         function_id = response.json()["id"]
 
         # load from the DB based on the created ID
         hog_function = HogFunction.objects.get(id=function_id)
 
-        self._transpiled = get_transpiled_function(hog_function)
+        return get_transpiled_function(hog_function)
 
     def _process_event(
-        self, event_name: str, event_properties: Optional[dict] = None, person_properties: Optional[dict] = None
+        self,
+        event_name: str,
+        event_properties: Optional[dict] = None,
+        person_properties: Optional[dict] = None,
+        edit_payload: Optional[Callable[[dict], dict]] = None,
     ):
         event_id = str(uuid7())
         js_globals = {
@@ -167,7 +174,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
                 }}
             }};
 
-            const initFn = {self._transpiled}().init;
+            const initFn = {self._get_transpiled(edit_payload)}().init;
 
             const processEvent = initFn({{ posthog, callback: console.log }}).processEvent;
 
