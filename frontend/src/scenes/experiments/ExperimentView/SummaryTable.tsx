@@ -9,7 +9,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
+import { ExperimentFunnelsQuery, ExperimentQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
 import {
     FilterLogicalOperator,
     InsightType,
@@ -27,7 +27,7 @@ export function SummaryTable({
     metricIndex = 0,
     isSecondary = false,
 }: {
-    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery
     metricIndex?: number
     isSecondary?: boolean
 }): JSX.Element {
@@ -358,7 +358,9 @@ export function SummaryTable({
                             date_from: experiment?.start_date,
                             date_to: experiment?.end_date,
                             filter_test_accounts:
-                                metric.kind === NodeKind.ExperimentTrendsQuery
+                                metric.kind === NodeKind.ExperimentQuery
+                                    ? false
+                                    : metric.kind === NodeKind.ExperimentTrendsQuery
                                     ? metric.count_query.filterTestAccounts
                                     : metric.funnels_query.filterTestAccounts,
                         }

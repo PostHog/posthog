@@ -1,4 +1,5 @@
 import { IconTrash } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
@@ -23,7 +24,13 @@ export function WebExperimentTransformHeader({
     return (
         <div className="flex w-full gap-4 items-center">
             <div className="flex-1 overflow-hidden">
-                <h2>{transform.selector || 'Select element'}</h2>
+                {transform.selector ? (
+                    <Tooltip title={transform.selector}>
+                        <span className="max-w-[290px] truncate inline-block">{transform.selector}</span>
+                    </Tooltip>
+                ) : (
+                    <span className="text-muted italic">No element selected</span>
+                )}
             </div>
 
             {transform.selector && <SelectorCount selector={transform.selector} />}

@@ -146,7 +146,6 @@ export const FEATURE_FLAGS = {
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
-    QUERY_ASYNC: 'query-async', // owner: @webjunkie
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
@@ -197,7 +196,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
     INSIGHT_FUNNELS_USE_UDF: 'insight-funnels-use-udf', // owner: @aspicer #team-product-analytics
     INSIGHT_FUNNELS_USE_UDF_TRENDS: 'insight-funnels-use-udf-trends', // owner: @aspicer #team-product-analytics
-    FIRST_TIME_FOR_USER_MATH: 'first-time-for-user-math', // owner: @skoob13 #team-product-analytics
     MULTITAB_EDITOR: 'multitab-editor', // owner: @EDsCODE #team-data-warehouse
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
@@ -243,8 +241,10 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     EXPERIMENT_P_VALUE: 'experiment-p-value', // owner: @jurajmajerik #team-experiments
     WEB_ANALYTICS_IMPROVED_PATH_CLEANING: 'web-analytics-improved-path-cleaning', // owner: @rafaeelaudibert #team-web-analytics
+    ONBOARDING_NEW_PLANS_STEP: 'onboarding-new-plans-step', // owner: @joshsny #team-growth
     EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
     RECORDINGS_AI_FILTER: 'recordings-ai-filter', // owner: @veryayskiy #team-replay
+    PATH_CLEANING_AI_REGEX: 'path-cleaning-ai-regex', // owner: @rafaeelaudibert #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
