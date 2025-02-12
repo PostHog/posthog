@@ -24,11 +24,19 @@ wait $worker_pid || echo "Worker process terminated externally, continuing..."
 
 echo "Running memray flamegraph..."
 
-memray flamegraph -o ./capture.html --leaks ./capture.bin
+memray flamegraph -o ./capture.html --leaks --max-memory-records 1000 ./capture.bin
 
-echo "Copying file to S3..."
+echo "Copying flamegraph to S3..."
 AWS_ACCESS_KEY_ID=$AIRBYTE_BUCKET_KEY AWS_SECRET_ACCESS_KEY=$AIRBYTE_BUCKET_SECRET aws s3 cp ./capture.html s3://posthog-s3-datawarehouse-us-east-1-dev/tom-test/capture.html
 
+echo "Running memray table..."
+
+memray table -o ./capture-table.html --leaks ./capture.bin
+
+echo "Copying table to S3..."
+AWS_ACCESS_KEY_ID=$AIRBYTE_BUCKET_KEY AWS_SECRET_ACCESS_KEY=$AIRBYTE_BUCKET_SECRET aws s3 cp ./capture-table.html s3://posthog-s3-datawarehouse-us-east-1-dev/tom-test/capture-table.html
+
+memray stats ./capture.bin
 
 echo "Cleanup..."
 
