@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
 import posthoganalytics
+import structlog
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
@@ -62,6 +63,9 @@ STREAMING_NODES: set[AssistantNodeName] = {
 
 VERBOSE_NODES = STREAMING_NODES | {AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT}
 """Nodes that can send messages to the client."""
+
+
+logger = structlog.get_logger(__name__)
 
 
 class Assistant:
@@ -146,7 +150,8 @@ class Assistant:
                 )
             else:
                 self._report_conversation_state(last_viz_message)
-        except:
+        except Exception as e:
+            logger.exception("Error in assistant stream", error=e)
             # This is an unhandled error, so we just stop further generation at this point
             yield self._serialize_message(FailureMessage())
             raise  # Re-raise, so that the error is printed or goes into Sentry
