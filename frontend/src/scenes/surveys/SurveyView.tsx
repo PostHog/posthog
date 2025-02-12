@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -34,6 +35,23 @@ import {
     SingleChoiceQuestionPieChart,
     Summary,
 } from './surveyViewViz'
+
+function SurveyResultsFilters(): JSX.Element {
+    const { propertyFilters } = useValues(surveyLogic)
+    const { setPropertyFilters } = useActions(surveyLogic)
+
+    return (
+        <div className="space-y-2">
+            <h4 className="text-base font-semibold mb-2">Filter results</h4>
+            <PropertyFilters
+                propertyFilters={propertyFilters}
+                onChange={setPropertyFilters}
+                pageKey="survey-results"
+                buttonText="Add filter to survey results"
+            />
+        </div>
+    )
+}
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
@@ -475,6 +493,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
     return (
         <div className="space-y-4">
+            <SurveyResultsFilters />
             <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
