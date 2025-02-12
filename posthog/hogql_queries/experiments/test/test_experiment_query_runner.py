@@ -333,29 +333,12 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         return subscription_table_name
 
-    @freeze_time("2020-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_query_runner_funnel_metric(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
-        experiment.save()
+    def create_standard_test_events(self, feature_flag):
+        """
+        Creates a standard set of events that can be reused across multiple tests
+        """
 
         feature_flag_property = f"$feature/{feature_flag.key}"
-
-        metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.FUNNEL,
-            metric_config=ExperimentEventMetricConfig(event="purchase"),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
 
         for variant, purchase_count in [("control", 6), ("test", 8)]:
             for i in range(10):
@@ -380,7 +363,72 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         properties={feature_flag_property: variant},
                     )
 
-        # These events should be too early to be included
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_funnel_metric(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.FUNNEL,
+            metric_config=ExperimentEventMetricConfig(event="purchase"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        self.create_standard_test_events(feature_flag)
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = next(variant for variant in result.variants if variant.key == "control")
+        test_variant = next(variant for variant in result.variants if variant.key == "test")
+
+        self.assertEqual(control_variant.success_count, 6)
+        self.assertEqual(control_variant.failure_count, 4)
+        self.assertEqual(test_variant.success_count, 8)
+        self.assertEqual(test_variant.failure_count, 2)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_includes_date_range(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_config=ExperimentEventMetricConfig(event="purchase"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        self.create_standard_test_events(feature_flag)
+
+        # These events are too early to be included
         _create_event(
             team=self.team,
             event="$feature_flag_called",
@@ -423,10 +471,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_variant = next(variant for variant in result.variants if variant.key == "control")
         test_variant = next(variant for variant in result.variants if variant.key == "test")
 
-        self.assertEqual(control_variant.success_count, 6)
-        self.assertEqual(control_variant.failure_count, 4)
-        self.assertEqual(test_variant.success_count, 8)
-        self.assertEqual(test_variant.failure_count, 2)
+        self.assertEqual(control_variant.count, 6)
+        self.assertEqual(test_variant.count, 8)
+        self.assertEqual(control_variant.absolute_exposure, 10)
+        self.assertEqual(test_variant.absolute_exposure, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
