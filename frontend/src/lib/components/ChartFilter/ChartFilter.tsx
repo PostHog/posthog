@@ -141,7 +141,7 @@ export function ChartFilter(): JSX.Element {
                             ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
                             : undefined),
                     labelInMenu: (
-                        <ChartFilterOptionLabel label="World map" description="Data across regions on a map." />
+                        <ChartFilterOptionLabel label="World map" description="Values per country on a map." />
                     ),
                 },
             ],
