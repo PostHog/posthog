@@ -17,7 +17,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 class TestRootNode(ClickhouseTestMixin, BaseTest):
     def test_node_handles_plain_chat_response(self):
         with patch(
-            "ee.hogai.root.nodes.RootNode._model",
+            "ee.hogai.root.nodes.RootNode._get_model",
             return_value=RunnableLambda(
                 lambda _: LangchainAIMessage(content="Why did the chicken cross the road? To get to the other side!")
             ),
@@ -41,7 +41,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     )
     def test_node_handles_insight_tool_call(self, insight_type):
         with patch(
-            "ee.hogai.root.nodes.RootNode._model",
+            "ee.hogai.root.nodes.RootNode._get_model",
             return_value=RunnableLambda(
                 lambda _: LangchainAIMessage(
                     content="Hang tight while I check this.",
@@ -83,7 +83,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     )
     def test_node_handles_insight_tool_call_without_message(self, insight_type):
         with patch(
-            "ee.hogai.root.nodes.RootNode._model",
+            "ee.hogai.root.nodes.RootNode._get_model",
             return_value=RunnableLambda(
                 lambda _: LangchainAIMessage(
                     content="",
@@ -233,12 +233,7 @@ class TestRootNodeTools(BaseTest):
     def test_run_no_assistant_message(self):
         node = RootNodeTools(self.team)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
-        self.assertIsNone(node.run(state, {}))
-
-    def test_run_assistant_message_no_tool_calls(self):
-        node = RootNodeTools(self.team)
-        state = AssistantState(messages=[AssistantMessage(content="Hello")])
-        self.assertIsNone(node.run(state, {}))
+        self.assertEqual(node.run(state, {}), PartialAssistantState(root_tool_calls_count=0))
 
     def test_run_validation_error(self):
         node = RootNodeTools(self.team)
