@@ -17,33 +17,6 @@
         align-items: center;
         justify-content: center;
         text-align: center;
-
-        .insight-empty-state__wrapper {
-            max-width: 600px;
-            margin-top: 5rem;
-            margin-bottom: 17rem;
-
-            .illustration-main {
-                margin-bottom: 1rem;
-                font-size: 5rem;
-                line-height: 1em;
-                color: var(--border-primary);
-                text-align: center;
-            }
-
-            .empty-state__title {
-                font-size: 1.5rem;
-                font-weight: 600;
-                line-height: 1.6rem;
-            }
-
-            .empty-state__description {
-                font-size: 1rem;
-                font-weight: 500;
-                line-height: 1.7rem;
-                color: var(--text-secondary);
-            }
-        }
     }
 }
 
