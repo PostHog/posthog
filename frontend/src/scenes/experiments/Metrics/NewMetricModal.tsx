@@ -116,11 +116,15 @@ export function NewMetricModal({
                     value={metricType}
                     onChange={(newMetricType: ExperimentMetricType) => {
                         console.log('newMetricType', newMetricType)
+                        const newMetric = {
+                            ...metrics[metricIdx],
+                            metric_type: newMetricType,
+                        }
                         setExperiment({
                             ...experiment,
                             [metricsField]: [
                                 ...metrics.slice(0, metricIdx),
-                                getDefaultCountMetric(),
+                                newMetric,
                                 ...metrics.slice(metricIdx + 1),
                             ],
                         })
