@@ -20,12 +20,16 @@ class PartitionRange(dagster.Config):
 
     FORMAT: ClassVar[str] = "%Y%m"
 
-    def iter(self) -> Iterator[str]:
+    def iter_dates(self) -> Iterator[str]:
         date_lower = self.parse_date(self.lower)
         date_upper = self.parse_date(self.upper)
         seq = itertools.count()
-        while (cur_date := date_lower + relativedelta(months=next(seq))) <= date_upper:
-            yield cur_date.strftime(self.FORMAT)
+        while (date := date_lower + relativedelta(months=next(seq))) <= date_upper:
+            yield date
+
+    def iter_ids(self) -> Iterator[str]:
+        for date in self.iter_dates():
+            yield date.strftime(self.FORMAT)
 
     @pydantic.field_validator("lower", "upper")
     @classmethod
@@ -89,7 +93,7 @@ class MaterializeColumnConfig(dagster.Config):
                     "table": self.table,
                     "key_column": key_column,
                     "column": self.column,
-                    "partitions": [*self.partitions.iter()],
+                    "partitions": [*self.partitions.iter_ids()],
                 },
             )
         }
@@ -104,8 +108,8 @@ class MaterializeColumnInPartitionTask:
     def run(self, client: Client) -> None:
         MutationRunner(
             self.table,
-            "MATERIALIZE COLUMN %(column)s IN PARTITION %(partition)s",
-            {"column": self.column, "partition": self.partition},
+            f"MATERIALIZE COLUMN {self.column} IN PARTITION %(partition)s",
+            {"partition": self.partition},
         ).enqueue(client).wait()
 
 
@@ -124,7 +128,7 @@ def run_materialize_mutations(
         for host, partitions in cluster.map_one_host_per_shard(config.get_remaining_partitions).result().items()
     }
 
-    requested_partitions = set(config.partitions.iter())
+    requested_partitions = set(config.partitions.iter_ids())
     remaining_partitions = reduce(lambda x, y: x | y, remaining_partitions_by_shard.values())
     context.log.info(
         "Materializing %s of %s requested partitions (%s already materialized)",
@@ -138,7 +142,7 @@ def run_materialize_mutations(
     for partition in sorted(remaining_partitions, reverse=True):
         shard_tasks = {
             shard_num: MaterializeColumnInPartitionTask(config.table, config.column, partition).run
-            for shard_num, remaining_partitions_for_shard in remaining_partitions_by_shard.values()
+            for shard_num, remaining_partitions_for_shard in remaining_partitions_by_shard.items()
             if partition in remaining_partitions_for_shard
         }
         cluster.map_any_host_in_shards(shard_tasks).result()
