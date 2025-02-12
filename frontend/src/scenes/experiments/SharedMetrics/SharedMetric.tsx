@@ -9,9 +9,9 @@ import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
-import { SharedFunnelsMetricForm } from './SharedFunnelsMetricForm'
+import { LegacySharedFunnelsMetricForm } from './LegacySharedFunnelsMetricForm'
+import { LegacySharedTrendsMetricForm } from './LegacySharedTrendsMetricForm'
 import { sharedMetricLogic } from './sharedMetricLogic'
-import { SharedTrendsMetricForm } from './SharedTrendsMetricForm'
 
 export const scene: SceneExport = {
     component: SharedMetric,
@@ -125,9 +125,9 @@ export function SharedMetric(): JSX.Element {
                     </div>
                 </div>
                 {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
-                    <SharedTrendsMetricForm />
+                    <LegacySharedTrendsMetricForm />
                 ) : (
-                    <SharedFunnelsMetricForm />
+                    <LegacySharedFunnelsMetricForm />
                 )}
             </div>
             <div className="flex justify-between mt-4">
