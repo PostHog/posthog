@@ -42,17 +42,18 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
     const isTruncatedPath = node.name.slice(1) === '_...'
 
     return (
-        <div
-            className="absolute"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                width: NODE_LABEL_WIDTH,
-                height: NODE_LABEL_HEIGHT,
-                left: node.x0 + NODE_LABEL_LEFT_OFFSET,
-                top: node.y0 + NODE_LABEL_TOP_OFFSET,
-            }}
-        >
-            <Tooltip title={pageUrl(node)} placement="right">
+        <Tooltip title={pageUrl(node)} placement="right">
+            <div
+                className="absolute cursor-pointer"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    width: NODE_LABEL_WIDTH,
+                    height: NODE_LABEL_HEIGHT,
+                    left: node.x0 + NODE_LABEL_LEFT_OFFSET,
+                    top: node.y0 + NODE_LABEL_TOP_OFFSET,
+                }}
+                onClick={openModal}
+            >
                 <div className="flex items-center justify-between w-full">
                     <div className="font-semibold overflow-hidden max-h-16 text-xs break-words">
                         {pageUrl(node, isPath)}
@@ -82,11 +83,11 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                         />
                     </LemonMenu>
                 </div>
-            </Tooltip>
 
-            <LemonButton size="xsmall" onClick={openModal} noPadding>
-                <span className="font-normal">{node.value}</span>
-            </LemonButton>
-        </div>
+                <LemonButton size="xsmall" onClick={openModal} noPadding>
+                    <span className="font-normal">{node.value}</span>
+                </LemonButton>
+            </div>
+        </Tooltip>
     )
 }
