@@ -11,7 +11,7 @@ export function AiFilterSuggestions(): JSX.Element {
     const suggestions = [
         'Show me recordings of people who visited sign up page in the last 24 hours',
         'Show me recordings of people who are frustrated',
-        'Show me recordings of people who facing bugs',
+        'Show me recordings of people who are facing bugs',
     ]
 
     return (
