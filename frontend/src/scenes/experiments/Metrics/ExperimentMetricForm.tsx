@@ -12,7 +12,7 @@ import { experimentLogic } from '../experimentLogic'
 import { metricToFilter } from '../utils'
 import { commonActionFilterProps } from './Selectors'
 
-export function NewMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
+export function ExperimentMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { experiment, editingPrimaryMetricIndex, editingSecondaryMetricIndex } = useValues(experimentLogic)
     const { setMetric } = useActions(experimentLogic)
 

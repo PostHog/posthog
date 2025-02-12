@@ -6,9 +6,9 @@ import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperi
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import { MetricModal } from '../Metrics/MetricModal'
+import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
+import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { NewMetricModal } from '../Metrics/NewMetricModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
@@ -130,13 +130,13 @@ export function ExperimentView(): JSX.Element {
 
                         {featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER] ? (
                             <>
-                                <NewMetricModal experimentId={experimentId} isSecondary={true} />
-                                <NewMetricModal experimentId={experimentId} isSecondary={false} />
+                                <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
+                                <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
                             </>
                         ) : (
                             <>
-                                <MetricModal experimentId={experimentId} isSecondary={true} />
-                                <MetricModal experimentId={experimentId} isSecondary={false} />
+                                <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
+                                <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
                             </>
                         )}
 
