@@ -44,7 +44,11 @@ class MaterializeColumnConfig(dagster.Config):
 
 
 @dagster.op
-def run_materialize_mutations(config: MaterializeColumnConfig, cluster: dagster.ResourceParam[ClickhouseCluster]):
+def run_materialize_mutations(
+    context: dagster.OpExecutionContext,
+    config: MaterializeColumnConfig,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+):
     def materialize_column_for_shard(client: Client) -> None:
         # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
         # have the target column materialized by finding parts where the key column exists but the target column does
@@ -66,31 +70,41 @@ def run_materialize_mutations(config: MaterializeColumnConfig, cluster: dagster.
             {"database": settings.CLICKHOUSE_DATABASE, "table": config.table},
         )
 
-        remaining_partitions = client.execute(
-            """
-            SELECT partition
-            FROM system.parts_columns
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND part_type != 'Compact'  -- can't get column sizes from compact parts; should be small enough to ignore anyway
-                AND active
-                AND column IN (%(key_column)s, %(column)s)
-                AND partition IN %(partitions)s
-            GROUP BY partition
-            HAVING countIf(column = %(key_column)s) > countIf(column = %(column)s)
-            ORDER BY partition DESC
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "table": config.table,
-                "key_column": key_column,
-                "column": config.column,
-                "partitions": config.partitions,
-            },
-        )
+        requested_partitions = set(config.partitions)
+        remaining_partitions = {
+            partition
+            for [partition] in client.execute(
+                """
+                SELECT partition
+                FROM system.parts_columns
+                WHERE
+                    database = %(database)s
+                    AND table = %(table)s
+                    AND part_type != 'Compact'  -- can't get column sizes from compact parts; should be small enough to ignore anyway
+                    AND active
+                    AND column IN (%(key_column)s, %(column)s)
+                    AND partition IN %(partitions)s
+                GROUP BY partition
+                HAVING countIf(column = %(key_column)s) > countIf(column = %(column)s)
+                ORDER BY partition DESC
+                """,
+                {
+                    "database": settings.CLICKHOUSE_DATABASE,
+                    "table": config.table,
+                    "key_column": key_column,
+                    "column": config.column,
+                    "partitions": [*requested_partitions],
+                },
+            )
+        }
 
-        for [partition] in remaining_partitions:
+        context.log.info(
+            "Materializing %s of %s requested partitions (%s already materialized)",
+            len(remaining_partitions),
+            len(requested_partitions),
+            len(requested_partitions - remaining_partitions),
+        )
+        for partition in remaining_partitions:
             mutation = MutationRunner(
                 config.table,
                 "MATERIALIZE COLUMN %(column)s IN PARTITION %(partition)s",

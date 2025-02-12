@@ -14,3 +14,7 @@ def test_partition_range():
 
     with pytest.raises(pydantic.ValidationError):
         PartitionRange(lower="202401", upper="2024XX")
+
+
+def test_job():
+    raise NotImplementedError
