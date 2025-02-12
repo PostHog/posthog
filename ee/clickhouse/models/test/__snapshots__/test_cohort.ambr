@@ -388,8 +388,9 @@
                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                  WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC')), equals(e.event, 'signup'))
                  GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
-                 HAVING ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
-                               and isNull(min_timestamp_with_condition)))
+                 HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
+                                   and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)
+                                                                                     or isNotNull(fromUnixTimestamp(0)))))
               GROUP BY actor_id) AS source
            ORDER BY source.id ASC
            LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
@@ -502,8 +503,9 @@
                               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                            WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC')), equals(e.event, 'signup'))
                            GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
-                           HAVING ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
-                                         and isNull(min_timestamp_with_condition)))
+                           HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
+                                             and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)
+                                                                                               or isNotNull(fromUnixTimestamp(0)))))
                         GROUP BY actor_id) AS source
                      ORDER BY source.id ASC
                      LIMIT 100 SETTINGS optimize_aggregation_in_order=1,

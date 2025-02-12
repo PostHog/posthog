@@ -478,15 +478,27 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         saveAsViewSubmit: async ({ name }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
+            const queryToSave = {
+                ...query,
+                query: values.queryInput,
+            }
+
             const logic = dataNodeLogic({
                 key: dataNodeKey,
-                query,
+                query: queryToSave,
             })
 
             const types = logic.values.response?.types ?? []
-
-            await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query, types })
-            actions.updateState()
+            try {
+                await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
+                    name,
+                    query: queryToSave,
+                    types,
+                })
+                actions.updateState()
+            } catch (e) {
+                lemonToast.error('Failed to save view')
+            }
         },
         saveAsInsight: async () => {
             LemonDialog.openForm({

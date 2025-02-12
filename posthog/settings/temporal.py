@@ -65,10 +65,3 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES", "").split(",") if o]  # type: ignore
 )
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
-
-# What percentage of teams should use distributed_events_recent for batch exports (should be a value from 0 to 1 and we
-# only support increments of 0.1)
-# TODO - remove this once migration is complete
-BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT: float = get_from_env(
-    "BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT", 0.0, type_cast=float
-)

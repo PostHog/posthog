@@ -3,7 +3,15 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Survey, SurveyQuestionBranchingType, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    AnyPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyQuestionBranchingType,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 
 const MULTIPLE_CHOICE_SURVEY: Survey = {
     id: '018b22a3-09b1-0000-2f5b-1bd8352ceec9',
@@ -1332,5 +1340,218 @@ describe('set response-based survey branching', () => {
                     hasCycle: false,
                 })
         })
+    })
+})
+
+describe('survey filters', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = surveyLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    it('applies property filters to queries', async () => {
+        const propertyFilters: AnyPropertyFilter[] = [
+            {
+                key: 'email',
+                value: 'test@posthog.com',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Person,
+            },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setPropertyFilters(propertyFilters)
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setPropertyFilters'])
+            .toMatchValues({
+                propertyFilters: propertyFilters,
+                dataTableQuery: partial({
+                    source: partial({
+                        properties: expect.arrayContaining([
+                            {
+                                key: 'email',
+                                value: 'test@posthog.com',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Person,
+                            },
+                        ]),
+                    }),
+                }),
+            })
+    })
+
+    it('updates query filters when property filters change', async () => {
+        // Set initial filters
+        const initialFilters: AnyPropertyFilter[] = [
+            {
+                key: 'email',
+                value: 'test@posthog.com',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Person,
+            },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setPropertyFilters(initialFilters)
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setPropertyFilters'])
+            .toMatchValues({
+                propertyFilters: initialFilters,
+                dataTableQuery: partial({
+                    source: partial({
+                        properties: expect.arrayContaining([
+                            {
+                                key: 'email',
+                                value: 'test@posthog.com',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Person,
+                            },
+                        ]),
+                    }),
+                }),
+            })
+
+        // Update filters
+        const updatedFilters: AnyPropertyFilter[] = [
+            {
+                key: 'country',
+                value: 'US',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Person,
+            },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.setPropertyFilters(updatedFilters)
+        })
+            .toDispatchActions(['setPropertyFilters'])
+            .toMatchValues({
+                propertyFilters: updatedFilters,
+                dataTableQuery: partial({
+                    source: partial({
+                        properties: expect.arrayContaining([
+                            {
+                                key: 'country',
+                                value: 'US',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Person,
+                            },
+                        ]),
+                    }),
+                }),
+            })
+    })
+
+    it('handles multiple property filters correctly', async () => {
+        const multipleFilters: AnyPropertyFilter[] = [
+            {
+                key: 'email',
+                value: 'test@posthog.com',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Person,
+            },
+            {
+                key: 'country',
+                value: 'US',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Person,
+            },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setPropertyFilters(multipleFilters)
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setPropertyFilters'])
+            .toMatchValues({
+                propertyFilters: multipleFilters,
+                dataTableQuery: partial({
+                    source: partial({
+                        properties: expect.arrayContaining([
+                            {
+                                key: 'email',
+                                value: 'test@posthog.com',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Person,
+                            },
+                            {
+                                key: 'country',
+                                value: 'US',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Person,
+                            },
+                        ]),
+                    }),
+                }),
+            })
+    })
+
+    it('preserves existing query properties when setting filters', async () => {
+        const propertyFilters: AnyPropertyFilter[] = [
+            {
+                key: 'email',
+                value: 'test@posthog.com',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Person,
+            },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setPropertyFilters(propertyFilters)
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setPropertyFilters'])
+            .toMatchValues({
+                propertyFilters: propertyFilters,
+                dataTableQuery: partial({
+                    source: partial({
+                        properties: expect.arrayContaining([
+                            // Survey ID property should still be present
+                            {
+                                key: '$survey_id',
+                                operator: 'exact',
+                                type: 'event',
+                                value: MULTIPLE_CHOICE_SURVEY.id,
+                            },
+                            // Our new filter should be present
+                            {
+                                key: 'email',
+                                value: 'test@posthog.com',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Person,
+                            },
+                        ]),
+                    }),
+                }),
+            })
+    })
+
+    it('handles empty property filters', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setPropertyFilters([])
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setPropertyFilters'])
+            .toMatchValues({
+                propertyFilters: [],
+                dataTableQuery: partial({
+                    source: partial({
+                        // Should still have the survey ID property even with no filters
+                        properties: expect.arrayContaining([
+                            {
+                                key: '$survey_id',
+                                operator: 'exact',
+                                type: 'event',
+                                value: MULTIPLE_CHOICE_SURVEY.id,
+                            },
+                        ]),
+                    }),
+                }),
+            })
     })
 })

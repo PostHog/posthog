@@ -1,8 +1,9 @@
+import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
 import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
 import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { ExperimentFunnelsQuery, ExperimentQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import {
     EntityType,
     FeatureFlagFilters,
@@ -256,6 +257,29 @@ describe('getNiceTickValues', () => {
 describe('getViewRecordingFilters', () => {
     const featureFlagKey = 'jan-16-running'
 
+    it('returns the correct filters for an experiment query', () => {
+        const filters = getViewRecordingFilters(
+            EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.metrics[0] as ExperimentQuery,
+            featureFlagKey,
+            'control'
+        )
+        expect(filters).toEqual([
+            {
+                id: 'storybook-click',
+                name: 'storybook-click',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature/${featureFlagKey}`,
+                        type: PropertyFilterType.Event,
+                        value: ['control'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+    })
+
     it('returns the correct filters for a funnel metric', () => {
         const filters = getViewRecordingFilters(
             metricFunnelEventsJson as ExperimentFunnelsQuery,
@@ -424,6 +448,7 @@ describe('checkFeatureFlagEligibility', () => {
         tags: [],
         ensure_experience_continuity: null,
         user_access_level: 'admin',
+        status: 'ACTIVE',
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }

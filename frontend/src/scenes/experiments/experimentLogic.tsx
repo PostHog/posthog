@@ -33,8 +33,10 @@ import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
 import {
     AnyEntityNode,
     CachedExperimentFunnelsQueryResponse,
+    CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
     ExperimentFunnelsQuery,
+    ExperimentQuery,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     InsightQueryNode,
@@ -104,7 +106,12 @@ interface MetricLoadingConfig {
     experimentId: Experiment['id']
     refresh?: boolean
     onSetResults: (
-        results: (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
+        results: (
+            | CachedExperimentQueryResponse
+            | CachedExperimentTrendsQueryResponse
+            | CachedExperimentFunnelsQueryResponse
+            | null
+        )[]
     ) => void
     onSetErrors: (errors: any[]) => void
     onTimeout: (experimentId: Experiment['id'], metric: any) => void
@@ -118,7 +125,12 @@ const loadMetrics = async ({
     onSetErrors,
     onTimeout,
 }: MetricLoadingConfig): Promise<void[]> => {
-    const results: (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[] = []
+    const results: (
+        | CachedExperimentQueryResponse
+        | CachedExperimentTrendsQueryResponse
+        | CachedExperimentFunnelsQueryResponse
+        | null
+    )[] = []
 
     return await Promise.all(
         metrics.map(async (metric, index) => {
@@ -312,7 +324,12 @@ export const experimentLogic = kea<experimentLogicType>([
         closePrimaryMetricModal: true,
         setMetricResultsLoading: (loading: boolean) => ({ loading }),
         setMetricResults: (
-            results: (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
+            results: (
+                | CachedExperimentQueryResponse
+                | CachedExperimentTrendsQueryResponse
+                | CachedExperimentFunnelsQueryResponse
+                | null
+            )[]
         ) => ({ results }),
         loadMetricResults: (refresh?: boolean) => ({ refresh }),
         setPrimaryMetricsResultErrors: (errors: any[]) => ({ errors }),
@@ -322,7 +339,12 @@ export const experimentLogic = kea<experimentLogicType>([
         closeSecondaryMetricModal: true,
         setSecondaryMetricResultsLoading: (loading: boolean) => ({ loading }),
         setSecondaryMetricResults: (
-            results: (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
+            results: (
+                | CachedExperimentQueryResponse
+                | CachedExperimentTrendsQueryResponse
+                | CachedExperimentFunnelsQueryResponse
+                | null
+            )[]
         ) => ({ results }),
         loadSecondaryMetricResults: (refresh?: boolean) => ({ refresh }),
         setSecondaryMetricsResultErrors: (errors: any[]) => ({ errors }),
@@ -574,7 +596,12 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         metricResults: [
-            [] as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[],
+            [] as (
+                | CachedExperimentQueryResponse
+                | CachedExperimentTrendsQueryResponse
+                | CachedExperimentFunnelsQueryResponse
+                | null
+            )[],
             {
                 setMetricResults: (_, { results }) => results,
             },
@@ -586,7 +613,12 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricResults: [
-            [] as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[],
+            [] as (
+                | CachedExperimentQueryResponse
+                | CachedExperimentTrendsQueryResponse
+                | CachedExperimentFunnelsQueryResponse
+                | null
+            )[],
             {
                 setSecondaryMetricResults: (_, { results }) => results,
             },
@@ -1299,8 +1331,9 @@ export const experimentLogic = kea<experimentLogicType>([
         getMetricType: [
             () => [],
             () =>
-                (metric: ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined): InsightType => {
-                    return metric && metric?.kind === NodeKind.ExperimentTrendsQuery
+                (metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined): InsightType => {
+                    return metric &&
+                        (metric?.kind === NodeKind.ExperimentQuery || metric?.kind === NodeKind.ExperimentTrendsQuery)
                         ? InsightType.TRENDS
                         : InsightType.FUNNELS
                 },
@@ -1399,7 +1432,14 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         isPrimaryMetricSignificant: [
             (s) => [s.metricResults],
-            (metricResults: (CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse | null)[]) =>
+            (
+                    metricResults: (
+                        | CachedExperimentQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[]
+                ) =>
                 (metricIndex: number = 0): boolean => {
                     return metricResults?.[metricIndex]?.significant || false
                 },
@@ -1408,6 +1448,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.secondaryMetricResults],
             (
                     secondaryMetricResults: (
+                        | CachedExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
@@ -1421,6 +1462,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.metricResults, s.experimentStatsVersion],
             (
                     metricResults: (
+                        | CachedExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
@@ -1546,7 +1588,11 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [],
             () =>
                 (
-                    metricResult: CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse | null,
+                    metricResult:
+                        | CachedExperimentQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null,
                     variantKey: string
                 ): number | null => {
                     if (!metricResult || !metricResult.insight) {
@@ -1569,7 +1615,11 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [],
             () =>
                 (
-                    metricResult: CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null,
+                    metricResult:
+                        | CachedExperimentQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null,
                     variantKey: string,
                     metricType: InsightType
                 ): [number, number] | null => {
@@ -1613,7 +1663,11 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.getMetricType, s.firstPrimaryMetric],
             (getMetricType, firstPrimaryMetric) =>
                 (
-                    metricResult: CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null,
+                    metricResult:
+                        | CachedExperimentQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null,
                     variant: string
                 ): number | null => {
                     // Ensures we get the right index from results, so the UI can
@@ -1655,7 +1709,11 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experimentMathAggregationForTrends],
             (experimentMathAggregationForTrends) =>
                 (
-                    metricResult: CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null,
+                    metricResult:
+                        | CachedExperimentQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null,
                     variant: string,
                     type: 'primary' | 'secondary' = 'primary'
                 ): number | null => {
@@ -1701,7 +1759,11 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [],
             () =>
                 (
-                    metricResult: CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null,
+                    metricResult:
+                        | CachedExperimentQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null,
                     variant: string
                 ): number | null => {
                     if (!metricResult || !metricResult.variants) {
@@ -1721,25 +1783,34 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         getHighestProbabilityVariant: [
             () => [],
-            () => (results: CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null) => {
-                if (results && results.probability) {
-                    const maxValue = Math.max(...Object.values(results.probability))
-                    return Object.keys(results.probability).find(
-                        (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
-                    )
-                }
-            },
+            () =>
+                (
+                    results:
+                        | CachedExperimentQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | CachedExperimentFunnelsQueryResponse
+                        | null
+                ) => {
+                    if (results && results.probability) {
+                        const maxValue = Math.max(...Object.values(results.probability))
+                        return Object.keys(results.probability).find(
+                            (key) => Math.abs(results.probability[key] - maxValue) < Number.EPSILON
+                        )
+                    }
+                },
         ],
         tabularExperimentResults: [
             (s) => [s.experiment, s.metricResults, s.secondaryMetricResults, s.getMetricType],
             (
                     experiment,
                     metricResults: (
+                        | CachedExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
                     )[],
                     secondaryMetricResults: (
+                        | CachedExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
@@ -1786,6 +1857,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.metricResults, s.conversionRateForVariant],
             (
                     metricResults: (
+                        | CachedExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
@@ -1813,6 +1885,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (
                     experiment,
                     metricResults: (
+                        | CachedExperimentQueryResponse
                         | CachedExperimentFunnelsQueryResponse
                         | CachedExperimentTrendsQueryResponse
                         | null
@@ -1872,7 +1945,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         firstPrimaryMetric: [
             (s) => [s.experiment],
-            (experiment: Experiment): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined => {
+            (experiment: Experiment): ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined => {
                 if (experiment.metrics.length) {
                     return experiment.metrics[0]
                 }

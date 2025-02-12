@@ -2,7 +2,7 @@ import json
 from typing import Any, Optional, cast
 from datetime import datetime
 
-from django.db.models import QuerySet, Q, deletion
+from django.db.models import QuerySet, Q, deletion, Prefetch
 from django.conf import settings
 from drf_spectacular.utils import OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
@@ -100,6 +100,7 @@ class FeatureFlagSerializer(
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
 
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
@@ -156,6 +157,7 @@ class FeatureFlagSerializer(
             "user_access_level",
             "creation_context",
             "is_remote_configuration",
+            "status",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -450,6 +452,46 @@ class FeatureFlagSerializer(
         if active:
             validated_data["performed_rollback"] = False
 
+    def get_status(self, feature_flag: FeatureFlag) -> str:
+        checker = FeatureFlagStatusChecker(feature_flag=feature_flag)
+        flag_status, _ = checker.get_status()
+        return flag_status.name
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        filters = representation.get("filters", {})
+        groups = filters.get("groups", [])
+
+        # Get all cohort IDs used in the feature flag
+        cohort_ids = set()
+        for group in groups:
+            for property in group.get("properties", []):
+                if property.get("type") == "cohort":
+                    cohort_ids.add(property.get("value"))
+
+        # Use prefetched cohorts if available
+        if hasattr(instance.team, "available_cohorts"):
+            cohorts = {
+                str(cohort.id): cohort.name
+                for cohort in instance.team.available_cohorts
+                if str(cohort.id) in map(str, cohort_ids)
+            }
+        else:
+            # Fallback to database query if cohorts weren't prefetched
+            cohorts = {
+                str(cohort.id): cohort.name
+                for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
+            }
+
+        # Add cohort names to the response
+        for group in groups:
+            for property in group.get("properties", []):
+                if property.get("type") == "cohort":
+                    property["cohort_name"] = cohorts.get(str(property.get("value")))
+
+        representation["filters"] = filters
+        return representation
+
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
@@ -552,6 +594,13 @@ class FeatureFlagViewSet(
                 .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related("surveys_linked_flag")
+                .prefetch_related(
+                    Prefetch(
+                        "team__cohort_set",
+                        queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
+                        to_attr="available_cohorts",
+                    )
+                )
             )
 
             survey_targeting_flags = Survey.objects.filter(
