@@ -93,8 +93,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         view = DataWarehouseSavedQuery(**validated_data)
 
-        sync_saved_query_workflow(view, create=True)
-
         # The columns will be inferred from the query
         try:
             client_types = self.context["request"].data.get("types", [])
@@ -117,8 +115,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             view.save()
-
             try:
+                sync_saved_query_workflow(view, create=True)
                 DataWarehouseModelPath.objects.create_from_saved_query(view)
             except Exception:
                 # For now, do not fail saved query creation if we cannot model-ize it.
