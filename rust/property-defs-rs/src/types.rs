@@ -257,11 +257,12 @@ impl Event {
                 updates.push(Update::Host(HostDefinition {
                     team_id: self.team_id,
                     project_id: self.project_id,
-                    host: host,
+                    host: host.to_string(),
                     last_seen_at: get_floored_last_seen(),
                 }));
             } else {
-                metrics::counter!(UPDATES_SKIPPED, &[("reason", "host_wont_fit_in_postgres")]).increment(1);
+                metrics::counter!(UPDATES_SKIPPED, &[("reason", "host_wont_fit_in_postgres")])
+                    .increment(1);
             }
         }
     }
@@ -426,10 +427,7 @@ pub fn get_floored_last_seen() -> DateTime<Utc> {
     floor_datetime(Utc::now(), Duration::hours(1)).unwrap()
 }
 
-fn floor_datetime(
-    dt: DateTime<Utc>,
-    duration: Duration,
-) -> Result<DateTime<Utc>, RoundingError> {
+fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
     let rounded = dt.duration_round(duration)?;
 
     // If we rounded up
@@ -449,7 +447,7 @@ fn will_fit_in_postgres_column(str: &str) -> bool {
 // Postgres doesn't like nulls in strings, so we replace them with uFFFD.
 // This allocates, so only do it right when hitting the DB. We handle nulls
 // in strings just fine.
-pub fn sanitize_string(s: &str) -> String {
+pub fn sanitize_string(s: String) -> String {
     s.replace('\u{0000}', "\u{FFFD}")
 }
 
@@ -566,7 +564,7 @@ impl HostDefinition {
             DO UPDATE SET last_seen_at = $5
             "#,
             Uuid::now_v7(),
-            sanitize_string(self.host),
+            sanitize_string(self.host.clone()),
             self.team_id,
             self.project_id,
             Utc::now() // We floor the update datetime for cache purposes, but can insert the exact time we see the event
