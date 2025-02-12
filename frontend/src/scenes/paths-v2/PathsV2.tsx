@@ -2,6 +2,7 @@ import './Paths.scss'
 
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { lightenDarkenColor } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -63,9 +64,11 @@ export function PathsV2(): JSX.Element {
                 style={
                     {
                         '--paths-node': theme?.['preset-1'] || '#000000',
+                        '--paths-node-hover': lightenDarkenColor(theme?.['preset-1'] || '#000000', -20),
                         '--paths-node-start-or-end': theme?.['preset-2'] || '#000000',
                         '--paths-link': theme?.['preset-1'] || '#000000',
-                        '--paths-link-hover': theme?.['preset-2'] || '#000000',
+                        '--paths-link-hover': lightenDarkenColor(theme?.['preset-1'] || '#000000', -20),
+                        '--paths-dropoff': 'rgba(220,53,69,0.7)',
                     } as React.CSSProperties
                 }
             >
