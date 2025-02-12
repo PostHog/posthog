@@ -1,5 +1,3 @@
-import './EditorFilters.scss'
-
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -62,7 +60,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isStickiness,
         isTrendsLike,
         display,
-        breakdownFilter,
         pathsFilter,
         querySource,
         shouldShowSessionAnalysisWarning,
@@ -82,21 +79,25 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasAttribution = isStepsFunnel || isTrendsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
 
-    const editorFilters: InsightEditorFilterGroup[] = [
+    const editorFilterGroups: InsightEditorFilterGroup[] = [
         {
             title: 'General',
             editorFilters: filterFalsy([
-                ...(isRetention
-                    ? [
-                          {
-                              key: 'retention-config',
-                              label: 'Retention Summary',
-                              component: RetentionSummary,
-                          },
-                      ]
-                    : []),
+                isRetention
+                    ? {
+                          key: 'retention-config',
+                          label: 'Retention Summary',
+                          component: RetentionSummary,
+                      }
+                    : null,
+                isFunnels
+                    ? {
+                          key: 'query-steps',
+                          component: FunnelsQuerySteps,
+                      }
+                    : null,
                 ...(isPaths
-                    ? filterFalsy([
+                    ? [
                           {
                               key: 'event-types',
                               label: 'Event Types',
@@ -131,15 +132,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               label: 'Ends at',
                               component: PathsTargetEnd,
                           },
-                      ])
-                    : []),
-                ...(isFunnels
-                    ? filterFalsy([
-                          {
-                              key: 'query-steps',
-                              component: FunnelsQuerySteps,
-                          },
-                      ])
+                      ]
                     : []),
             ]),
         },
@@ -167,7 +160,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     ? {
                           key: 'toggles',
                           label: 'Lifecycle Toggles',
-                          position: 'right',
                           component: LifecycleToggles as (props: EditorFilterProps) => JSX.Element | null,
                       }
                     : null,
@@ -192,26 +184,22 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   </Tooltip>
                               </div>
                           ),
-                          position: 'right',
                           component: StickinessCriteria as (props: EditorFilterProps) => JSX.Element | null,
                       }
                     : null,
                 {
                     key: 'properties',
                     label: 'Filters',
-                    position: 'right',
                     component: GlobalAndOrFilters as (props: EditorFilterProps) => JSX.Element | null,
                 },
             ]),
         },
         {
             title: 'Breakdown',
-            count: breakdownFilter?.breakdowns?.length || (breakdownFilter?.breakdown ? 1 : 0),
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {
                           key: 'breakdown',
-                          position: 'right',
                           component: Breakdown,
                       }
                     : null,
@@ -266,20 +254,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   </Tooltip>
                               </div>
                           ),
-                          position: 'right',
                           component: Attribution,
                       }
                     : null,
-            ]),
-        },
-        {
-            title: 'Goals',
-            editorFilters: filterFalsy([
-                isTrends && {
-                    key: 'goal-lines',
-                    position: 'right',
-                    component: GoalLines,
-                },
             ]),
         },
         {
@@ -288,7 +265,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 isPaths && {
                     key: 'paths-exclusions',
                     label: 'Exclusions',
-                    position: 'right',
                     tooltip: (
                         <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
                     ),
@@ -298,66 +274,47 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Advanced Options',
+            defaultExpanded: false,
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-advanced',
-                    position: 'left',
                     component: PathsAdvanced,
                 },
                 isFunnels && {
                     key: 'funnels-advanced',
-                    position: 'left',
                     component: FunnelsAdvanced,
                 },
-            ]),
-        },
-        {
-            title: 'PoE Override',
-            editorFilters: filterFalsy([
                 {
                     key: 'poe',
-                    position: 'right',
                     component: PoeFilter,
                 },
-            ]),
-        },
-        {
-            title: 'Sampling',
-            editorFilters: filterFalsy([
                 {
                     key: 'sampling',
-                    position: 'right',
                     component: SamplingFilter,
+                },
+                isTrends && {
+                    key: 'goal-lines',
+                    label: 'Goal lines',
+                    tooltip: (
+                        <>
+                            Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits (Web
+                            Vitals, etc.)
+                        </>
+                    ),
+                    component: GoalLines,
                 },
             ]),
         },
-    ]
-
-    const editorFilterGroups: InsightEditorFilterGroup[] = [
-        {
-            title: 'left',
-            editorFilters: editorFilters.reduce(
-                (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
-                [] as InsightEditorFilter[]
-            ),
-        },
-        {
-            title: 'right',
-            editorFilters: editorFilters.reduce(
-                (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
-                [] as InsightEditorFilter[]
-            ),
-        },
-    ]
+    ].filter((group) => group.editorFilters.length > 0)
 
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div
-                className={clsx('EditorFiltersWrapper', {
-                    'EditorFiltersWrapper--embedded': embedded,
+                className={clsx('shrink-0 bg-surface-primary', {
+                    'p-4 rounded border': !embedded,
                 })}
             >
-                <div className="EditorFilters">
+                <div className="flex flex-col gap-3">
                     {editorFilterGroups.map((editorFilterGroup) => (
                         <EditorFilterGroup
                             key={editorFilterGroup.title}

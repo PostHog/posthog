@@ -1,5 +1,5 @@
 import { IconEye, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
@@ -18,8 +18,6 @@ export function GoalLines({ insightProps }: GoalLinesProps): JSX.Element {
 
     return (
         <div className="mt-1 mb-2">
-            <LemonLabel className="mb-1">Goals</LemonLabel>
-
             {goalLines.map(({ label, value = 0, displayLabel = true }, goalLineIndex) => (
                 <div className="flex flex-1 gap-1 mb-1" key={`${goalLineIndex}`}>
                     <SeriesLetter className="self-center" hasBreakdown={false} seriesIndex={goalLineIndex} />
