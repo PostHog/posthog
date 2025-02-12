@@ -8,7 +8,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { getDefaultMetric, getDefaultTrendsMetric } from '../utils'
+import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { SharedFunnelsMetricForm } from './SharedFunnelsMetricForm'
 import { sharedMetricLogic } from './sharedMetricLogic'
 import { SharedTrendsMetricForm } from './SharedTrendsMetricForm'
@@ -70,7 +70,7 @@ export function SharedMetric(): JSX.Element {
                     }`}
                     onClick={() => {
                         setSharedMetric({
-                            query: getDefaultMetric(),
+                            query: getDefaultFunnelsMetric(),
                         })
                     }}
                 >

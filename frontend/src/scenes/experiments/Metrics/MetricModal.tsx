@@ -1,11 +1,12 @@
 import { LemonButton, LemonDialog, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getDefaultMetric, getDefaultTrendsMetric } from '../utils'
+import { getDefaultCountMetric, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
 
@@ -24,6 +25,7 @@ export function MetricModal({
         isSecondaryMetricModalOpen,
         editingPrimaryMetricIndex,
         editingSecondaryMetricIndex,
+        featureFlags,
     } = useValues(experimentLogic({ experimentId }))
     const {
         updateExperimentGoal,
@@ -119,11 +121,14 @@ export function MetricModal({
                     data-attr="metrics-selector"
                     value={metricType}
                     onChange={(newMetricType) => {
+                        const defaultMetric = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+                            ? getDefaultCountMetric()
+                            : getDefaultFunnelsMetric()
                         setExperiment({
                             ...experiment,
                             [metricsField]: [
                                 ...metrics.slice(0, metricIdx),
-                                newMetricType === InsightType.TRENDS ? getDefaultTrendsMetric() : getDefaultMetric(),
+                                newMetricType === InsightType.TRENDS ? getDefaultTrendsMetric() : defaultMetric,
                                 ...metrics.slice(metricIdx + 1),
                             ],
                         })

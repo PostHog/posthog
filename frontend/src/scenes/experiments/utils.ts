@@ -256,14 +256,7 @@ export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
     }
 }
 
-// Feature flag to control experiment metric initialization behavior
-export const EXPERIMENT_METRIC_INIT_FLAG = true
-
-export function getDefaultMetric(): ExperimentFunnelsQuery | ExperimentMetric {
-    if (EXPERIMENT_METRIC_INIT_FLAG) {
-        return getDefaultCountMetric()
-    }
-
+export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     return {
         kind: NodeKind.ExperimentFunnelsQuery,
         funnels_query: {
@@ -301,7 +294,7 @@ export function getDefaultCountMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         metric_type: ExperimentMetricType.COUNT,
         metric_config: {
-            kind: 'ExperimentEventMetricConfig',
+            kind: NodeKind.ExperimentEventMetricConfig,
             event: '$pageview',
         },
     }
@@ -312,7 +305,7 @@ export function getDefaultContinuousMetric(): ExperimentMetric {
         kind: NodeKind.ExperimentMetric,
         metric_type: ExperimentMetricType.CONTINUOUS,
         metric_config: {
-            kind: 'ExperimentEventMetricConfig',
+            kind: NodeKind.ExperimentEventMetricConfig,
             event: '$pageview',
             math: 'sum',
         },
@@ -329,7 +322,7 @@ export function getExperimentMetricFromInsight(
     const metricName = (insight?.name || insight?.derived_name) ?? undefined
 
     if (isFunnelsQuery(insight.query.source)) {
-        const defaultFunnelsQuery = getDefaultMetric().funnels_query
+        const defaultFunnelsQuery = getDefaultFunnelsMetric().funnels_query
 
         const funnelsQuery: FunnelsQuery = merge(defaultFunnelsQuery, {
             series: insight.query.source.series,
@@ -387,7 +380,7 @@ export function getNewExperimentMetricFromInsight(
             name: metricName,
             metric_type: ExperimentMetricType.FUNNEL,
             metric_config: {
-                kind: 'ExperimentEventMetricConfig',
+                kind: NodeKind.ExperimentEventMetricConfig,
                 event: event as string,
             },
         }
@@ -402,7 +395,7 @@ export function getNewExperimentMetricFromInsight(
             name: metricName,
             metric_type: ExperimentMetricType.COUNT,
             metric_config: {
-                kind: 'ExperimentEventMetricConfig',
+                kind: NodeKind.ExperimentEventMetricConfig,
                 event: event as string,
             },
         }
@@ -429,7 +422,7 @@ export function metricToFilter(metric: ExperimentMetric): FilterType {
     }
 
     const config = metric.metric_config
-    if (config.kind === 'ExperimentEventMetricConfig') {
+    if (config.kind === NodeKind.ExperimentEventMetricConfig) {
         return {
             events: [
                 {
