@@ -17,7 +17,7 @@
         "pkg-group": "rust-toolchain"
       },
       "corepack": {
-        "pkg-path": "corepack",
+        "pkg-path": "corepack_18",
         "pkg-group": "nodejs"
       },
       "go": {
@@ -219,378 +219,6 @@
       },
       "system": "x86_64-linux",
       "group": "go",
-      "priority": 5
-    },
-    {
-      "attr_path": "brotli",
-      "broken": false,
-      "derivation": "/nix/store/f17lc5r3vr1anjq7szz5ad1pv5gf0b5d-brotli-1.1.0.drv",
-      "description": "A generic-purpose lossless compression algorithm and tool",
-      "install_id": "brotli",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "brotli-1.1.0",
-      "pname": "brotli",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.1.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/iajaaffbxyykgfcq0pf1a6l53mi0mkix-brotli-1.1.0-dev",
-        "lib": "/nix/store/98643bbgak6khvhpkckwq3sdqw4a4yqc-brotli-1.1.0-lib",
-        "out": "/nix/store/5s0dl5cinm0hp1dfwyljm60hajfwh0q4-brotli-1.1.0"
-      },
-      "system": "aarch64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "brotli",
-      "broken": false,
-      "derivation": "/nix/store/j5ydgv236k7z4g53cy0m5zdskzsfq5dv-brotli-1.1.0.drv",
-      "description": "A generic-purpose lossless compression algorithm and tool",
-      "install_id": "brotli",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "brotli-1.1.0",
-      "pname": "brotli",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.1.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/z78kkmal1z4af10mqbw9r4fr4fmhb8aw-brotli-1.1.0-dev",
-        "lib": "/nix/store/i03iv835y5kyillx00idbqvypn0045cq-brotli-1.1.0-lib",
-        "out": "/nix/store/ngq0fcgblprwxp0iqrgbm2ch97k08n3g-brotli-1.1.0"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "brotli",
-      "broken": false,
-      "derivation": "/nix/store/xavanh4c1iks4xh1mq38832isp8h3dwh-brotli-1.1.0.drv",
-      "description": "A generic-purpose lossless compression algorithm and tool",
-      "install_id": "brotli",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "brotli-1.1.0",
-      "pname": "brotli",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.1.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/bg86fgnbj4q2mbgzxvrkg8ppkcq6pi8w-brotli-1.1.0-dev",
-        "lib": "/nix/store/rvxk3md318cymms413d267jb8wihhni2-brotli-1.1.0-lib",
-        "out": "/nix/store/fbp9mwhzyg65ljnxikgwq872hirfdjfg-brotli-1.1.0"
-      },
-      "system": "x86_64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "brotli",
-      "broken": false,
-      "derivation": "/nix/store/4a3kzzc3r8vwdvr550bp7va951qz1rag-brotli-1.1.0.drv",
-      "description": "A generic-purpose lossless compression algorithm and tool",
-      "install_id": "brotli",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "brotli-1.1.0",
-      "pname": "brotli",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "1.1.0",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "dev": "/nix/store/mg0d0qpsqnvjrb2g08cpsr5wc5mibgrj-brotli-1.1.0-dev",
-        "lib": "/nix/store/0cgs7y6qfn64wvj1wk37zadniq2dqkg4-brotli-1.1.0-lib",
-        "out": "/nix/store/0hfcipn4r1w0iw7z9r2qzssdq4iacqsw-brotli-1.1.0"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/ncvlrlns99v77r7hgr4kha8qd0c1m6yb-corepack-nodejs-20.11.1.drv",
-      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "corepack-nodejs-20.11.1",
-      "pname": "corepack",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-20.11.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/3xzqvqgz6f5gr4fiys89iq0hv34ahzxi-corepack-nodejs-20.11.1"
-      },
-      "system": "aarch64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/9m6ddqzh1s9aaknlngc7hcgai7z68i7c-corepack-nodejs-20.11.1.drv",
-      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "corepack-nodejs-20.11.1",
-      "pname": "corepack",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-20.11.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/flw1a7s3kiqck5zcpms106gh6xy1d9r9-corepack-nodejs-20.11.1"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/223f1ha3hb45q7h6vsq2d11dvwsx7yrp-corepack-nodejs-20.11.1.drv",
-      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "corepack-nodejs-20.11.1",
-      "pname": "corepack",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-20.11.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/cjr8y5d3gnq9hbzbyivwr1kkx6n0b85p-corepack-nodejs-20.11.1"
-      },
-      "system": "x86_64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "corepack",
-      "broken": false,
-      "derivation": "/nix/store/mksqqc8jzzahlx9695sf61k8qizh55vb-corepack-nodejs-20.11.1.drv",
-      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
-      "install_id": "corepack",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "corepack-nodejs-20.11.1",
-      "pname": "corepack",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-20.11.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "out": "/nix/store/7v3hm9wvqvnwalm12l1i95f8cmad7z9s-corepack-nodejs-20.11.1"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_18",
-      "broken": false,
-      "derivation": "/nix/store/9pmj0p1sp646vyc4602wrdq9n9wbqmv8-nodejs-18.19.1.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "nodejs-18.19.1",
-      "pname": "nodejs_18",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-18.19.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "libv8": "/nix/store/5da4myd75fd2lng1c5y7vgsjx5d0fzps-nodejs-18.19.1-libv8",
-        "out": "/nix/store/r5iax8ijz3fb2318mvk1lqhmgd3ywra0-nodejs-18.19.1"
-      },
-      "system": "aarch64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_18",
-      "broken": false,
-      "derivation": "/nix/store/5wya8nwx9zpckzn2n0fza3wrsp9n2bk7-nodejs-18.19.1.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "nodejs-18.19.1",
-      "pname": "nodejs_18",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-18.19.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "libv8": "/nix/store/kbsp3mrmr31fs0qvscik29ls4ph97wvy-nodejs-18.19.1-libv8",
-        "out": "/nix/store/c77aqmmdz2xrnwx8r00830vrikpvxsgs-nodejs-18.19.1"
-      },
-      "system": "aarch64-linux",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_18",
-      "broken": false,
-      "derivation": "/nix/store/7qhsy02il6rxiy7r6012cbbmmxnf77jr-nodejs-18.19.1.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "nodejs-18.19.1",
-      "pname": "nodejs_18",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-18.19.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "libv8": "/nix/store/1m4bp8f0frjjrfgrply18hssy1ddpxjp-nodejs-18.19.1-libv8",
-        "out": "/nix/store/d797z1ds0cp8djhd4r6g7lw660npalv4-nodejs-18.19.1"
-      },
-      "system": "x86_64-darwin",
-      "group": "nodejs",
-      "priority": 5
-    },
-    {
-      "attr_path": "nodejs_18",
-      "broken": false,
-      "derivation": "/nix/store/xy1n8q9jl9xs06y9gwpmzzyjcjzhw46l-nodejs-18.19.1.drv",
-      "description": "Event-driven I/O framework for the V8 JavaScript engine",
-      "install_id": "nodejs",
-      "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "name": "nodejs-18.19.1",
-      "pname": "nodejs_18",
-      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
-      "rev_count": 604424,
-      "rev_date": "2024-03-29T09:07:56Z",
-      "scrape_date": "2024-08-15T21:25:15Z",
-      "stabilities": [
-        "staging",
-        "unstable"
-      ],
-      "unfree": false,
-      "version": "nodejs-18.19.1",
-      "outputs_to_install": [
-        "out"
-      ],
-      "outputs": {
-        "libv8": "/nix/store/82932mmpy9jyry0f1yn8s31l0vnd9xa2-nodejs-18.19.1-libv8",
-        "out": "/nix/store/s01jxkf9lr2ajlqxk86065rs77mm96am-nodejs-18.19.1"
-      },
-      "system": "x86_64-linux",
-      "group": "nodejs",
       "priority": 5
     },
     {
@@ -1950,6 +1578,378 @@
       },
       "system": "x86_64-linux",
       "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/f17lc5r3vr1anjq7szz5ad1pv5gf0b5d-brotli-1.1.0.drv",
+      "description": "A generic-purpose lossless compression algorithm and tool",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "brotli-1.1.0",
+      "pname": "brotli",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.1.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/iajaaffbxyykgfcq0pf1a6l53mi0mkix-brotli-1.1.0-dev",
+        "lib": "/nix/store/98643bbgak6khvhpkckwq3sdqw4a4yqc-brotli-1.1.0-lib",
+        "out": "/nix/store/5s0dl5cinm0hp1dfwyljm60hajfwh0q4-brotli-1.1.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/j5ydgv236k7z4g53cy0m5zdskzsfq5dv-brotli-1.1.0.drv",
+      "description": "A generic-purpose lossless compression algorithm and tool",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "brotli-1.1.0",
+      "pname": "brotli",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.1.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/z78kkmal1z4af10mqbw9r4fr4fmhb8aw-brotli-1.1.0-dev",
+        "lib": "/nix/store/i03iv835y5kyillx00idbqvypn0045cq-brotli-1.1.0-lib",
+        "out": "/nix/store/ngq0fcgblprwxp0iqrgbm2ch97k08n3g-brotli-1.1.0"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/xavanh4c1iks4xh1mq38832isp8h3dwh-brotli-1.1.0.drv",
+      "description": "A generic-purpose lossless compression algorithm and tool",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "brotli-1.1.0",
+      "pname": "brotli",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.1.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/bg86fgnbj4q2mbgzxvrkg8ppkcq6pi8w-brotli-1.1.0-dev",
+        "lib": "/nix/store/rvxk3md318cymms413d267jb8wihhni2-brotli-1.1.0-lib",
+        "out": "/nix/store/fbp9mwhzyg65ljnxikgwq872hirfdjfg-brotli-1.1.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "brotli",
+      "broken": false,
+      "derivation": "/nix/store/4a3kzzc3r8vwdvr550bp7va951qz1rag-brotli-1.1.0.drv",
+      "description": "A generic-purpose lossless compression algorithm and tool",
+      "install_id": "brotli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "brotli-1.1.0",
+      "pname": "brotli",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.1.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/mg0d0qpsqnvjrb2g08cpsr5wc5mibgrj-brotli-1.1.0-dev",
+        "lib": "/nix/store/0cgs7y6qfn64wvj1wk37zadniq2dqkg4-brotli-1.1.0-lib",
+        "out": "/nix/store/0hfcipn4r1w0iw7z9r2qzssdq4iacqsw-brotli-1.1.0"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "corepack_18",
+      "broken": false,
+      "derivation": "/nix/store/x56pljik23cxa6viwzrs0qaqm3mzyx0x-corepack-nodejs-18.19.1.drv",
+      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "corepack-nodejs-18.19.1",
+      "pname": "corepack_18",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "corepack-nodejs-18.19.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/6p8m71fiass9nci5gkxaknbrll6q0xzj-corepack-nodejs-18.19.1"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "corepack_18",
+      "broken": false,
+      "derivation": "/nix/store/i4g5k1vnln852vx8323vda5f8fs72igm-corepack-nodejs-18.19.1.drv",
+      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "corepack-nodejs-18.19.1",
+      "pname": "corepack_18",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "corepack-nodejs-18.19.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/bbbvymi1izmliv535a9481i0dbiza9sp-corepack-nodejs-18.19.1"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "corepack_18",
+      "broken": false,
+      "derivation": "/nix/store/019am5hh30g9cnw8qlb5g8n33fyap8ag-corepack-nodejs-18.19.1.drv",
+      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "corepack-nodejs-18.19.1",
+      "pname": "corepack_18",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "corepack-nodejs-18.19.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/gndapc70926zma4k72kr7lkf1419dpyv-corepack-nodejs-18.19.1"
+      },
+      "system": "x86_64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "corepack_18",
+      "broken": false,
+      "derivation": "/nix/store/cvc67h64ml6s3lrfgppv67lga4p95p35-corepack-nodejs-18.19.1.drv",
+      "description": "Wrappers for npm, pnpm and Yarn via Node.js Corepack",
+      "install_id": "corepack",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "corepack-nodejs-18.19.1",
+      "pname": "corepack_18",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "corepack-nodejs-18.19.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/lvf85573cpb9gi8x7mfnkbdj6kpkl872-corepack-nodejs-18.19.1"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_18",
+      "broken": false,
+      "derivation": "/nix/store/9pmj0p1sp646vyc4602wrdq9n9wbqmv8-nodejs-18.19.1.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "nodejs-18.19.1",
+      "pname": "nodejs_18",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-18.19.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "libv8": "/nix/store/5da4myd75fd2lng1c5y7vgsjx5d0fzps-nodejs-18.19.1-libv8",
+        "out": "/nix/store/r5iax8ijz3fb2318mvk1lqhmgd3ywra0-nodejs-18.19.1"
+      },
+      "system": "aarch64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_18",
+      "broken": false,
+      "derivation": "/nix/store/5wya8nwx9zpckzn2n0fza3wrsp9n2bk7-nodejs-18.19.1.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "nodejs-18.19.1",
+      "pname": "nodejs_18",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-18.19.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "libv8": "/nix/store/kbsp3mrmr31fs0qvscik29ls4ph97wvy-nodejs-18.19.1-libv8",
+        "out": "/nix/store/c77aqmmdz2xrnwx8r00830vrikpvxsgs-nodejs-18.19.1"
+      },
+      "system": "aarch64-linux",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_18",
+      "broken": false,
+      "derivation": "/nix/store/7qhsy02il6rxiy7r6012cbbmmxnf77jr-nodejs-18.19.1.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "nodejs-18.19.1",
+      "pname": "nodejs_18",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-18.19.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "libv8": "/nix/store/1m4bp8f0frjjrfgrply18hssy1ddpxjp-nodejs-18.19.1-libv8",
+        "out": "/nix/store/d797z1ds0cp8djhd4r6g7lw660npalv4-nodejs-18.19.1"
+      },
+      "system": "x86_64-darwin",
+      "group": "nodejs",
+      "priority": 5
+    },
+    {
+      "attr_path": "nodejs_18",
+      "broken": false,
+      "derivation": "/nix/store/xy1n8q9jl9xs06y9gwpmzzyjcjzhw46l-nodejs-18.19.1.drv",
+      "description": "Event-driven I/O framework for the V8 JavaScript engine",
+      "install_id": "nodejs",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "name": "nodejs-18.19.1",
+      "pname": "nodejs_18",
+      "rev": "d8fe5e6c92d0d190646fb9f1056741a229980089",
+      "rev_count": 604424,
+      "rev_date": "2024-03-29T09:07:56Z",
+      "scrape_date": "2024-08-15T21:25:15Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "nodejs-18.19.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "libv8": "/nix/store/82932mmpy9jyry0f1yn8s31l0vnd9xa2-nodejs-18.19.1-libv8",
+        "out": "/nix/store/s01jxkf9lr2ajlqxk86065rs77mm96am-nodejs-18.19.1"
+      },
+      "system": "x86_64-linux",
+      "group": "nodejs",
       "priority": 5
     }
   ]
