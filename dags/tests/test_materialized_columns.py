@@ -1,3 +1,4 @@
+from clickhouse_driver import Client
 import dagster
 import pydantic
 import pytest
@@ -25,16 +26,26 @@ def test_partition_range_validation():
 
 
 def test_sharded_table_job(cluster: ClickhouseCluster):
-    # TODO: create new materialized column
-    column = "mat_$ip"
-
     config = MaterializeColumnConfig(
         table="sharded_events",
-        column=column,
+        column="mat_$ip",  # TODO: create new materialized column
         partitions=PartitionRange(lower="202401", upper="202412"),
     )
 
-    # TODO: make sure all parts are wide
+    # make sure all parts are wide
+    def setup_table_for_wide_part(client: Client) -> None:
+        client.execute(
+            "ALTER TABLE %(table)s MODIFY SETTING min_bytes_for_wide_part = 1, min_rows_for_wide_part = 1",
+            {"table": config.table},
+        )
+
+    cluster.map_all_hosts(setup_table_for_wide_part).result()
+
+    def populate_test_data(client: Client) -> None:
+        raise NotImplementedError
+
+    cluster.any_host(populate_test_data)
+
     remaining_partitions_by_shard = cluster.map_one_host_per_shard(config.get_remaining_partitions).result()
     for _shard_host, shard_partitions_remaining in remaining_partitions_by_shard.items():
         assert shard_partitions_remaining == set(config.partitions.iter())
