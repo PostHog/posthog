@@ -29,7 +29,7 @@ def wrap_debug_analytics(func):
 
             await aset_debugging_analytics_key()
             # Set a flag to indicate that the analytics key has been set, so we don't run the code on every request.
-            inner.debug_analytics_initialized = True
+            inner.debug_analytics_initialized = True  # type: ignore
         return await func(scope, receive, send)
 
     return inner
