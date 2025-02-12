@@ -133,14 +133,15 @@ export function DeltaChart({
         credibleIntervalForVariant,
         conversionRateForVariant,
         experimentId,
+        experiment,
         countDataForVariant,
         exposureCountDataForVariant,
         metricResultsLoading,
         secondaryMetricResultsLoading,
         featureFlags,
+        primaryMetricsLengthWithSharedMetrics,
     } = useValues(experimentLogic)
 
-    const { experiment } = useValues(experimentLogic)
     const {
         openPrimaryMetricModal,
         openSecondaryMetricModal,
@@ -346,7 +347,7 @@ export function DeltaChart({
                         <div className="absolute top-2 left-2" style={{ zIndex: 102 }}>
                             <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
                         </div>
-                        {(isSecondary || (!isSecondary && experiment.metrics.length > 1)) && (
+                        {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                             <div
                                 className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)]"
                                 // Chart is z-index 100, so we need to be above it

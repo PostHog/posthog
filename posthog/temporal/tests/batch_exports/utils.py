@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 from asgiref.sync import sync_to_async
@@ -19,3 +20,18 @@ async def mocked_start_batch_export_run(inputs: StartBatchExportRunInputs) -> st
     )
 
     return str(run.id)
+
+
+async def get_record_batch_from_queue(queue, produce_task):
+    while not queue.empty() or not produce_task.done():
+        try:
+            record_batch = queue.get_nowait()
+        except asyncio.QueueEmpty:
+            if produce_task.done():
+                break
+            else:
+                await asyncio.sleep(0)
+                continue
+
+        return record_batch
+    return None

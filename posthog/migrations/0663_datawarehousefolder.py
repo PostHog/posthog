@@ -9,7 +9,7 @@ import posthog.warehouse.models.datawarehouse_folder
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0661_errortrackingissuefingerprintv2_first_seen"),
+        ("posthog", "0662_alter_batchexport_model"),
     ]
 
     operations = [
