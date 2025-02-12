@@ -15,6 +15,7 @@ from django.conf import settings
 from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.common.libs.deltalake import get_delta_tables
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 from freezegun.api import freeze_time
 
 from posthog import constants
@@ -22,8 +23,8 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Team
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
-    ModelNode,
     CreateTableActivityInputs,
+    ModelNode,
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
@@ -38,10 +39,9 @@ from posthog.temporal.data_modeling.run_workflow import (
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
+from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.util import database_sync_to_async
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -88,12 +88,12 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
 
     calls = magic_mock.mock_calls
 
-    assert all(
-        call.args[0] in models_materialized for call in calls
-    ), f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
-    assert all(
-        call.args[1].pk == ateam.pk for call in calls
-    ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    assert all(call.args[0] in models_materialized for call in calls), (
+        f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
+    )
+    assert all(call.args[1].pk == ateam.pk for call in calls), (
+        f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    )
     assert len(calls) == len(models_materialized)
     assert results.completed == set(dag.keys())
 
@@ -205,12 +205,12 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
 
     calls = magic_mock.mock_calls
 
-    assert all(
-        call.args[0] in models_materialized for call in calls
-    ), f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
-    assert all(
-        call.args[1].pk == ateam.pk for call in calls
-    ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    assert all(call.args[0] in models_materialized for call in calls), (
+        f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
+    )
+    assert all(call.args[1].pk == ateam.pk for call in calls), (
+        f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    )
     assert len(calls) == len(models_materialized)
 
     assert results.completed == expected_completed
@@ -286,6 +286,7 @@ async def pageview_events(clickhouse_client, ateam):
         count=50,
         count_outside_range=0,
         distinct_ids=["a", "b"],
+        table="sharded_events",
     )
     return (events, events_from_other_team)
 

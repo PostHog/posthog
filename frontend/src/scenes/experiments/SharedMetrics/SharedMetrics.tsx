@@ -39,6 +39,7 @@ export function SharedMetrics(): JSX.Element {
                     />
                 )
             },
+            sorter: (a, b) => a.name.localeCompare(b.name),
         },
         {
             key: 'description',

@@ -4,7 +4,13 @@ import { dayjs } from 'lib/dayjs'
 import merge from 'lodash.merge'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
-import { AnyEntityNode, type FunnelsQuery, NodeKind, type TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    AnyEntityNode,
+    ExperimentQuery,
+    type FunnelsQuery,
+    NodeKind,
+    type TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
 import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
 import {
@@ -141,12 +147,31 @@ function seriesToFilter(
 }
 
 export function getViewRecordingFilters(
-    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery,
+    metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
-    if (metric.kind === NodeKind.ExperimentTrendsQuery) {
+    if (metric.kind === NodeKind.ExperimentQuery) {
+        if (metric.metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+            return [
+                {
+                    id: metric.metric.metric_config.event,
+                    name: metric.metric.metric_config.event,
+                    type: 'events',
+                    properties: [
+                        {
+                            key: `$feature/${featureFlagKey}`,
+                            type: PropertyFilterType.Event,
+                            value: [variantKey],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ]
+        }
+        return []
+    } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
             const exposure_filter = seriesToFilter(metric.exposure_query.series[0], featureFlagKey, variantKey)
             if (exposure_filter) {
