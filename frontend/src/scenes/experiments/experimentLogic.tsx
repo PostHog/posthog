@@ -38,7 +38,6 @@ import {
     ExperimentMetric,
     ExperimentMetricType,
     ExperimentQuery,
-    ExperimentQuery,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     InsightQueryNode,
