@@ -66,31 +66,29 @@ Bordered.args = { bordered: true }
 export const Disabled: Story = Template.bind({})
 Disabled.args = { disabled: true }
 
+const SwitchCell = ({ size, bordered }: { size: LemonSwitchProps['size']; bordered: boolean }): JSX.Element => {
+    return (
+        <td className="border border-bg-3000 border-4 p-2">
+            <LemonSwitch label={size} size={size} bordered={bordered} />
+        </td>
+    )
+}
+
 export const Sizes = (): JSX.Element => {
     return (
         <table className="table-auto border-collapse border border-bg-3000 border-4">
             <tbody>
                 <tr>
-                    <td className="border border-bg-3000 border-4 p-2">
-                        <LemonSwitch label="xsmall" size="xsmall" />
-                    </td>
-                    <td className="border border-bg-3000 border-4 p-2">
-                        <LemonSwitch label="small" size="small" />
-                    </td>
-                    <td className="border border-bg-3000 border-4 p-2">
-                        <LemonSwitch label="medium" size="medium" />
-                    </td>
+                    <SwitchCell size="xxsmall" bordered={false} />
+                    <SwitchCell size="xsmall" bordered={false} />
+                    <SwitchCell size="small" bordered={false} />
+                    <SwitchCell size="medium" bordered={false} />
                 </tr>
                 <tr>
-                    <td className="border border-bg-3000 border-4 p-2">
-                        <LemonSwitch label="xsmall" size="xsmall" bordered={true} />
-                    </td>
-                    <td className="border border-bg-3000 border-4 p-2">
-                        <LemonSwitch label="small" size="small" bordered={true} />
-                    </td>
-                    <td className="border border-bg-3000 border-4 p-2">
-                        <LemonSwitch label="medium" size="medium" bordered={true} />
-                    </td>
+                    <SwitchCell size="xxsmall" bordered={true} />
+                    <SwitchCell size="xsmall" bordered={true} />
+                    <SwitchCell size="small" bordered={true} />
+                    <SwitchCell size="medium" bordered={true} />
                 </tr>
             </tbody>
         </table>
