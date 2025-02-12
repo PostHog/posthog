@@ -30,7 +30,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
     const isExpandable = defaultExpanded != undefined
 
     return (
-        <div key={title} className="flex-1">
+        <div>
             {isExpandable && (
                 <LemonButton
                     fullWidth
@@ -45,7 +45,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                 </LemonButton>
             )}
 
-            {isRowExpanded ? (
+            {isRowExpanded && (
                 <div
                     className={clsx('flex flex-col gap-2', {
                         'border rounded p-2 mt-1': isExpandable && isRowExpanded,
@@ -70,7 +70,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                         )
                     })}
                 </div>
-            ) : null}
+            )}
         </div>
     )
 }

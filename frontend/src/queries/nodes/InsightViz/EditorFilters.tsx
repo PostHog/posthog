@@ -79,7 +79,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasAttribution = isStepsFunnel || isTrendsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
 
-    const editorFilterGroups: InsightEditorFilterGroup[] = [
+    const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
             title: 'General',
             editorFilters: filterFalsy([
@@ -153,6 +153,22 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     : null,
             ]),
         },
+        {
+            title: 'Advanced Options',
+            editorFilters: filterFalsy([
+                isPaths && {
+                    key: 'paths-advanced',
+                    component: PathsAdvanced,
+                },
+                isFunnels && {
+                    key: 'funnels-advanced',
+                    component: FunnelsAdvanced,
+                },
+            ]),
+        },
+    ]
+
+    const rightEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
             title: 'Filters',
             editorFilters: filterFalsy([
@@ -276,14 +292,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             title: 'Advanced Options',
             defaultExpanded: false,
             editorFilters: filterFalsy([
-                isPaths && {
-                    key: 'paths-advanced',
-                    component: PathsAdvanced,
-                },
-                isFunnels && {
-                    key: 'funnels-advanced',
-                    component: FunnelsAdvanced,
-                },
                 {
                     key: 'poe',
                     component: PoeFilter,
@@ -305,23 +313,35 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
             ]),
         },
-    ].filter((group) => group.editorFilters.length > 0)
+    ]
+
+    const filterGroupsGroups = [
+        { title: 'left', editorFilterGroups: leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0) },
+        {
+            title: 'right',
+            editorFilterGroups: rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
+        },
+    ]
 
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
-            <div
-                className={clsx('shrink-0 bg-surface-primary', {
-                    'p-4 rounded border': !embedded,
-                })}
-            >
-                <div className="flex flex-col gap-3">
-                    {editorFilterGroups.map((editorFilterGroup) => (
-                        <EditorFilterGroup
-                            key={editorFilterGroup.title}
-                            editorFilterGroup={editorFilterGroup}
-                            insightProps={insightProps}
-                            query={query}
-                        />
+            <>
+                <div
+                    className={clsx('EditorFiltersWrapper flex flex-row flex-wrap gap-8 shrink-0 bg-surface-primary', {
+                        'p-4 rounded border': !embedded,
+                    })}
+                >
+                    {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                        <div key={title} className="flex-1 flex flex-col gap-4">
+                            {editorFilterGroups.map((editorFilterGroup) => (
+                                <EditorFilterGroup
+                                    key={editorFilterGroup.title}
+                                    editorFilterGroup={editorFilterGroup}
+                                    insightProps={insightProps}
+                                    query={query}
+                                />
+                            ))}
+                        </div>
                     ))}
                 </div>
 
@@ -332,7 +352,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
                     </LemonBanner>
                 ) : null}
-            </div>
+            </>
         </CSSTransition>
     )
 }
