@@ -612,8 +612,8 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
     # Override patch method to only require team:read scope - this is a temporary change until we
     # split the patch requests into ones allowed vs ones not allowed
-    @action(required_scopes=["team:read"])
     def patch(self, request, *args, **kwargs):
+        self.required_scopes = ["team:read"]
         return super().patch(request, *args, **kwargs)
 
     @action(

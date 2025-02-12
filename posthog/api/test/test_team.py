@@ -1278,6 +1278,29 @@ def team_api_test_factory():
             assert response.status_code == expected_status, response.json()
             return response
 
+        def test_member_can_write_to_private_project_with_patch_access(self):
+            from ee.models import ExplicitTeamMembership
+
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            self.team.access_control = True
+            self.team.save()
+            ExplicitTeamMembership.objects.create(
+                team=self.team,
+                parent_membership=self.organization_membership,
+                level=ExplicitTeamMembership.Level.MEMBER,
+            )
+
+            # Give the user explicit write access to the private project
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/",
+                {"name": "New Project Name"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.name, "New Project Name")
+
     return TestTeamAPI
 
 
