@@ -569,7 +569,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             {
                 loadSnapshotSources: async () => {
                     const response = await api.recordings.listSnapshotSources(props.sessionRecordingId)
-                    return response.sources ?? []
+                    if (!response.sources) {
+                        return []
+                    }
+                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
+                        return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
+                    }
+                    return response.sources.filter((s) => s.source !== SnapshotSourceType.blob_v2)
                 },
             },
         ],
