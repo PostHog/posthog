@@ -111,7 +111,8 @@
     width: 100%;
     height: 100%;
     pointer-events: none;
-    background-color: var(--border-bold);
+    background-color: var(--bg-fill-switch);
+    border: 1px solid var(--border-primary);
     border-radius: var(--lemon-switch-height);
     transition: background-color 100ms ease;
 
