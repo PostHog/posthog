@@ -1583,7 +1583,16 @@ describe('answer filters', () => {
                 answerFilters: [answerFilter],
                 dataTableQuery: partial({
                     source: partial({
-                        properties: expect.arrayContaining([answerFilter]),
+                        properties: expect.arrayContaining([
+                            // Survey ID property should still be present
+                            {
+                                key: '$survey_id',
+                                operator: 'exact',
+                                type: 'event',
+                                value: MULTIPLE_CHOICE_SURVEY.id,
+                            },
+                            answerFilter,
+                        ]),
                     }),
                 }),
             })

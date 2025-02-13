@@ -225,13 +225,14 @@ export const surveyLogic = kea<surveyLogicType>([
                         const survey = await api.surveys.get(props.id)
                         actions.reportSurveyViewed(survey)
                         // Initialize answer filters for all questions
-                        const initialFilters = survey.questions.map((question, index) => ({
-                            key: index === 0 ? '$survey_response' : `$survey_response_${index}`,
-                            operator: DEFAULT_OPERATORS[question.type].value,
-                            type: PropertyFilterType.Event as const,
-                            value: [],
-                        }))
-                        actions.setAnswerFilters(initialFilters)
+                        actions.setAnswerFilters(
+                            survey.questions.map((question, index) => ({
+                                key: index === 0 ? '$survey_response' : `$survey_response_${index}`,
+                                operator: DEFAULT_OPERATORS[question.type].value,
+                                type: PropertyFilterType.Event as const,
+                                value: [],
+                            }))
+                        )
                         return survey
                     } catch (error: any) {
                         if (error.status === 404) {

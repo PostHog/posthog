@@ -498,7 +498,8 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         !surveyRatingResultsReady ||
         !surveySingleChoiceResultsReady ||
         !surveyMultipleChoiceResultsReady ||
-        !surveyOpenTextResultsReady
+        !surveyOpenTextResultsReady ||
+        !surveyRecurringNPSResultsReady
 
     return (
         <div className="space-y-4">
@@ -513,7 +514,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
-                        <>
+                        <div key={`survey-q-${i}`} className="space-y-2">
                             {question.scale === 10 && (
                                 <div>
                                     <SurveyNPSResults surveyNPSScore={surveyNPSScore} survey={survey as Survey} />
@@ -543,7 +544,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                         questionIndex={i}
                                     />
                                 )}
-                        </>
+                        </div>
                     )
                 } else if (question.type === SurveyQuestionType.SingleChoice) {
                     return (

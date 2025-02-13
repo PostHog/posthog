@@ -57,16 +57,24 @@ export function SurveyAnswerFilters(): JSX.Element {
         const filterIndex = newFilters.findIndex(
             (f) => f.key === (questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`)
         )
-
         if (filterIndex >= 0) {
+            // Ensure we're working with an EventPropertyFilter
             const existingFilter = newFilters[filterIndex]
             newFilters[filterIndex] = {
                 ...existingFilter,
                 [field]: value,
-                type: PropertyFilterType.Event,
+                type: PropertyFilterType.Event, // Ensure type is always set
             }
-            setAnswerFilters(newFilters)
+        } else {
+            // Create new filter if one doesn't exist
+            newFilters.push({
+                key: questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`,
+                type: PropertyFilterType.Event,
+                operator: PropertyOperator.Exact,
+                [field]: value,
+            })
         }
+        setAnswerFilters(newFilters)
     }
 
     const getFilterForQuestion = (questionIndex: number): EventPropertyFilter | undefined => {
