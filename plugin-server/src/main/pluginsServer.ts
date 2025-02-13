@@ -133,7 +133,7 @@ export async function startPluginsServer(
             pubSub?.stop(),
             graphileWorker?.stop(),
             ...services.map((service) => service.onShutdown()),
-            posthog.shutdownAsync(),
+            posthog.shutdown(),
         ])
 
         if (serverInstance.hub) {

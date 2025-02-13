@@ -6,10 +6,6 @@ export const posthog = new PostHog('sTMFPsFhdP1Ssg', {
     host: 'https://us.i.posthog.com',
 })
 
-if (process.env.NODE_ENV === 'test') {
-    posthog.disable()
-}
-
 export const captureTeamEvent = (team: Team, event: string, properties: Record<string, any> = {}): void => {
     posthog.capture({
         distinctId: team.uuid,
