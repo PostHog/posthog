@@ -1,14 +1,13 @@
 import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { PostHogFeature } from 'posthog-js/react'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import { MetricModal } from '../Metrics/MetricModal'
+import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
+import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { NewMetricModal } from '../Metrics/NewMetricModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
@@ -90,7 +89,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, featureFlags } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
@@ -128,15 +127,15 @@ export function ExperimentView(): JSX.Element {
                         <MetricSourceModal experimentId={experimentId} isSecondary={true} />
                         <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 
-                        {featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER] ? (
+                        {shouldUseExperimentMetrics ? (
                             <>
-                                <NewMetricModal experimentId={experimentId} isSecondary={true} />
-                                <NewMetricModal experimentId={experimentId} isSecondary={false} />
+                                <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
+                                <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
                             </>
                         ) : (
                             <>
-                                <MetricModal experimentId={experimentId} isSecondary={true} />
-                                <MetricModal experimentId={experimentId} isSecondary={false} />
+                                <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
+                                <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
                             </>
                         )}
 

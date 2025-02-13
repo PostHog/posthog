@@ -1,6 +1,5 @@
 import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { Experiment } from '~/types'
 
@@ -14,9 +13,8 @@ export function MetricSourceModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const { experiment, isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen, featureFlags } = useValues(
-        experimentLogic({ experimentId })
-    )
+    const { experiment, isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen, shouldUseExperimentMetrics } =
+        useValues(experimentLogic({ experimentId }))
     const {
         setExperiment,
         closePrimaryMetricSourceModal,
@@ -41,7 +39,7 @@ export function MetricSourceModal({
                     onClick={() => {
                         closeCurrentModal()
 
-                        const defaultMetric = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+                        const defaultMetric = shouldUseExperimentMetrics
                             ? getDefaultCountMetric()
                             : getDefaultFunnelsMetric()
                         const newMetrics = [...experiment[metricsField], defaultMetric]

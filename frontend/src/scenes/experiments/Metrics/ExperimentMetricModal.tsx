@@ -6,9 +6,9 @@ import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { NewMetricForm } from './NewMetricForm'
+import { ExperimentMetricForm } from './ExperimentMetricForm'
 
-export function NewMetricModal({
+export function ExperimentMetricModal({
     experimentId,
     isSecondary,
 }: {
@@ -131,7 +131,7 @@ export function NewMetricModal({
                     ]}
                 />
             </div>
-            <NewMetricForm isSecondary={isSecondary} />
+            <ExperimentMetricForm isSecondary={isSecondary} />
         </LemonModal>
     )
 }

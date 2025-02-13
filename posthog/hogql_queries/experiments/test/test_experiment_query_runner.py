@@ -21,7 +21,8 @@ from posthog.schema import (
     ExperimentMetricType,
     ExperimentQuery,
     ExperimentSignificanceCode,
-    ExperimentTrendsQueryResponse,
+    ExperimentVariantFunnelsBaseStats,
+    ExperimentVariantTrendsBaseStats,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -395,8 +396,12 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result.variants), 2)
 
-        control_variant = next(variant for variant in result.variants if variant.key == "control")
-        test_variant = next(variant for variant in result.variants if variant.key == "test")
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
 
         self.assertEqual(control_variant.success_count, 6)
         self.assertEqual(control_variant.failure_count, 4)
@@ -469,8 +474,12 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result.variants), 2)
 
-        control_variant = next(variant for variant in result.variants if variant.key == "control")
-        test_variant = next(variant for variant in result.variants if variant.key == "test")
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
 
         self.assertEqual(control_variant.count, 6)
         self.assertEqual(test_variant.count, 8)
@@ -549,8 +558,12 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result.variants), 2)
 
-        control_variant = next(variant for variant in result.variants if variant.key == "control")
-        test_variant = next(variant for variant in result.variants if variant.key == "test")
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
 
         self.assertEqual(control_variant.count, 6)
         self.assertEqual(test_variant.count, 8)
@@ -649,8 +662,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for variant in result.variants:
             self.assertIn(variant.key, ["control", "test"])
 
-        control_variant = next(v for v in result.variants if v.key == "control")
-        test_variant = next(v for v in result.variants if v.key == "test")
+        control_variant = cast(ExperimentVariantTrendsBaseStats, next(v for v in result.variants if v.key == "control"))
+        test_variant = cast(ExperimentVariantTrendsBaseStats, next(v for v in result.variants if v.key == "test"))
 
         self.assertEqual(control_variant.count, 3)
         self.assertEqual(test_variant.count, 5)
@@ -905,10 +918,14 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(context.exception.args[0], "Control variant not found in experiment results")
         else:
             result = query_runner.calculate()
-            trend_result = cast(ExperimentTrendsQueryResponse, result)
 
-            control_result = next(variant for variant in trend_result.variants if variant.key == "control")
-            test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+            control_result = cast(
+                ExperimentVariantTrendsBaseStats,
+                next(variant for variant in result.variants if variant.key == "control"),
+            )
+            test_result = cast(
+                ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+            )
 
             self.assertEqual(control_result.absolute_exposure, expected_results["control_absolute_exposure"])
             self.assertEqual(test_result.absolute_exposure, expected_results["test_absolute_exposure"])
@@ -931,10 +948,12 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
-        trend_result = cast(ExperimentTrendsQueryResponse, result)
-
-        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
-        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+        control_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
 
         self.assertEqual(control_result.absolute_exposure, 14)
         self.assertEqual(test_result.absolute_exposure, 16)
@@ -1219,12 +1238,15 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             with freeze_time("2023-01-07"):
                 result = query_runner.calculate()
 
-            trend_result = cast(ExperimentTrendsQueryResponse, result)
-
             self.assertEqual(len(result.variants), 2)
 
-            control_result = next(variant for variant in trend_result.variants if variant.key == "control")
-            test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+            control_result = cast(
+                ExperimentVariantTrendsBaseStats,
+                next(variant for variant in result.variants if variant.key == "control"),
+            )
+            test_result = cast(
+                ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+            )
 
             self.assertEqual(control_result.absolute_exposure, filter_expected["control_absolute_exposure"])
             self.assertEqual(test_result.absolute_exposure, filter_expected["test_absolute_exposure"])
@@ -1255,12 +1277,14 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2023-01-07"):
             result = query_runner.calculate()
 
-        trend_result = cast(ExperimentTrendsQueryResponse, result)
-
         self.assertEqual(len(result.variants), 2)
 
-        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
-        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+        control_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
 
         self.assertEqual(control_result.absolute_exposure, 8)
         self.assertEqual(test_result.absolute_exposure, 10)
@@ -1343,12 +1367,14 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2023-01-10"):
             result = query_runner.calculate()
 
-        trend_result = cast(ExperimentTrendsQueryResponse, result)
-
         self.assertEqual(len(result.variants), 2)
 
-        control_result = next(variant for variant in trend_result.variants if variant.key == "control")
-        test_result = next(variant for variant in trend_result.variants if variant.key == "test")
+        control_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
 
         self.assertEqual(control_result.count, 1)
         self.assertEqual(test_result.count, 3)

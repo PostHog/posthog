@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -2016,6 +2016,29 @@ export const experimentLogic = kea<experimentLogicType>([
                     experiment.metrics_secondary.length +
                     experiment.saved_metrics.filter((savedMetric) => savedMetric.metadata.type === 'secondary').length
                 )
+            },
+        ],
+        compatibleSharedMetrics: [
+            (s) => [s.sharedMetrics, s.shouldUseExperimentMetrics],
+            (sharedMetrics: SharedMetric[], shouldUseExperimentMetrics: boolean): SharedMetric[] => {
+                if (shouldUseExperimentMetrics) {
+                    return sharedMetrics.filter((metric) => metric.query.kind === NodeKind.ExperimentMetric)
+                }
+                return sharedMetrics.filter((metric) => metric.query.kind !== NodeKind.ExperimentMetric)
+            },
+        ],
+        shouldUseExperimentMetrics: [
+            (s) => [s.experiment, s.featureFlags],
+            (experiment: Experiment, featureFlags: Record<string, boolean>): boolean => {
+                if (!featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]) {
+                    return false
+                }
+                const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
+                const hasLegacyMetrics = allMetrics.some(
+                    (query) =>
+                        query.kind === NodeKind.ExperimentTrendsQuery || query.kind === NodeKind.ExperimentFunnelsQuery
+                )
+                return !hasLegacyMetrics
             },
         ],
     }),
