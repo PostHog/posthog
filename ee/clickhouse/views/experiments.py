@@ -211,8 +211,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
         # Normalize query date ranges to the experiment's current range
         # Cribbed from ExperimentTrendsQuery
         new_date_range = {
-            "date_from": data["start_date"],
-            "date_to": data["end_date"],
+            "date_from": data["start_date"] if data["start_date"] else "",
+            "date_to": data["end_date"] if data["end_date"] else "",
             "explicitDate": True,
         }
         for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
