@@ -86,13 +86,13 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
     if property.type == "person":
         property_types = PropertyDefinition.objects.filter(
-            project_id=team.project_id,
+            team__project_id=team.project_id,
             name=property.key,
             type=PropertyDefinition.Type.PERSON,
         )
     elif property.type == "group":
         property_types = PropertyDefinition.objects.filter(
-            project_id=team.project_id,
+            team__project_id=team.project_id,
             name=property.key,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=property.group_type_index,
@@ -133,7 +133,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
     else:
         property_types = PropertyDefinition.objects.filter(
-            project_id=team.project_id,
+            team__project_id=team.project_id,
             name=property.key,
             type=PropertyDefinition.Type.EVENT,
         )

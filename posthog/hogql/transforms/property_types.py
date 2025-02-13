@@ -39,7 +39,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     event_property_values = (
         PropertyDefinition.objects.filter(
             name__in=property_finder.event_properties,
-            project_id=context.team.project_id,
+            team__project_id=context.team.project_id,
             type__in=[None, PropertyDefinition.Type.EVENT],
         ).values_list("name", "property_type")
         if property_finder.event_properties
@@ -50,7 +50,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     person_property_values = (
         PropertyDefinition.objects.filter(
             name__in=property_finder.person_properties,
-            project_id=context.team.project_id,
+            team__project_id=context.team.project_id,
             type=PropertyDefinition.Type.PERSON,
         ).values_list("name", "property_type")
         if property_finder.person_properties
@@ -64,7 +64,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             continue
         group_property_values = PropertyDefinition.objects.filter(
             name__in=properties,
-            project_id=context.team.project_id,
+            team__project_id=context.team.project_id,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=group_id,
         ).values_list("name", "property_type")
