@@ -362,9 +362,10 @@ opentelemetry-sdk==1.24.0
     #   opentelemetry-exporter-otlp-proto-grpc
 opentelemetry-semantic-conventions==0.45b0
     # via opentelemetry-sdk
-orjson==3.10.7
+orjson==3.10.15
     # via
     #   -c requirements.txt
+    #   -r requirements-dev.in
     #   langsmith
 packaging==24.1
     # via

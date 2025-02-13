@@ -519,7 +519,7 @@ openai==1.56.2
     #   sentry-sdk
 openpyxl==3.1.2
     # via -r requirements.in
-orjson==3.10.7
+orjson==3.10.15
     # via
     #   -r requirements.in
     #   dlt

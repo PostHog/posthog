@@ -1,6 +1,7 @@
 import decimal
 import json
 import math
+import orjson
 import pyarrow as pa
 import pyarrow.compute as pc
 import numpy as np
@@ -184,7 +185,7 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
 
 def json_dumps(obj: Any) -> str:
     try:
-        return json.dumps(obj)
+        return orjson.dumps(obj).decode()
     except TypeError as e:
         if str(e) == "Integer exceeds 64-bit range":
             return json.dumps(obj)
