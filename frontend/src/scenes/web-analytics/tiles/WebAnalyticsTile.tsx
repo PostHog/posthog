@@ -372,7 +372,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: BreakdownValueCell,
         },
         bounce_rate: {
-            renderTitle: (props) => <span className="pr-5">Bounce Rate{JSON.stringify(props)}</span>,
+            renderTitle: SortableCell('Bounce Rate', WebAnalyticsOrderByFields.BounceRate),
             render: VariationCell({ isPercentage: true, reverseColors: true }),
             align: 'right',
         },
