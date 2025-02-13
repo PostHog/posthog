@@ -2,7 +2,7 @@ import * as Icons from '@posthog/icons'
 import { useValues } from 'kea'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
-import { availableOnboardingProducts } from '../onboardingLogic'
+import { availableOnboardingProducts } from '../utils'
 
 type FreeTierLimit = {
     title: string
