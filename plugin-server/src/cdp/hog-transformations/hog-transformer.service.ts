@@ -258,7 +258,6 @@ export class HogTransformerService {
                     }
 
                     event.properties = {
-                        ...event.properties,
                         ...transformedEvent.properties,
                     }
 

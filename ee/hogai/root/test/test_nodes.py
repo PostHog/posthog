@@ -17,7 +17,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 class TestRootNode(ClickhouseTestMixin, BaseTest):
     def test_node_handles_plain_chat_response(self):
         with patch(
-            "ee.hogai.root.nodes.RootNode._model",
+            "ee.hogai.root.nodes.RootNode._get_model",
             return_value=RunnableLambda(
                 lambda _: LangchainAIMessage(content="Why did the chicken cross the road? To get to the other side!")
             ),
@@ -41,7 +41,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     )
     def test_node_handles_insight_tool_call(self, insight_type):
         with patch(
-            "ee.hogai.root.nodes.RootNode._model",
+            "ee.hogai.root.nodes.RootNode._get_model",
             return_value=RunnableLambda(
                 lambda _: LangchainAIMessage(
                     content="Hang tight while I check this.",
@@ -83,7 +83,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     )
     def test_node_handles_insight_tool_call_without_message(self, insight_type):
         with patch(
-            "ee.hogai.root.nodes.RootNode._model",
+            "ee.hogai.root.nodes.RootNode._get_model",
             return_value=RunnableLambda(
                 lambda _: LangchainAIMessage(
                     content="",
@@ -178,6 +178,31 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ],
         )
 
+    def test_hard_limit_removes_tools(self):
+        with patch(
+            "ee.hogai.root.nodes.ChatOpenAI",
+            return_value=RunnableLambda(lambda _: LangchainAIMessage(content="I can't help with that anymore.")),
+        ):
+            node = RootNode(self.team)
+
+            # Create a state that has hit the hard limit (4 tool calls)
+            state = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=4)
+
+            # Run the node
+            next_state = node.run(state, {})
+
+            # Verify the response doesn't contain any tool calls
+            self.assertIsInstance(next_state, PartialAssistantState)
+            self.assertEqual(len(next_state.messages), 1)
+            message = next_state.messages[0]
+            self.assertIsInstance(message, AssistantMessage)
+            self.assertEqual(message.content, "I can't help with that anymore.")
+            self.assertEqual(message.tool_calls, [])
+
+            # Verify the hard limit message was added to the conversation
+            messages = node._construct_messages(state)
+            self.assertIn("iterations", messages[-1].content)
+
 
 class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
@@ -208,12 +233,7 @@ class TestRootNodeTools(BaseTest):
     def test_run_no_assistant_message(self):
         node = RootNodeTools(self.team)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
-        self.assertIsNone(node.run(state, {}))
-
-    def test_run_assistant_message_no_tool_calls(self):
-        node = RootNodeTools(self.team)
-        state = AssistantState(messages=[AssistantMessage(content="Hello")])
-        self.assertIsNone(node.run(state, {}))
+        self.assertEqual(node.run(state, {}), PartialAssistantState(root_tool_calls_count=0))
 
     def test_run_validation_error(self):
         node = RootNodeTools(self.team)
@@ -287,3 +307,57 @@ class TestRootNodeTools(BaseTest):
         with self.assertRaises(ValueError) as cm:
             node.run(state, {})
         self.assertEqual(str(cm.exception), "Expected exactly one tool call.")
+
+    def test_run_increments_tool_count(self):
+        node = RootNodeTools(self.team)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Hello",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz",
+                            name="create_and_query_insight",
+                            args={"query_kind": "trends", "query_description": "test query"},
+                        )
+                    ],
+                )
+            ],
+            root_tool_calls_count=2,  # Starting count
+        )
+        result = node.run(state, {})
+        self.assertEqual(result.root_tool_calls_count, 3)  # Should increment by 1
+
+        # Test increment also happens on validation error
+        state_with_error = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Hello",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz",
+                            name="create_and_query_insight",
+                            args={"invalid_field": "should fail validation"},
+                        )
+                    ],
+                )
+            ],
+            root_tool_calls_count=1,
+        )
+        result = node.run(state_with_error, {})
+        self.assertEqual(result.root_tool_calls_count, 2)
+
+    def test_run_resets_tool_count(self):
+        node = RootNodeTools(self.team)
+
+        # Test reset when no tool calls in AssistantMessage
+        state_1 = AssistantState(messages=[AssistantMessage(content="Hello", tool_calls=[])], root_tool_calls_count=3)
+        result = node.run(state_1, {})
+        self.assertEqual(result.root_tool_calls_count, 0)
+
+        # Test reset when last message is HumanMessage
+        state_2 = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=3)
+        result = node.run(state_2, {})
+        self.assertEqual(result.root_tool_calls_count, 0)
