@@ -102,6 +102,7 @@ export enum NodeKind {
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
+    ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
@@ -1803,12 +1804,24 @@ export interface ExperimentMetric {
     metric_type: ExperimentMetricType
     filterTestAccounts?: boolean
     inverse?: boolean
-    metric_config: ExperimentEventMetricConfig | ExperimentDataWarehouseMetricConfig
+    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
 }
 
 export interface ExperimentEventMetricConfig {
     kind: NodeKind.ExperimentEventMetricConfig
     event: string
+    name?: string
+    math?: ExperimentMetricMath
+    math_hogql?: string
+    math_property?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
+export interface ExperimentActionMetricConfig {
+    kind: NodeKind.ExperimentActionMetricConfig
+    action: number
+    name?: string
     math?: ExperimentMetricMath
     math_hogql?: string
     math_property?: string
