@@ -2956,6 +2956,8 @@
                  breakdown_value)
      GROUP BY breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)
   ORDER BY `context.columns.bounce_rate` ASC,
+           `context.columns.visitors` ASC,
+           `context.columns.views` ASC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3041,6 +3043,8 @@
                  breakdown_value)
      GROUP BY breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)
   ORDER BY `context.columns.bounce_rate` DESC,
+           `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3093,6 +3097,8 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.conversion_rate` ASC,
+           `context.columns.visitors` ASC,
+           `context.columns.total_conversions` ASC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3145,6 +3151,8 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.conversion_rate` DESC,
+           `context.columns.visitors` DESC,
+           `context.columns.total_conversions` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3257,6 +3265,8 @@
                  breakdown_value)
      GROUP BY breakdown_value) AS scroll ON equals(counts.breakdown_value, scroll.breakdown_value)
   ORDER BY `context.columns.average_scroll_percentage` ASC,
+           `context.columns.visitors` ASC,
+           `context.columns.views` ASC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3369,6 +3379,8 @@
                  breakdown_value)
      GROUP BY breakdown_value) AS scroll ON equals(counts.breakdown_value, scroll.breakdown_value)
   ORDER BY `context.columns.average_scroll_percentage` DESC,
+           `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3421,6 +3433,7 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.total_conversions` ASC,
+           `context.columns.visitors` ASC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3473,6 +3486,7 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3529,6 +3543,7 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.views` ASC,
+           `context.columns.visitors` ASC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3585,6 +3600,7 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.views` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3641,6 +3657,7 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.visitors` ASC,
+           `context.columns.views` ASC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3697,6 +3714,7 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
