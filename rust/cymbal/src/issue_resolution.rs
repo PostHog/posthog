@@ -247,7 +247,6 @@ where
         conn.rollback().await?;
     } else {
         conn.commit().await?;
-        produce_issue_creation_event(team_id, producer, events_topic).await?;
     }
 
     // This being None is /almost/ impossible, unless between the transaction above finishing and
