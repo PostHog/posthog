@@ -1,8 +1,8 @@
-from dataclasses import dataclass
 import datetime
-from functools import reduce
 import itertools
 from collections.abc import Iterator
+from dataclasses import dataclass
+from functools import reduce
 from typing import ClassVar
 
 import dagster
@@ -40,7 +40,7 @@ class PartitionRange(dagster.Config):
     @pydantic.model_validator(mode="after")
     def validate_bounds(self):
         if not self.parse_date(self.lower) <= self.parse_date(self.upper):
-            raise ValueError("expected lower bound to be less (or equal to) upper bound")
+            raise ValueError("expected lower bound to be less than (or equal to) upper bound")
         return self
 
     @classmethod
@@ -131,7 +131,7 @@ def run_materialize_mutations(
     requested_partitions = set(config.partitions.iter_ids())
     remaining_partitions = reduce(lambda x, y: x | y, remaining_partitions_by_shard.values())
     context.log.info(
-        "Materializing %s of %s requested partitions (%s already materialized)",
+        "Materializing %s of %s requested partitions (%s already materialized in all shards)",
         len(remaining_partitions),
         len(requested_partitions),
         len(requested_partitions - remaining_partitions),
