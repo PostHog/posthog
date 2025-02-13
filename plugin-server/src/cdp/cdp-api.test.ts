@@ -482,12 +482,18 @@ describe('CDP API', () => {
             expect(res.body.result).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "123",
+                  "elements_chain": "",
                   "event": "$pageview",
+                  "ip": null,
                   "properties": {
                     "$lib_version": "1.0.0",
+                    "$transformations_failed": [],
+                    "$transformations_succeeded": [
+                      "Filter Out Plugin (0194ffe6-0905-0000-24a6-f984696287bb)",
+                    ],
                   },
-                  "team_id": 2,
                   "timestamp": "2021-09-28T14:00:00Z",
+                  "url": "https://example.com/events/b3a1fe86-b10c-43cc-acaf-d208977608d0/2021-09-28T14:00:00Z",
                   "uuid": "b3a1fe86-b10c-43cc-acaf-d208977608d0",
                 }
             `)
