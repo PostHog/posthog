@@ -17,7 +17,7 @@ import {
     IconToggle,
     IconWarning,
 } from '@posthog/icons'
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -92,9 +92,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         renameItem: (oldName: string, newName: string) => ({ oldName, newName }),
         createItem: (item: FileSystemEntry) => ({ item }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
+        moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
     }),
     loaders({
-        rawProjectTree: [
+        rawUnfiledItems: [
             [] as FileSystemEntry[],
             {
                 loadProjectTree: async () => {
@@ -109,6 +110,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             [] as FileSystemEntry[],
             {
                 addFolder: (state, { folder }) => {
+                    if (state.find((item) => item.path === folder)) {
+                        return state
+                    }
                     return [
                         ...state,
                         {
@@ -154,21 +158,24 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     selectors({
-        takenUrls: [
-            (s) => [s.customProjectTree],
-            (customProjectTree): Set<string> => {
+        unfiledItems: [
+            (s) => [s.customProjectTree, s.rawUnfiledItems],
+            (customProjectTree, rawUnfiledItems): FileSystemEntry[] => {
                 const urls = new Set<string>()
                 for (const item of [...customProjectTree]) {
-                    if (item.href) {
-                        urls.add(item.href)
+                    const key = `${item.type}/${item.ref}`
+                    if (!urls.has(key)) {
+                        urls.add(key)
                     }
                 }
-                return urls
+                return rawUnfiledItems.filter((item) => !urls.has(`${item.type}/${item.ref}`))
             },
         ],
         projectTree: [
-            (s) => [s.rawProjectTree, s.customProjectTree, s.takenUrls],
-            (rawProjectTree, customProjectTree, takenUrls): TreeDataItem[] => {
+            (s) => [s.unfiledItems, s.customProjectTree],
+            (unfiledItems, customProjectTree): TreeDataItem[] => {
+                const viableNodes = [...unfiledItems, ...customProjectTree]
+
                 // The top-level nodes for our project tree
                 const rootNodes: TreeDataItem[] = []
 
@@ -194,11 +201,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return folderNode
                 }
 
-                const viableNodes = [
-                    ...rawProjectTree.filter((item) => item.href && !takenUrls.has(item.href)),
-                    ...customProjectTree,
-                ]
-
                 // Iterate over each raw project item.
                 for (const item of viableNodes) {
                     const pathSplit = item.path.split('/').filter(Boolean)
@@ -217,6 +219,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         accumulatedPath = accumulatedPath ? accumulatedPath + '/' + part : part
                         const folderNode = findOrCreateFolder(currentLevel, part, accumulatedPath)
                         currentLevel = folderNode.children!
+                    }
+
+                    if (item.type === 'folder' && currentLevel.find((node) => node.data.path === item.path)) {
+                        continue
                     }
 
                     // Create the actual item node.
@@ -466,6 +472,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        moveItem: async ({ oldPath, newPath }) => {
+            // rename all persisted files
+            actions.renameItem(oldPath, newPath)
+            for (const item of values.unfiledItems) {
+                // find all starting with the old path in case this was a folder
+                if (item.path === oldPath || item.path.startsWith(oldPath + '/')) {
+                    actions.createItem({
+                        ...item,
+                        path: newPath + item.path.slice(oldPath.length),
+                    })
+                }
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadProjectTree()
         actions.loadNotebooks()

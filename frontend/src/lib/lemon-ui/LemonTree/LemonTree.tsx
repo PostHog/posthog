@@ -34,6 +34,8 @@ export type LemonTreeNodeProps = LemonTreeProps & {
     focusedId?: string
     /** Handle a click on the item. */
     handleClick: (item: TreeDataItem | undefined) => void
+    /** The render function for the item. */
+    renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     /** The IDs of the expanded items. */
     expandedItemIds: string[]
     /** Set the IDs of the expanded items. */
@@ -48,6 +50,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             selectedId,
             focusedId,
             handleClick,
+            renderItem,
             expandedItemIds,
             setExpandedItemIds,
             defaultNodeIcon,
@@ -126,7 +129,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             'text-secondary': item.disabledReason,
                                         })}
                                     >
-                                        {item.name}
+                                        {renderItem ? renderItem(item, item.name) : item.name}
                                     </span>
                                     {(() => {
                                         if (item.right) {
@@ -155,6 +158,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         defaultNodeIcon={defaultNodeIcon}
                                         showFolderActiveState={showFolderActiveState}
                                         right={right}
+                                        renderItem={renderItem}
                                         className="ml-4 space-y-px"
                                     />
                                 </AccordionPrimitive.Content>
@@ -179,6 +183,8 @@ export type LemonTreeProps = HTMLAttributes<HTMLDivElement> & {
     defaultNodeIcon?: React.ReactNode
     /** Whether to show an active state on folder nodes when selected. Defaults to false. */
     showFolderActiveState?: boolean
+    /** The render function for the item. */
+    renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     /** handler for folder clicks.
      * @param folder - the folder that was clicked
      */

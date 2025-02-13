@@ -1,11 +1,14 @@
+import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core'
+import { CSS } from '@dnd-kit/utilities'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { useRef } from 'react'
+import { ReactNode, useRef } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -13,12 +16,32 @@ import { navigation3000Logic } from '../navigationLogic'
 import { NavbarBottom } from './NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
 
+function Draggable(props: { id: string; children: ReactNode }): JSX.Element {
+    const { attributes, listeners, setNodeRef, transform } = useDraggable({
+        id: props.id,
+    })
+    const style = {
+        transform: CSS.Translate.toString(transform),
+    }
+
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
+            {props.children}
+        </div>
+    )
+}
+export function Droppable(props: { id: string; children: ReactNode }): JSX.Element {
+    const { setNodeRef } = useDroppable({ id: props.id })
+
+    return <div ref={setNodeRef}>{props.children}</div>
+}
 export function TreeView(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { rawProjectTree, treeData, rawProjectTreeLoading } = useValues(projectTreeLogic)
-    const { addFolder, renameItem, createItem, deleteItem } = useActions(projectTreeLogic)
+    const { treeData, unfiledItems, customProjectTree, rawUnfiledItemsLoading } = useValues(projectTreeLogic)
+    const { addFolder, deleteItem, moveItem } = useActions(projectTreeLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -30,89 +53,115 @@ export function TreeView(): JSX.Element {
                     // eslint-disable-next-line react/forbid-dom-props
                     style={theme?.sidebarStyle}
                 >
-                    <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
-                        <LemonTree
-                            className="px-0 py-1"
-                            data={treeData}
-                            right={({ data }) =>
-                                data?.type ? (
-                                    <More
-                                        size="xsmall"
-                                        onClick={(e) => e.stopPropagation()}
-                                        overlay={
-                                            <>
-                                                {data?.type === 'folder' || data?.type === 'project' ? (
-                                                    <LemonButton
-                                                        onClick={() => {
-                                                            const folder = prompt('Folder name?', data.path)
-                                                            if (folder) {
-                                                                addFolder(folder)
-                                                            }
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        New Folder
-                                                    </LemonButton>
-                                                ) : null}
-                                                <LemonButton
-                                                    onClick={() => {
-                                                        const oldPath = data.path
-                                                        const folder = prompt('New name?', oldPath)
-                                                        if (folder && folder !== oldPath) {
-                                                            if (data.meta?.custom) {
-                                                                renameItem(oldPath, folder)
-                                                            } else {
-                                                                for (const item of rawProjectTree) {
-                                                                    // find all starting with the old path in case this was a folder
-                                                                    if (
-                                                                        item.path === oldPath ||
-                                                                        item.path.startsWith(oldPath + '/')
-                                                                    ) {
-                                                                        createItem({
-                                                                            ...item,
-                                                                            path:
-                                                                                folder +
-                                                                                item.path.slice(oldPath.length),
-                                                                        })
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }}
-                                                    fullWidth
-                                                >
-                                                    Rename
-                                                </LemonButton>
-                                                <LemonButton
-                                                    onClick={() => {
-                                                        void navigator.clipboard.writeText(
-                                                            (data.folder ? data.folder + '/' : '') + data.name
-                                                        )
-                                                    }}
-                                                    fullWidth
-                                                >
-                                                    Copy Path
-                                                </LemonButton>
-                                                {data?.meta?.custom ? (
-                                                    <LemonButton
-                                                        onClick={() => {
-                                                            if (confirm('Are you sure you want to delete this item?')) {
-                                                                deleteItem(data)
-                                                            }
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        Delete
-                                                    </LemonButton>
-                                                ) : null}
-                                            </>
-                                        }
-                                    />
-                                ) : null
+                    <DndContext
+                        onDragEnd={({ active, over }) => {
+                            const oldPath = active.id as string
+                            const folder = over?.id
+                            if (folder === oldPath) {
+                                const item =
+                                    unfiledItems.find((i) => i.path === oldPath) ||
+                                    customProjectTree.find((i) => i.path === oldPath)
+                                if (item && item.href) {
+                                    router.actions.push(item.href)
+                                }
+                            } else if (folder === '') {
+                                const oldSplit = oldPath.split('/')
+                                const oldFile = oldSplit.pop()
+                                if (oldFile) {
+                                    moveItem(oldPath, oldFile)
+                                }
+                            } else if (folder) {
+                                const oldSplit = oldPath.split('/')
+                                const oldFile = oldSplit.pop()
+                                const newFile = folder + '/' + oldFile
+                                moveItem(oldPath, newFile)
                             }
-                        />
-                        {rawProjectTreeLoading ? <Spinner /> : null}
-                    </ScrollableShadows>
+                        }}
+                    >
+                        <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
+                            <LemonTree
+                                className="px-0 py-1"
+                                data={treeData}
+                                renderItem={(item, children): JSX.Element => {
+                                    const path = item.data?.path || ''
+                                    if (item.data?.type === 'project') {
+                                        return <Droppable id="">{children}</Droppable>
+                                    } else if (path) {
+                                        return (
+                                            <Droppable id={path}>
+                                                <Draggable id={path}>{children}</Draggable>
+                                            </Droppable>
+                                        )
+                                    }
+                                    return <>{children}</>
+                                }}
+                                right={({ data }) =>
+                                    data?.type ? (
+                                        <More
+                                            size="xsmall"
+                                            onClick={(e) => e.stopPropagation()}
+                                            overlay={
+                                                <>
+                                                    {data?.type === 'folder' || data?.type === 'project' ? (
+                                                        <LemonButton
+                                                            onClick={() => {
+                                                                const folder = prompt('Folder name?', data.path)
+                                                                if (folder) {
+                                                                    addFolder(folder)
+                                                                }
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            New Folder
+                                                        </LemonButton>
+                                                    ) : null}
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            const oldPath = data.path
+                                                            const folder = prompt('New name?', oldPath)
+                                                            if (folder) {
+                                                                moveItem(oldPath, folder)
+                                                            }
+                                                        }}
+                                                        fullWidth
+                                                    >
+                                                        Rename
+                                                    </LemonButton>
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            void navigator.clipboard.writeText(
+                                                                (data.folder ? data.folder + '/' : '') + data.name
+                                                            )
+                                                        }}
+                                                        fullWidth
+                                                    >
+                                                        Copy Path
+                                                    </LemonButton>
+                                                    {data?.meta?.custom ? (
+                                                        <LemonButton
+                                                            onClick={() => {
+                                                                if (
+                                                                    confirm(
+                                                                        'Are you sure you want to delete this item?'
+                                                                    )
+                                                                ) {
+                                                                    deleteItem(data)
+                                                                }
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            Delete
+                                                        </LemonButton>
+                                                    ) : null}
+                                                </>
+                                            }
+                                        />
+                                    ) : null
+                                }
+                            />
+                            {rawUnfiledItemsLoading ? <Spinner /> : null}
+                        </ScrollableShadows>
+                    </DndContext>
                     <NavbarBottom />
                 </div>
                 {!mobileLayout && (
