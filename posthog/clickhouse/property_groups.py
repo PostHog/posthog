@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from posthog import settings
 
 
+TableName = str
+ColumnName = str
+PropertyGroupName = str
+
+
 @dataclass
 class PropertyGroupDefinition:
     key_filter_expression: str
@@ -15,10 +20,8 @@ class PropertyGroupDefinition:
     def contains(self, property_key: str) -> bool:
         return self.key_filter_function(property_key)
 
-
-TableName = str
-ColumnName = str
-PropertyGroupName = str
+    def get_column_name(self, column: ColumnName, group_name: PropertyGroupName):
+        return f"{column}_group_{group_name}"
 
 
 class PropertyGroupManager:
@@ -30,9 +33,6 @@ class PropertyGroupManager:
         self.__cluster = cluster
         self.__groups = groups
 
-    def __get_map_column_name(self, column: ColumnName, group_name: PropertyGroupName) -> str:
-        return f"{column}_group_{group_name}"
-
     def get_property_group_columns(self, table: TableName, column: ColumnName, property_key: str) -> Iterable[str]:
         """
         Returns an iterable of column names for the map columns responsible for the provided property key and source
@@ -42,12 +42,11 @@ class PropertyGroupManager:
         if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(column)):
             for group_name, group_definition in column_groups.items():
                 if group_definition.contains(property_key):
-                    yield self.__get_map_column_name(column, group_name)
+                    yield group_definition.get_column_name(column, group_name)
 
     def __get_column_definition(self, table: TableName, column: ColumnName, group_name: PropertyGroupName) -> str:
         group_definition = self.__groups[table][column][group_name]
-        map_column_name = self.__get_map_column_name(column, group_name)
-        column_definition = f"{map_column_name} Map(String, String)"
+        column_definition = f"{group_definition.get_column_name(column, group_name)} Map(String, String)"
         if not group_definition.is_materialized:
             return column_definition
         else:
@@ -67,7 +66,7 @@ class PropertyGroupManager:
         if not group_definition.is_materialized:
             return
 
-        map_column_name = self.__get_map_column_name(column, group_name)
+        map_column_name = group_definition.get_column_name(column, group_name)
         yield f"{map_column_name}_keys_bf mapKeys({map_column_name}) TYPE bloom_filter"
         yield f"{map_column_name}_values_bf mapValues({map_column_name}) TYPE bloom_filter"
 
