@@ -222,7 +222,7 @@ jobs:
         steps:
             - name: Calculate run time and send to PostHog
               run: |
-                  echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+                  gh auth login --with-token < <(echo ${{ secrets.GITHUB_TOKEN }})
                   run_id=${GITHUB_RUN_ID}
                   repo=${GITHUB_REPOSITORY}
                   run_info=$(gh api repos/${repo}/actions/runs/${run_id})
@@ -247,5 +247,5 @@ jobs:
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
-                  event: 'posthog-playwright-e2e-running-time'
-                  properties: '{"duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+                  event: 'posthog-ci-running-time'
+                  properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'

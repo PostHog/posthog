@@ -224,6 +224,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "default_data_theme",
             "revenue_tracking_config",
             "access_control_version",
+            "onboarding_tasks",
         )
         read_only_fields = (
             "id",
@@ -657,6 +658,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["PATCH"],
         detail=True,
+        required_scopes=["team:read"],
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
@@ -710,7 +712,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
 
-    @action(methods=["PATCH"], detail=True)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        required_scopes=["team:read"],
+    )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
         product_type = request.data.get("product_type")

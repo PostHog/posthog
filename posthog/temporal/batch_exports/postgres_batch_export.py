@@ -19,10 +19,8 @@ from posthog.batch_exports.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     PostgresBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -41,6 +39,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
+    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
@@ -53,6 +52,7 @@ from posthog.temporal.batch_exports.utils import (
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
@@ -302,15 +302,14 @@ class PostgreSQLClient:
             if delete is True:
                 await self.adelete_table(schema, table_name, not_found_ok)
 
-    async def amerge_person_tables(
+    async def amerge_mutable_tables(
         self,
         final_table_name: str,
         stage_table_name: str,
         schema: str,
         merge_key: Fields,
+        update_key: Fields,
         update_when_matched: Fields,
-        person_version_key: str = "person_version",
-        person_distinct_id_version_key: str = "person_distinct_id_version",
     ) -> None:
         """Merge two identical person model tables in PostgreSQL.
 
@@ -327,13 +326,22 @@ class PostgreSQLClient:
             final_table_identifier = sql.Identifier(final_table_name)
             stage_table_identifier = sql.Identifier(stage_table_name)
 
-        and_separator = sql.SQL("AND")
+        and_separator = sql.SQL(" AND ")
         merge_condition = and_separator.join(
             sql.SQL("{final_field} = {stage_field}").format(
                 final_field=sql.Identifier("final", field[0]),
                 stage_field=sql.Identifier(schema, stage_table_name, field[0]),
             )
             for field in merge_key
+        )
+
+        or_separator = sql.SQL(" OR ")
+        update_condition = or_separator.join(
+            sql.SQL("EXCLUDED.{stage_field} > final.{final_field}").format(
+                final_field=sql.Identifier(field[0]),
+                stage_field=sql.Identifier(field[0]),
+            )
+            for field in update_key
         )
 
         comma = sql.SQL(",")
@@ -353,15 +361,14 @@ class PostgreSQLClient:
         SELECT {field_names} FROM {stage_table}
         ON CONFLICT ({conflict_fields}) DO UPDATE SET
             {update_clause}
-        WHERE (EXCLUDED.{person_version_key} > final.{person_version_key} OR EXCLUDED.{person_distinct_id_version_key} > final.{person_distinct_id_version_key})
+        WHERE ({update_condition})
         """
         ).format(
             final_table=final_table_identifier,
             conflict_fields=conflict_fields,
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,
-            person_version_key=sql.Identifier(person_version_key),
-            person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
+            update_condition=update_condition,
             update_clause=update_clause,
             field_names=field_names,
         )
@@ -478,8 +485,11 @@ def get_postgres_fields_from_record_schema(
             else:
                 pg_type = "TIMESTAMP"
 
+        elif pa.types.is_list(pa_field.type) and pa.types.is_string(pa_field.type.value_type):
+            pg_type = "TEXT[]"
+
         else:
-            raise TypeError(f"Unsupported type: {pa_field.type}")
+            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
 
         pg_schema.append((name, pg_type))
 
@@ -573,27 +583,9 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
 
         done_ranges: list[DateRange] = details.done_ranges
 
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None and "batch_export_model" in {
-            field.name for field in dataclasses.fields(inputs)
-        }:
-            model = inputs.batch_export_model
-            if model is not None:
-                model_name = model.name
-                extra_query_parameters = model.schema["values"] if model.schema is not None else None
-                fields = model.schema["fields"] if model.schema is not None else None
-                filters = model.filters
-            else:
-                model_name = "events"
-                extra_query_parameters = None
-                fields = None
-                filters = None
-        else:
-            model = inputs.batch_export_schema
-            model_name = "custom"
-            extra_query_parameters = model["values"] if model is not None else {}
-            fields = model["fields"] if model is not None else None
-            filters = None
+        model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+        )
 
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -602,7 +594,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer()
+        producer = Producer(record_batch_model)
         producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
@@ -649,9 +641,34 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 known_json_columns=["properties", "set", "set_once", "person_properties"],
             )
 
-        requires_merge = (
-            isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
-        )
+        requires_merge = False
+        merge_key: Fields = []
+        update_key: Fields = []
+        primary_key: Fields | None = None
+        if isinstance(inputs.batch_export_model, BatchExportModel):
+            if inputs.batch_export_model.name == "persons":
+                requires_merge = True
+                merge_key = [
+                    ("team_id", "INT"),
+                    ("distinct_id", "TEXT"),
+                ]
+                update_key = [
+                    ("person_version", "INT"),
+                    ("person_distinct_id_version", "INT"),
+                ]
+                primary_key = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
+
+            elif inputs.batch_export_model.name == "sessions":
+                requires_merge = True
+                merge_key = [
+                    ("team_id", "INT"),
+                    ("session_id", "TEXT"),
+                ]
+                update_key = [
+                    ("end_timestamp", "TIMESTAMP"),
+                ]
+                primary_key = (("team_id", "INTEGER"), ("session_id", "TEXT"))
+
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         # NOTE: PostgreSQL has a 63 byte limit on identifiers.
         # With a 6 digit `team_id`, this leaves 30 bytes for a table name input.
@@ -661,11 +678,6 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             if requires_merge
             else inputs.table_name
         )[:63]
-
-        if requires_merge:
-            primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
-        else:
-            primary_key = None
 
         async with PostgreSQLClient.from_inputs(inputs).connect() as pg_client:
             # handle the case where the final table doesn't contain all the fields present in the record batch schema
@@ -711,7 +723,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                     postgresql_table_schema=inputs.schema,
                     postgresql_table_fields=schema_columns,
                 )
-                await run_consumer(
+                _ = await run_consumer(
                     consumer=consumer,
                     queue=queue,
                     producer_task=producer_task,
@@ -728,17 +740,13 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 )
 
                 if requires_merge:
-                    merge_key: Fields = (
-                        ("team_id", "INT"),
-                        ("distinct_id", "TEXT"),
-                    )
-
-                    await pg_client.amerge_person_tables(
+                    await pg_client.amerge_mutable_tables(
                         final_table_name=pg_table,
                         stage_table_name=pg_stage_table,
                         schema=inputs.schema,
                         update_when_matched=table_fields,
                         merge_key=merge_key,
+                        update_key=update_key,
                     )
 
                 return details.records_completed
