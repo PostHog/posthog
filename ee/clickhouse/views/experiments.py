@@ -1,5 +1,6 @@
 from typing import Any, Optional
 from collections.abc import Callable
+from zoneinfo import ZoneInfo
 
 from django.utils.timezone import now
 from rest_framework import serializers, viewsets
@@ -205,6 +206,37 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "holdout",
             "saved_metrics",
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Normalize query date ranges to the experiment's current range
+        # Cribbed from ExperimentTrendsQuery
+        if instance.team.timezone:
+            tz = ZoneInfo(instance.team.timezone)
+            start_date = instance.start_date.astimezone(tz) if instance.start_date else None
+            end_date = instance.end_date.astimezone(tz) if instance.end_date else None
+        else:
+            start_date = instance.start_date
+            end_date = instance.end_date
+        new_date_range = {
+            "date_from": start_date.strftime("%Y-%m-%dT%H:%M") if start_date else "",
+            "date_to": end_date.strftime("%Y-%m-%dT%H:%M") if end_date else "",
+            "explicitDate": True,
+        }
+        for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
+            for metric in metrics_list:
+                if metric.get("count_query", {}).get("dateRange"):
+                    metric["count_query"]["dateRange"] = new_date_range
+                if metric.get("funnels_query", {}).get("dateRange"):
+                    metric["funnels_query"]["dateRange"] = new_date_range
+
+        for saved_metric in data.get("saved_metrics", []):
+            if saved_metric.get("query", {}).get("count_query", {}).get("dateRange"):
+                saved_metric["query"]["count_query"]["dateRange"] = new_date_range
+            if saved_metric.get("query", {}).get("funnels_query", {}).get("dateRange"):
+                saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+
+        return data
 
     def validate_saved_metrics_ids(self, value):
         if value is None:

@@ -1,15 +1,17 @@
 from datetime import datetime, timedelta, UTC
 from django.core.cache import cache
 from flaky import flaky
+from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from dateutil import parser
 
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 from posthog.models import WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.experiment import Experiment
+from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.schema import ExperimentSignificanceCode
 from posthog.test.base import (
@@ -634,6 +636,119 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
         self.assertEqual(response.json()["detail"], "Metadata must be an object")
+
+    @freeze_time("2025-02-10T13:00:00Z")
+    def test_fetching_experiment_with_stale_metric_dates_applies_experiment_date_range(self):
+        test_feature_flag = FeatureFlag.objects.create(
+            name=f"Test experiment flag",
+            key="test-flag",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test",
+                            "rollout_percentage": 50,
+                        },
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+        funnel_query = {
+            "kind": "ExperimentFunnelsQuery",
+            "funnels_query": {
+                "kind": "FunnelsQuery",
+                "series": [
+                    {"kind": "EventsNode", "name": "[jan-16-running] seen", "event": "[jan-16-running] seen"},
+                    {"kind": "EventsNode", "name": "[jan-16-running] payment", "event": "[jan-16-running] payment"},
+                ],
+                "dateRange": {"date_to": "2025-02-13T23:59", "date_from": "2025-01-30T12:16", "explicitDate": True},
+                "funnelsFilter": {
+                    "layout": "horizontal",
+                    "funnelVizType": "steps",
+                    "funnelWindowInterval": 14,
+                    "funnelWindowIntervalUnit": "day",
+                },
+                "filterTestAccounts": True,
+            },
+        }
+        trends_query = {
+            "kind": "ExperimentTrendsQuery",
+            "count_query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "math": "total",
+                        "name": "[jan-16-running] event one",
+                        "event": "[jan-16-running] event one",
+                    }
+                ],
+                "interval": "day",
+                "dateRange": {"date_to": "2025-01-16T23:59", "date_from": "2025-01-02T13:54", "explicitDate": True},
+                "trendsFilter": {"display": "ActionsLineGraph"},
+                "filterTestAccounts": True,
+            },
+        }
+        saved_trends_metric = ExperimentSavedMetric.objects.create(
+            name="Test saved metric",
+            description="Test description",
+            query=trends_query,
+            team=self.team,
+            created_by=self.user,
+        )
+        saved_funnel_metric = ExperimentSavedMetric.objects.create(
+            name="Test saved metric",
+            description="Test description",
+            query=funnel_query,
+            team=self.team,
+            created_by=self.user,
+        )
+        experiment = Experiment.objects.create(
+            name="Test Experiment with stale dates",
+            team=self.team,
+            feature_flag=test_feature_flag,
+            start_date=datetime(2025, 2, 1),
+            end_date=None,
+            metrics=[funnel_query],
+            metrics_secondary=[trends_query],
+        )
+
+        for saved_metric_data in [saved_funnel_metric, saved_trends_metric]:
+            saved_metric_serializer = ExperimentToSavedMetricSerializer(
+                data={
+                    "experiment": experiment.id,
+                    "saved_metric": saved_metric_data.id,
+                    "metadata": {"type": "secondary"},
+                },
+            )
+            saved_metric_serializer.is_valid(raise_exception=True)
+            saved_metric_serializer.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_from"], "2025-02-01T00:00")
+        self.assertEqual(response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00"
+        )
+        self.assertEqual(response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_from"], "2025-02-01T00:00"
+        )
+        self.assertEqual(response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00"
+        )
+        self.assertEqual(response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_to"], "")
 
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
         cohort = Cohort.objects.create(
