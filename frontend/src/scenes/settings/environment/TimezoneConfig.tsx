@@ -13,7 +13,7 @@ const tzLabel = (tz: string, offset: number): string =>
 export function TimezoneConfig(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { currentTeam, timezone: currentTimezone, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
 
     if (!preflight?.available_timezones || !currentTeam) {
         return <LemonSkeleton className="w-1/2 h-4" />
@@ -40,7 +40,7 @@ export function TimezoneConfig(): JSX.Element {
                     const currentOffset = preflight.available_timezones[currentTimezone]
                     const newOffset = preflight.available_timezones[newTimezone]
                     if (currentOffset === newOffset) {
-                        updateCurrentTeam({ timezone: newTimezone })
+                        updateCurrentTeamConfig({ timezone: newTimezone })
                     } else {
                         LemonDialog.open({
                             title: `Change time zone to ${tzLabel(newTimezone, newOffset)}?`,
@@ -54,7 +54,7 @@ export function TimezoneConfig(): JSX.Element {
                             ),
                             primaryButton: {
                                 children: 'Change time zone',
-                                onClick: () => updateCurrentTeam({ timezone: newTimezone }),
+                                onClick: () => updateCurrentTeamConfig({ timezone: newTimezone }),
                             },
                             secondaryButton: {
                                 children: 'Cancel',

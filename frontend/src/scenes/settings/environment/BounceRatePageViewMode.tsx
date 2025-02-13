@@ -48,7 +48,7 @@ const bounceRatePageViewModeOptions: LemonRadioOption<BounceRatePageViewMode>[] 
 ]
 
 export function BounceRatePageViewModeSetting(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { reportBounceRatePageViewModeUpdated } = useActions(eventUsageLogic)
 
@@ -60,7 +60,7 @@ export function BounceRatePageViewModeSetting(): JSX.Element {
         useState<BounceRatePageViewMode>(savedBounceRatePageViewMode)
 
     const handleChange = (mode: BounceRatePageViewMode): void => {
-        updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, bounceRatePageViewMode: mode } })
+        updateCurrentTeamConfig({ modifiers: { ...currentTeam?.modifiers, bounceRatePageViewMode: mode } })
         reportBounceRatePageViewModeUpdated(mode)
     }
 

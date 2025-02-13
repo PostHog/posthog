@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 export function DeadClicksAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
 
     return (
         <>
@@ -23,7 +23,7 @@ export function DeadClicksAutocaptureSettings(): JSX.Element {
                 <LemonSwitch
                     id="posthog-deadclicks-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({
+                        updateCurrentTeamConfig({
                             capture_dead_clicks: checked,
                         })
                         posthog.capture('dead_clicks_autocapture_toggled', { isEnabled: checked })

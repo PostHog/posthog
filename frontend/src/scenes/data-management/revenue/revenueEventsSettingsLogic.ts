@@ -14,7 +14,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueEventsSettingsLogic']),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
-        actions: [teamLogic, ['updateCurrentTeam']],
+        actions: [teamLogic, ['updateCurrentTeamConfig']],
     }),
     actions({
         addEvent: (eventName: TaxonomicFilterValue) => ({ eventName }),
@@ -95,7 +95,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                 if (values.saveDisabledReason) {
                     return null
                 }
-                actions.updateCurrentTeam({
+                actions.updateCurrentTeamConfig({
                     revenue_tracking_config: values.revenueTrackingConfig || createEmptyConfig(),
                 })
                 return null

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function HumanFriendlyComparisonPeriodsSetting(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
 
     return (
@@ -20,7 +20,7 @@ export function HumanFriendlyComparisonPeriodsSetting(): JSX.Element {
             </p>
             <LemonSwitch
                 onChange={(checked) => {
-                    updateCurrentTeam({ human_friendly_comparison_periods: checked })
+                    updateCurrentTeamConfig({ human_friendly_comparison_periods: checked })
                 }}
                 checked={!!currentTeam?.human_friendly_comparison_periods}
                 disabled={currentTeamLoading}

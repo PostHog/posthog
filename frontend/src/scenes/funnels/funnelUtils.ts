@@ -559,7 +559,7 @@ export const appendToCorrelationConfig = (
         [configKey]: configList,
     }
 
-    teamLogic.actions.updateCurrentTeam({
+    teamLogic.actions.updateCurrentTeamConfig({
         correlation_config: correlationConfig,
     })
 }

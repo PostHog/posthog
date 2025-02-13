@@ -74,7 +74,7 @@ export const activationLogic = kea<activationLogicType>([
         ],
         actions: [
             teamLogic,
-            ['loadCurrentTeam', 'updateCurrentTeam'],
+            ['loadCurrentTeam', 'updateCurrentTeamConfig'],
             inviteLogic,
             ['showInviteModal'],
             sidePanelSettingsLogic,
@@ -294,7 +294,7 @@ export const activationLogic = kea<activationLogicType>([
                 task: id,
             })
 
-            actions.updateCurrentTeam({
+            actions.updateCurrentTeamConfig({
                 onboarding_tasks: {
                     ...(values.currentTeam?.onboarding_tasks ?? {}),
                     [id]: ActivationTaskStatus.SKIPPED,
@@ -312,7 +312,7 @@ export const activationLogic = kea<activationLogicType>([
                 task: id,
             })
 
-            actions.updateCurrentTeam({
+            actions.updateCurrentTeamConfig({
                 onboarding_tasks: {
                     ...(values.currentTeam?.onboarding_tasks ?? {}),
                     [id]: ActivationTaskStatus.COMPLETED,

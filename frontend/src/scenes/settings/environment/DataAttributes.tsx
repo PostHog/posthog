@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 export function DataAttributes(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const [value, setValue] = useState([] as string[])
 
     useEffect(() => setValue(currentTeam?.data_attributes || []), [currentTeam])
@@ -46,7 +46,7 @@ export function DataAttributes(): JSX.Element {
                 <LemonButton
                     type="primary"
                     onClick={() =>
-                        updateCurrentTeam({ data_attributes: value.map((s) => s.trim()).filter((a) => a) || [] })
+                        updateCurrentTeamConfig({ data_attributes: value.map((s) => s.trim()).filter((a) => a) || [] })
                     }
                 >
                     Save

@@ -122,7 +122,7 @@ const sanitizeCustomChannelTypeRules = (rules?: CustomChannelRule[]): CustomChan
 }
 
 export function CustomChannelTypes(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { reportCustomChannelTypeRulesUpdated } = useActions(eventUsageLogic)
 
@@ -165,7 +165,7 @@ export function CustomChannelTypes(): JSX.Element {
                 initialCustomChannelTypeRules={customChannelTypeRules}
                 channelTypeOptions={channelTypeOptions}
                 onSave={() => {
-                    updateCurrentTeam({
+                    updateCurrentTeamConfig({
                         modifiers: { customChannelTypeRules: sanitizeCustomChannelTypeRules(customChannelTypeRules) },
                     })
                     reportCustomChannelTypeRulesUpdated(customChannelTypeRules.length)

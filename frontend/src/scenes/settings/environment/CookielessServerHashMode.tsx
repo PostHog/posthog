@@ -34,14 +34,14 @@ const options: LemonRadioOption<CookielessServerHashMode>[] = [
 ]
 
 export function CookielessServerHashModeSetting(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const savedSetting = currentTeam?.cookieless_server_hash_mode ?? CookielessServerHashMode.Disabled
     const [setting, setSetting] = useState<CookielessServerHashMode>(savedSetting)
 
     const handleChange = (newSetting: CookielessServerHashMode): void => {
-        updateCurrentTeam({ cookieless_server_hash_mode: newSetting })
+        updateCurrentTeamConfig({ cookieless_server_hash_mode: newSetting })
     }
 
     return (

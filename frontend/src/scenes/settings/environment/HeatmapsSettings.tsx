@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 export function HeatmapsSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { reportHeatmapsToggled } = useActions(eventUsageLogic)
 
     return (
@@ -24,7 +24,7 @@ export function HeatmapsSettings(): JSX.Element {
                 <LemonSwitch
                     id="posthog-heatmaps-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({
+                        updateCurrentTeamConfig({
                             heatmaps_opt_in: checked,
                         })
                         reportHeatmapsToggled(checked)

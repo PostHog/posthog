@@ -16,7 +16,7 @@ import {
 } from 'lib/utils/product-intents'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
+import { CorrelationConfigType, ProductKey, ProjectType, TeamConfigType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
 import { projectLogic } from './projectLogic'
@@ -80,17 +80,10 @@ export const teamLogic = kea<teamLogicType>([
                         return values.currentTeam
                     }
                 },
-                updateCurrentTeam: async (payload: Partial<TeamType>, breakpoint) => {
+                // Minimum supported payload - this is only for admin updates
+                updateCurrentTeam: async (payload: { name?: string, access_control?: boolean }, breakpoint) => {
                     if (!values.currentTeam) {
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
-                    }
-
-                    // session replay config is nested, so we need to make sure we don't overwrite config
-                    if (payload.session_replay_config) {
-                        payload.session_replay_config = {
-                            ...values.currentTeam.session_replay_config,
-                            ...payload.session_replay_config,
-                        }
                     }
 
                     const promises: [Promise<TeamType>, Promise<ProjectType> | undefined] = [
@@ -107,6 +100,38 @@ export const teamLogic = kea<teamLogicType>([
                         // update the project name as well, for 100% equivalence
                         promises[0] = api.update(`api/projects/${values.currentProject.id}`, { name: payload.name })
                     }
+                    const [patchedTeam] = await Promise.all(promises)
+                    breakpoint()
+
+                    // We need to reload current org (which lists its teams) in organizationLogic AND in userLogic
+                    actions.loadCurrentOrganization()
+                    actions.loadUser()
+
+                    /* Notify user the update was successful  */
+                    const updatedAttribute = Object.keys(payload).length === 1 ? Object.keys(payload)[0] : null
+                    lemonToast.success(
+                        `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
+                    )
+
+                    return patchedTeam
+                },
+                updateCurrentTeamConfig: async (payload: Partial<TeamConfigType>, breakpoint) => {
+                    if (!values.currentTeam) {
+                        throw new Error('Current team has not been loaded yet, so it cannot be updated!')
+                    }
+
+                    // session replay config is nested, so we need to make sure we don't overwrite config
+                    if (payload.session_replay_config) {
+                        payload.session_replay_config = {
+                            ...values.currentTeam.session_replay_config,
+                            ...payload.session_replay_config,
+                        }
+                    }
+
+                    const promises: [Promise<TeamType>, Promise<ProjectType> | undefined] = [
+                        api.update(`api/environments/${values.currentTeam.id}/config`, payload),
+                        undefined,
+                    ]
                     const [patchedTeam] = await Promise.all(promises)
                     breakpoint()
 

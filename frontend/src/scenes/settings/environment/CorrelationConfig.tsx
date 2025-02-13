@@ -10,7 +10,7 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { teamLogic } from 'scenes/teamLogic'
 
 export function CorrelationConfig(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam, funnelCorrelationConfig } = useValues(teamLogic)
 
     const handleChange = (
@@ -30,7 +30,7 @@ export function CorrelationConfig(): JSX.Element {
                 updatedConfig.excluded_event_names = excludedEvents
             }
             if (updatedConfig && JSON.stringify(updatedConfig) !== JSON.stringify(funnelCorrelationConfig)) {
-                updateCurrentTeam({ correlation_config: updatedConfig })
+                updateCurrentTeamConfig({ correlation_config: updatedConfig })
             }
         }
     }

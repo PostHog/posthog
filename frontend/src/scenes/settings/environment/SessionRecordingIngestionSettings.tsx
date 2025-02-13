@@ -38,7 +38,7 @@ function variantOptions(multivariate: MultivariateFlagOptions | undefined): Lemo
 }
 
 function LinkedFlagSelector(): JSX.Element | null {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
@@ -65,7 +65,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                         value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
                         onChange={(id, key, flag) => {
                             selectFeatureFlag(flag)
-                            updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
+                            updateCurrentTeamConfig({ session_recording_linked_flag: { id, key, variant: null } })
                         }}
                     />
                     {currentTeam?.session_recording_linked_flag && (
@@ -74,7 +74,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                             icon={<IconCancel />}
                             size="small"
                             type="secondary"
-                            onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
+                            onClick={() => updateCurrentTeamConfig({ session_recording_linked_flag: null })}
                             title="Clear selected flag"
                         />
                     )}
@@ -91,7 +91,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                                     return
                                 }
 
-                                updateCurrentTeam({
+                                updateCurrentTeamConfig({
                                     session_recording_linked_flag: {
                                         id: linkedFlag?.id,
                                         key: linkedFlag?.key,
@@ -117,7 +117,7 @@ function LinkedFlagSelector(): JSX.Element | null {
 }
 
 export function SessionRecordingIngestionSettings(): JSX.Element | null {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -146,7 +146,7 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                             <LemonLabel className="text-base">Sampling</LemonLabel>
                             <LemonSelect
                                 onChange={(v) => {
-                                    updateCurrentTeam({ session_recording_sample_rate: v })
+                                    updateCurrentTeamConfig({ session_recording_sample_rate: v })
                                 }}
                                 dropdownMatchSelectWidth={false}
                                 options={[
@@ -258,7 +258,7 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                             <LemonSelect
                                 dropdownMatchSelectWidth={false}
                                 onChange={(v) => {
-                                    updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
+                                    updateCurrentTeamConfig({ session_recording_minimum_duration_milliseconds: v })
                                 }}
                                 options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
                                 value={currentTeam?.session_recording_minimum_duration_milliseconds}

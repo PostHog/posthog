@@ -6,10 +6,10 @@ import { onboardingLogic, type OnboardingStepKey } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
 
 export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
-    const { goToNextStep, updateCurrentTeam } = useActions(onboardingLogic)
+    const { goToNextStep, updateCurrentTeamConfig } = useActions(onboardingLogic)
 
     const handleNext = (enabled: boolean): void => {
-        updateCurrentTeam({
+        updateCurrentTeamConfig({
             session_recording_opt_in: enabled,
         })
         goToNextStep()

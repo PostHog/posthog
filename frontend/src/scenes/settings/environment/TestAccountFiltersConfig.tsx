@@ -52,7 +52,7 @@ function createTestAccountFilterWarningLabels(
 }
 
 function TestAccountFiltersConfig(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { setTeamDefault } = useActions(filterTestAccountsDefaultsLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
     const { currentTeam, currentTeamLoading, testAccountFilterFrequentMistakes } = useValues(teamLogic)
@@ -63,7 +63,7 @@ function TestAccountFiltersConfig(): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const handleChange = (filters: AnyPropertyFilter[]): void => {
-        updateCurrentTeam({ test_account_filters: filters })
+        updateCurrentTeamConfig({ test_account_filters: filters })
         reportTestAccountFiltersUpdated(filters)
     }
 
@@ -122,7 +122,7 @@ function TestAccountFiltersConfig(): JSX.Element {
             </div>
             <LemonSwitch
                 onChange={(checked) => {
-                    updateCurrentTeam({ test_account_filters_default_checked: checked })
+                    updateCurrentTeamConfig({ test_account_filters_default_checked: checked })
                     setTeamDefault(checked)
                 }}
                 checked={!!currentTeam?.test_account_filters_default_checked}

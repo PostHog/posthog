@@ -87,7 +87,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             billingLogic,
             ['loadBillingSuccess'],
             teamLogic,
-            ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
+            ['updateCurrentTeamConfig', 'updateCurrentTeamConfigSuccess', 'recordProductIntentOnboardingComplete'],
             sidePanelStateLogic,
             ['openSidePanel'],
         ],
@@ -271,7 +271,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 case ProductKey.PRODUCT_ANALYTICS:
                     return
                 case ProductKey.SESSION_REPLAY:
-                    actions.updateCurrentTeam({
+                    actions.updateCurrentTeamConfig({
                         session_recording_opt_in: true,
                         capture_console_log_opt_in: true,
                         capture_performance_opt_in: true,
@@ -306,7 +306,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (values.productKey) {
                 const productKey = values.productKey
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
-                teamLogic.actions.updateCurrentTeam({
+                teamLogic.actions.updateCurrentTeamConfig({
                     has_completed_onboarding_for: {
                         ...values.currentTeam?.has_completed_onboarding_for,
                         [productKey]: true,
@@ -365,7 +365,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
-        updateCurrentTeamSuccess(val) {
+        updateCurrentTeamConfigSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
                 return [values.onCompleteOnboardingRedirectUrl]
             }

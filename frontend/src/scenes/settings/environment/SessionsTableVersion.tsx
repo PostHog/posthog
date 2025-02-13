@@ -37,7 +37,7 @@ const bounceRatePageViewModeOptions: LemonRadioOption<SessionTableVersion>[] = [
 ]
 
 export function SessionsTableVersion(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { reportSessionTableVersionUpdated } = useActions(eventUsageLogic)
 
@@ -46,7 +46,7 @@ export function SessionsTableVersion(): JSX.Element {
     const [sessionTableVersion, setSessionTableVersion] = useState<SessionTableVersion>(savedSessionTableVersion)
 
     const handleChange = (version: SessionTableVersion): void => {
-        updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, sessionTableVersion: version } })
+        updateCurrentTeamConfig({ modifiers: { ...currentTeam?.modifiers, sessionTableVersion: version } })
         reportSessionTableVersionUpdated(version)
     }
 

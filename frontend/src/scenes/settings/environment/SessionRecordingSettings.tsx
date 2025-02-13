@@ -99,7 +99,7 @@ export function SupportedPlatforms(props: {
 }
 
 function LogCaptureSettings(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
@@ -120,7 +120,7 @@ function LogCaptureSettings(): JSX.Element {
             <LemonSwitch
                 data-attr="opt-in-capture-console-log-switch"
                 onChange={(checked) => {
-                    updateCurrentTeam({ capture_console_log_opt_in: checked })
+                    updateCurrentTeamConfig({ capture_console_log_opt_in: checked })
                 }}
                 label="Capture console logs"
                 bordered
@@ -132,7 +132,7 @@ function LogCaptureSettings(): JSX.Element {
 }
 
 function CanvasCaptureSettings(): JSX.Element | null {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
@@ -161,7 +161,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
             <LemonSwitch
                 data-attr="opt-in-capture-canvas-switch"
                 onChange={(checked) => {
-                    updateCurrentTeam({
+                    updateCurrentTeamConfig({
                         session_replay_config: {
                             ...currentTeam?.session_replay_config,
                             record_canvas: checked,
@@ -205,7 +205,7 @@ function PayloadWarning(): JSX.Element {
 }
 
 export function NetworkCaptureSettings(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
@@ -231,7 +231,7 @@ export function NetworkCaptureSettings(): JSX.Element {
             <LemonSwitch
                 data-attr="opt-in-capture-performance-switch"
                 onChange={(checked) => {
-                    updateCurrentTeam({ capture_performance_opt_in: checked })
+                    updateCurrentTeamConfig({ capture_performance_opt_in: checked })
                 }}
                 label="Capture network performance"
                 bordered
@@ -254,7 +254,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
                         onChange={(checked) => {
-                            updateCurrentTeam({
+                            updateCurrentTeamConfig({
                                 session_recording_network_payload_capture_config: {
                                     ...currentTeam?.session_recording_network_payload_capture_config,
                                     recordHeaders: checked,
@@ -286,7 +286,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                                         'data-attr': 'network-payload-capture-accept-warning-and-enable',
                                         children: 'Enable body capture',
                                         onClick: () => {
-                                            updateCurrentTeam({
+                                            updateCurrentTeamConfig({
                                                 session_recording_network_payload_capture_config: {
                                                     ...currentTeam?.session_recording_network_payload_capture_config,
                                                     recordBody: true,
@@ -296,7 +296,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                                     },
                                 })
                             } else {
-                                updateCurrentTeam({
+                                updateCurrentTeamConfig({
                                     session_recording_network_payload_capture_config: {
                                         ...currentTeam?.session_recording_network_payload_capture_config,
                                         recordBody: false,
@@ -346,7 +346,7 @@ export function ReplayAuthorizedDomains(): JSX.Element {
 }
 
 export function ReplayAISettings(): JSX.Element | null {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
 
     const { currentTeam } = useValues(teamLogic)
 
@@ -365,7 +365,7 @@ export function ReplayAISettings(): JSX.Element | null {
     const currentConfig: SessionRecordingAIConfig = sessionReplayConfig.ai_config || defaultConfig
 
     const updateSummaryConfig = (summaryConfig: SessionRecordingAIConfig): void => {
-        updateCurrentTeam({
+        updateCurrentTeamConfig({
             session_replay_config: { ai_config: summaryConfig },
         })
     }
@@ -504,7 +504,7 @@ export function ReplayAISettings(): JSX.Element | null {
 }
 
 export function ReplayGeneral(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const [showSurvey, setShowSurvey] = useState<boolean>(false)
 
@@ -513,7 +513,7 @@ export function ReplayGeneral(): JSX.Element {
      * @param checked
      */
     const handleOptInChange = (checked: boolean): void => {
-        updateCurrentTeam({
+        updateCurrentTeamConfig({
             session_recording_opt_in: checked,
         })
 

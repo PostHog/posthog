@@ -7,7 +7,7 @@ export type FeatureFlagSettingsProps = {
 }
 
 export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProps): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
@@ -16,7 +16,7 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                 <LemonSwitch
                     data-attr="default-flag-persistence-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({
+                        updateCurrentTeamConfig({
                             flags_persistence_default: checked,
                         })
                     }}

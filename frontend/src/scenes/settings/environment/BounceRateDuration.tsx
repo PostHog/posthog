@@ -10,7 +10,7 @@ const MAX_BOUNCE_RATE_DURATION = 120
 const DEFAULT_BOUNCE_RATE_DURATION = 10
 
 export function BounceRateDurationSetting(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const savedDuration =
@@ -21,7 +21,7 @@ export function BounceRateDurationSetting(): JSX.Element {
         if (Number.isNaN(duration)) {
             duration = undefined
         }
-        updateCurrentTeam({
+        updateCurrentTeamConfig({
             modifiers: { ...currentTeam?.modifiers, bounceRateDurationSeconds: duration },
         })
     }
