@@ -708,7 +708,7 @@ describe('HogTransformer', () => {
                 {
                   "distinct_id": "distinct-id",
                   "event": "keep-me",
-                  "ip": "89.160.20.129",
+                  "ip": null,
                   "now": "2024-06-07T12:00:00.000Z",
                   "properties": {
                     "$current_url": "https://example.com",
