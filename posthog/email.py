@@ -95,6 +95,7 @@ def get_customer_io_template_id(template_name: str) -> str:
 def _send_via_http(
     to: list[dict[str, str]],
     campaign_key: str,
+    template_name: str,
     properties: dict,
 ) -> None:
     """Sends emails using Customer.io API"""
@@ -123,7 +124,7 @@ def _send_via_http(
                 properties = {k: float(v) if isinstance(v, Decimal) else v for k, v in properties.items()}
 
                 payload = {
-                    "transactional_message_id": get_customer_io_template_id(campaign_key),
+                    "transactional_message_id": get_customer_io_template_id(template_name),
                     "to": dest["raw_email"],
                     "identifiers": {"email": dest["raw_email"]},
                     "message_data": properties,
@@ -219,6 +220,7 @@ def _send_email(
     headers: dict,
     txt_body: str = "",
     html_body: str = "",
+    template_name: str = "",
     reply_to: Optional[str] = None,
     use_http: Optional[bool] = False,
     properties: Optional[dict] = None,
@@ -230,6 +232,7 @@ def _send_email(
         _send_via_http(
             to=to,
             campaign_key=campaign_key,
+            template_name=template_name,
             properties=properties,
         )
     else:
@@ -269,6 +272,7 @@ class EmailMessage:
         self.to: list[dict[str, str]] = []
         self.subject = subject
         self.reply_to = reply_to
+        self.template_name = template_name
 
         if use_http:
             self.properties = properties or {}
