@@ -1,6 +1,6 @@
 {
     "compilerOptions": {
-        "module": "NodeNext",
+        "module": "CommonJS",
         "target": "ESNext",
         "declaration": true,
         "removeComments": true,
