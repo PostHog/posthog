@@ -153,7 +153,7 @@ impl DataSource for UrlList {
                         return Err(e);
                     }
                     warn!(
-                        "Encountered error when fetching chunk: {:?}, trying {} more time",
+                        "Encountered error when fetching chunk: {:?}, remaining retries: {}",
                         e, retries
                     );
                     retries -= 1;
