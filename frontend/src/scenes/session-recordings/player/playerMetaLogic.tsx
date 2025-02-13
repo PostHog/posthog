@@ -280,7 +280,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     if (recordingProperties[property] || personProperties[property]) {
                         const propertyType = recordingProperties[property]
                             ? // HogQL query can return multiple types, so we need to check
-                              getFirstFilterTypeFor(property)
+                              // but if it doesn't match a core definition it must be an event property
+                              getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
                             : TaxonomicFilterGroupType.PersonProperties
                         const value = recordingProperties[property] || personProperties[property]
 
