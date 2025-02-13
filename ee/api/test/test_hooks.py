@@ -214,6 +214,28 @@ if (inputs.debug) {
 
         assert not HogFunction.objects.exists()
 
+    def test_delete_migrated_hog_function_via_hook(self):
+        test_delete_hog_function_via_hook
+
+        data = {
+            "target": "https://hooks.zapier.com/hooks/standard/1234/abcd",
+            "event": "action_performed",
+            "resource_id": self.action.id,
+        }
+
+        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
+            res = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
+
+        hook_id = res.json()["id"]
+
+        assert HogFunction.objects.count() == 1
+
+        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
+            res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
+            assert res.status_code == 204
+
+        assert not HogFunction.objects.exists()
+
 
 def test_valid_domain() -> None:
     test_cases = {
