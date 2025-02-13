@@ -2230,7 +2230,7 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
-export type SlowQueryPossibilities = 'all_events' | 'large_date_range' | 'first_time_for_user'
+export type SlowQueryPossibilities = 'all_events' | 'large_date_range' | 'first_time_for_user' | 'strict_funnel'
 
 // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
 export type BreakdownKeyType = integer | string | number | (integer | string | number)[] | null

@@ -278,6 +278,12 @@ export function SlowQuerySuggestions({
                         When possible, avoid <code className={codeClassName}>First time for user</code> metric types.
                     </li>
                 ) : null}
+                {slowQueryPossibilities.includes('strict_funnel') ? (
+                    <li>
+                        When possible, use <code className={codeClassName}>Sequential</code> step order rather than{' '}
+                        <code className={codeClassName}>Strict</code>.
+                    </li>
+                ) : null}
                 <li>Reduce the date range.</li>
                 {loadingTimeSeconds && loadingTimeSeconds > 12 && suggestedSamplingPercentage ? (
                     <li>

@@ -208,15 +208,27 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 )
             },
         ],
+        isStrictFunnelQuery: [
+            (s) => [s.query],
+            (query) => {
+                return (
+                    query?.source?.kind === NodeKind.FunnelsQuery &&
+                    query?.source?.funnelsFilter?.funnelOrderType == 'strict'
+                )
+            },
+        ],
         slowQueryPossibilities: [
-            (s) => [s.isAllEventsQuery, s.isFirstTimeForUserQuery],
-            (isAllEventsQuery, isFirstTimeForUserQuery): SlowQueryPossibilities[] => {
+            (s) => [s.isAllEventsQuery, s.isFirstTimeForUserQuery, s.isStrictFunnelQuery],
+            (isAllEventsQuery, isFirstTimeForUserQuery, isStrictFunnelQuery): SlowQueryPossibilities[] => {
                 const possibilities: SlowQueryPossibilities[] = []
                 if (isAllEventsQuery) {
                     possibilities.push('all_events')
                 }
                 if (isFirstTimeForUserQuery) {
                     possibilities.push('first_time_for_user')
+                }
+                if (isStrictFunnelQuery) {
+                    possibilities.push('strict_funnel')
                 }
                 return possibilities
             },
