@@ -28,6 +28,9 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     if not context.team:
         context.team = Team.objects.get(id=context.team_id)
 
+    if not context.team:
+        return
+
     # find all properties
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
