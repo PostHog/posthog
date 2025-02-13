@@ -138,9 +138,8 @@ fi
 [profile]
 bash = '''
   source "$PYTHON_DIR/bin/activate"
-  # Citizens of PostHog: put (or source) your preferred bash profile in the file below
-  if [ -f "$HOME/.bash_profile_$USER" ]; then
-    source "$HOME/.bash_profile_$USER"
+  if [ -f "$HOME/.bash_profile" ]; then
+    source "$HOME/.bash_profile"
     # ensure even with your shell prefs in place we know this is a Flox.dev env
     export PS1="\033[47m(flox)\033[0m $PS1"
   fi
