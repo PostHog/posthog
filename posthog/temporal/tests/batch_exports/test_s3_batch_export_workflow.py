@@ -262,7 +262,6 @@ async def assert_clickhouse_records_in_s3(
         json_columns=json_columns,
     )
 
-    schema_column_names = [field["alias"] for field in s3_default_fields()]
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
             model_name = batch_export_model.name
@@ -294,7 +293,14 @@ async def assert_clickhouse_records_in_s3(
             "person_distinct_id_version",
             "_inserted_at",
             "created_at",
+            "is_deleted",
         ]
+    else:
+        schema_column_names = [field["alias"] for field in s3_default_fields()]
+
+    # _inserted_at is not included in the default fields, but is also sent
+    if "_inserted_at" not in schema_column_names:
+        schema_column_names.append("_inserted_at")
 
     expected_records = []
 
@@ -338,6 +344,10 @@ async def assert_clickhouse_records_in_s3(
 
     if "team_id" in schema_column_names:
         assert all(record["team_id"] == team_id for record in s3_data)
+
+    # check schema of first record (ignoring sessions model for now)
+    if isinstance(batch_export_model, BatchExportModel) and batch_export_model.name in ["events", "persons"]:
+        assert set(s3_data[0].keys()) == set(schema_column_names)
 
     assert s3_data[0] == expected_records[0]
     if allow_duplicates:
@@ -2229,7 +2239,6 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
     activity_environment,
     data_interval_start,
     data_interval_end,
-    generate_test_data,
     ateam,
     model: BatchExportModel,
     is_backfill: bool,
