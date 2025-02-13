@@ -2030,15 +2030,19 @@ export const experimentLogic = kea<experimentLogicType>([
         shouldUseExperimentMetrics: [
             (s) => [s.experiment, s.featureFlags],
             (experiment: Experiment, featureFlags: Record<string, boolean>): boolean => {
-                if (!featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]) {
-                    return false
-                }
                 const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
+                const hasExperimentMetrics = allMetrics.some((query) => query.kind === NodeKind.ExperimentMetric)
                 const hasLegacyMetrics = allMetrics.some(
                     (query) =>
                         query.kind === NodeKind.ExperimentTrendsQuery || query.kind === NodeKind.ExperimentFunnelsQuery
                 )
-                return !hasLegacyMetrics
+                if (hasExperimentMetrics) {
+                    return true
+                }
+                if (hasLegacyMetrics) {
+                    return false
+                }
+                return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
             },
         ],
     }),
