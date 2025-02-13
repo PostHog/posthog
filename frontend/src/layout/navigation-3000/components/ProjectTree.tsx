@@ -42,8 +42,7 @@ export function TreeView(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, unfiledItems, filedItems, allUnfiledItemsLoading, filedItemsLoading, loadingPaths } =
-        useValues(projectTreeLogic)
+    const { treeData, viableItems, loadingPaths } = useValues(projectTreeLogic)
     const { addFolder, deleteItem, moveItem } = useActions(projectTreeLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -62,9 +61,7 @@ export function TreeView(): JSX.Element {
                             if (folder === oldPath) {
                                 // We can't click on draggable items. If we drag to itself, assume it's a click
                                 // TODO: clicking on expandable folders does not work - only files work.
-                                const item =
-                                    unfiledItems.find((i) => i.path === oldPath) ||
-                                    filedItems.find((i) => i.path === oldPath)
+                                const item = viableItems.find((i) => i.path === oldPath)
                                 if (item && item.href) {
                                     router.actions.push(item.href)
                                 }
@@ -78,7 +75,9 @@ export function TreeView(): JSX.Element {
                                 const oldSplit = oldPath.split('/')
                                 const oldFile = oldSplit.pop()
                                 const newFile = folder + '/' + oldFile
-                                moveItem(oldPath, newFile)
+                                if (newFile !== oldPath) {
+                                    moveItem(oldPath, newFile)
+                                }
                             }
                         }}
                     >
@@ -190,7 +189,6 @@ export function TreeView(): JSX.Element {
                                     ) : null
                                 }
                             />
-                            {allUnfiledItemsLoading || filedItemsLoading ? <Spinner /> : null}
                         </ScrollableShadows>
                     </DndContext>
                     <NavbarBottom />
