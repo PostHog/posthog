@@ -74,11 +74,19 @@ class PropertyGroupManager:
                     yield f"INDEX {index_definition}"
 
     def get_alter_create_statements(
-        self, table: TableName, column: ColumnName, group_name: PropertyGroupName
+        self,
+        table: TableName,
+        column: ColumnName,
+        group_name: PropertyGroupName,
+        on_cluster: bool = False,
     ) -> Iterable[str]:
-        yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD COLUMN IF NOT EXISTS {self.__get_column_definition(table, column, group_name)}"
+        prefix = f"ALTER TABLE {table}"
+        if on_cluster:
+            prefix += f" ON CLUSTER {self.__cluster}"
+
+        yield f"{prefix} ADD COLUMN IF NOT EXISTS {self.__get_column_definition(table, column, group_name)}"
         for index_definition in self.__get_index_definitions(table, column, group_name):
-            yield f"ALTER TABLE {table} ON CLUSTER {self.__cluster} ADD INDEX IF NOT EXISTS {index_definition}"
+            yield f"{prefix} ADD INDEX IF NOT EXISTS {index_definition}"
 
 
 ignore_custom_properties = [
