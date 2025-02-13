@@ -239,7 +239,7 @@ def _convert_uuid_to_string(table_data: list[Any]) -> list[dict]:
 
 def _json_dumps(obj: Any) -> str:
     try:
-        return orjson.dumps(obj).decode("utf-8")
+        return orjson.dumps(obj).decode()
     except TypeError as e:
         if str(e) == "Integer exceeds 64-bit range":
             return json.dumps(obj)
