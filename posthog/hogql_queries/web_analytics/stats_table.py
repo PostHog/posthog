@@ -23,6 +23,7 @@ from posthog.schema import (
     EventPropertyFilter,
     PersonPropertyFilter,
     WebAnalyticsOrderByFields,
+    WebAnalyticsOrderByDirection,
 )
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
@@ -366,7 +367,9 @@ GROUP BY session_id, breakdown_value
 
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
         if self.query.orderBy:
-            field, direction = self.query.orderBy
+            field: WebAnalyticsOrderByFields = self.query.orderBy[0]
+            direction: WebAnalyticsOrderByDirection = self.query.orderBy[1]
+
             column = None
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"
@@ -390,7 +393,7 @@ GROUP BY session_id, breakdown_value
             if column is not None and column in columns:
                 # Add a secondary sort by breakdown_value to ensure consistent ordering
                 return [
-                    ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction),
+                    ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction.value),
                     ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
                 ]
         return None
