@@ -34,6 +34,11 @@ class PropertyGroupManager:
         return f"{column}_group_{group_name}"
 
     def get_property_group_columns(self, table: TableName, column: ColumnName, property_key: str) -> Iterable[str]:
+        """
+        Returns an iterable of column names for the map columns responsible for the provided property key and source
+        column. The iterable may contain zero items if no maps contain the property key, or multiple items if more than
+        one map if the keyspaces of the defined groups for that source column are overlapping.
+        """
         if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(column)):
             for group_name, group_definition in column_groups.items():
                 if group_definition.contains(property_key):
@@ -67,6 +72,10 @@ class PropertyGroupManager:
         yield f"{map_column_name}_values_bf mapValues({map_column_name}) TYPE bloom_filter"
 
     def get_create_table_pieces(self, table: TableName) -> Iterable[str]:
+        """
+        Returns an iterable of SQL DDL chunks that can be used to define all property groups for the provided table as
+        part of a CREATE TABLE statement.
+        """
         for column, groups in self.__groups[table].items():
             for group_name in groups:
                 yield self.__get_column_definition(table, column, group_name)
@@ -80,6 +89,10 @@ class PropertyGroupManager:
         group_name: PropertyGroupName,
         on_cluster: bool = False,
     ) -> Iterable[str]:
+        """
+        Returns an iterable of ALTER TABLE statements that can be used to create the property group (e.g. as part of a
+        migration) if it doesn't already exist.
+        """
         prefix = f"ALTER TABLE {table}"
         if on_cluster:
             prefix += f" ON CLUSTER {self.__cluster}"
