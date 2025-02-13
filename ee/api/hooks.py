@@ -20,11 +20,17 @@ def hog_functions_enabled(team: Team) -> bool:
 
 
 def create_zapier_hog_function(hook: Hook, serializer_context: dict) -> HogFunction:
+    if hook.id:
+        description = f"Migrated zapier webhook for hook {hook.id}."
+    else:
+        description = template_zapier.description
+
     serializer = HogFunctionSerializer(
         data={
             "template_id": template_zapier.id,
             "type": "destination",
             "name": f"Zapier webhook for action {hook.resource_id}",
+            "description": description,
             "filters": {"actions": [{"id": str(hook.resource_id), "name": "", "type": "actions", "order": 0}]},
             "inputs": {
                 "hook": {
@@ -125,8 +131,25 @@ class HookViewSet(
         serializer.save(user=user, team_id=self.team_id)
 
     def destroy(self, request, *args, **kwargs):
-        if not hog_functions_enabled(self.team):
-            return super().destroy(request, *args, **kwargs)
+        # Try and get the instance
+        try:
+            instance = self.get_object()
+
+            # If we have the instance then we need to delete it as well as any matching hog functions
+            if instance:
+                # We do this by finding one where the description contains the hook id
+                HogFunction.objects.filter(
+                    team_id=self.team_id,
+                    template_id=template_zapier.id,
+                    description__icontains=f"{instance.id}",
+                ).delete()
+
+            self.perform_destroy(instance)
+
+        except Hook.DoesNotExist:
+            pass
+
+        # Otherwise we try and delete the hog function by id
 
         HogFunction.objects.filter(team_id=self.team_id, id=kwargs["pk"]).delete()
 
