@@ -87,7 +87,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         actions: [notebooksTableLogic, ['loadNotebooks']],
     })),
     actions({
-        loadProjectTree: true,
+        loadFiledItems: true,
+        loadUnfiledItems: true,
         addFolder: (folder: string) => ({ folder }),
         renameItem: (oldName: string, newName: string) => ({ oldName, newName }),
         createItem: (item: FileSystemEntry) => ({ item }),
@@ -95,10 +96,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
     }),
     loaders({
-        rawUnfiledItems: [
+        filedItems: [
             [] as FileSystemEntry[],
             {
-                loadProjectTree: async () => {
+                loadFiledItems: async () => {
+                    const response = await api.fileSystem.list()
+                    return response.results
+                },
+            },
+        ],
+        allUnfiledItems: [
+            [] as FileSystemEntry[],
+            {
+                loadUnfiledItems: async () => {
                     const response = await api.fileSystem.unfiled()
                     return response.results
                 },
@@ -106,7 +116,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     reducers({
-        customProjectTree: [
+        filedItems: [
             [] as FileSystemEntry[],
             {
                 addFolder: (state, { folder }) => {
@@ -159,22 +169,22 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     }),
     selectors({
         unfiledItems: [
-            (s) => [s.customProjectTree, s.rawUnfiledItems],
-            (customProjectTree, rawUnfiledItems): FileSystemEntry[] => {
+            (s) => [s.filedItems, s.allUnfiledItems],
+            (filedItems, allUnfiledItems): FileSystemEntry[] => {
                 const urls = new Set<string>()
-                for (const item of [...customProjectTree]) {
+                for (const item of [...filedItems]) {
                     const key = `${item.type}/${item.ref}`
                     if (!urls.has(key)) {
                         urls.add(key)
                     }
                 }
-                return rawUnfiledItems.filter((item) => !urls.has(`${item.type}/${item.ref}`))
+                return allUnfiledItems.filter((item) => !urls.has(`${item.type}/${item.ref}`))
             },
         ],
         projectTree: [
-            (s) => [s.unfiledItems, s.customProjectTree],
-            (unfiledItems, customProjectTree): TreeDataItem[] => {
-                const viableNodes = [...unfiledItems, ...customProjectTree]
+            (s) => [s.unfiledItems, s.filedItems],
+            (unfiledItems, filedItems): TreeDataItem[] => {
+                const viableNodes = [...unfiledItems, ...filedItems]
 
                 // The top-level nodes for our project tree
                 const rootNodes: TreeDataItem[] = []
@@ -488,7 +498,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadProjectTree()
+        actions.loadFiledItems()
+        actions.loadUnfiledItems()
         actions.loadNotebooks()
     }),
 ])

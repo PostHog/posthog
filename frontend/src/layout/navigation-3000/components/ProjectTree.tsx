@@ -16,6 +16,7 @@ import { navigation3000Logic } from '../navigationLogic'
 import { NavbarBottom } from './NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
 
+// TODO: Swap out for something that works better
 function Draggable(props: { id: string; children: ReactNode }): JSX.Element {
     const { attributes, listeners, setNodeRef, transform } = useDraggable({
         id: props.id,
@@ -36,11 +37,13 @@ export function Droppable(props: { id: string; children: ReactNode }): JSX.Eleme
 
     return <div ref={setNodeRef}>{props.children}</div>
 }
+
 export function TreeView(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, unfiledItems, customProjectTree, rawUnfiledItemsLoading } = useValues(projectTreeLogic)
+    const { treeData, unfiledItems, filedItems, allUnfiledItemsLoading, filedItemsLoading } =
+        useValues(projectTreeLogic)
     const { addFolder, deleteItem, moveItem } = useActions(projectTreeLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -58,9 +61,11 @@ export function TreeView(): JSX.Element {
                             const oldPath = active.id as string
                             const folder = over?.id
                             if (folder === oldPath) {
+                                // We can't click on draggable items. If we drag to itself, assume it's a click
+                                // TODO: clicking on expandable folders does not work - only files work.
                                 const item =
                                     unfiledItems.find((i) => i.path === oldPath) ||
-                                    customProjectTree.find((i) => i.path === oldPath)
+                                    filedItems.find((i) => i.path === oldPath)
                                 if (item && item.href) {
                                     router.actions.push(item.href)
                                 }
@@ -105,9 +110,16 @@ export function TreeView(): JSX.Element {
                                                     {data?.type === 'folder' || data?.type === 'project' ? (
                                                         <LemonButton
                                                             onClick={() => {
-                                                                const folder = prompt('Folder name?', data.path)
+                                                                const folder = prompt(
+                                                                    data.path
+                                                                        ? `Create a folder under "${data.path}":`
+                                                                        : 'Create a new folder:',
+                                                                    ''
+                                                                )
                                                                 if (folder) {
-                                                                    addFolder(folder)
+                                                                    addFolder(
+                                                                        data.path ? data.path + '/' + folder : folder
+                                                                    )
                                                                 }
                                                             }}
                                                             fullWidth
@@ -159,7 +171,7 @@ export function TreeView(): JSX.Element {
                                     ) : null
                                 }
                             />
-                            {rawUnfiledItemsLoading ? <Spinner /> : null}
+                            {allUnfiledItemsLoading || filedItemsLoading ? <Spinner /> : null}
                         </ScrollableShadows>
                     </DndContext>
                     <NavbarBottom />
