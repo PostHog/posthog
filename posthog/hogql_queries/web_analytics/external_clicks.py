@@ -81,20 +81,17 @@ GROUP BY "context.columns.url"
         assert isinstance(query, ast.SelectQuery)
 
         # Compute query order based on the columns we're selecting
-        # Use our default order if we don't have any columns to order by
         columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
-        query.order_by = self._order_by(columns) or [
-            ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["context.columns.clicks"]), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["context.columns.url"]), order="ASC"),
-        ]
+        query.order_by = self._order_by(columns)
 
         return query
 
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
+        column = None
+        direction = "DESC"
         if self.query.orderBy:
             field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
+            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
             column = None
 
             if field == WebAnalyticsOrderByFields.VISITORS:
@@ -102,9 +99,22 @@ GROUP BY "context.columns.url"
             elif field == WebAnalyticsOrderByFields.CLICKS:
                 column = "context.columns.clicks"
 
-            if column is not None and column in columns:
-                return [ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction.value)]
-        return None
+        return [
+            expr
+            for expr in [
+                ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
+                if column is not None and column in columns
+                else None,
+                ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order=direction)
+                if column == "context.columns.visitors"
+                else None,
+                ast.OrderExpr(expr=ast.Field(chain=["context.columns.clicks"]), order=direction)
+                if column == "context.columns.clicks"
+                else None,
+                ast.OrderExpr(expr=ast.Field(chain=["context.columns.url"]), order="ASC"),
+            ]
+            if expr is not None
+        ]
 
     def _all_properties(self) -> ast.Expr:
         properties = self.query.properties + self._test_account_filters
