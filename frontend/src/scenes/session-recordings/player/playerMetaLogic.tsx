@@ -3,6 +3,7 @@ import { eventWithTime } from '@posthog/rrweb-types'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
@@ -17,7 +18,7 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { PersonType } from '~/types'
+import { PersonType, PropertyFilterType } from '~/types'
 
 import { SimpleTimeLabel } from '../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
@@ -283,9 +284,22 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         const value = recordingProperties[property] || personProperties[property]
 
                         items.push({
+                            icon: (
+                                <PropertyFilterIcon
+                                    type={
+                                        propertyType === TaxonomicFilterGroupType.EventProperties
+                                            ? PropertyFilterType.Event
+                                            : PropertyFilterType.Person
+                                    }
+                                />
+                            ),
                             label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
                             value,
-                            tooltipTitle:
+                            keyTooltip:
+                                propertyType === TaxonomicFilterGroupType.EventProperties
+                                    ? 'Event property'
+                                    : 'Person property',
+                            valueTooltip:
                                 property === '$geoip_country_code' && value in countryCodeToName
                                     ? countryTitleFrom(recordingProperties, personProperties)
                                     : value,
