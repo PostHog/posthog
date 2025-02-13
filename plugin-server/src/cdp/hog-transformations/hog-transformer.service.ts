@@ -258,9 +258,10 @@ export class HogTransformerService {
                     }
 
                     event.properties = {
-                        ...event.properties,
                         ...transformedEvent.properties,
                     }
+
+                    event.ip = event.properties.$ip ?? null
 
                     if ('event' in transformedEvent) {
                         if (typeof transformedEvent.event !== 'string') {

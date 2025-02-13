@@ -458,6 +458,7 @@ describe('checkFeatureFlagEligibility', () => {
         ensure_experience_continuity: null,
         user_access_level: 'admin',
         status: 'ACTIVE',
+        has_encrypted_payloads: false,
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }

@@ -58,6 +58,10 @@ class _SharedAssistantState(BaseModel):
     """
     The type of insight to generate.
     """
+    root_tool_calls_count: Optional[int] = Field(default=None)
+    """
+    Tracks the number of tool calls made by the root node to terminate the loop.
+    """
 
 
 class AssistantState(_SharedAssistantState):

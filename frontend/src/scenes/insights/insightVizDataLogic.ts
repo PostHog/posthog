@@ -322,8 +322,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasDetailedResultsTable: [
-            (s) => [s.isTrends, s.display],
-            (isTrends, display) => isTrends && !(display && DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS.includes(display)),
+            (s) => [s.isTrends, s.isStickiness, s.display],
+            (isTrends: boolean, isStickiness: boolean, display: ChartDisplayType | undefined) =>
+                (isTrends || isStickiness) && !(display && DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS.includes(display)),
         ],
 
         hasFormula: [
