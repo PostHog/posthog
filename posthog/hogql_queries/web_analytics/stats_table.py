@@ -472,9 +472,6 @@ GROUP BY session_id, breakdown_value
         )
         results = self.paginator.results
 
-        # Add debugger breakpoint
-        # import pdb; pdb.set_trace()
-
         assert results is not None
 
         results_mapped = map_columns(

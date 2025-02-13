@@ -36,7 +36,7 @@ export const TableSortingIndicator = (): JSX.Element | null => {
             sideIcon={<IconX />}
             onClick={clearTablesOrderBy}
         >
-            <span>Sort by: {SORT_BY_TO_LABEL[tablesOrderBy[0]]} </span>
+            <span>Sort by: {SORT_BY_TO_LABEL[tablesOrderBy[0]]}</span>
         </LemonButton>
     )
 }
