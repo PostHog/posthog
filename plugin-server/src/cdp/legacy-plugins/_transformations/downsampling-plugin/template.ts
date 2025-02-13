@@ -40,7 +40,7 @@ export const downsamplingPlugin: LegacyTransformationPlugin = {
                 templating: false,
                 key: 'triggeringEvents',
                 description:
-                    "A comma-separated list of PostHog events you want to downsample (e.g.: '$identify,mycustomevent' ). If empty, all events will be downsampled.",
+                    "A comma-separated list of PostHog events you want to downsample (e.g.: '$identify,mycustomevent'). If empty, all events will be downsampled.",
                 label: 'Triggering events',
                 default: '',
                 required: false,
