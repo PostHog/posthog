@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -367,8 +367,8 @@ GROUP BY session_id, breakdown_value
 
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
         if self.query.orderBy:
-            field: WebAnalyticsOrderByFields = self.query.orderBy[0]
-            direction: WebAnalyticsOrderByDirection = self.query.orderBy[1]
+            field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
+            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
 
             column = None
             if field == WebAnalyticsOrderByFields.VISITORS:

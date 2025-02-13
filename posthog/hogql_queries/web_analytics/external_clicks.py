@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
@@ -91,8 +93,8 @@ GROUP BY "context.columns.url"
 
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
         if self.query.orderBy:
-            field: WebAnalyticsOrderByFields = self.query.orderBy[0]
-            direction: WebAnalyticsOrderByDirection = self.query.orderBy[1]
+            field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
+            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
             column = None
 
             if field == WebAnalyticsOrderByFields.VISITORS:
