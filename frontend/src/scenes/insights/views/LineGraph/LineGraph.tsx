@@ -27,6 +27,7 @@ import {
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -551,16 +552,12 @@ export function LineGraph_({
                 size: 12,
                 weight: 'normal',
             },
-            callback: function (value, index) {
+            callback: function (_, index) {
                 const label = labels[index]
                 if (label && label.includes(':')) {
                     try {
-                        const date = new Date(label)
-                        const month = (date.getMonth() + 1).toString().padStart(2, '0')
-                        const day = date.getDate().toString().padStart(2, '0')
-                        const hours = date.getHours().toString().padStart(2, '0')
-                        const minutes = date.getMinutes().toString().padStart(2, '0')
-                        return `${month}-${day} ${hours}:${minutes}`
+                        const date = dayjs(label)
+                        return date.format('MM-DD HH:mm')
                     } catch {
                         return label
                     }
