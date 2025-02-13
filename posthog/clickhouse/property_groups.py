@@ -25,10 +25,10 @@ class PropertyGroupDefinition:
         else:
             return self.key_filter_function(property_key)
 
-    def get_column_name(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName):
+    def get_column_name(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName) -> str:
         return f"{source_column}_{self.column_type_name}_{group_name}"
 
-    def get_column_definition(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName):
+    def get_column_definition(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName) -> str:
         column_definition = f"{self.get_column_name(source_column, group_name)} Map(String, String)"
         if not self.is_materialized:
             return column_definition
