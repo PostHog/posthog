@@ -6,7 +6,12 @@ import merge from 'lodash.merge'
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import {
     AnyEntityNode,
+    EventsNode,
+    ExperimentActionMetricConfig,
+    ExperimentDataWarehouseMetricConfig,
+    ExperimentEventMetricConfig,
     ExperimentMetric,
+    ExperimentMetricMath,
     type FunnelsQuery,
     NodeKind,
     type TrendsQuery,
@@ -362,39 +367,74 @@ export function getExperimentMetricFromInsight(
     return undefined
 }
 
-export function metricToFilter(metric: ExperimentMetric): FilterType {
-    if (!metric.metric_config) {
+export function metricConfigToFilter(
+    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+): FilterType {
+    if (metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
         return {
             events: [
                 {
-                    id: '$pageview',
-                    name: '$pageview',
+                    id: metric_config.event,
+                    name: metric_config.event,
+                    kind: NodeKind.EventsNode,
                     type: 'events',
-                    math: 'total',
-                    math_property: null,
-                    math_hogql: null,
-                },
+                    math: metric_config.math,
+                    math_property: metric_config.math_property,
+                    math_hogql: metric_config.math_hogql,
+                    properties: metric_config.properties,
+                } as EventsNode,
             ],
             actions: [],
         }
-    }
-
-    const config = metric.metric_config
-    if (config.kind === NodeKind.ExperimentEventMetricConfig) {
+    } else if (metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
         return {
-            events: [
+            events: [],
+            actions: [
                 {
-                    id: config.event,
-                    name: config.event,
-                    type: 'events',
-                    math: config.math,
-                    math_property: config.math_property,
-                    math_hogql: config.math_hogql,
-                },
+                    id: metric_config.action,
+                    name: metric_config.name,
+                    kind: NodeKind.EventsNode,
+                    type: 'actions',
+                    math: metric_config.math,
+                    math_property: metric_config.math_property,
+                    math_hogql: metric_config.math_hogql,
+                    properties: metric_config.properties,
+                } as EventsNode,
             ],
-            actions: [],
         }
     }
 
     return {}
+}
+
+export function filterToMetricConfig(
+    entity: Record<string, any> | undefined
+): ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig | undefined {
+    if (!entity) {
+        return undefined
+    }
+
+    if (entity.kind === NodeKind.EventsNode) {
+        if (entity.type === 'events') {
+            return {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                event: entity.id as string,
+                name: entity.name,
+                math: (entity.math as ExperimentMetricMath) || 'total',
+                math_property: entity.math_property,
+                math_hogql: entity.math_hogql,
+                properties: entity.properties,
+            }
+        } else if (entity.type === 'actions') {
+            return {
+                kind: NodeKind.ExperimentActionMetricConfig,
+                action: entity.id,
+                name: entity.name,
+                math: (entity.math as ExperimentMetricMath) || 'total',
+                math_property: entity.math_property,
+                math_hogql: entity.math_hogql,
+                properties: entity.properties,
+            }
+        }
+    }
 }
