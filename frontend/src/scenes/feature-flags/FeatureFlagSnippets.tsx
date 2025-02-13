@@ -39,7 +39,7 @@ export function NodeJSSnippet({
             <>
                 <CodeSnippet language={Language.JavaScript} wrap>
                     {`// Must initialize SDK with a personal API key to enable payload decryption
-const decryptedFlagPayload = await client.getDecryptedFeatureFlagPayload('${flagKey}')`}
+const decryptedFlagPayload = await client.getRemoteConfigPayload('${flagKey}')`}
                 </CodeSnippet>
             </>
         )
@@ -184,7 +184,7 @@ export function GolangSnippet({
             <>
                 <CodeSnippet language={Language.Go} wrap>
                     {`// Must initialize SDK with a personal API key to enable payload decryption
-decryptedFlagPayload, err := ${clientSuffix}GetDecryptedFeatureFlagPayload("${flagKey}")`}
+decryptedFlagPayload, err := ${clientSuffix}GetRemoteConfigPayload("${flagKey}")`}
                 </CodeSnippet>
             </>
         )
@@ -251,7 +251,7 @@ export function RubySnippet({
             <>
                 <CodeSnippet language={Language.Ruby} wrap>
                     {`# Must initialize SDK with a personal API key to enable payload decryption
-decrypted_flag_payload = posthog.get_decrypted_feature_flag_payload('${flagKey}')`}
+decrypted_flag_payload = posthog.get_remote_config_payload('${flagKey}')`}
                 </CodeSnippet>
             </>
         )
@@ -321,7 +321,7 @@ export function PythonSnippet({
             <>
                 <CodeSnippet language={Language.Python} wrap>
                     {`# Must initialize SDK with a personal API key to enable payload decryption
-decrypted_flag_payload = posthog.get_decrypted_feature_flag_payload('${flagKey}')`}
+decrypted_flag_payload = posthog.get_remote_config_payload('${flagKey}')`}
                 </CodeSnippet>
             </>
         )
