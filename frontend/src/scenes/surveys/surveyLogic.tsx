@@ -50,8 +50,8 @@ const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: Prop
         value: PropertyOperator.Exact,
     },
     [SurveyQuestionType.MultipleChoice]: {
-        label: allOperatorsMapping[PropertyOperator.Exact],
-        value: PropertyOperator.Exact,
+        label: allOperatorsMapping[PropertyOperator.IContains],
+        value: PropertyOperator.IContains,
     },
     [SurveyQuestionType.Link]: {
         label: allOperatorsMapping[PropertyOperator.Exact],

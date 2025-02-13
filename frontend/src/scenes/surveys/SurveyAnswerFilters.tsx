@@ -35,7 +35,6 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
         { label: allOperatorsMapping[PropertyOperator.NotIContains], value: PropertyOperator.NotIContains },
         { label: allOperatorsMapping[PropertyOperator.Regex], value: PropertyOperator.Regex },
         { label: allOperatorsMapping[PropertyOperator.NotRegex], value: PropertyOperator.NotRegex },
-        { label: allOperatorsMapping[PropertyOperator.Exact], value: PropertyOperator.Exact },
     ],
     [SurveyQuestionType.Link]: [],
 }
@@ -134,9 +133,7 @@ export function SurveyAnswerFilters(): JSX.Element {
                                                 placeholder={
                                                     question.type === SurveyQuestionType.Rating
                                                         ? 'Enter a number'
-                                                        : question.type === SurveyQuestionType.Open
-                                                        ? 'Enter text to match'
-                                                        : 'Select values'
+                                                        : 'Enter text to match'
                                                 }
                                             />
                                         )}
