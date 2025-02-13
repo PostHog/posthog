@@ -38,12 +38,12 @@ class TestEmail(BaseTest):
     def test_cant_send_emails_if_not_properly_configured(self) -> None:
         with override_instance_config("EMAIL_HOST", None):
             with self.assertRaises(ImproperlyConfigured) as e:
-                EmailMessage("test_campaign", "Subject", "template")
+                EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
             self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
 
         with override_instance_config("EMAIL_ENABLED", False):
             with self.assertRaises(ImproperlyConfigured) as e:
-                EmailMessage("test_campaign", "Subject", "template")
+                EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
             self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
 
     def test_cant_send_same_campaign_twice(self) -> None:
@@ -75,7 +75,7 @@ class TestEmail(BaseTest):
     def test_applies_default_utm_tags(self) -> None:
         with override_instance_config("EMAIL_HOST", "localhost"):
             template = "async_migration_error"
-            message = EmailMessage("test_campaign", "Subject", template)
+            message = EmailMessage(campaign_key="test_campaign", subject="Subject", template_name=template)
 
             assert (
                 f"https://posthog.com/questions?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign={template}"
@@ -89,7 +89,9 @@ class TestEmail(BaseTest):
         mock_post.return_value = mock_response
 
         with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
-            message = EmailMessage("test_campaign", "Test subject", "async_migration_error", use_http=True)
+            message = EmailMessage(
+                campaign_key="test_campaign", subject="Test subject", template_name="2fa_enabled", use_http=True
+            )
             message.add_recipient("test@posthog.com", "Test User")
             message.send(send_async=False)
 
@@ -97,7 +99,7 @@ class TestEmail(BaseTest):
             call_kwargs = mock_post.call_args[1]
             self.assertEqual(call_kwargs["headers"]["Authorization"], "Bearer test-key")
             self.assertEqual(call_kwargs["json"]["to"], "test@posthog.com")
-            self.assertEqual(call_kwargs["json"]["transactional_message_id"], "test_campaign")
+            self.assertEqual(call_kwargs["json"]["transactional_message_id"], "31")
 
     @patch("requests.post")
     def test_send_via_http_handles_decimal_values(self, mock_post) -> None:
@@ -107,10 +109,10 @@ class TestEmail(BaseTest):
 
         with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
             message = EmailMessage(
-                "test_campaign",
-                "Test subject",
-                "async_migration_error",
-                headers={"decimal_value": Decimal("1.23")},
+                campaign_key="test_campaign",
+                subject="Test subject",
+                template_name="2fa_enabled",
+                properties={"decimal_value": Decimal("1.23")},
                 use_http=True,
             )
             message.add_recipient("test@posthog.com")
@@ -129,12 +131,14 @@ class TestEmail(BaseTest):
         mock_post.return_value = mock_response
 
         with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
-            message = EmailMessage("test_campaign", "Test subject", "async_migration_error", use_http=True)
+            message = EmailMessage(
+                campaign_key="test_campaign", subject="Test subject", template_name="2fa_enabled", use_http=True
+            )
             message.add_recipient("test@posthog.com")
 
             # The error should be caught and logged, not raised
             message.send(send_async=False)
 
             # Verify the message wasn't marked as sent
-            record = MessagingRecord.objects.get(raw_email="test@posthog.com", campaign_key="test_campaign")
-            self.assertIsNone(record.sent_at)
+            record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
+            self.assertIsNone(record)

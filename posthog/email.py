@@ -231,14 +231,14 @@ def _send_email(
     """
     Sends built email message asynchronously, either through SMTP or HTTP
     """
-    if use_http:
+    if use_http and is_http_email_service_available():
         _send_via_http(
             to=to,
             campaign_key=campaign_key,
             template_name=template_name,
             properties=properties or {},
         )
-    else:
+    elif not use_http and is_smtp_email_service_available():
         _send_via_smtp(
             to=to,
             campaign_key=campaign_key,
@@ -248,6 +248,8 @@ def _send_email(
             headers=headers,
             reply_to=reply_to,
         )
+    else:
+        raise Exception("Email is not enabled in this instance.")
 
 
 class EmailMessage:
@@ -302,6 +304,7 @@ class EmailMessage:
             "subject": self.subject,
             "headers": self.headers,
             "txt_body": self.txt_body,
+            "template_name": self.template_name,
             "html_body": self.html_body,
             "reply_to": self.reply_to,
             "use_http": self.use_http,
