@@ -265,7 +265,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             static_device = StaticDevice.objects.filter(user=user).first()
             if static_device and static_device.verify_token(request.data["token"]):
                 # Send email notification when backup code is used
-                send_two_factor_auth_backup_code_used_email(user)
+                send_two_factor_auth_backup_code_used_email.delay(user.id)
                 return self._token_is_valid(request, user, static_device)
 
         raise serializers.ValidationError(detail="Invalid authentication code", code="2fa_invalid")
