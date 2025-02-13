@@ -1372,7 +1372,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         : InsightType.FUNNELS
                 },
         ],
-        getNewMetricType: [
+        getExperimentMetricType: [
             () => [],
             () =>
                 (metric: ExperimentMetric | undefined): ExperimentMetricType => {

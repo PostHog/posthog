@@ -18,7 +18,7 @@ export function ExperimentMetricModal({
     const {
         experiment,
         experimentLoading,
-        getNewMetricType,
+        getExperimentMetricType,
         isPrimaryMetricModalOpen,
         isSecondaryMetricModalOpen,
         editingPrimaryMetricIndex,
@@ -41,7 +41,7 @@ export function ExperimentMetricModal({
 
     const metrics = experiment[metricsField]
     const metric = metrics[metricIdx] as ExperimentMetric
-    const metricType = getNewMetricType(metric)
+    const metricType = getExperimentMetricType(metric)
 
     const onClose = (): void => {
         restoreUnmodifiedExperiment()
