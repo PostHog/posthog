@@ -1,18 +1,3 @@
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: error: Name "ExternalDataSource" is not defined  [name-defined]
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: error: Name "Optional" is not defined  [name-defined]
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: note: Did you forget to import it from "typing"? (Suggestion: "from typing import Optional")
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: error: Name "Any" is not defined  [name-defined]
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: note: Did you forget to import it from "typing"? (Suggestion: "from typing import Any")
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: error: Name "Optional" is not defined  [name-defined]
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: note: Did you forget to import it from "typing"? (Suggestion: "from typing import Optional")
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: error: Name "Optional" is not defined  [name-defined]
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: note: Did you forget to import it from "typing"? (Suggestion: "from typing import Optional")
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: error: Name "Optional" is not defined  [name-defined]
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: note: Did you forget to import it from "typing"? (Suggestion: "from typing import Optional")
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: error: Name "Optional" is not defined  [name-defined]
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: note: Did you forget to import it from "typing"? (Suggestion: "from typing import Optional")
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: error: Name "IncrementalFieldType" is not defined  [name-defined]
-posthog/temporal/data_imports/pipelines/sql_v2/sql_v2.py:0: error: Name "DltSource" is not defined  [name-defined]
 posthog/warehouse/models/ssh_tunnel.py:0: error: Incompatible types in assignment (expression has type "NoEncryption", variable has type "BestAvailableEncryption")  [assignment]
 posthog/temporal/data_imports/pipelines/sql_database/schema_types.py:0: error: Statement is unreachable  [unreachable]
 posthog/temporal/data_imports/pipelines/sql_database/schema_types.py:0: error: Non-overlapping equality check (left operand type: "Literal['text', 'double', 'bool', 'timestamp', 'bigint', 'json', 'decimal', 'wei', 'date', 'time'] | None", right operand type: "Literal['interval']")  [comparison-overlap]
