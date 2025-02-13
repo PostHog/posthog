@@ -35,7 +35,10 @@ class PostHogConfig(AppConfig):
             # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
             # Due to ASGI's workings, we can't query for the right project API key in this `ready()` method
             # Instead, we configure self-capture with `self_capture_wrapper()` in posthog/asgi.py - see that file
+            # Self-capture for WSGI is initialized here
             posthoganalytics.disabled = True
+            if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
+                async_to_sync(initialize_self_capture_api_token)()
 
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
@@ -50,8 +53,6 @@ class PostHogConfig(AppConfig):
                     "development server launched",
                     {"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
-            if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
-                async_to_sync(initialize_self_capture_api_token)()
 
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
