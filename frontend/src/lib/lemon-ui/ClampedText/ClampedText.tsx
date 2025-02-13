@@ -29,7 +29,7 @@ export const ClampedText = React.forwardRef<HTMLDivElement, ClampedTextProps>(fu
         }
 
         if (isCssEllipsisApplied(elem)) {
-            if (!(showMore && isExpanded)) {
+            if (!showMore || !isExpanded) {
                 setShowMore(true)
             }
         } else {
