@@ -261,6 +261,8 @@ export class HogTransformerService {
                         ...transformedEvent.properties,
                     }
 
+                    event.ip = event.properties.$ip ?? null
+
                     if ('event' in transformedEvent) {
                         if (typeof transformedEvent.event !== 'string') {
                             status.error('⚠️', 'Invalid transformation result - event name must be a string', {
