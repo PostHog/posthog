@@ -32,6 +32,11 @@ rust-lib-src.pkg-group = "rust-toolchain"
 libiconv.pkg-path = "libiconv"
 libiconv.systems = ["aarch64-darwin"]
 libiconv.pkg-group = "rust-toolchain"
+
+# rust-analyzer should be isolated in its own group, details in cookbook example
+rust-analyzer.pkg-path = "rust-analyzer"
+rust-analyzer.pkg-group = "rust-analyzer"
+
 # Go
 go = { pkg-path = "go", version = "1.22", pkg-group = "go" }
 # Top level
@@ -133,9 +138,20 @@ fi
 [profile]
 bash = '''
   source "$PYTHON_DIR/bin/activate"
+  # Citizens of PostHog: put (or source) your preferred bash profile in the file below
+  if [ -f "$HOME/.bash_profile_$USER" ]; then
+    source "$HOME/.bash_profile_$USER"
+    # ensure even with your shell prefs in place we know this is a Flox.dev env
+    export PS1="\033[47m(flox)\033[0m $PS1"
+  fi
 '''
 zsh = '''
   source "$PYTHON_DIR/bin/activate"
+  if [[ -f "$HOME/.zshrc" ]]; then
+    source "$HOME/.zshrc"
+    # ensure even with your shell prefs in place we know this is a Flox.dev env
+    export PS1="%K{white}%F{black}(flox)%k%f $PS1"
+  fi
 '''
 fish = '''
   source "$PYTHON_DIR/bin/activate.fish"
