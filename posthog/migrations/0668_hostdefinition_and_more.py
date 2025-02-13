@@ -26,14 +26,20 @@ class Migration(migrations.Migration):
                 ("last_seen_at", models.DateTimeField(default=django.utils.timezone.now)),
                 (
                     "project",
-                    models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.project"),
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="host_definitions",
+                        related_query_name="host_definition",
+                        to="posthog.project",
+                    ),
                 ),
                 (
                     "team",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="host_definitions",
-                        related_query_name="team",
+                        related_query_name="host_definition",
                         to="posthog.team",
                     ),
                 ),

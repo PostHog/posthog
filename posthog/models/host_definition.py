@@ -13,7 +13,13 @@ class HostDefinition(UUIDModel):
         related_name="host_definitions",
         related_query_name="host_definition",
     )
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey(
+        Project,
+        null=True,
+        on_delete=models.CASCADE,
+        related_name="host_definitions",
+        related_query_name="host_definition",
+    )
     host = models.CharField(max_length=400)
     created_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(default=timezone.now)
