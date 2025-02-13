@@ -42,10 +42,9 @@ export function TreeView(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, unfiledItems, filedItems, allUnfiledItemsLoading, filedItemsLoading } =
+    const { treeData, unfiledItems, filedItems, allUnfiledItemsLoading, filedItemsLoading, loadingPaths } =
         useValues(projectTreeLogic)
     const { addFolder, deleteItem, moveItem } = useActions(projectTreeLogic)
-
     const containerRef = useRef<HTMLDivElement | null>(null)
 
     return (
@@ -89,16 +88,34 @@ export function TreeView(): JSX.Element {
                                 data={treeData}
                                 renderItem={(item, children): JSX.Element => {
                                     const path = item.data?.path || ''
+                                    const loading =
+                                        (typeof item.data?.path === 'string' || item.data?.type === 'project') &&
+                                        loadingPaths[path] ? (
+                                            <Spinner className="ml-1" />
+                                        ) : undefined
                                     if (item.data?.type === 'project') {
-                                        return <Droppable id="">{children}</Droppable>
+                                        return (
+                                            <Droppable id="">
+                                                {children}
+                                                {loading}
+                                            </Droppable>
+                                        )
                                     } else if (path) {
                                         return (
                                             <Droppable id={path}>
-                                                <Draggable id={path}>{children}</Draggable>
+                                                <Draggable id={path}>
+                                                    {children}
+                                                    {loading}
+                                                </Draggable>
                                             </Droppable>
                                         )
                                     }
-                                    return <>{children}</>
+                                    return (
+                                        <>
+                                            {children}
+                                            {loading}
+                                        </>
+                                    )
                                 }}
                                 right={({ data }) =>
                                     data?.type ? (
@@ -127,28 +144,30 @@ export function TreeView(): JSX.Element {
                                                             New Folder
                                                         </LemonButton>
                                                     ) : null}
-                                                    <LemonButton
-                                                        onClick={() => {
-                                                            const oldPath = data.path
-                                                            const folder = prompt('New name?', oldPath)
-                                                            if (folder) {
-                                                                moveItem(oldPath, folder)
-                                                            }
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        Rename
-                                                    </LemonButton>
-                                                    <LemonButton
-                                                        onClick={() => {
-                                                            void navigator.clipboard.writeText(
-                                                                (data.folder ? data.folder + '/' : '') + data.name
-                                                            )
-                                                        }}
-                                                        fullWidth
-                                                    >
-                                                        Copy Path
-                                                    </LemonButton>
+                                                    {data.path ? (
+                                                        <LemonButton
+                                                            onClick={() => {
+                                                                const oldPath = data.path
+                                                                const folder = prompt('New name?', oldPath)
+                                                                if (folder) {
+                                                                    moveItem(oldPath, folder)
+                                                                }
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            Rename
+                                                        </LemonButton>
+                                                    ) : null}
+                                                    {data.path ? (
+                                                        <LemonButton
+                                                            onClick={() => {
+                                                                void navigator.clipboard.writeText(data.path)
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            Copy Path
+                                                        </LemonButton>
+                                                    ) : null}
                                                     {data?.meta?.custom ? (
                                                         <LemonButton
                                                             onClick={() => {

@@ -69,6 +69,13 @@ export function iconForType(type?: FileSystemType): JSX.Element {
     }
 }
 
+export interface ProjectTreeAction {
+    type: 'create' | 'rename' | 'delete' | 'move'
+    item: FileSystemEntry
+    path: string
+    newPath?: string
+}
+
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
     connect(() => ({
@@ -94,6 +101,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createItem: (item: FileSystemEntry) => ({ item }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
+        loadPath: (path: string) => ({ path }),
+        pathLoaded: (path: string) => ({ path }),
+        queueAction: (action: ProjectTreeAction) => ({ action }),
+        removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
     }),
     loaders({
         filedItems: [
@@ -116,9 +127,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     reducers({
+        pendingActions: [
+            [] as ProjectTreeAction[],
+            {
+                queueAction: (state, { action }) => [...state, action],
+                removeQueuedAction: (state, { action }) => state.filter((a) => a !== action),
+            },
+        ],
         filedItems: [
             [] as FileSystemEntry[],
             {
+                // For now we don't persist folders
                 addFolder: (state, { folder }) => {
                     if (state.find((item) => item.path === folder)) {
                         return state
@@ -133,36 +152,106 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         },
                     ]
                 },
-                renameItem: (state, { oldName, newName }) => {
-                    return state.map((item) => {
-                        if (item.path === oldName) {
-                            return {
-                                ...item,
-                                path: newName,
-                                meta: { ...item.meta, custom: true },
+                queueAction: (state, { action }) => {
+                    if (action.type === 'create') {
+                        return [
+                            ...state,
+                            {
+                                ...action.item,
+                                id: uuid(),
+                                meta: { ...action.item.meta, custom: true },
+                            },
+                        ]
+                    } else if (action.type === 'move') {
+                        return state.map((item) => {
+                            if (item.path === action.path) {
+                                return {
+                                    ...item,
+                                    path: action.newPath!,
+                                    meta: { ...item.meta, custom: true },
+                                }
                             }
-                        } else if (item.path.startsWith(oldName + '/')) {
-                            return {
-                                ...item,
-                                path: newName + item.path.slice(oldName.length),
-                                meta: { ...item.meta, custom: true },
-                            }
-                        }
-                        return item
-                    })
+                            return item
+                        })
+                    }
+                    return state
                 },
-                createItem: (state, { item }) => {
-                    return [
-                        ...state,
-                        {
-                            ...item,
-                            id: uuid(),
-                            meta: { ...item.meta, custom: true },
-                        },
-                    ]
-                },
+
+                // renameItem: (state, { oldName, newName }) => {
+                //     return state.map((item) => {
+                //         if (item.path === oldName) {
+                //             return {
+                //                 ...item,
+                //                 path: newName,
+                //                 meta: { ...item.meta, custom: true },
+                //             }
+                //         } else if (item.path.startsWith(oldName + '/')) {
+                //             return {
+                //                 ...item,
+                //                 path: newName + item.path.slice(oldName.length),
+                //                 meta: { ...item.meta, custom: true },
+                //             }
+                //         }
+                //         return item
+                //     })
+                // },
+                // createItem: (state, { item }) => {
+                //     return [
+                //         ...state,
+                //         {
+                //             ...item,
+                //             id: uuid(),
+                //             meta: { ...item.meta, custom: true },
+                //         },
+                //     ]
+                // },
+                // TODO: move to op
                 deleteItem: (state, { item }) => {
                     return state.filter((i) => !(i.path === item.path || i.path.startsWith(item.path + '/')))
+                },
+            },
+        ],
+        loadingPaths: [
+            {} as Record<string, boolean>,
+            {
+                loadPath: (state, { path }) => ({ ...state, [path]: true }),
+                pathLoaded: (state, { path }) => {
+                    const newState = { ...state }
+                    delete newState[path]
+                    return newState
+                },
+                loadUnfiledItems: (state) => ({ ...state, Unfiled: true }),
+                loadUnfiledItemsSuccess: (state) => {
+                    const newState = { ...state }
+                    delete newState['Unfiled']
+                    return newState
+                },
+                loadUnfiledItemsFailure: (state) => {
+                    const newState = { ...state }
+                    delete newState['Unfiled']
+                    return newState
+                },
+                loadFiledItems: (state) => ({ ...state, '': true }),
+                loadFiledItemsSuccess: (state) => {
+                    const newState = { ...state }
+                    delete newState['']
+                    return newState
+                },
+                loadFiledItemsFailure: (state) => {
+                    const newState = { ...state }
+                    delete newState['']
+                    return newState
+                },
+                queueAction: (state, { action }) => {
+                    return action.newPath ? { ...state, [action.newPath]: true } : state
+                },
+                removeQueuedAction: (state, { action }) => {
+                    if (!action.newPath) {
+                        return state
+                    }
+                    const newState = { ...state }
+                    delete newState[action.newPath]
+                    return newState
                 },
             },
         ],
@@ -484,14 +573,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     }),
     listeners(({ actions, values }) => ({
         moveItem: async ({ oldPath, newPath }) => {
-            // rename all persisted files
-            actions.renameItem(oldPath, newPath)
-            for (const item of values.unfiledItems) {
-                // find all starting with the old path in case this was a folder
+            // rename all filed items
+            for (const item of values.filedItems) {
                 if (item.path === oldPath || item.path.startsWith(oldPath + '/')) {
-                    actions.createItem({
-                        ...item,
-                        path: newPath + item.path.slice(oldPath.length),
+                    actions.queueAction({
+                        type: 'move',
+                        item,
+                        path: item.path,
+                        newPath: newPath + item.path.slice(oldPath.length),
+                    })
+                }
+            }
+
+            // create new entries for the moved unfiled items
+            for (const item of values.unfiledItems) {
+                if (item.path === oldPath || item.path.startsWith(oldPath + '/')) {
+                    actions.queueAction({
+                        type: 'create',
+                        item,
+                        path: item.path,
+                        newPath: newPath + item.path.slice(oldPath.length),
                     })
                 }
             }
