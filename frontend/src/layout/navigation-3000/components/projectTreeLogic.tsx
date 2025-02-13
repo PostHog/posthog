@@ -15,8 +15,10 @@ import {
     IconTarget,
     IconTestTube,
     IconToggle,
+    IconUpload,
     IconWarning,
 } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -287,8 +289,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
         queueAction: (action: ProjectTreeAction) => ({ action }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
+        applyPendingActions: true,
+        createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
+        updateSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
+        deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
     }),
-    loaders({
+    loaders(({ actions, values }) => ({
         savedItems: [
             [] as FileSystemEntry[],
             {
@@ -307,13 +313,48 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             },
         ],
-    }),
+        pendingLoader: [
+            false,
+            {
+                applyPendingActions: async () => {
+                    for (const action of values.pendingActions) {
+                        if (action.type === 'move') {
+                            if (action.item.created_at === null) {
+                                const response = await api.fileSystem.create({ ...action.item, path: action.newPath })
+                                actions.createSavedItem(response)
+                            } else {
+                                const response = await api.fileSystem.update(action.item.id, { path: action.newPath })
+                                actions.updateSavedItem(response)
+                            }
+                        } else if (action.type === 'create') {
+                            const response = await api.fileSystem.create(action.item)
+                            actions.createSavedItem(response)
+                        } else if (action.type === 'delete') {
+                            await api.fileSystem.delete(action.item.id)
+                            actions.deleteSavedItem(action.item)
+                        }
+                        actions.removeQueuedAction(action)
+                    }
+                    return true
+                },
+            },
+        ],
+    })),
     reducers({
         pendingActions: [
             [] as ProjectTreeAction[],
             {
                 queueAction: (state, { action }) => [...state, action],
                 removeQueuedAction: (state, { action }) => state.filter((a) => a !== action),
+            },
+        ],
+        savedItems: [
+            [] as FileSystemEntry[],
+            {
+                createSavedItem: (state, { savedItem }) => [...state, savedItem],
+                updateSavedItem: (state, { savedItem }) =>
+                    state.map((item) => (item.id === savedItem.id ? savedItem : item)),
+                deleteSavedItem: (state, { savedItem }) => state.filter((item) => item.id !== savedItem.id),
             },
         ],
     }),
@@ -357,33 +398,46 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         } else {
                             console.error("Item already exists, can't create", action.item)
                         }
+                    } else if (action.type === 'delete' && action.path) {
+                        delete itemsByPath[action.path]
                     }
                 }
                 return Object.values(itemsByPath)
             },
         ],
-        loadingPaths: [
+        unappliedPaths: [
             // Paths that are currently being loaded
-            (s) => [s.pendingActions, s.allUnfiledItemsLoading, s.savedItemsLoading],
-            (pendingActions, allUnfiledItemsLoading, savedItemsLoading) => {
-                const loadingPaths: Record<string, boolean> = {}
+            (s) => [s.pendingActions],
+            (pendingActions) => {
+                const unappliedPaths: Record<string, boolean> = {}
                 for (const action of pendingActions) {
                     if (action.type === 'move-create' || action.type === 'move' || action.type === 'create') {
                         if (action.newPath) {
-                            loadingPaths[action.newPath] = true
+                            unappliedPaths[action.newPath] = true
                             const split = action.newPath.split('/')
                             for (let i = 1; i < split.length; i++) {
-                                loadingPaths[split.slice(0, i).join('/')] = true
+                                unappliedPaths[split.slice(0, i).join('/')] = true
                             }
                         }
                     }
                 }
+                return unappliedPaths
+            },
+        ],
+        loadingPaths: [
+            // Paths that are currently being loaded
+            (s) => [s.allUnfiledItemsLoading, s.savedItemsLoading, s.pendingLoaderLoading, s.pendingActions],
+            (allUnfiledItemsLoading, savedItemsLoading, pendingLoaderLoading, pendingActions) => {
+                const loadingPaths: Record<string, boolean> = {}
                 if (allUnfiledItemsLoading) {
                     loadingPaths['Unfiled'] = true
                     loadingPaths[''] = true
                 }
                 if (savedItemsLoading) {
                     loadingPaths[''] = true
+                }
+                if (pendingLoaderLoading && pendingActions.length > 0) {
+                    loadingPaths[pendingActions[0].newPath || pendingActions[0].path] = true
                 }
                 return loadingPaths
             },
@@ -469,10 +523,30 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return rootNodes
             },
         ],
+        pendingActionsCount: [(s) => [s.pendingActions], (pendingActions): number => pendingActions.length],
         defaultTreeNodes: [() => [], (): TreeDataItem[] => getDefaultTree()],
         projectRow: [
-            () => [],
-            (): TreeDataItem[] => [
+            (s) => [s.pendingActionsCount, s.pendingLoaderLoading],
+            (pendingActionsCount, pendingLoaderLoading): TreeDataItem[] => [
+                ...(pendingActionsCount > 0
+                    ? [
+                          {
+                              id: 'applyPendingActions',
+                              name: `--- Apply${
+                                  pendingLoaderLoading ? 'ing' : ''
+                              } ${pendingActionsCount} unsaved change${pendingActionsCount > 1 ? 's' : ''} ---`,
+                              icon: pendingLoaderLoading ? <Spinner /> : <IconUpload className="text-warning" />,
+                              onClick: !pendingLoaderLoading
+                                  ? () => projectTreeLogic.actions.applyPendingActions()
+                                  : undefined,
+                          },
+                      ]
+                    : [
+                          {
+                              id: '--',
+                              name: '----------------------',
+                          },
+                      ]),
                 {
                     id: 'project',
                     name: 'Default Project',
@@ -485,15 +559,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         treeData: [
             (s) => [s.defaultTreeNodes, s.projectTree, s.projectRow],
             (defaultTreeNodes, projectTree, projectRow): TreeDataItem[] => {
-                return [
-                    ...defaultTreeNodes,
-                    {
-                        id: '--',
-                        name: '-----------',
-                    },
-                    ...projectRow,
-                    ...projectTree,
-                ]
+                return [...defaultTreeNodes, ...projectRow, ...projectTree]
             },
         ],
     }),
@@ -510,6 +576,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     })
                 }
             }
+        },
+        deleteItem: async ({ item }) => {
+            actions.queueAction({ type: 'delete', item, path: item.path })
         },
         addFolder: ({ folder }) => {
             if (values.viableItems.find((item) => item.path === folder)) {

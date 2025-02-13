@@ -1,5 +1,6 @@
 import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
+import { IconUpload } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -42,7 +43,7 @@ export function TreeView(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, viableItems, loadingPaths } = useValues(projectTreeLogic)
+    const { treeData, viableItems, loadingPaths, unappliedPaths } = useValues(projectTreeLogic)
     const { addFolder, deleteItem, moveItem } = useActions(projectTreeLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -68,7 +69,7 @@ export function TreeView(): JSX.Element {
                             } else if (folder === '') {
                                 const oldSplit = oldPath.split('/')
                                 const oldFile = oldSplit.pop()
-                                if (oldFile) {
+                                if (oldFile && oldSplit.length > 0) {
                                     moveItem(oldPath, oldFile)
                                 }
                             } else if (folder) {
@@ -88,9 +89,12 @@ export function TreeView(): JSX.Element {
                                 renderItem={(item, children): JSX.Element => {
                                     const path = item.data?.path || ''
                                     const loading =
-                                        (typeof item.data?.path === 'string' || item.data?.type === 'project') &&
-                                        loadingPaths[path] ? (
-                                            <Spinner className="ml-1" />
+                                        typeof item.data?.path === 'string' || item.data?.type === 'project' ? (
+                                            loadingPaths[path] ? (
+                                                <Spinner className="ml-1" />
+                                            ) : unappliedPaths[path] ? (
+                                                <IconUpload className="ml-1 text-warning" />
+                                            ) : undefined
                                         ) : undefined
                                     if (item.data?.type === 'project') {
                                         return (
@@ -116,8 +120,10 @@ export function TreeView(): JSX.Element {
                                         </>
                                     )
                                 }}
-                                right={({ data }) =>
-                                    data?.type ? (
+                                right={({ data, id }) =>
+                                    id === 'applyPendingChanges' ? (
+                                        <IconUpload className="text-warning" />
+                                    ) : data?.created_at || data?.type ? (
                                         <More
                                             size="xsmall"
                                             onClick={(e) => e.stopPropagation()}
@@ -167,26 +173,15 @@ export function TreeView(): JSX.Element {
                                                             Copy Path
                                                         </LemonButton>
                                                     ) : null}
-                                                    {data?.meta?.custom ? (
-                                                        <LemonButton
-                                                            onClick={() => {
-                                                                if (
-                                                                    confirm(
-                                                                        'Are you sure you want to delete this item?'
-                                                                    )
-                                                                ) {
-                                                                    deleteItem(data)
-                                                                }
-                                                            }}
-                                                            fullWidth
-                                                        >
+                                                    {data?.created_at ? (
+                                                        <LemonButton onClick={() => deleteItem(data)} fullWidth>
                                                             Delete
                                                         </LemonButton>
                                                     ) : null}
                                                 </>
                                             }
                                         />
-                                    ) : null
+                                    ) : undefined
                                 }
                             />
                         </ScrollableShadows>

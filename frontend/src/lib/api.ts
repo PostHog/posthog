@@ -374,6 +374,9 @@ class ApiRequest {
     public fileSystemUnfiled(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
     }
+    public fileSystemDetail(id: FileSystemEntry['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent(id)
+    }
 
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
@@ -1178,6 +1181,15 @@ const api = {
         },
         async unfiled(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled().get()
+        },
+        async create(data: FileSystemEntry): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystem().create({ data })
+        },
+        async update(id: FileSystemEntry['id'], data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemDetail(id).update({ data })
+        },
+        async delete(id: FileSystemEntry['id']): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemDetail(id).delete()
         },
     },
 

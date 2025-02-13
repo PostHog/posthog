@@ -1739,6 +1739,8 @@ export interface FileSystemEntry {
     href?: string
     /** Metadata */
     meta?: Record<string, any>
+    /** Timestamp when file was added. Used to check persistence */
+    created_at?: string
 }
 
 export type InsightQueryNode =

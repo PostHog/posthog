@@ -1,17 +1,13 @@
 from typing import Any
 
 from django.db.models import QuerySet
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 from rest_framework import filters, serializers, viewsets, pagination, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
-from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.event_usage import report_user_action
 from posthog.models.file_system import FileSystem, get_unfiled_files
 
 
@@ -32,7 +28,6 @@ class FileSystemSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
-            "type",
             "created_at",
             "created_by",
         ]
@@ -56,7 +51,7 @@ class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
     default_limit = 1000
 
 
-class FileSystemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
     queryset = FileSystem.objects.select_related("created_by")
     serializer_class = FileSystemSerializer
@@ -82,10 +77,3 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mod
             },
             status=status.HTTP_200_OK,
         )
-
-
-@receiver(post_save, sender=FileSystem, dispatch_uid="hook-file_system-created")
-def file_system_created(sender, instance, created, raw, using, **kwargs):
-    if instance.created_by:
-        event_name: str = "file_system created" if created else "file_system updated"
-        report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
