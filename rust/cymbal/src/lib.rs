@@ -101,8 +101,7 @@ pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
 
     if let Some(v) = properties
         .as_object_mut()
-        .map(|o| o.get_mut("$exception_list"))
-        .flatten()
+        .and_then(|o| o.get_mut("$exception_list"))
     {
         // We PG sanitize the exception list, because the strings in it can end up in PG kind of arbitrarily.
         recursively_sanitize_properties(event.uuid, v, 0)?;
