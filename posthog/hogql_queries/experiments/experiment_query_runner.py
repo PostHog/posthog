@@ -140,7 +140,10 @@ class ExperimentQueryRunner(QueryRunner):
         # if that is the chosen aggregation
         exposure_query = ast.SelectQuery(
             select=[
-                ast.Field(chain=["distinct_id"]),
+                ast.Alias(
+                    alias="entity_id",
+                    expr=ast.Field(chain=["distinct_id"]),
+                ),
                 parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
                 parse_expr("min(timestamp) as first_exposure_time"),
             ],
@@ -163,7 +166,7 @@ class ExperimentQueryRunner(QueryRunner):
                     *test_accounts_filter,
                 ]
             ),
-            group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["distinct_id"])],
+            group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])],
         )
 
         match self.metric.metric_config:
@@ -175,8 +178,8 @@ class ExperimentQueryRunner(QueryRunner):
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
                         ),
                         ast.Alias(
-                            alias="distinct_id",
-                            expr=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
+                            alias="entity_id",
+                            expr=ast.Field(chain=["exposure", "entity_id"]),
                         ),
                         ast.Field(chain=["exposure", "variant"]),
                         parse_expr(f"{metric_value} as value"),
@@ -190,7 +193,7 @@ class ExperimentQueryRunner(QueryRunner):
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
                                     left=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
-                                    right=ast.Field(chain=["exposure", "distinct_id"]),
+                                    right=ast.Field(chain=["exposure", "entity_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -216,7 +219,7 @@ class ExperimentQueryRunner(QueryRunner):
                 events_after_exposure_query = ast.SelectQuery(
                     select=[
                         ast.Field(chain=["events", "timestamp"]),
-                        ast.Field(chain=["events", "distinct_id"]),
+                        ast.Field(chain=["exposure", "entity_id"]),
                         ast.Field(chain=["exposure", "variant"]),
                         ast.Field(chain=["events", "event"]),
                         parse_expr(f"{metric_value} as value"),
@@ -229,8 +232,10 @@ class ExperimentQueryRunner(QueryRunner):
                             alias="exposure",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
+                                    # TODO: Hard coding person_id for now, but this should be dynamic from the experiment
+                                    # config
                                     left=ast.Field(chain=["events", "distinct_id"]),
-                                    right=ast.Field(chain=["exposure", "distinct_id"]),
+                                    right=ast.Field(chain=["exposure", "entity_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -253,7 +258,7 @@ class ExperimentQueryRunner(QueryRunner):
         metrics_aggregated_per_entity_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["base", "variant"]),
-                ast.Field(chain=["base", "distinct_id"]),
+                ast.Field(chain=["base", "entity_id"]),
                 parse_expr("sum(coalesce(eae.value, 0)) as value"),
             ],
             select_from=ast.JoinExpr(
@@ -267,8 +272,8 @@ class ExperimentQueryRunner(QueryRunner):
                         expr=ast.And(
                             exprs=[
                                 ast.CompareOperation(
-                                    left=ast.Field(chain=["base", "distinct_id"]),
-                                    right=ast.Field(chain=["eae", "distinct_id"]),
+                                    left=ast.Field(chain=["base", "entity_id"]),
+                                    right=ast.Field(chain=["eae", "entity_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 ast.CompareOperation(
@@ -284,7 +289,7 @@ class ExperimentQueryRunner(QueryRunner):
             ),
             group_by=[
                 ast.Field(chain=["base", "variant"]),
-                ast.Field(chain=["base", "distinct_id"]),
+                ast.Field(chain=["base", "entity_id"]),
             ],
         )
 
@@ -294,7 +299,7 @@ class ExperimentQueryRunner(QueryRunner):
         experiment_variant_results_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["maq", "variant"]),
-                parse_expr("count(maq.distinct_id) as num_users"),
+                parse_expr("count(maq.entity_id) as num_users"),
                 parse_expr("sum(maq.value) as total_sum"),
                 parse_expr("sum(power(maq.value, 2)) as total_sum_of_squares"),
             ],
