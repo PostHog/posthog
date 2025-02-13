@@ -1,11 +1,9 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { ClampedText } from 'lib/lemon-ui/ClampedText'
 import { humanFriendlyLargeNumber } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
 export const Metadata = (): JSX.Element => {
@@ -35,16 +33,7 @@ export const Metadata = (): JSX.Element => {
 
     return (
         <div className="space-y-1">
-            {issue && issue.description ? (
-                <ClampedText
-                    text={
-                        "THis is some really long text that I don't want to have to writeTHis is some really long text that I don't want to have to writeTHis is some really long text that I don't want to have to writeTHis is some really long text that I don't want to have to writeTHis"
-                    }
-                    maxLines={2}
-                />
-            ) : (
-                <LemonSkeleton />
-            )}
+            {issue && issue.description ? <ClampedText text={issue.description} lines={2} /> : <LemonSkeleton />}
             <div className="flex flex-1 justify-between">
                 <div className="flex items-end space-x-6">
                     <div>
@@ -82,44 +71,6 @@ export const Metadata = (): JSX.Element => {
                     </div>
                 </div>
             </div>
-        </div>
-    )
-}
-
-const ClampedText = ({ text, maxLines }: { text: string; maxLines: number }): JSX.Element => {
-    const [needsClamping, setNeedsClamping] = useState(false)
-    const [expanded, setExpanded] = useState(false)
-    const textRef = useRef<HTMLDivElement>(null)
-    const { height } = useResizeObserver({ ref: textRef })
-
-    useEffect(() => {
-        // debugger
-        if (textRef.current && height) {
-            const computedStyle = window.getComputedStyle(textRef.current)
-            const lineHeight = parseInt(computedStyle.lineHeight)
-            const maxHeight = maxLines * lineHeight
-
-            const shouldClamp = height > maxHeight
-            setNeedsClamping(shouldClamp)
-
-            if (shouldClamp && shouldClamp != needsClamping) {
-                setExpanded(false)
-            }
-
-            // if (shouldClamp) {
-            //     setExpanded(textRef.current.scrollHeight >= maxHeight)
-            // } else {
-            //     setExpanded(false)
-            // }
-        }
-    }, [text, maxLines, height])
-
-    return (
-        <div>
-            <div ref={textRef} className={clsx('italic', needsClamping && !expanded ? 'line-clamp-2' : null)}>
-                {text}
-            </div>
-            {needsClamping && <Link onClick={() => setExpanded(!expanded)}>{expanded ? 'See less' : 'See more'}</Link>}
         </div>
     )
 }
