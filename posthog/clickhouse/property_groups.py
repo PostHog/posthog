@@ -30,6 +30,28 @@ class PropertyGroupDefinition:
     def get_column_name(self, column: ColumnName, group_name: PropertyGroupName):
         return f"{column}_{self.column_type_name}_{group_name}"
 
+    def get_column_definition(self, column: ColumnName, group_name: PropertyGroupName):
+        column_definition = f"{self.get_column_name(column, group_name)} Map(String, String)"
+        if not self.is_materialized:
+            return column_definition
+
+        return f"""\
+            {column_definition}
+            MATERIALIZED mapSort(
+                mapFilter((key, _) -> {self.key_filter_expression},
+                CAST(JSONExtractKeysAndValues({column}, 'String'), 'Map(String, String)'))
+            )
+            CODEC({self.codec})
+        """
+
+    def get_index_definitions(self, column: ColumnName, group_name: PropertyGroupName) -> Iterable[str]:
+        if not self.is_materialized:
+            return
+
+        map_column_name = self.get_column_name(column, group_name)
+        yield f"{map_column_name}_keys_bf mapKeys({map_column_name}) TYPE bloom_filter"
+        yield f"{map_column_name}_values_bf mapValues({map_column_name}) TYPE bloom_filter"
+
 
 class PropertyGroupManager:
     def __init__(
@@ -51,41 +73,15 @@ class PropertyGroupManager:
                 if group_definition.contains(property_key):
                     yield group_definition.get_column_name(column, group_name)
 
-    def __get_column_definition(self, table: TableName, column: ColumnName, group_name: PropertyGroupName) -> str:
-        group_definition = self.__groups[table][column][group_name]
-        column_definition = f"{group_definition.get_column_name(column, group_name)} Map(String, String)"
-        if not group_definition.is_materialized:
-            return column_definition
-        else:
-            return f"""\
-                {column_definition}
-                MATERIALIZED mapSort(
-                    mapFilter((key, _) -> {group_definition.key_filter_expression},
-                    CAST(JSONExtractKeysAndValues({column}, 'String'), 'Map(String, String)'))
-                )
-                CODEC({group_definition.codec})
-            """
-
-    def __get_index_definitions(
-        self, table: TableName, column: ColumnName, group_name: PropertyGroupName
-    ) -> Iterable[str]:
-        group_definition = self.__groups[table][column][group_name]
-        if not group_definition.is_materialized:
-            return
-
-        map_column_name = group_definition.get_column_name(column, group_name)
-        yield f"{map_column_name}_keys_bf mapKeys({map_column_name}) TYPE bloom_filter"
-        yield f"{map_column_name}_values_bf mapValues({map_column_name}) TYPE bloom_filter"
-
     def get_create_table_pieces(self, table: TableName) -> Iterable[str]:
         """
         Returns an iterable of SQL DDL chunks that can be used to define all property groups for the provided table as
         part of a CREATE TABLE statement.
         """
         for column, groups in self.__groups[table].items():
-            for group_name in groups:
-                yield self.__get_column_definition(table, column, group_name)
-                for index_definition in self.__get_index_definitions(table, column, group_name):
+            for group_name, group_definition in groups.items():
+                yield group_definition.get_column_definition(column, group_name)
+                for index_definition in group_definition.get_index_definitions(column, group_name):
                     yield f"INDEX {index_definition}"
 
     def get_alter_create_statements(
@@ -103,8 +99,9 @@ class PropertyGroupManager:
         if on_cluster:
             prefix += f" ON CLUSTER {self.__cluster}"
 
-        yield f"{prefix} ADD COLUMN IF NOT EXISTS {self.__get_column_definition(table, column, group_name)}"
-        for index_definition in self.__get_index_definitions(table, column, group_name):
+        group_definition = self.__groups[table][column][group_name]
+        yield f"{prefix} ADD COLUMN IF NOT EXISTS {group_definition.get_column_definition(column, group_name)}"
+        for index_definition in group_definition.get_index_definitions(column, group_name):
             yield f"{prefix} ADD INDEX IF NOT EXISTS {index_definition}"
 
 
@@ -166,6 +163,8 @@ property_groups = PropertyGroupManager(
     {
         "sharded_events": event_property_group_definitions,
         "events": {
+            # the events distributed table shares the same property group names and types as the sharded_events table,
+            # just without the materialize statements
             column_name: {
                 group_name: dataclasses.replace(group_definition, is_materialized=False)
                 for group_name, group_definition in column_group_definitions.items()
