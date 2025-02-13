@@ -511,7 +511,7 @@ async def initialize_self_capture_api_token():
             await User.objects.filter(last_login__isnull=False)
             .order_by("-last_login")
             .select_related("current_team")
-            .aget()
+            .afirst()
         )
         # Get the current user's team (or first team in the instance) to set self capture configs
         team = None
