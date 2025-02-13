@@ -88,10 +88,7 @@ export const errorTrackingIssueEventsQuery = ({
 
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = group.values as AnyPropertyFilter[]
-
-    // TODO: fix this where clause. It does not take into account the events
-    // associated with issues that have been merged into this primary issue
-    const where = [`'${issue.id}' == properties.$exception_issue_id`]
+    const where = [`'${issue.id}' == issued_id`]
 
     const eventsQuery: EventsQuery = {
         kind: NodeKind.EventsQuery,
