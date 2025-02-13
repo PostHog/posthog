@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 
 TableName = str
-ColumnName = str
+PropertySourceColumnName = str
 PropertyGroupName = str
 
 
@@ -25,11 +25,11 @@ class PropertyGroupDefinition:
         else:
             return self.key_filter_function(property_key)
 
-    def get_column_name(self, column: ColumnName, group_name: PropertyGroupName):
-        return f"{column}_{self.column_type_name}_{group_name}"
+    def get_column_name(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName):
+        return f"{source_column}_{self.column_type_name}_{group_name}"
 
-    def get_column_definition(self, column: ColumnName, group_name: PropertyGroupName):
-        column_definition = f"{self.get_column_name(column, group_name)} Map(String, String)"
+    def get_column_definition(self, source_column: PropertySourceColumnName, group_name: PropertyGroupName):
+        column_definition = f"{self.get_column_name(source_column, group_name)} Map(String, String)"
         if not self.is_materialized:
             return column_definition
 
@@ -37,16 +37,18 @@ class PropertyGroupDefinition:
             {column_definition}
             MATERIALIZED mapSort(
                 mapFilter((key, _) -> {self.key_filter_expression},
-                CAST(JSONExtractKeysAndValues({column}, 'String'), 'Map(String, String)'))
+                CAST(JSONExtractKeysAndValues({source_column}, 'String'), 'Map(String, String)'))
             )
             CODEC({self.codec})
         """
 
-    def get_index_definitions(self, column: ColumnName, group_name: PropertyGroupName) -> Iterable[str]:
+    def get_index_definitions(
+        self, source_column: PropertySourceColumnName, group_name: PropertyGroupName
+    ) -> Iterable[str]:
         if not self.is_materialized:
             return
 
-        map_column_name = self.get_column_name(column, group_name)
+        map_column_name = self.get_column_name(source_column, group_name)
         yield f"{map_column_name}_keys_bf mapKeys({map_column_name}) TYPE bloom_filter"
         yield f"{map_column_name}_values_bf mapValues({map_column_name}) TYPE bloom_filter"
 
@@ -54,36 +56,40 @@ class PropertyGroupDefinition:
 class PropertyGroupManager:
     def __init__(
         self,
-        groups: Mapping[TableName, Mapping[ColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]],
+        groups: Mapping[
+            TableName, Mapping[PropertySourceColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]
+        ],
     ) -> None:
         self.__groups = groups
 
-    def get_property_group_columns(self, table: TableName, column: ColumnName, property_key: str) -> Iterable[str]:
+    def get_property_group_columns(
+        self, table: TableName, source_column: PropertySourceColumnName, property_key: str
+    ) -> Iterable[str]:
         """
         Returns an iterable of column names for the map columns responsible for the provided property key and source
         column. The iterable may contain zero items if no maps contain the property key, or multiple items if more than
         one map if the keyspaces of the defined groups for that source column are overlapping.
         """
-        if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(column)):
+        if (table_groups := self.__groups.get(table)) and (column_groups := table_groups.get(source_column)):
             for group_name, group_definition in column_groups.items():
                 if group_definition.contains(property_key):
-                    yield group_definition.get_column_name(column, group_name)
+                    yield group_definition.get_column_name(source_column, group_name)
 
     def get_create_table_pieces(self, table: TableName) -> Iterable[str]:
         """
         Returns an iterable of SQL DDL chunks that can be used to define all property groups for the provided table as
         part of a CREATE TABLE statement.
         """
-        for column, groups in self.__groups[table].items():
+        for source_column, groups in self.__groups[table].items():
             for group_name, group_definition in groups.items():
-                yield group_definition.get_column_definition(column, group_name)
-                for index_definition in group_definition.get_index_definitions(column, group_name):
+                yield group_definition.get_column_definition(source_column, group_name)
+                for index_definition in group_definition.get_index_definitions(source_column, group_name):
                     yield f"INDEX {index_definition}"
 
     def get_alter_create_statements(
         self,
         table: TableName,
-        column: ColumnName,
+        source_column: PropertySourceColumnName,
         group_name: PropertyGroupName,
         cluster: str | None = None,
     ) -> Iterable[str]:
@@ -95,9 +101,9 @@ class PropertyGroupManager:
         if cluster is not None:
             prefix += f" ON CLUSTER {cluster}"
 
-        group_definition = self.__groups[table][column][group_name]
-        yield f"{prefix} ADD COLUMN IF NOT EXISTS {group_definition.get_column_definition(column, group_name)}"
-        for index_definition in group_definition.get_index_definitions(column, group_name):
+        group_definition = self.__groups[table][source_column][group_name]
+        yield f"{prefix} ADD COLUMN IF NOT EXISTS {group_definition.get_column_definition(source_column, group_name)}"
+        for index_definition in group_definition.get_index_definitions(source_column, group_name):
             yield f"{prefix} ADD INDEX IF NOT EXISTS {index_definition}"
 
 
