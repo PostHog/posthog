@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import {
     appEditorUrl,
@@ -42,19 +42,35 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
         return <></>
     }
 
+    // Currently heatmaps only support pathnames,
+    // so we ignore the other breakdown types
+    if (!VALID_BREAKDOWN_VALUES.has(breakdownBy)) {
+        return <></>
+    }
+
     // KLUDGE: We don't have any idea what domain the pathname belongs to, but we *need* the domain
     // to make it work on heatmaps. For now, let's just assume it's the main authorized domain,
     // and they'll notice the error. We're working on adding domain filtering to Web Analytics,
     // once that's live we can come back and fix this
     const domain = authorizedUrls[0]
     if (!domain) {
-        return <></>
-    }
-
-    // Currently heatmaps only support pathnames,
-    // so we ignore the other breakdown types
-    if (!VALID_BREAKDOWN_VALUES.has(breakdownBy)) {
-        return <></>
+        return (
+            <LemonButton
+                icon={<IconHeatmap />}
+                type="tertiary"
+                size="xsmall"
+                disabledReason={
+                    <span>
+                        No authorized URLs found. Authorize them first in{' '}
+                        <Link target="blank" to={urls.toolbarLaunch()}>
+                            the toolbar settings
+                        </Link>
+                        .
+                    </span>
+                }
+                onClick={(e) => e.stopPropagation()}
+            />
+        )
     }
 
     // Heatmap doesn't support filters (yet), so we're simply passing the page URL in
