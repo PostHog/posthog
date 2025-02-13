@@ -156,6 +156,7 @@ impl DataSource for UrlList {
                         "Encountered error when fetching chunk: {:?}, remaining retries: {}",
                         e, retries
                     );
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                     retries -= 1;
                 }
             }
