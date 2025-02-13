@@ -1,4 +1,4 @@
-import { IconRewindPlay, IconTrending, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconRewindPlay, IconTrending, IconWarning } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -7,7 +7,7 @@ import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconOpenInNew, IconSort, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -274,35 +274,32 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
 const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): QueryContextColumnTitleComponent =>
     function SortableCell() {
         const { tablesOrderBy } = useValues(webAnalyticsLogic)
-        const { clearTablesOrderBy, setTablesOrderBy } = useActions(webAnalyticsLogic)
+        const { setTablesOrderBy } = useActions(webAnalyticsLogic)
         const { featureFlags } = useValues(featureFlagLogic)
 
         const isSortedByMyField = tablesOrderBy?.[0] === orderByField
         const isAscending = tablesOrderBy?.[1] === 'ASC'
-        const isDescending = tablesOrderBy?.[1] === 'DESC'
 
         // Toggle between DESC, ASC, and no sort, in this order
         const onClick = useCallback(() => {
-            if (!isSortedByMyField) {
+            if (!isSortedByMyField || isAscending) {
                 setTablesOrderBy(orderByField, 'DESC')
-            } else if (isDescending) {
-                setTablesOrderBy(orderByField, 'ASC')
             } else {
-                clearTablesOrderBy()
+                setTablesOrderBy(orderByField, 'ASC')
             }
-        }, [clearTablesOrderBy, isDescending, isSortedByMyField, setTablesOrderBy])
+        }, [isAscending, isSortedByMyField, setTablesOrderBy])
 
         if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TABLE_SORTING]) {
             return <span className="pr-5">{name}</span>
         }
 
         return (
-            <span onClick={onClick}>
+            <span onClick={onClick} className="group cursor-pointer inline-flex items-center">
                 {name}
-                <IconSort
-                    fontSize="14px"
-                    className={clsx('ml-1 cursor-pointer text-muted-alt', {
-                        'text-primary': isSortedByMyField,
+                <IconChevronDown
+                    fontSize="20px"
+                    className={clsx('ml-1 text-muted-alt opacity-0 group-hover:opacity-100', {
+                        'text-primary opacity-100': isSortedByMyField,
                         'rotate-180': isSortedByMyField && isAscending,
                     })}
                 />
