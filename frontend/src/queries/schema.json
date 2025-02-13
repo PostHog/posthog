@@ -13981,12 +13981,15 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "StickinessComputationMode": {
+            "enum": ["non_cumulative", "cumulative"],
+            "type": "string"
+        },
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
-                "cumulative": {
-                    "default": false,
-                    "type": "boolean"
+                "computedAs": {
+                    "$ref": "#/definitions/StickinessComputationMode"
                 },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"

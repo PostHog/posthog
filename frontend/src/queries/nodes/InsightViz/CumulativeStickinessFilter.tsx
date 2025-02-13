@@ -1,7 +1,8 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { StickinessComputationModes } from '~/queries/schema'
 import { EditorFilterProps } from '~/types'
 
 export function CumulativeStickinessFilter({ insightProps }: EditorFilterProps): JSX.Element {
@@ -9,15 +10,27 @@ export function CumulativeStickinessFilter({ insightProps }: EditorFilterProps):
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     return (
-        <LemonSwitch
-            data-attr="cumulative-stickiness-toggle"
-            onChange={(checked) => {
+        <LemonSelect
+            className="w-48"
+            data-attr="stickiness-mode-select"
+            value={stickinessFilter?.computedAs || StickinessComputationModes.NonCumulative}
+            onChange={(value) => {
                 updateInsightFilter({
-                    cumulative: checked,
+                    computedAs: value,
                 })
             }}
-            checked={!!stickinessFilter?.cumulative}
-            label="Show cumulative values"
+            options={[
+                {
+                    label: 'Non-cumulative',
+                    value: StickinessComputationModes.NonCumulative,
+                    tooltip: 'Show exact number of users active for each number of days',
+                },
+                {
+                    label: 'Cumulative',
+                    value: StickinessComputationModes.Cumulative,
+                    tooltip: 'Show number of users active for at least N days',
+                },
+            ]}
         />
     )
 }

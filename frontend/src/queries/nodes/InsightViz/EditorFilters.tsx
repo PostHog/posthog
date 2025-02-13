@@ -214,14 +214,15 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           key: 'cumulativeStickiness',
                           label: () => (
                               <div className="flex">
-                                  <span>Cumulative Values</span>
+                                  <span>Compute as</span>
                                   <Tooltip
                                       closeDelayMs={200}
                                       title={
                                           <div className="space-y-2">
                                               <div>
-                                                  Show cumulative stickiness values, where each point represents users
-                                                  who were active for that many days or more.
+                                                  Choose how to compute stickiness values. Non-cumulative shows exact
+                                                  numbers for each day count, while cumulative shows users active for at
+                                                  least that many days.
                                               </div>
                                           </div>
                                       }
