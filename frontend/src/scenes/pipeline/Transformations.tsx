@@ -1,6 +1,4 @@
-import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { LemonBadge, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -16,7 +14,6 @@ import { TRANSFORMATION_TYPES } from './destinations/constants'
 import { Destinations } from './destinations/Destinations'
 import { NewButton } from './NewButton'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
-import { PluginImage } from './PipelinePluginImage'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { Transformation } from './types'
 import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
@@ -145,30 +142,5 @@ export const TransformationsMoreOverlay = ({
                 ),
             ]}
         />
-    )
-}
-
-const MinimalAppView = ({ transformation, order }: { transformation: Transformation; order: number }): JSX.Element => {
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-        id: transformation.id,
-    })
-
-    return (
-        <div
-            ref={setNodeRef}
-            className="relative flex items-center gap-2 p-2 border rounded cursor-move bg-surface-primary"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                transform: CSS.Transform.toString(transform),
-                transition,
-                zIndex: isDragging ? 999999 : undefined,
-            }}
-            {...attributes}
-            {...listeners}
-        >
-            <LemonBadge.Number count={order + 1} maxDigits={3} />
-            <PluginImage plugin={transformation.plugin} size="small" />
-            <span className="font-semibold">{transformation.name}</span>
-        </div>
     )
 }
