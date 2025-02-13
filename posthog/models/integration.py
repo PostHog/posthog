@@ -81,8 +81,11 @@ class Integration(models.Model):
     @property
     def display_name(self) -> str:
         if self.kind in OauthIntegration.supported_kinds:
-            oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
-            return dot_get(self.config, oauth_config.name_path, self.integration_id)
+            try:
+                oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
+                return dot_get(self.config, oauth_config.name_path, self.integration_id)
+            except Exception:
+                return self.kind
         if self.kind in GoogleCloudIntegration.supported_kinds:
             return self.integration_id or "unknown ID"
 
