@@ -2,8 +2,6 @@ import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
-from posthog import settings
-
 
 TableName = str
 ColumnName = str
@@ -56,10 +54,8 @@ class PropertyGroupDefinition:
 class PropertyGroupManager:
     def __init__(
         self,
-        cluster: str,
         groups: Mapping[TableName, Mapping[ColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]],
     ) -> None:
-        self.__cluster = cluster
         self.__groups = groups
 
     def get_property_group_columns(self, table: TableName, column: ColumnName, property_key: str) -> Iterable[str]:
@@ -89,15 +85,15 @@ class PropertyGroupManager:
         table: TableName,
         column: ColumnName,
         group_name: PropertyGroupName,
-        on_cluster: bool = False,
+        cluster: str | None = None,
     ) -> Iterable[str]:
         """
         Returns an iterable of ALTER TABLE statements that can be used to create the property group (e.g. as part of a
         migration) if it doesn't already exist.
         """
         prefix = f"ALTER TABLE {table}"
-        if on_cluster:
-            prefix += f" ON CLUSTER {self.__cluster}"
+        if cluster is not None:
+            prefix += f" ON CLUSTER {cluster}"
 
         group_definition = self.__groups[table][column][group_name]
         yield f"{prefix} ADD COLUMN IF NOT EXISTS {group_definition.get_column_definition(column, group_name)}"
@@ -159,7 +155,6 @@ event_property_group_definitions = {
 }
 
 property_groups = PropertyGroupManager(
-    settings.CLICKHOUSE_CLUSTER,
     {
         "sharded_events": event_property_group_definitions,
         "events": {
@@ -171,5 +166,5 @@ property_groups = PropertyGroupManager(
             }
             for column_name, column_group_definitions in event_property_group_definitions.items()
         },
-    },
+    }
 )
