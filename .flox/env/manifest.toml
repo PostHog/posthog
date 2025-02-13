@@ -147,6 +147,11 @@ bash = '''
 '''
 zsh = '''
   source "$PYTHON_DIR/bin/activate"
+  if [[ -f "$HOME/.zshrc" ]]; then
+    source "$HOME/.zshrc"
+    # ensure even with your shell prefs in place we know this is a Flox.dev env
+    export PS1="%K{white}%F{black}(flox)%k%f $PS1"
+  fi
 '''
 fish = '''
   source "$PYTHON_DIR/bin/activate.fish"
