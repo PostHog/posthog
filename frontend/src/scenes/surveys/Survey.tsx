@@ -28,15 +28,20 @@ export const scene: SceneExport = {
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
-    const { editingSurvey, setSelectedPageIndex } = useActions(surveyLogic)
+    const { editingSurvey, setSelectedPageIndex, setPropertyFilters } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
 
+    /**
+     * Logic that cleans up surveyLogic state when the component unmounts.
+     * Necessary so if we load another survey, we don't have the old survey's state in the logic for things like editing, filters, preview, etc.
+     */
     useEffect(() => {
         return () => {
             editingSurvey(false)
             setSelectedPageIndex(0)
+            setPropertyFilters([])
         }
-    }, [editingSurvey, setSelectedPageIndex])
+    }, [editingSurvey, setSelectedPageIndex, setPropertyFilters])
 
     if (surveyMissing) {
         return <NotFound object="survey" />

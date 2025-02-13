@@ -10,14 +10,16 @@ import pyarrow as pa
 import temporalio.common
 from django.conf import settings
 
-from posthog.batch_exports.service import BackfillDetails
+from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
+from posthog.models import Team
 from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.temporal.batch_exports import sql
 from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
     DateRange,
@@ -478,6 +480,140 @@ async def run_consumer(
     return records_completed
 
 
+Query = str
+QueryParameters = dict[str, typing.Any]
+BatchExportDateRange = tuple[dt.datetime | None, dt.datetime]
+
+
+class RecordBatchModel(abc.ABC):
+    """Base class for models that can be produced as record batches."""
+
+    def __init__(self, team_id: int):
+        self.team_id = team_id
+
+    async def get_hogql_context(self, team_id: int) -> HogQLContext:
+        """Return a HogQLContext to generate a ClickHouse query."""
+        team = await Team.objects.aget(id=team_id)
+        context = HogQLContext(
+            team=team,
+            team_id=team.id,
+            enable_select_queries=True,
+            limit_top_select=False,
+        )
+        context.database = await database_sync_to_async(create_hogql_database)(team.id, context.modifiers)
+
+        return context
+
+    @abc.abstractmethod
+    async def as_query_with_parameters(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> tuple[Query, QueryParameters]:
+        """Produce a printed query and any necessary ClickHouse query parameters."""
+        raise NotImplementedError
+
+
+class SessionsRecordBatchModel(RecordBatchModel):
+    """A model to produce record batches from the sessions table.
+
+    Attributes:
+       team_id: The ID of the team we are producing records for.
+    """
+
+    def __init__(self, team_id: int):
+        super().__init__(team_id)
+
+    def get_hogql_query(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> ast.SelectQuery:
+        """Return the HogQLQuery used for the sessions model."""
+        hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
+
+        where_and = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["sessions", "team_id"]),
+                    right=ast.Constant(value=self.team_id),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["_inserted_at"]),
+                    right=ast.Constant(value=data_interval_end),
+                ),
+            ]
+        )
+        if data_interval_start is not None:
+            where_and.exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["_inserted_at"]),
+                    right=ast.Constant(value=data_interval_start),
+                )
+            )
+
+        hogql_query.where = where_and
+
+        return hogql_query
+
+    async def as_query_with_parameters(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> tuple[Query, QueryParameters]:
+        """Produce a printed query and any necessary ClickHouse query parameters."""
+        hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
+        context = await self.get_hogql_context(self.team_id)
+
+        prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+            hogql_query, context=context, dialect="clickhouse", stack=[]
+        )
+        context.output_format = "ArrowStream"
+        printed = print_prepared_ast(
+            prepared_hogql_query,
+            context=context,
+            dialect="clickhouse",
+            stack=[],
+        )
+        return printed, context.values
+
+
+def resolve_batch_exports_model(
+    team_id: int,
+    is_backfill: bool,
+    batch_export_model: BatchExportModel | None = None,
+    batch_export_schema: BatchExportSchema | None = None,
+):
+    """Resolve which model and model parameters to use for a batch export.
+
+    This function exists to isolate a lot of repetitive checks that deal with deprecated
+    and new parameters. Eventually, once everything is a `RecordBatchModel`, this could
+    be removed.
+    """
+    model: BatchExportModel | BatchExportSchema | None = None
+    record_batch_model = None
+    if batch_export_schema is None:
+        model = batch_export_model
+        if model is not None:
+            model_name = model.name
+            extra_query_parameters = model.schema["values"] if model.schema is not None else None
+            fields = model.schema["fields"] if model.schema is not None else None
+            filters = model.filters
+
+            if model_name == "sessions":
+                record_batch_model = SessionsRecordBatchModel(team_id)
+        else:
+            model_name = "events"
+            extra_query_parameters = None
+            fields = None
+            filters = None
+    else:
+        model = batch_export_schema
+        model_name = "custom"
+        extra_query_parameters = model["values"] if model is not None else {}
+        fields = model["fields"] if model is not None else None
+        filters = None
+
+    return model, record_batch_model, model_name, fields, filters, extra_query_parameters
+
+
 class BatchExportField(typing.TypedDict):
     """A field to be queried from ClickHouse.
 
@@ -553,9 +689,10 @@ class Producer:
         _task: Used to keep track of producer background task.
     """
 
-    def __init__(self):
-        self._task: asyncio.Task | None = None
+    def __init__(self, model: RecordBatchModel | None = None):
+        self.model = model
         self.logger = get_internal_logger()
+        self._task: asyncio.Task | None = None
 
     @property
     def task(self) -> asyncio.Task:
@@ -564,6 +701,63 @@ class Producer:
         return self._task
 
     async def start(
+        self,
+        queue: RecordBatchQueue,
+        full_range: tuple[dt.datetime | None, dt.datetime],
+        done_ranges: list[tuple[dt.datetime, dt.datetime]],
+        is_backfill: bool,
+        backfill_details: BackfillDetails | None,
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
+        **kwargs,
+    ) -> asyncio.Task:
+        """Dispatch to one of two implementations, depending on `self.model`."""
+        if self.model is not None:
+            return await self.start_with_model(
+                queue=queue,
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                full_range=full_range,
+                done_ranges=done_ranges,
+            )
+        else:
+            return await self.start_without_model(
+                queue=queue,
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                full_range=full_range,
+                done_ranges=done_ranges,
+                is_backfill=is_backfill,
+                backfill_details=backfill_details,
+                **kwargs,
+            )
+
+    async def start_with_model(
+        self,
+        queue: RecordBatchQueue,
+        full_range: tuple[dt.datetime | None, dt.datetime],
+        done_ranges: list[tuple[dt.datetime, dt.datetime]],
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
+    ):
+        assert self.model is not None
+
+        self._task = asyncio.create_task(
+            self.produce_batch_export_record_batches_from_range(
+                query_or_model=self.model,
+                full_range=full_range,
+                done_ranges=done_ranges,
+                queue=queue,
+                query_parameters={},
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                team_id=self.model.team_id,
+            ),
+            name="record_batch_producer",
+        )
+        return self._task
+
+    async def start_without_model(
         self,
         queue: RecordBatchQueue,
         model_name: str,
@@ -664,7 +858,7 @@ class Producer:
 
         self._task = asyncio.create_task(
             self.produce_batch_export_record_batches_from_range(
-                query=query,
+                query_or_model=query,
                 full_range=full_range,
                 done_ranges=done_ranges,
                 queue=queue,
@@ -672,7 +866,6 @@ class Producer:
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
                 team_id=team_id,
-                is_backfill=is_backfill,
             ),
             name="record_batch_producer",
         )
@@ -681,13 +874,12 @@ class Producer:
 
     async def produce_batch_export_record_batches_from_range(
         self,
-        query: str,
+        query_or_model: str | RecordBatchModel,
         full_range: tuple[dt.datetime | None, dt.datetime],
         done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
         queue: RecordBatchQueue,
         query_parameters: dict[str, typing.Any],
         team_id: int,
-        is_backfill: bool,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
     ):
@@ -702,7 +894,6 @@ class Producer:
             queue: The queue where to produce record batches.
             query_parameters: Additional query parameters.
             team_id: The team ID of the batch export.
-            is_backfill: Whether the batch export is a backfill.
             max_record_batch_size_bytes: The max size in bytes of a record batch to insert in `queue`.
                 If a record batch is larger than this, `slice_record_batch` will be used to slice it
                 into smaller record batches.
@@ -733,6 +924,13 @@ class Producer:
                     query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_id = uuid.uuid4()
+
+                if isinstance(query_or_model, RecordBatchModel):
+                    query, query_parameters = await query_or_model.as_query_with_parameters(
+                        interval_start, interval_end
+                    )
+                else:
+                    query = query_or_model
 
                 try:
                     async for record_batch in client.astream_query_as_arrow(
@@ -871,8 +1069,6 @@ def compose_filters_clause(
         A printed string with the ClickHouse SQL clause, and a dictionary
         of placeholder to values to be used as query parameters.
     """
-    from posthog.models import Team
-
     team = Team.objects.get(id=team_id)
     context = HogQLContext(
         team=team,

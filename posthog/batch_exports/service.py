@@ -539,7 +539,7 @@ def create_batch_export_run(
     data_interval_start: str | None,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
-    records_total_count: int | None = None,
+    backfill_id: UUID | None = None,
 ) -> BatchExportRun:
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -551,45 +551,16 @@ def create_batch_export_run(
         data_interval_start: The start of the period of data exported in this BatchExportRun.
         data_interval_end: The end of the period of data exported in this BatchExportRun.
         status: The initial status for the created BatchExportRun.
+        backfill_id: The UUID of the BatchExportBackfill the BatchExportRun belongs to (if any).
     """
     run = BatchExportRun(
         batch_export_id=batch_export_id,
         status=status,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start) if data_interval_start else None,
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
-        records_total_count=records_total_count,
+        backfill_id=backfill_id,
     )
     run.save()
-
-    return run
-
-
-async def acreate_batch_export_run(
-    batch_export_id: UUID,
-    data_interval_start: str,
-    data_interval_end: str,
-    status: str = BatchExportRun.Status.STARTING,
-    records_total_count: int | None = None,
-) -> BatchExportRun:
-    """Create a BatchExportRun after a Temporal Workflow execution.
-
-    In a first approach, this method is intended to be called only by Temporal Workflows,
-    as only the Workflows themselves can know when they start.
-
-    Args:
-        batch_export_id: The UUID of the BatchExport the BatchExportRun to create belongs to.
-        data_interval_start: The start of the period of data exported in this BatchExportRun.
-        data_interval_end: The end of the period of data exported in this BatchExportRun.
-        status: The initial status for the created BatchExportRun.
-    """
-    run = BatchExportRun(
-        batch_export_id=batch_export_id,
-        status=status,
-        data_interval_start=dt.datetime.fromisoformat(data_interval_start),
-        data_interval_end=dt.datetime.fromisoformat(data_interval_end),
-        records_total_count=records_total_count,
-    )
-    await run.asave()
 
     return run
 
@@ -877,9 +848,10 @@ def fetch_earliest_backfill_start_at(
         exclude_events = exclude_events or []
         include_events = include_events or []
         query = """
-            SELECT toStartOfInterval(MIN(timestamp), INTERVAL %(interval_seconds)s SECONDS)
+            SELECT MIN(toStartOfInterval(timestamp, INTERVAL %(interval_seconds)s SECONDS))
             FROM events
             WHERE team_id = %(team_id)s
+            AND timestamp > '2000-01-01'
             AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
             AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
         """
@@ -925,7 +897,7 @@ def fetch_earliest_backfill_start_at(
             return None
         return min(results)
     else:
-        raise ValueError(f"Invalid model: {model}")
+        raise NotImplementedError(f"Invalid model: {model}")
 
 
 @dataclass(kw_only=True)

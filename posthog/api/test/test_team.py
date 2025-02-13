@@ -1184,6 +1184,53 @@ def team_api_test_factory():
                 team=self.team,
             )
 
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        def test_can_complete_product_onboarding_as_member(
+            self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
+        ) -> None:
+            from ee.models import ExplicitTeamMembership
+
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            self.team.access_control = True
+            self.team.save()
+            ExplicitTeamMembership.objects.create(
+                team=self.team,
+                parent_membership=self.organization_membership,
+                level=ExplicitTeamMembership.Level.MEMBER,
+            )
+
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            with freeze_time("2024-01-01T00:00:00Z"):
+                product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
+            assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            assert product_intent.onboarding_completed_at is None
+            with freeze_time("2024-01-05T00:00:00Z"):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/complete_product_onboarding/",
+                    {"product_type": "product_analytics"},
+                    headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+                )
+            assert response.status_code == status.HTTP_200_OK
+            product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+            assert product_intent.onboarding_completed_at == datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC)
+            mock_report_user_action.assert_called_once_with(
+                self.user,
+                "product onboarding completed",
+                {
+                    "product_key": "product_analytics",
+                    "$current_url": "https://posthogtest.com/my-url",
+                    "$session_id": "test_session_id",
+                    "intent_context": None,
+                    "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
+                    "realm": get_instance_realm(),
+                },
+                team=self.team,
+            )
+
         def _create_other_org_and_team(
             self, membership_level: OrganizationMembership.Level = OrganizationMembership.Level.ADMIN
         ):
