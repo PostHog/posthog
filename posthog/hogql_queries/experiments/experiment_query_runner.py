@@ -37,7 +37,6 @@ from posthog.schema import (
     ExperimentQueryResponse,
     ExperimentSignificanceCode,
     ExperimentQuery,
-    ExperimentTrendsQueryResponse,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
     DateRange,
@@ -315,9 +314,8 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-        variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] = []
         if self.metric.metric_type == ExperimentMetricType.FUNNEL:
-            variants = [
+            return [
                 ExperimentVariantFunnelsBaseStats(
                     failure_count=result[1] - result[2],
                     key=result[0],
@@ -325,20 +323,18 @@ class ExperimentQueryRunner(QueryRunner):
                 )
                 for result in response.results
             ]
-        else:
-            variants = [
-                ExperimentVariantTrendsBaseStats(
-                    absolute_exposure=result[1],
-                    count=result[2],
-                    exposure=result[1],
-                    key=result[0],
-                )
-                for result in response.results
-            ]
 
-        return variants
+        return [
+            ExperimentVariantTrendsBaseStats(
+                absolute_exposure=result[1],
+                count=result[2],
+                exposure=result[1],
+                key=result[0],
+            )
+            for result in response.results
+        ]
 
-    def calculate(self) -> ExperimentTrendsQueryResponse:
+    def calculate(self) -> ExperimentQueryResponse:
         variants = self._evaluate_experiment_query()
 
         control_variant = next((variant for variant in variants if variant.key == CONTROL_VARIANT_KEY), None)
@@ -403,7 +399,7 @@ class ExperimentQueryRunner(QueryRunner):
             kind="ExperimentQuery",
             insight=[],
             metric=self.metric,
-            variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
+            variants=variants,
             probability={
                 variant.key: probability
                 for variant, probability in zip([control_variant, *test_variants], probabilities)
