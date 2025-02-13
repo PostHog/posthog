@@ -56,7 +56,7 @@ def safe_parse_datetime(date_str):
         return None
 
 
-def _get_primary_keys(resource: DltResource) -> list[Any] | None:
+def _get_primary_keys(resource: DltResource) -> list[str] | None:
     primary_keys = resource._hints.get("primary_key")
 
     if primary_keys is None:
@@ -109,6 +109,13 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
         if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
             json_column = pa.array([json.dumps(row.as_py()) if row.as_py() is not None else None for row in column])
             table = table.set_column(table.schema.get_field_index(column_name), column_name, json_column)
+            column = table.column(column_name)
+        # Change pa.duration to int with total seconds
+        elif pa.types.is_duration(column.type):
+            seconds_column = pa.array(
+                [row.as_py().total_seconds() if row.as_py() is not None else None for row in column]
+            )
+            table = table.set_column(table.schema.get_field_index(column_name), column_name, seconds_column)
             column = table.column(column_name)
 
         # Normalize column names
@@ -248,13 +255,6 @@ def _json_dumps(obj: Any) -> str:
 
 def table_from_py_list(table_data: list[Any]) -> pa.Table:
     try:
-        if len(table_data) == 0:
-            return pa.Table.from_pylist(table_data)
-
-        uuid_exists = any(isinstance(value, uuid.UUID) for value in table_data[0].values())
-        if uuid_exists:
-            return pa.Table.from_pylist(_convert_uuid_to_string(table_data))
-
         return pa.Table.from_pylist(table_data)
     except:
         # There exists mismatched types in the data
@@ -288,6 +288,10 @@ def table_from_py_list(table_data: list[Any]) -> pa.Table:
             for row in table_data:
                 value = row[column_name]
                 row[column_name] = _json_dumps(value)
+
+        uuid_exists = any(isinstance(value, uuid.UUID) for value in table_data[0].values())
+        if uuid_exists:
+            table_data = _convert_uuid_to_string(table_data)
 
         return pa.Table.from_pylist(table_data)
 
