@@ -11,7 +11,7 @@ import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
-import { ExploreButton, LoadingState, PageHeaderCustom } from './components'
+import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { CumulativeExposuresChart } from './CumulativeExposuresChart'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
@@ -56,19 +56,19 @@ const ResultsTab = (): JSX.Element => {
                     <div className="pb-4">
                         <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
                     </div>
-                    <div className="flex justify-end">
-                        <ExploreButton result={metricResults?.[0] || null} size="xsmall" />
-                    </div>
-                    <div className="pb-4">
-                        {/* TODO: Insight display is not yet supported with the new query runner */}
-                        {/* <ResultsQuery result={metricResults?.[0] || null} showTable={true} /> */}
-                        <p>
-                            TODO: Insight display is not yet supported with the new query runner.
-                            <br />
-                            <br />
-                            <br />
-                        </p>
-                    </div>
+                    {/* TODO: Only show explore button results viz if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                    {metricResults?.[0] &&
+                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
+                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
+                            <>
+                                <div className="flex justify-end">
+                                    <ExploreButton result={metricResults[0]} size="xsmall" />
+                                </div>
+                                <div className="pb-4">
+                                    <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
+                                </div>
+                            </>
+                        )}
                 </div>
             )}
             <MetricsView isSecondary={true} />
