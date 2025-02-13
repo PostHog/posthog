@@ -189,7 +189,6 @@ async def assert_clickhouse_records_in_bigquery(
             is_backfill=backfill_details is not None,
             backfill_details=backfill_details,
             extra_query_parameters=extra_query_parameters,
-            use_latest_schema=True,
         )
 
         while True:

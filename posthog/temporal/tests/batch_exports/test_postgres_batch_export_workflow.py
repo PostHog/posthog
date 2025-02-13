@@ -34,12 +34,17 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     insert_into_postgres_activity,
     postgres_default_fields,
 )
-from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, SessionsRecordBatchModel
-from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import get_record_batch_from_queue, mocked_start_batch_export_run
-from posthog.temporal.tests.utils.events import (
-    generate_test_events_in_clickhouse,
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    SessionsRecordBatchModel,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import (
+    get_record_batch_from_queue,
+    mocked_start_batch_export_run,
+)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -151,7 +156,6 @@ async def assert_clickhouse_records_in_postgres(
         is_backfill=backfill_details is not None,
         backfill_details=backfill_details,
         extra_query_parameters=extra_query_parameters,
-        use_latest_schema=True,
     )
     while True:
         record_batch = await get_record_batch_from_queue(queue, producer_task)
