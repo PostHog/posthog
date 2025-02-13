@@ -257,7 +257,7 @@ export function InsightsTable({
 
         return results.map((_, index) => ({
             title: isStickiness ? (
-                `${interval ? capitalizeFirstLetter(interval) : 'Period'} ${index + 1}`
+                `${interval ? capitalizeFirstLetter(interval) : 'Day'} ${index + 1}`
             ) : (
                 <ValueColumnTitle
                     index={index}
@@ -271,6 +271,7 @@ export function InsightsTable({
             ),
             key: `data-${index}`,
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
+            align: 'right',
         }))
     }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval])
 
