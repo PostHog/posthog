@@ -14,6 +14,7 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
     WebExternalClicksTableQuery,
     WebExternalClicksTableQueryResponse,
+    WebAnalyticsOrderByFields,
 )
 
 
@@ -64,9 +65,6 @@ FROM (
     GROUP BY events.`$session_id`, url
 )
 GROUP BY "context.columns.url"
-ORDER BY "context.columns.visitors" DESC,
-"context.columns.clicks" DESC,
-"context.columns.url" ASC
 """,
                 timings=self.timings,
                 placeholders={
@@ -78,7 +76,30 @@ ORDER BY "context.columns.visitors" DESC,
                 },
             )
         assert isinstance(query, ast.SelectQuery)
+
+        # Compute query order based on the columns we're selecting
+        # Use our default order if we don't have any columns to order by
+        columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
+        query.order_by = self._order_by(columns) or [
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.clicks"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.url"]), order="ASC"),
+        ]
+
         return query
+
+    def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
+        if self.query.orderBy:
+            field, direction = self.query.orderBy
+            column = None
+            if field == WebAnalyticsOrderByFields.VISITORS:
+                column = "context.columns.visitors"
+            elif field == WebAnalyticsOrderByFields.CLICKS:
+                column = "context.columns.clicks"
+
+            if column is not None and column in columns:
+                return [ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)]
+        return None
 
     def _all_properties(self) -> ast.Expr:
         properties = self.query.properties + self._test_account_filters

@@ -22,6 +22,7 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
     EventPropertyFilter,
     PersonPropertyFilter,
+    WebAnalyticsOrderByFields,
 )
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
@@ -96,7 +97,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 select=selects,
                 select_from=ast.JoinExpr(table=self._main_inner_query(breakdown)),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
-                order_by=[
+                order_by=self._order_by(columns=[select.alias for select in selects])
+                or [
                     ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC"),
                     ast.OrderExpr(
                         expr=ast.Field(
@@ -215,9 +217,6 @@ LEFT JOIN (
     GROUP BY breakdown_value
 ) AS scroll
 ON counts.breakdown_value = scroll.breakdown_value
-ORDER BY "context.columns.visitors" DESC,
-"context.columns.views" DESC,
-"context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
                 placeholders={
@@ -233,6 +232,16 @@ ORDER BY "context.columns.visitors" DESC,
                 },
             )
         assert isinstance(query, ast.SelectQuery)
+
+        # Compute query order based on the columns we're selecting
+        # Use our default order if we don't have any columns to order by
+        columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
+        query.order_by = self._order_by(columns) or [
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
+        ]
+
         return query
 
     def to_path_bounce_query(self) -> ast.SelectQuery:
@@ -297,9 +306,6 @@ LEFT JOIN (
     GROUP BY breakdown_value
 ) as bounce
 ON counts.breakdown_value = bounce.breakdown_value
-ORDER BY "context.columns.visitors" DESC,
-"context.columns.views" DESC,
-"context.columns.breakdown_value" ASC
 """,
                 timings=self.timings,
                 placeholders={
@@ -314,6 +320,16 @@ ORDER BY "context.columns.visitors" DESC,
                 },
             )
         assert isinstance(query, ast.SelectQuery)
+
+        # Compute query order based on the columns we're selecting
+        # Use our default order if we don't have any columns to order by
+        columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
+        query.order_by = self._order_by(columns) or [
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
+        ]
+
         return query
 
     def _main_inner_query(self, breakdown):
@@ -347,6 +363,37 @@ GROUP BY session_id, breakdown_value
             query.select.append(ast.Alias(alias="conversion_person_id", expr=self.conversion_person_id_expr))
 
         return query
+
+    def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
+        if self.query.orderBy:
+            field, direction = self.query.orderBy
+            column = None
+            if field == WebAnalyticsOrderByFields.VISITORS:
+                column = "context.columns.visitors"
+            elif field == WebAnalyticsOrderByFields.VIEWS:
+                column = "context.columns.views"
+            elif field == WebAnalyticsOrderByFields.CLICKS:
+                column = "context.columns.clicks"
+            elif field == WebAnalyticsOrderByFields.BOUNCE_RATE:
+                column = "context.columns.bounce_rate"
+            elif field == WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE:
+                column = "context.columns.average_scroll_percentage"
+            elif field == WebAnalyticsOrderByFields.SCROLL_GT80_PERCENTAGE:
+                column = "context.columns.scroll_gt80_percentage"
+            elif field == WebAnalyticsOrderByFields.TOTAL_CONVERSIONS:
+                column = "context.columns.total_conversions"
+            elif field == WebAnalyticsOrderByFields.UNIQUE_CONVERSIONS:
+                column = "context.columns.unique_conversions"
+            elif field == WebAnalyticsOrderByFields.CONVERSION_RATE:
+                column = "context.columns.conversion_rate"
+
+            if column is not None and column in columns:
+                # Add a secondary sort by breakdown_value to ensure consistent ordering
+                return [
+                    ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction),
+                    ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
+                ]
+        return None
 
     def _period_comparison_tuple(self, column, alias, function_name):
         return ast.Alias(
@@ -424,6 +471,9 @@ GROUP BY session_id, breakdown_value
             modifiers=self.modifiers,
         )
         results = self.paginator.results
+
+        # Add debugger breakpoint
+        # import pdb; pdb.set_trace()
 
         assert results is not None
 
