@@ -98,7 +98,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                     )}
                                 </th>
                                 <th
-                                    className="relative font-title font-semibold text-muted-alt uppercase cursor-default text-center"
+                                    className="relative font-title font-semibold text-secondary uppercase cursor-default text-center"
                                     data-attr={`lemon-calendar-month-title-${month}`}
                                     colSpan={5}
                                 >
@@ -122,7 +122,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                             </tr>
                             <tr>
                                 {range(0, 7).map((day) => (
-                                    <th key={day} className="py-2 text-xs font-bold text-muted-alt uppercase">
+                                    <th key={day} className="py-2 text-xs font-bold text-secondary uppercase">
                                         {dayLabels[firstDay.add(day, 'day').day()]}
                                     </th>
                                 ))}

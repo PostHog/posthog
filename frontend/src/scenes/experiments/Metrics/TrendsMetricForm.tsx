@@ -166,7 +166,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                 <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
                                             )}
                                         </div>
-                                        <div className="text-muted text-sm leading-relaxed mt-1">
+                                        <div className="text-secondary text-sm leading-relaxed mt-1">
                                             Uses the number of unique users who trigger the{' '}
                                             <LemonTag>$feature_flag_called</LemonTag> event as your exposure count. This
                                             is the recommended setting for most experiments, as it accurately tracks
@@ -229,7 +229,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                 <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
                                             )}
                                         </div>
-                                        <div className="text-muted text-sm leading-relaxed mt-1">
+                                        <div className="text-secondary text-sm leading-relaxed mt-1">
                                             Define your own exposure metric for specific use cases, such as counting by
                                             sessions instead of users. This gives you full control but requires careful
                                             configuration.

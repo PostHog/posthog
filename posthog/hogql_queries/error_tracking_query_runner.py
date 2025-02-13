@@ -207,16 +207,24 @@ class ErrorTrackingQueryRunner(QueryRunner):
         with self.timings.measure("issue_resolution"):
             for result_dict in mapped_results:
                 issue = issues.get(result_dict["id"])
+
                 if issue:
-                    results.append(result_dict | issue)
-                else:
-                    logger.error(
-                        "error tracking issue not found",
-                        issue_id=result_dict["id"],
-                        exc_info=True,
+                    results.append(
+                        issue
+                        | {
+                            "first_seen": result_dict.get("first_seen"),
+                            "last_seen": result_dict.get("last_seen"),
+                            "earliest": result_dict.get("earliest") if self.query.issueId else None,
+                            "aggregations": self.extract_aggregations(result_dict),
+                        }
                     )
 
         return results
+
+    def extract_aggregations(self, result):
+        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay", "volumeMonth")}
+        aggregations["customVolume"] = result.get("customVolume") if "customVolume" in result else None
+        return aggregations
 
     def volume(self, config: ErrorTrackingSparklineConfig):
         toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
@@ -242,12 +250,14 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
     def error_tracking_issues(self, ids):
+        status = self.query.status
         queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team, id__in=ids)
-        queryset = (
-            queryset.filter(id=self.query.issueId)
-            if self.query.issueId
-            else queryset.filter(status__in=[ErrorTrackingIssue.Status.ACTIVE])
-        )
+
+        if self.query.issueId:
+            queryset = queryset.filter(id=self.query.issueId)
+        elif status and not status == "all":
+            queryset = queryset.filter(status=status)
+
         if self.query.assignee:
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)

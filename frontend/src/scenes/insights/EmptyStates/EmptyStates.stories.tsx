@@ -18,7 +18,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         testOptions: {
-            waitForSelector: '.empty-state-inner',
+            waitForSelector: '[data-attr="insight-empty-state"]',
         },
     },
 }

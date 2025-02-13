@@ -1,5 +1,6 @@
 import './Settings.scss'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -86,7 +87,7 @@ export function Settings({
                       active={selectedLevel === level && !selectedSectionId}
                       onClick={() => selectLevel(level)}
                   >
-                      <span className="text-muted-alt">{capitalizeFirstLetter(level)}</span>
+                      <span className="text-secondary">{capitalizeFirstLetter(level)}</span>
                   </OptionButton>
               ),
               items: sections
@@ -98,6 +99,7 @@ export function Settings({
                               to={section.to ?? urls.settings(section.id)}
                               handleLocally={handleLocally}
                               active={selectedSectionId === section.id}
+                              isLink={!!section.to}
                               onClick={() => {
                                   if (section.to) {
                                       router.actions.push(section.to)
@@ -188,7 +190,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                                 )}
                             </h2>
                         )}
-                        {x.description && <p>{x.description}</p>}
+                        {x.description && <p className="max-w-160">{x.description}</p>}
 
                         {x.component}
                     </div>
@@ -225,9 +227,11 @@ const OptionButton = ({
     onClick,
     children,
     handleLocally,
+    isLink = false,
 }: Pick<LemonButtonProps, 'to' | 'children' | 'active'> & {
     handleLocally: boolean
     onClick: () => void
+    isLink?: boolean
 }): JSX.Element => {
     return (
         <LemonButton
@@ -241,6 +245,7 @@ const OptionButton = ({
                     : undefined
             }
             size="small"
+            sideIcon={isLink ? <IconExternal /> : undefined}
             fullWidth
             active={active}
         >

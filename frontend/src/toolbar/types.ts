@@ -87,8 +87,7 @@ export type WebExperimentDraftType = Omit<
 
 export interface WebExperimentForm extends WebExperimentDraftType {
     variants: Record<string, WebExperimentVariant>
-    undo_transforms?: WebExperimentTransform[]
-    original_html_state: Record<string, any>
+    original_html_state?: Record<string, any>
 }
 
 export interface ActionStepForm extends ActionStepType {

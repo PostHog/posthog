@@ -8,7 +8,7 @@ import dateutil.parser
 import posthoganalytics
 from django.db.models import Q
 from django.utils import timezone
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.cache_utils import cache_for
 from posthog.event_usage import report_organization_action

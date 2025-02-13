@@ -37,6 +37,7 @@ import type {
     DashboardFilter,
     DatabaseSchemaField,
     ExperimentFunnelsQuery,
+    ExperimentQuery,
     ExperimentTrendsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -384,6 +385,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
+    is_ai_data_processing_approved?: boolean
     metadata?: OrganizationMetadata
     member_count: number
 }
@@ -841,6 +843,7 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     value: number
     /** @default 'in' */
     operator: PropertyOperator
+    cohort_name?: string
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
@@ -1483,6 +1486,7 @@ export interface SessionRecordingUpdateType {
     analyzed?: boolean
     player_metadata?: Record<string, any> | null
     durations?: Record<string, any> | null
+    $pathname: string
 }
 
 export interface SessionRecordingPropertiesType {
@@ -2332,6 +2336,7 @@ export interface TrendsFilterType extends FilterType {
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
     y_axis_scale_type?: 'log10' | 'linear'
+    show_multiple_y_axes?: boolean
 }
 
 export interface StickinessFilterType extends FilterType {
@@ -2345,6 +2350,7 @@ export interface StickinessFilterType extends FilterType {
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     show_values_on_series?: boolean
+    show_multiple_y_axes?: boolean
 
     // persons only
     stickiness_days?: number
@@ -2775,7 +2781,9 @@ export interface Survey {
         url: string
         selector: string
         seenSurveyWaitPeriodInDays?: number
-        urlMatchType?: SurveyUrlMatchType
+        urlMatchType?: SurveyMatchType
+        deviceTypes?: string[]
+        deviceTypesMatchType?: SurveyMatchType
         actions: {
             values: {
                 id: number
@@ -2810,7 +2818,7 @@ export interface Survey {
     response_sampling_daily_limits?: string[] | null
 }
 
-export enum SurveyUrlMatchType {
+export enum SurveyMatchType {
     Exact = PropertyOperator.Exact,
     IsNot = PropertyOperator.IsNot,
     Contains = PropertyOperator.IContains,
@@ -2995,6 +3003,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
+    status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
 }
 
 export interface OrganizationFeatureFlag {
@@ -3334,8 +3343,8 @@ export interface Experiment {
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
     filters: TrendsFilterType | FunnelsFilterType
-    metrics: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
-    metrics_secondary: (ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics_secondary: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
@@ -4938,4 +4947,9 @@ export type UserGroup = {
     id: string
     name: string
     members: UserBasicType[]
+}
+
+export interface CoreMemory {
+    id: string
+    text: string
 }

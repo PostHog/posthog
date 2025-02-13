@@ -1,9 +1,10 @@
+use chrono::{DateTime, Utc};
 use sqlx::postgres::any::AnyConnectionBackend;
 use uuid::Uuid;
 
 use crate::{
     error::UnhandledError,
-    metric_consts::ISSUE_CREATED,
+    metric_consts::{ISSUE_CREATED, ISSUE_REOPENED},
     types::{FingerprintedErrProps, OutputErrProps},
 };
 
@@ -32,6 +33,31 @@ impl Issue {
             name: Some(name),
             description: Some(description),
         }
+    }
+
+    pub async fn load_by_fingerprint<'c, E>(
+        executor: E,
+        team_id: i32,
+        fingerprint: &str,
+    ) -> Result<Option<Self>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let res = sqlx::query_as!(
+            Issue,
+            r#"
+            SELECT i.id, i.team_id, i.status, i.name, i.description
+            FROM posthog_errortrackingissue i
+            JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
+            WHERE f.team_id = $1 AND f.fingerprint = $2
+            "#,
+            team_id,
+            fingerprint
+        )
+        .fetch_optional(executor)
+        .await?;
+
+        Ok(res)
     }
 
     pub async fn load<'c, E>(
@@ -87,6 +113,30 @@ impl Issue {
 
         Ok(did_insert)
     }
+
+    pub async fn maybe_reopen<'c, E>(&self, executor: E) -> Result<bool, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let res = sqlx::query_scalar!(
+            r#"
+            UPDATE posthog_errortrackingissue
+            SET status = 'active'
+            WHERE id = $1 AND status != 'active'
+            RETURNING id
+            "#,
+            self.id
+        )
+        .fetch_all(executor)
+        .await?;
+
+        let reopened = !res.is_empty();
+        if reopened {
+            metrics::counter!(ISSUE_REOPENED).increment(1);
+        }
+
+        Ok(reopened)
+    }
 }
 
 impl IssueFingerprintOverride {
@@ -116,6 +166,7 @@ impl IssueFingerprintOverride {
         team_id: i32,
         fingerprint: &str,
         issue: &Issue,
+        first_seen: DateTime<Utc>,
     ) -> Result<Self, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
@@ -125,15 +176,16 @@ impl IssueFingerprintOverride {
         let res = sqlx::query_as!(
             IssueFingerprintOverride,
             r#"
-            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, created_at)
-            VALUES ($1, $2, $3, $4, 0, NOW())
+            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen, created_at)
+            VALUES ($1, $2, $3, $4, 0, $5, NOW())
             ON CONFLICT (team_id, fingerprint) DO NOTHING
             RETURNING id, team_id, issue_id, fingerprint, version
             "#,
             Uuid::new_v4(),
             team_id,
             issue.id,
-            fingerprint
+            fingerprint,
+            first_seen
         ).fetch_one(executor).await?;
 
         Ok(res)
@@ -144,17 +196,26 @@ pub async fn resolve_issue<'c, A>(
     con: A,
     team_id: i32,
     fingerprinted: FingerprintedErrProps,
+    event_timestamp: DateTime<Utc>,
 ) -> Result<OutputErrProps, UnhandledError>
 where
     A: sqlx::Acquire<'c, Database = sqlx::Postgres>,
 {
     let mut conn = con.acquire().await?;
-    // If an override already exists, just fast-path, skipping the transaction
-    if let Some(issue_override) =
-        IssueFingerprintOverride::load(&mut *conn, team_id, &fingerprinted.fingerprint).await?
-    {
-        return Ok(fingerprinted.to_output(issue_override.issue_id));
+
+    // Fast path - just fetch the issue directly, and then reopen it if needed
+    let existing_issue =
+        Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprinted.fingerprint).await?;
+    if let Some(issue) = existing_issue {
+        // TODO - we should use the bool here to determine if we need to notify a user
+        // that the issue was reopened
+        issue.maybe_reopen(&mut *conn).await?;
+        return Ok(fingerprinted.to_output(issue.id));
     }
+
+    // Slow path - insert a new issue, and then insert the fingerprint override, rolling
+    // back the transaction if the override insert fails (since that indicates someone else
+    // beat us to creating this new issue). Then, possibly reopen the issue.
 
     // UNWRAP: We never resolve an issue for an exception with no exception list
     let first = fingerprinted.exception_list.first().unwrap();
@@ -174,6 +235,7 @@ where
         team_id,
         &fingerprinted.fingerprint,
         &issue,
+        event_timestamp,
     )
     .await?;
 
@@ -185,6 +247,17 @@ where
         conn.rollback().await?;
     } else {
         conn.commit().await?;
+    }
+
+    // This being None is /almost/ impossible, unless between the transaction above finishing and
+    // this point, someone merged the issue and deleted the old one, but if that happens,
+    // we don't care about this reopen failing (since this issue is irrelevant anyway). IT would be
+    // more efficient to fetch the entire Issue struct above along with the fingerprint, but we're
+    // in the slow path anyway, so one extra DB hit is not a big deal.
+    if let Some(issue) = Issue::load(&mut *conn, team_id, issue_override.issue_id).await? {
+        // TODO - we should use the bool here to determine if we need to notify a user
+        // that the issue was reopened
+        issue.maybe_reopen(&mut *conn).await?;
     }
 
     Ok(fingerprinted.to_output(issue_override.issue_id))

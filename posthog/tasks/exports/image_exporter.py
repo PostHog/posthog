@@ -12,11 +12,12 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.wait import WebDriverWait
-from sentry_sdk import capture_exception, configure_scope, push_scope
+from sentry_sdk import configure_scope, push_scope
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.api.services.query import process_query_dict
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode

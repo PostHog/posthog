@@ -19,7 +19,7 @@ import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/util
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery, Node } from '~/queries/schema'
+import { ExperimentFunnelsQuery, ExperimentQuery, ExperimentTrendsQuery, Node } from '~/queries/schema'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     getBreakdown,
@@ -122,8 +122,15 @@ interface RecordingViewedProps {
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
 
-export function getEventPropertiesForMetric(metric: ExperimentTrendsQuery | ExperimentFunnelsQuery): object {
-    if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
+export function getEventPropertiesForMetric(
+    metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery
+): object {
+    if (metric.kind === NodeKind.ExperimentQuery) {
+        return {
+            kind: NodeKind.ExperimentQuery,
+            metric_type: metric.metric.metric_type,
+        }
+    } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return {
             kind: NodeKind.ExperimentFunnelsQuery,
             steps_count: metric.funnels_query.series.length,
@@ -434,6 +441,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId,
             metric,
         }),
+        reportExperimentFeatureFlagModalOpened: () => ({}),
+        reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -1040,6 +1049,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentMetricTimeout: ({ experimentId, metric }) => {
             posthog.capture('experiment metric timeout', { experiment_id: experimentId, metric })
+        },
+        reportExperimentFeatureFlagModalOpened: () => {
+            posthog.capture('experiment feature flag modal opened')
+        },
+        reportExperimentFeatureFlagSelected: ({ featureFlagKey }: { featureFlagKey: string }) => {
+            posthog.capture('experiment feature flag selected', { feature_flag_key: featureFlagKey })
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')

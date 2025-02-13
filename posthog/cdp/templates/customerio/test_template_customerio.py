@@ -17,7 +17,8 @@ def create_inputs(**kwargs):
         "host": "track.customer.io",
         "action": "automatic",
         "include_all_properties": False,
-        "identifiers": {"email": "example@posthog.com"},
+        "identifier_key": "email",
+        "identifier_value": "example@posthog.com",
         "attributes": {"name": "example"},
     }
     inputs.update(kwargs)
@@ -112,12 +113,10 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
             assert self.get_mock_fetch_calls()[0][1]["body"]["name"] == event_name
 
     def test_function_requires_identifier(self):
-        self.run_function(inputs=create_inputs(identifiers={"email": None, "id": ""}))
+        self.run_function(inputs=create_inputs(identifier_key="email", identifier_value=""))
 
         assert not self.get_mock_fetch_calls()
-        assert self.get_mock_print_calls() == snapshot(
-            [("No identifier set. Skipping as at least 1 identifier is needed.",)]
-        )
+        assert self.get_mock_print_calls() == snapshot([("No identifier set. Skipping as identifier is required.",)])
 
     def test_function_errors_on_bad_status(self):
         self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "error"}}  # type: ignore

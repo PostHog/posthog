@@ -32,7 +32,7 @@ jobs:
                         # the dependencies more clear if we separated the backend/frontend
                         # code completely
                         - 'ee/**'
-                        - 'posthog/**'
+                        - 'posthog/!(temporal/**)/**'
                         - 'bin/*'
                         - frontend/**/*
                         - requirements.txt
@@ -143,7 +143,7 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections

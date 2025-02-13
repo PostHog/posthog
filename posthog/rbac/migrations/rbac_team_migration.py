@@ -2,7 +2,7 @@ from django.db import transaction
 from ee.models.rbac.access_control import AccessControl
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 import structlog
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from sentry_sdk import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -32,7 +32,15 @@ def rbac_team_access_control_migration(organization_id: int):
                     )
 
                     # Get all members for the project
-                    team_memberships = ExplicitTeamMembership.objects.filter(team_id=team.id)
+                    team_memberships = ExplicitTeamMembership.objects.filter(
+                        team_id=team.id,
+                        # Make sure the user is active
+                        parent_membership__user__is_active=True,
+                        # Make sure their organization membership exists
+                        parent_membership__organization__isnull=False,
+                        # Only migrate members that are not admins in the organization
+                        parent_membership__level__lt=OrganizationMembership.Level.ADMIN,
+                    )
                     for team_membership in team_memberships:
                         try:
                             # Create access control for the team member
@@ -70,6 +78,8 @@ def rbac_team_access_control_migration(organization_id: int):
                     # Disable access control for the team (so we know it's been migrated)
                     team.access_control = False
                     team.save()
+                    # Delete any left over explicit team memberships
+                    ExplicitTeamMembership.objects.filter(team_id=team.id).delete()
                 except Exception as e:
                     error_message = f"Failed to migrate team {team.id}"
                     logger.exception(error_message, exc_info=e)

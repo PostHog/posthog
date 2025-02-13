@@ -330,6 +330,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if request.GET.get("force_type"):
             exported_data["type"] = request.GET.get("force_type")
 
+        exported_data["rootClassName"] = f"export-type-'{exported_data.get('type', 'unknown')}"
+
         return render_template(
             "exporter.html",
             request=request,

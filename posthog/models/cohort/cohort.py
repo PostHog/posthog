@@ -12,7 +12,7 @@ from django.db.models.functions.math import Mod
 from django.db.models.lookups import Exact
 
 from django.utils import timezone
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.filter import Filter

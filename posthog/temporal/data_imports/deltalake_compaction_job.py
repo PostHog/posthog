@@ -4,7 +4,7 @@ import json
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
