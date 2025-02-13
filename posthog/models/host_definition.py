@@ -10,7 +10,7 @@ class HostDefinition(UUIDModel):
         Team,
         on_delete=models.CASCADE,
         related_name="host_definitions",
-        related_query_name="team",
+        related_query_name="host_definition",
     )
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     host = models.CharField(max_length=400)
