@@ -13,6 +13,7 @@ import string
 import time
 import uuid
 import zlib
+from django.apps import apps
 from collections.abc import Generator, Mapping
 from enum import Enum
 from functools import lru_cache, wraps
@@ -364,11 +365,9 @@ def render_template(
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
-        api_token = get_self_capture_api_token(request.user)
-
-        if api_token:
-            context["js_posthog_api_key"] = api_token
-            context["js_posthog_host"] = ""
+        if posthoganalytics.api_key:
+            context["js_posthog_api_key"] = posthoganalytics.api_key
+            context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
         context["js_posthog_host"] = "https://internal-t.posthog.com"
@@ -499,29 +498,10 @@ def render_template(
     return response
 
 
-def get_self_capture_api_token(user: Optional[Union["AbstractBaseUser", "AnonymousUser"]]) -> Optional[str]:
-    from posthog.models import Team
-
-    # Get the current user's team (or first team in the instance) to set self capture configs
-    team: Optional[Team] = None
-    if user and getattr(user, "team", None):
-        team = user.team  # type: ignore
-    else:
-        try:
-            team = Team.objects.only("api_token").first()
-        except Exception:
-            pass
-
-    if team:
-        return team.api_token
-    return None
-
-
-async def aset_debugging_analytics_key():
+async def initialize_self_capture_api_token():
     """
-    ASGI alternative to get_self_capture_api_token.
+    Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way.
     """
-    from django.apps import apps
 
     User = apps.get_model("posthog", "User")
     Team = apps.get_model("posthog", "Team")
@@ -530,22 +510,23 @@ async def aset_debugging_analytics_key():
             await User.objects.filter(last_login__isnull=False)
             .order_by("-last_login")
             .select_related("current_team")
-            .afirst()
+            .aget()
         )
         # Get the current user's team (or first team in the instance) to set self capture configs
         team = None
         if user and getattr(user, "team", None):
             team = user.current_team
         else:
-            team = await Team.objects.only("api_token").afirst()
+            team = await Team.objects.only("api_token").aget()
         local_api_key = team.api_token
-    except:
+    except (User.DoesNotExist, Team.DoesNotExist):
         local_api_key = None
-    # apps.ready() is already called, so reset the already set config.
+
+    # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
     if local_api_key is not None:
+        posthoganalytics.disabled = False
         posthoganalytics.api_key = local_api_key
         posthoganalytics.host = settings.SITE_URL
-        posthoganalytics.disabled = False
 
 
 def get_default_event_name(team: "Team"):

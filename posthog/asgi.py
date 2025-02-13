@@ -22,12 +22,15 @@ def lifetime_wrapper(func):
 
 # PostHogConfig.ready() handles setting the global analytics key in WSGI. The same code couldn't run
 # in ASGI because ready() doesn't expose an async interface.
-def wrap_debug_analytics(func):
+def self_capture_wrapper(func):
+    if not settings.DEBUG or not settings.SELF_CAPTURE:
+        return func
+
     async def inner(scope, receive, send):
         if not getattr(inner, "debug_analytics_initialized", False):
-            from posthog.utils import aset_debugging_analytics_key
+            from posthog.utils import initialize_self_capture_api_token
 
-            await aset_debugging_analytics_key()
+            await initialize_self_capture_api_token()
             # Set a flag to indicate that the analytics key has been set, so we don't run the code on every request.
             inner.debug_analytics_initialized = True  # type: ignore
         return await func(scope, receive, send)
@@ -35,7 +38,4 @@ def wrap_debug_analytics(func):
     return inner
 
 
-if settings.DEBUG:
-    application = lifetime_wrapper(wrap_debug_analytics(get_asgi_application()))
-else:
-    application = lifetime_wrapper(get_asgi_application())
+application = lifetime_wrapper(self_capture_wrapper(get_asgi_application()))
