@@ -61,7 +61,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         type: 'tertiary' as const,
         size: 'xsmall' as const,
         tooltip: 'View recordings',
-        className: 'float-right no-underline',
+        className: 'no-underline',
         targetBlank: true,
         onClick: (e: React.MouseEvent) => {
             e.stopPropagation()

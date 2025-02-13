@@ -32,6 +32,7 @@ import {
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
+import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 
 const toUtcOffsetFormat = (value: number): string => {
@@ -378,14 +379,23 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         },
         cross_sell: {
             title: ' ',
-            render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => (
-                <ReplayButton
-                    date_from={(query.source as any)?.dateRange?.date_from}
-                    date_to={(query.source as any)?.dateRange?.date_to}
-                    breakdownBy={(query.source as any)?.breakdownBy}
-                    value={record[0] ?? ''}
-                />
-            ),
+            render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => {
+                const dateRange = (query.source as any)?.dateRange
+                const breakdownBy = (query.source as any)?.breakdownBy
+                const value = record[0] ?? ''
+
+                return (
+                    <div className="flex flex-row items-center justify-end">
+                        <ReplayButton
+                            date_from={dateRange?.date_from}
+                            date_to={dateRange?.date_to}
+                            breakdownBy={breakdownBy}
+                            value={value}
+                        />
+                        <HeatmapButton breakdownBy={breakdownBy} value={value} />
+                    </div>
+                )
+            },
             align: 'right',
         },
     },
