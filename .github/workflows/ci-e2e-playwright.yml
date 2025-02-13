@@ -222,7 +222,7 @@ jobs:
         steps:
             - name: Calculate run time and send to PostHog
               run: |
-                  echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+                  gh auth login --with-token < <(echo ${{ secrets.GITHUB_TOKEN }})
                   run_id=${GITHUB_RUN_ID}
                   repo=${GITHUB_REPOSITORY}
                   run_info=$(gh api repos/${repo}/actions/runs/${run_id})
