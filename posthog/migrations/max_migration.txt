@@ -1,1 +1,1 @@
-0665_team_onboarding_tasks
+0666_datawarehousesavedquery_sync_frequency
