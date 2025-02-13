@@ -189,24 +189,18 @@ export function RatingQuestionBarChart({
     questionIndex,
     surveyRatingResults,
     surveyRatingResultsReady,
-    iteration,
 }: {
     questionIndex: number
     surveyRatingResults: SurveyRatingResults
     surveyRatingResultsReady: QuestionResultsReady
     iteration?: number | null | undefined
 }): JSX.Element {
-    const { loadSurveyRatingResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.Rating) {
         throw new Error(`Question type must be ${SurveyQuestionType.Rating}`)
     }
-    useEffect(() => {
-        loadSurveyRatingResults({ questionIndex, iteration })
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [questionIndex])
 
     return (
         <div>
