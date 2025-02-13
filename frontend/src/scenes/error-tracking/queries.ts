@@ -88,7 +88,7 @@ export const errorTrackingIssueEventsQuery = ({
 
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = group.values as AnyPropertyFilter[]
-    const where = [`'${issue.id}' == issued_id`]
+    const where = [`'${issue.id}' == issue_id`]
 
     const eventsQuery: EventsQuery = {
         kind: NodeKind.EventsQuery,
