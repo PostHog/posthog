@@ -558,7 +558,8 @@ async def persons_table_without_primary_key(postgres_connection, postgres_config
                         person_distinct_id_version BIGINT,
                         person_version BIGINT,
                         created_at TIMESTAMP,
-                        updated_at TIMESTAMP
+                        updated_at TIMESTAMP,
+                        is_deleted BOOLEAN
                     )
                     """
                 ).format(table=sql.Identifier(postgres_config["schema"], self_managed_table_name))
