@@ -579,7 +579,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_tuple(self, node: ast.Tuple) -> bool:
         return all(self.visit(arg) for arg in node.exprs)
 
-    def visit_array(self, node: ast.Tuple) -> bool:
+    def visit_array(self, node: ast.Array) -> bool:
         return all(self.visit(arg) for arg in node.exprs)
 
 
