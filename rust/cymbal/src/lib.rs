@@ -144,7 +144,7 @@ fn recursively_sanitize_properties(
         }
         Value::String(s) => {
             if needs_sanitization(s) {
-                warn!("Sanitizing null bytes from string in event {}: {}", id, s);
+                warn!("Sanitizing null bytes from string in event {}", id);
                 *s = sanitize_string(s.clone());
             }
         }
