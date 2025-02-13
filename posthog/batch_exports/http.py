@@ -1,4 +1,5 @@
 import datetime as dt
+from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
 import posthoganalytics
@@ -530,16 +531,51 @@ class BatchExportOrganizationViewSet(BatchExportViewSet):
     filter_rewrite_rules = {"organization_id": "team__organization_id"}
 
 
+@dataclass
+class BatchExportBackfillProgress:
+    """Progress information for a batch export backfill."""
+
+    total_runs: int | None
+    finished_runs: int | None
+    progress: float | None
+
+
 class BatchExportBackfillSerializer(serializers.ModelSerializer):
-    total_runs = serializers.SerializerMethodField(read_only=True)
+    progress = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = BatchExportBackfill
         fields = "__all__"
 
-    def get_total_runs(self, obj: BatchExportBackfill) -> int | None:
-        """Return the total number of runs for this backfill."""
-        return obj.total_runs
+    def get_progress(self, obj: BatchExportBackfill) -> BatchExportBackfillProgress | None:
+        """Return progress information containing total runs, finished runs, and progress percentage.
+
+        To reduce the number of database calls we make (which could be expensive when fetching a list of backfills) we
+        only get the list of completed runs from the DB if the backfill is still running.
+        """
+        if obj.status == obj.Status.COMPLETED:
+            return BatchExportBackfillProgress(
+                total_runs=obj.total_expected_runs, finished_runs=obj.total_expected_runs, progress=1.0
+            )
+        elif obj.status not in (obj.Status.RUNNING, obj.Status.STARTING):
+            # if backfill finished in some other state then progress info may not be meaningful
+            return None
+
+        total_runs = obj.total_expected_runs
+        if not total_runs:
+            return None
+
+        if obj.start_at is None:
+            # if it's just a single run, backfilling from the beginning of time, we can't calculate progress based on
+            # the number of completed runs so better to return None
+            return None
+
+        finished_runs = obj.get_finished_runs()
+        # just make sure we never return a progress > 1
+        total_runs = max(total_runs, finished_runs)
+        return BatchExportBackfillProgress(
+            total_runs=total_runs, finished_runs=finished_runs, progress=round(finished_runs / total_runs, ndigits=1)
+        )
 
 
 class BackfillsCursorPagination(CursorPagination):

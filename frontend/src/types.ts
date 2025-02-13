@@ -31,6 +31,7 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import { NodeKind, RevenueTrackingConfig } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import type {
@@ -48,7 +49,6 @@ import type {
     RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
-import { NodeKind, RevenueTrackingConfig } from './queries/schema/schema-general'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -520,6 +520,11 @@ export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
 
+export enum ActivationTaskStatus {
+    COMPLETED = 'completed',
+    SKIPPED = 'skipped',
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -566,6 +571,9 @@ export interface TeamType extends TeamBasicType {
     cookieless_server_hash_mode?: CookielessServerHashMode
     human_friendly_comparison_periods: boolean
     revenue_tracking_config: RevenueTrackingConfig
+    onboarding_tasks?: {
+        [key: string]: ActivationTaskStatus
+    }
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -4160,6 +4168,7 @@ export interface ExternalDataSource {
     status: string
     source_type: ExternalDataSourceType
     prefix: string
+    latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
@@ -4197,6 +4206,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | null
     status?: string
+    latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
@@ -4399,6 +4409,12 @@ export type GroupedBatchExportRuns = {
     runs: BatchExportRun[]
 }
 
+export type BatchExportBackfillProgress = {
+    total_runs?: number
+    finished_runs?: number
+    progress?: number
+}
+
 export type RawBatchExportBackfill = {
     id: string
     status:
@@ -4416,7 +4432,7 @@ export type RawBatchExportBackfill = {
     start_at?: string
     end_at?: string
     last_updated_at?: string
-    total_runs?: number
+    progress?: BatchExportBackfillProgress
 }
 
 export type BatchExportBackfill = {
@@ -4436,7 +4452,7 @@ export type BatchExportBackfill = {
     start_at?: Dayjs
     end_at?: Dayjs
     last_updated_at?: Dayjs
-    total_runs?: number
+    progress?: BatchExportBackfillProgress
 }
 
 export type SDK = {
@@ -4620,17 +4636,15 @@ export type BillingTableTierRow = {
     subrows: ProductPricingTierSubrows
 }
 
-export type AvailableOnboardingProducts = Pick<
-    {
-        [key in ProductKey]: OnboardingProduct
-    },
+export type AvailableOnboardingProducts = Record<
     | ProductKey.PRODUCT_ANALYTICS
     | ProductKey.SESSION_REPLAY
     | ProductKey.FEATURE_FLAGS
     | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
-    | ProductKey.WEB_ANALYTICS
+    | ProductKey.WEB_ANALYTICS,
+    OnboardingProduct
 >
 
 export type OnboardingProduct = {
