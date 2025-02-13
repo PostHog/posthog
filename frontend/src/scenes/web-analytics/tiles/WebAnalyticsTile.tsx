@@ -382,7 +382,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         action_name: {
             title: 'Action',
         },
-        replay_url: {
+        cross_sell: {
             title: ' ',
             render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => (
                 <RenderReplayButton
