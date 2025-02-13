@@ -11,6 +11,13 @@ use super::TransformContext;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub struct MixpanelContentConfig {
+    #[serde(default)] // Defaults to false
+    pub skip_no_distinct_id: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct MixpanelEvent {
     event: String,
     properties: MixpanelProperties,
@@ -30,21 +37,23 @@ pub struct MixpanelProperties {
 impl MixpanelEvent {
     pub fn parse_fn(
         context: TransformContext,
+        skip_no_distinct_id: bool,
         event_transform: impl Fn(RawEvent) -> Result<Option<RawEvent>, Error>,
     ) -> impl Fn(Self) -> Result<Option<InternallyCapturedEvent>, Error> {
         move |mx| {
             let token = context.token.clone();
             let team_id = context.team_id;
 
+            let distinct_id = match (
+                mx.properties.distinct_id.as_ref().cloned(),
+                skip_no_distinct_id,
+            ) {
+                (Some(distinct_id), _) => distinct_id,
+                (None, true) => return Ok(None),
+                (None, false) => Uuid::now_v7().to_string(),
+            };
+
             let generated_id = Uuid::now_v7();
-
-            let distinct_id = mx
-                .properties
-                .distinct_id
-                .as_ref()
-                .cloned()
-                .unwrap_or(format!("posthog-import-generated-{}", generated_id));
-
             // We don't support subsecond precision for historical imports
             let timestamp = DateTime::<Utc>::from_timestamp(mx.properties.timestamp_ms / 1000, 0)
                 .ok_or(Error::msg("Invalid timestamp"))?;

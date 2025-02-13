@@ -45,9 +45,15 @@ impl FormatConfig {
         };
 
         match content {
-            ContentType::Mixpanel => {
+            ContentType::Mixpanel(config) => {
                 let format_parse = json_nd(*skip_blanks);
-                let event_transform = MixpanelEvent::parse_fn(transform_context, skip_geoip());
+
+                let event_transform = MixpanelEvent::parse_fn(
+                    transform_context,
+                    config.skip_no_distinct_id,
+                    skip_geoip(),
+                );
+
                 let parser = move |data| {
                     let parsed: Parsed<Vec<MixpanelEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
