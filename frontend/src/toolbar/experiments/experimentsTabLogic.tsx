@@ -78,10 +78,16 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             index,
         }),
         editSelectorWithIndex: (variant: string, index: number | null) => ({ variant, index }),
-        inspectElementSelected: (element: HTMLElement, variant: string, index: number | null) => ({
+        inspectElementSelected: (
+            element: HTMLElement,
+            variant: string,
+            index: number | null,
+            selector?: string | null
+        ) => ({
             element,
             variant,
             index,
+            selector,
         }),
         saveExperiment: (formValues: WebExperimentForm) => ({ formValues }),
         showButtonExperiments: true,
@@ -293,11 +299,13 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             actions.showButtonExperiments()
             toolbarLogic.actions.setVisibleMenu('experiments')
         },
-        inspectElementSelected: ({ element, variant, index }) => {
+        inspectElementSelected: ({ element, variant, index, selector }) => {
             if (values.experimentForm?.variants) {
                 const currentVariant = values.experimentForm.variants[variant]
                 if (currentVariant && index !== null && currentVariant.transforms.length > index) {
-                    const selector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                    if (!selector) {
+                        selector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                    }
                     if (!selector) {
                         return
                     }
@@ -307,10 +315,10 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     if (previousSelector) {
                         const originalHtmlState = values.experimentForm.original_html_state?.[previousSelector]
                         if (originalHtmlState) {
-                            const element = document.querySelector(previousSelector) as HTMLElement
-                            element.innerHTML = originalHtmlState.html
+                            const previousElement = document.querySelector(previousSelector) as HTMLElement
+                            previousElement.innerHTML = originalHtmlState.html
                             if (originalHtmlState.css) {
-                                element.setAttribute('style', originalHtmlState.css)
+                                previousElement.setAttribute('style', originalHtmlState.css)
                             }
                         }
                     }

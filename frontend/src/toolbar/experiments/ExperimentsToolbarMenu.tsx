@@ -32,34 +32,32 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
-                {isWebExperimentsDisabled && (
-                    <div className="pb-2">
-                        <LemonBanner type="warning">
-                            Web experiments are disabled in your PostHog web snippet configuration. To run experiments,
-                            add <code>disable_web_experiments: false</code> to your configuration.{' '}
-                            <Link
-                                target="_blank"
-                                targetBlankIcon
-                                to="https://posthog.com/docs/experiments/no-code-web-experiments"
-                            >
-                                Learn more
-                            </Link>
-                        </LemonBanner>
-                    </div>
-                )}
-
                 <LemonInput
-                    autoFocus
-                    fullWidth
+                    autoFocus={true}
+                    fullWidth={true}
                     placeholder="Search"
                     type="search"
                     value={searchTerm}
                     onChange={(s) => setSearchTerm(s)}
-                    className="Toolbar__top_input"
                 />
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="px-1 space-y-px py-2">
+                    {isWebExperimentsDisabled && (
+                        <div className="pb-2">
+                            <LemonBanner type="warning">
+                                Web experiments are disabled in your PostHog web snippet configuration. To run
+                                experiments, add <code>disable_web_experiments: false</code> to your configuration.{' '}
+                                <Link
+                                    target="_blank"
+                                    targetBlankIcon
+                                    to="https://posthog.com/docs/experiments/no-code-web-experiments"
+                                >
+                                    Learn more
+                                </Link>
+                            </LemonBanner>
+                        </div>
+                    )}
                     {allExperiments.length === 0 && allExperimentsLoading ? (
                         <div className="text-center my-4">
                             <Spinner />

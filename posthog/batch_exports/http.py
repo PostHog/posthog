@@ -312,7 +312,24 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 },
                 send_feature_flag_events=False,
             ):
-                raise PermissionDenied("Higher frequency exports are not enabled for this team.")
+                raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
+
+        if validated_data.get("model", "events") == "sessions":
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "sessions-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Sessions batch exports are not enabled for this team.")
 
         hogql_query = None
         if hogql_query := validated_data.pop("hogql_query", None):
@@ -559,32 +576,35 @@ def create_backfill(
         end_at = None
 
     if (start_at is not None or end_at is not None) and batch_export.model is not None:
-        earliest_backfill_start_at = fetch_earliest_backfill_start_at(
-            team_id=team.pk,
-            model=batch_export.model,
-            interval_time_delta=batch_export.interval_time_delta,
-            exclude_events=batch_export.destination.config.get("exclude_events", []),
-            include_events=batch_export.destination.config.get("include_events", []),
-        )
-        if earliest_backfill_start_at is None:
-            raise ValidationError("There is no data to backfill for this model.")
-
-        earliest_backfill_start_at = earliest_backfill_start_at.astimezone(team.timezone_info)
-
-        if end_at is not None and end_at < earliest_backfill_start_at:
-            raise ValidationError(
-                "The provided backfill date range contains no data. The earliest possible backfill start date is "
-                f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
+        try:
+            earliest_backfill_start_at = fetch_earliest_backfill_start_at(
+                team_id=team.pk,
+                model=batch_export.model,
+                interval_time_delta=batch_export.interval_time_delta,
+                exclude_events=batch_export.destination.config.get("exclude_events", []),
+                include_events=batch_export.destination.config.get("include_events", []),
             )
+            if earliest_backfill_start_at is None:
+                raise ValidationError("There is no data to backfill for this model.")
 
-        if start_at is not None and start_at < earliest_backfill_start_at:
-            logger.info(
-                "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
-                "to earliest_backfill_start_at",
-                start_at,
-                earliest_backfill_start_at,
-            )
-            start_at = earliest_backfill_start_at
+            earliest_backfill_start_at = earliest_backfill_start_at.astimezone(team.timezone_info)
+
+            if end_at is not None and end_at < earliest_backfill_start_at:
+                raise ValidationError(
+                    "The provided backfill date range contains no data. The earliest possible backfill start date is "
+                    f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
+                )
+
+            if start_at is not None and start_at < earliest_backfill_start_at:
+                logger.info(
+                    "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
+                    "to earliest_backfill_start_at",
+                    start_at,
+                    earliest_backfill_start_at,
+                )
+                start_at = earliest_backfill_start_at
+        except NotImplementedError:
+            logger.warning("No backfill check implemented for model: '%s'; skipping", batch_export.model)
 
     if start_at is None or end_at is None:
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
