@@ -78,7 +78,10 @@ EMAIL_TASK_KWARGS = {
 }
 
 CUSTOMER_IO_TEMPLATE_ID_MAP = {
-    # TODO
+    # Set up in customer.io
+    "2fa_enabled": 31,
+    "2fa_disabled": 30,
+    "2fa_backup_code_used": 29,
 }
 
 
