@@ -1,14 +1,15 @@
 import { IconArrowRight, IconRewind } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { sessionRecordingsPlaylistLogicType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogicType'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { AiConsentPopover } from '../AiConsentPopover'
 import { aiFilterLogic } from './aiFilterLogic'
 
-export function AiFilterInput({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylistLogicType> }): JSX.Element {
-    const { setFilters, resetFilters } = useActions(logic)
+export function AiFilterInput(): JSX.Element {
+    const mountedLogic = useMountedLogic(sessionRecordingsPlaylistLogic)
+    const { setFilters, resetFilters } = useActions(mountedLogic)
     const filterLogic = aiFilterLogic({ setFilters, resetFilters })
     const { messages, input, isLoading } = useValues(filterLogic)
     const { setInput, handleSend, handleReset } = useActions(filterLogic)

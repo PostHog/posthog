@@ -1,14 +1,15 @@
 import { LemonCollapse, LemonTag } from '@posthog/lemon-ui'
-import { BuiltLogic, useActions, useValues } from 'kea'
-import { sessionRecordingsPlaylistLogicType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogicType'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { AiFilterInput } from './AiFilterInput'
 import { aiFilterLogic } from './aiFilterLogic'
 import { AiFilterSuggestions } from './AiFilterSuggestions'
 import { AiFilterThread } from './AiFilterThread'
 
-export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylistLogicType> }): JSX.Element {
-    const { setFilters, resetFilters } = useActions(logic)
+export function AiFilter(): JSX.Element {
+    const mountedLogic = useMountedLogic(sessionRecordingsPlaylistLogic)
+    const { setFilters, resetFilters } = useActions(mountedLogic)
     const filterLogic = aiFilterLogic({ setFilters, resetFilters })
     const { messages } = useValues(filterLogic)
 
@@ -33,8 +34,8 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                         content: (
                             <>
                                 <div className="relative flex flex-col gap-3 px-4 items-center grow justify-center">
-                                    <AiFilterThread logic={logic} />
-                                    <AiFilterInput logic={logic} />
+                                    <AiFilterThread />
+                                    <AiFilterInput />
                                     {messages.length === 0 && <AiFilterSuggestions />}
                                 </div>
                             </>

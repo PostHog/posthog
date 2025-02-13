@@ -1,13 +1,14 @@
 import { ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { sessionRecordingsPlaylistLogicType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogicType'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { aiFilterLogic } from './aiFilterLogic'
 
-export function AiFilterThread({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylistLogicType> }): JSX.Element {
-    const { setFilters, resetFilters } = useActions(logic)
+export function AiFilterThread(): JSX.Element {
+    const mountedLogic = useMountedLogic(sessionRecordingsPlaylistLogic)
+    const { setFilters, resetFilters } = useActions(mountedLogic)
     const filterLogic = aiFilterLogic({ setFilters, resetFilters })
     const { messages, isLoading } = useValues(filterLogic)
     const { user } = useValues(userLogic)
