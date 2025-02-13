@@ -55,7 +55,7 @@ const Template: StoryFn<typeof Query> = (args) => {
     const { setTablesOrderBy } = useActions(webAnalyticsLogic)
     useEffect(() => {
         setTablesOrderBy(WebAnalyticsOrderByFields.Views, 'DESC')
-    }, [setTablesOrderBy])
+    }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     return <Query {...args} context={{ ...webAnalyticsDataTableQueryContext }} readOnly />
 }
