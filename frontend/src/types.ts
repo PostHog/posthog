@@ -31,6 +31,7 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import { NodeKind, RevenueTrackingConfig } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import type {
@@ -48,7 +49,6 @@ import type {
     RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
-import { NodeKind, RevenueTrackingConfig } from './queries/schema/schema-general'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -4167,6 +4167,7 @@ export interface ExternalDataSource {
     status: string
     source_type: ExternalDataSourceType
     prefix: string
+    latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
@@ -4204,6 +4205,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | null
     status?: string
+    latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
