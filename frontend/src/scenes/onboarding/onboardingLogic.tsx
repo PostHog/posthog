@@ -168,12 +168,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     {
                         key: Scene.Onboarding,
                         name:
-                            availableOnboardingProducts[productKey as ProductKey].breadcrumbsName ??
-                            availableOnboardingProducts[productKey as ProductKey].name,
-                        path: availableOnboardingProducts[productKey as ProductKey].url,
+                            availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]
+                                ?.breadcrumbsName ??
+                            availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.name,
+                        path: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.url,
                     },
                     {
-                        key: availableOnboardingProducts[productKey as ProductKey].scene,
+                        key: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.scene,
                         name: stepKeyToTitle(stepKey),
                         path: urls.onboarding(productKey ?? '', stepKey),
                     },
