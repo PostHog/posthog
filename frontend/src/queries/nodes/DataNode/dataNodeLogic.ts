@@ -163,6 +163,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),
         setLocalCache: (response: Record<string, any>) => response,
+        setLoadingTime: (seconds: number) => ({ seconds }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -477,6 +478,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setLocalCache: (state, response) => ({ ...state, ...response }),
             },
         ],
+        loadingTimeSeconds: [
+            0,
+            {
+                loadData: () => 0,
+                loadDataSuccess: () => 0,
+                loadDataFailure: () => 0,
+                setLoadingTime: (_, { seconds }) => seconds,
+            },
+        ],
     })),
     selectors(({ cache }) => ({
         variableOverridesAreSet: [
@@ -741,6 +751,20 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }, AUTOLOAD_INTERVAL)
             }
         },
+        dataLoading: (dataLoading) => {
+            if (cache.loadingTimer) {
+                window.clearInterval(cache.loadingTimer)
+                cache.loadingTimer = null
+            }
+
+            if (dataLoading) {
+                const startTime = Date.now()
+                cache.loadingTimer = window.setInterval(() => {
+                    const seconds = Math.floor((Date.now() - startTime) / 1000)
+                    actions.setLoadingTime(seconds)
+                }, 1000)
+            }
+        },
     })),
     afterMount(({ actions, props, cache }) => {
         cache.localResults = {}
@@ -759,7 +783,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             cancelQuery: actions.cancelQuery,
         })
     }),
-    beforeUnmount(({ actions, props, values }) => {
+    beforeUnmount(({ actions, props, values, cache }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
@@ -768,5 +792,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
 
         actions.unmountDataNode(props.key)
+        if (cache.loadingTimer) {
+            window.clearInterval(cache.loadingTimer)
+            cache.loadingTimer = null
+        }
     }),
 ])

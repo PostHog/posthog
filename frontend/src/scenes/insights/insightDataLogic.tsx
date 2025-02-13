@@ -14,7 +14,7 @@ import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils
 import { queryExportContext } from '~/queries/query'
 import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
-import { ExportContext, InsightLogicProps, InsightType } from '~/types'
+import { ExportContext, InsightLogicProps, InsightType, SlowQueryPossibilities } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { insightDataLogicType } from './insightDataLogicType'
@@ -48,6 +48,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'query as insightQuery',
                 'response as insightDataRaw',
                 'dataLoading as insightDataLoading',
+                'loadingTimeSeconds as insightLoadingTimeSeconds',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
                 'pollResponse as insightPollResponse',
@@ -185,6 +186,39 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     return insightData.hogql
                 }
                 return null
+            },
+        ],
+        isAllEventsQuery: [
+            (s) => [s.query],
+            (query) => {
+                return (
+                    query?.source?.kind === NodeKind.TrendsQuery &&
+                    query?.source?.series?.some((s) => s.name === 'All events')
+                )
+            },
+        ],
+        isFirstTimeForUserQuery: [
+            (s) => [s.query],
+            (query) => {
+                return (
+                    query?.source?.kind === NodeKind.TrendsQuery &&
+                    query?.source?.series?.some((s) =>
+                        ['first_matching_event_for_user', 'first_time_for_user'].includes(s.math)
+                    )
+                )
+            },
+        ],
+        slowQueryPossibilities: [
+            (s) => [s.isAllEventsQuery, s.isFirstTimeForUserQuery],
+            (isAllEventsQuery, isFirstTimeForUserQuery): SlowQueryPossibilities[] => {
+                const possibilities: SlowQueryPossibilities[] = []
+                if (isAllEventsQuery) {
+                    possibilities.push('all_events')
+                }
+                if (isFirstTimeForUserQuery) {
+                    possibilities.push('first_time_for_user')
+                }
+                return possibilities
             },
         ],
     }),
