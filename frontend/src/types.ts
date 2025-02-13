@@ -4113,6 +4113,7 @@ export interface DataWarehouseSavedQuery {
     query: HogQLQuery
     columns: DatabaseSchemaField[]
     last_run_at?: string
+    sync_frequency: string
     status?: string
 }
 
@@ -4348,6 +4349,7 @@ export type BatchExportService =
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
 export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
+export type OrNever = 'never'
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user

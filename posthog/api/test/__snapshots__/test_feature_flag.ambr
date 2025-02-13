@@ -1273,7 +1273,8 @@
           AND "posthog_person"."properties" ? 'email'
           AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
-  WHERE "posthog_person"."team_id" = 99999
+  INNER JOIN "posthog_team" ON ("posthog_person"."team_id" = "posthog_team"."id")
+  WHERE "posthog_team"."project_id" = 99999
   LIMIT 10
   '''
 # ---
@@ -1283,8 +1284,9 @@
           AND "posthog_group"."group_properties" ? 'email'
           AND NOT (("posthog_group"."group_properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_group"
+  INNER JOIN "posthog_team" ON ("posthog_group"."team_id" = "posthog_team"."id")
   WHERE ("posthog_group"."group_type_index" = 99999
-         AND "posthog_group"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   LIMIT 10
   '''
 # ---
@@ -1889,11 +1891,12 @@
          (SELECT person_id
           FROM target_person_ids) )
   SELECT key
-  FROM posthog_featureflag
-  WHERE team_id = 99999
-    AND ensure_experience_continuity = TRUE
-    AND active = TRUE
-    AND deleted = FALSE
+  FROM posthog_featureflag flag
+  JOIN posthog_team team ON flag.team_id = team.id
+  WHERE team.project_id = 99999
+    AND flag.ensure_experience_continuity = TRUE
+    AND flag.active = TRUE
+    AND flag.deleted = FALSE
     AND key NOT IN
       (SELECT feature_flag_key
        FROM existing_overrides)
@@ -1919,12 +1922,13 @@
           FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 99999
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
+     FROM posthog_featureflag flag
+     JOIN posthog_team team ON flag.team_id = team.id
+     WHERE team.project_id = 99999
+       AND flag.ensure_experience_continuity = TRUE
+       AND flag.active = TRUE
+       AND flag.deleted = FALSE
+       AND flag.key NOT IN
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
@@ -1997,11 +2001,12 @@
          (SELECT person_id
           FROM target_person_ids) )
   SELECT key
-  FROM posthog_featureflag
-  WHERE team_id = 99999
-    AND ensure_experience_continuity = TRUE
-    AND active = TRUE
-    AND deleted = FALSE
+  FROM posthog_featureflag flag
+  JOIN posthog_team team ON flag.team_id = team.id
+  WHERE team.project_id = 99999
+    AND flag.ensure_experience_continuity = TRUE
+    AND flag.active = TRUE
+    AND flag.deleted = FALSE
     AND key NOT IN
       (SELECT feature_flag_key
        FROM existing_overrides)
@@ -2036,7 +2041,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.1
@@ -2049,7 +2054,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.2
@@ -2062,7 +2067,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again
