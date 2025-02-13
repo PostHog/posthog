@@ -591,12 +591,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # TRICKY: We pass in `team` here as access to `user.current_team` can fail if it was deleted
         report_user_action(user, f"team deleted", team=team)
 
-    # Override patch method to only require team:read scope - this is a temporary change until we
-    # split the patch requests into ones allowed vs ones not allowed
-    def patch(self, request, *args, **kwargs):
-        self.required_scopes = ["team:read"]
-        return super().patch(request, *args, **kwargs)
-
     @action(
         methods=["PATCH"],
         detail=True,
