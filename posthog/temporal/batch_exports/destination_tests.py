@@ -1,0 +1,266 @@
+import abc
+import collections.abc
+import dataclasses
+import enum
+
+
+class Status(enum.StrEnum):
+    PASSED = "Passed"
+    FAILED = "Failed"
+
+
+DestinationTestStepResultDict = dict[str, str | None]
+
+
+@dataclasses.dataclass
+class DestinationTestStepResult:
+    status: Status
+    message: str | None = None
+
+    def as_dict(self) -> DestinationTestStepResultDict:
+        return {
+            "status": str(self.status),
+            "message": self.message,
+        }
+
+
+DestinationTestStepDict = dict[str, str | DestinationTestStepResultDict]
+
+
+class DestinationTestStep:
+    """A single step in a destination test.
+
+    Attributes:
+        name: A short (ideally) string used to identify this step.
+        description: A longer string with more details about this step.
+    """
+
+    def __init__(self, name: str, description: str) -> None:
+        self.name = name
+        self.description = description
+        self.result: DestinationTestStepResult | None = None
+
+    @abc.abstractmethod
+    def run(self) -> DestinationTestStepResult:
+        raise NotImplementedError
+
+    def as_dict(self) -> DestinationTestStepDict:
+        base: dict[str, str | dict[str, str | None]] = {"name": self.name, "description": self.description}
+        if self.result:
+            base["result"] = self.result.as_dict()
+        return base
+
+
+class DestinationTest:
+    @property
+    @abc.abstractmethod
+    def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
+        raise NotImplementedError
+
+    def run_step(self, step: int) -> DestinationTestStepResult:
+        step_result = self.steps[step].run()
+
+        return step_result
+
+    def as_dict(self) -> dict[str, list[DestinationTestStepDict]]:
+        return {"steps": [step.as_dict() for step in self.steps]}
+
+
+class S3DestinationTest(DestinationTest):
+    pass
+
+
+class BigQueryCheckProjectExistsTestStep(DestinationTestStep):
+    def __init__(self, project_id: str | None = None, service_account_info: dict[str, str] | None = None) -> None:
+        super().__init__(name="Check project exists", description="Verify the configured project exists")
+        self.project_id = project_id
+        self.service_account_info = service_account_info
+
+    def run(self) -> DestinationTestStepResult:
+        from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
+
+        if self.project_id is None or self.service_account_info is None:
+            raise ValueError("Test step not configured")
+
+        client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
+        projects = {p.project_id for p in client.list_projects()}
+
+        if self.project_id in projects:
+            return DestinationTestStepResult(status=Status.PASSED)
+        else:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Project '{self.project_id}' could not be found because it doesn't exist or we don't have permissions to use it",
+            )
+
+
+class BigQueryCheckDatasetExistsTestStep(DestinationTestStep):
+    def __init__(
+        self,
+        project_id: str | None = None,
+        dataset_id: str | None = None,
+        service_account_info: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(name="Check dataset exists", description="Verify the configured dataset exists")
+        self.dataset_id = dataset_id
+        self.project_id = project_id
+        self.service_account_info = service_account_info
+
+    def run(self) -> DestinationTestStepResult:
+        from google.cloud.exceptions import NotFound
+
+        from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
+
+        if self.project_id is None or self.dataset_id is None or self.service_account_info is None:
+            raise ValueError("Test step not configured")
+
+        client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
+
+        try:
+            _ = client.get_dataset(self.dataset_id)
+        except NotFound:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"Dataset '{self.dataset_id}' could not be found because it doesn't exist or we don't have permissions to use it",
+            )
+        else:
+            return DestinationTestStepResult(status=Status.PASSED)
+
+
+class BigQueryCheckTableTestStep(DestinationTestStep):
+    def __init__(
+        self,
+        project_id: str | None = None,
+        dataset_id: str | None = None,
+        table_id: str | None = None,
+        service_account_info: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(
+            name="Check batch exports table", description="Verify the configured table already exists or can be created"
+        )
+        self.dataset_id = dataset_id
+        self.project_id = project_id
+        self.table_id = table_id
+        self.service_account_info = service_account_info
+
+    def run(self) -> DestinationTestStepResult:
+        from google.api_core.exceptions import BadRequest
+        from google.cloud import bigquery
+        from google.cloud.exceptions import NotFound
+
+        from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
+
+        if (
+            self.project_id is None
+            or self.dataset_id is None
+            or self.service_account_info is None
+            or self.table_id is None
+        ):
+            raise ValueError("Test step not configured")
+
+        client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
+
+        fully_qualified_name = f"{self.project_id}.{self.dataset_id}.{self.table_id}"
+        table = bigquery.Table(fully_qualified_name, schema=[bigquery.SchemaField(name="event", field_type="STRING")])
+
+        try:
+            _ = client.get_table(table)
+        except NotFound:
+            try:
+                # Since permissions to create are not table specific, we can test creating
+                # a table with a slightly different ID so that it is easier to clean up for the
+                # user in case the delete call later on fails.
+                fully_qualified_name = f"{fully_qualified_name}_test"
+
+                table = bigquery.Table(
+                    fully_qualified_name, schema=[bigquery.SchemaField(name="event", field_type="STRING")]
+                )
+
+                _ = client.create_table(table, exists_ok=True)
+            except BadRequest as err:
+                return DestinationTestStepResult(
+                    status=Status.FAILED,
+                    message=f"A table could not be created in dataset '{self.dataset_id}': {err.errors[0]['message']}",
+                )
+            else:
+                try:
+                    _ = client.delete_table(table, not_found_ok=True)
+                except BadRequest as err:
+                    return DestinationTestStepResult(
+                        status=Status.FAILED,
+                        message=f"A test table '{self.table_id}_test' was created, but could not be deleted afterwards: {err.errors[0]['message']}",
+                    )
+
+        return DestinationTestStepResult(status=Status.PASSED)
+
+
+class BigQueryDestinationTest(DestinationTest):
+    def __init__(self):
+        self.project_id = None
+        self.dataset_id = None
+        self.table_id = None
+        self.service_account_info = None
+
+    def configure(
+        self,
+        project_id: str,
+        dataset_id: str,
+        table_id: str,
+        private_key: str,
+        private_key_id: str,
+        token_uri: str,
+        client_email: str,
+    ):
+        self.project_id = project_id
+        self.dataset_id = dataset_id
+        self.table_id = table_id
+        self.service_account_info = {
+            "private_key": private_key,
+            "private_key_id": private_key_id,
+            "token_uri": token_uri,
+            "client_email": client_email,
+        }
+
+    @property
+    def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
+        return [
+            BigQueryCheckProjectExistsTestStep(
+                project_id=self.project_id, service_account_info=self.service_account_info
+            ),
+            BigQueryCheckDatasetExistsTestStep(
+                project_id=self.project_id, dataset_id=self.dataset_id, service_account_info=self.service_account_info
+            ),
+            BigQueryCheckTableTestStep(
+                project_id=self.project_id,
+                dataset_id=self.dataset_id,
+                table_id=self.table_id,
+                service_account_info=self.service_account_info,
+            ),
+        ]
+
+
+class SnowflakeDestinationTest(DestinationTest):
+    pass
+
+
+class PostgreSQLDestinationTest(DestinationTest):
+    pass
+
+
+class RedshiftDestinationTest(DestinationTest):
+    pass
+
+
+def get_destination_test(destination: str, **kwargs) -> DestinationTest:
+    if destination == "S3":
+        return S3DestinationTest(**kwargs)
+    elif destination == "Snowflake":
+        return SnowflakeDestinationTest(**kwargs)
+    elif destination == "BigQuery":
+        return BigQueryDestinationTest(**kwargs)
+    elif destination == "Postgres":
+        return PostgreSQLDestinationTest(**kwargs)
+    elif destination == "Redshift":
+        return RedshiftDestinationTest(**kwargs)
+    else:
+        raise ValueError(f"Unsupported destination: {destination}")
