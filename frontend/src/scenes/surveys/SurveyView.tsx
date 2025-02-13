@@ -512,7 +512,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                 surveyRatingResults={surveyRatingResults}
                                 surveyRatingResultsReady={surveyRatingResultsReady}
                                 questionIndex={i}
-                                iteration={survey.current_iteration}
                             />
 
                             {survey.iteration_count &&

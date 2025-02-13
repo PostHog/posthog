@@ -316,10 +316,8 @@ export const surveyLogic = kea<surveyLogicType>([
         surveyRatingResults: {
             loadSurveyRatingResults: async ({
                 questionIndex,
-                iteration,
             }: {
                 questionIndex: number
-                iteration?: number | null | undefined
             }): Promise<SurveyRatingResults> => {
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Rating) {
@@ -341,7 +339,6 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = 'survey sent'
                             AND properties.$survey_id = '${props.id}'
-                            ${iteration && iteration > 0 ? ` AND properties.$survey_iteration='${iteration}' ` : ''}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             AND {filters}
