@@ -1,6 +1,5 @@
 import json
 from collections.abc import Mapping
-from contextlib import contextmanager
 from typing import Any, Literal, Optional, cast
 
 import pytest
@@ -24,21 +23,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
-from posthog.test.base import BaseTest, _create_event, cleanup_materialized_columns
-
-
-@contextmanager
-def materialized(table, property):
-    """Materialize a property within the managed block, removing it on exit."""
-    try:
-        from ee.clickhouse.materialized_columns.analyze import materialize
-    except ModuleNotFoundError as e:
-        pytest.xfail(str(e))
-
-    try:
-        yield materialize(table, property)
-    finally:
-        cleanup_materialized_columns()
+from posthog.test.base import BaseTest, _create_event, materialized
 
 
 class TestPrinter(BaseTest):

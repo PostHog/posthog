@@ -1,7 +1,7 @@
 import contextlib
+import time
 from collections.abc import Iterator, Mapping
 from datetime import datetime
-import time
 from uuid import UUID
 
 import dagster
@@ -16,7 +16,7 @@ from dags.materialized_columns import (
     run_materialize_mutations,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.hogql.test.test_printer import materialized  # bad idea
+from posthog.test.base import materialized
 
 
 def test_partition_range_validation():
