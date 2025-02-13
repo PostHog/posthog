@@ -21,7 +21,6 @@ interface AiFilterResponse {
 }
 
 const TIMEOUT_LIMIT = 10000
-const IS_DEBUG = false
 
 export const aiFilterLogic = kea<aiFilterLogicType>([
     path(['lib', 'components', 'AiFilter', 'aiFilterLogicType']),
@@ -90,22 +89,16 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
                 const contentPromise = api.recordings.aiFilters(newMessages as ChatCompletionUserMessageParam[])
                 const content = (await Promise.race([contentPromise, timeoutPromise])) as AiFilterResponse
 
-                if (content.hasOwnProperty('result') && content.result === 'filter') {
-                    props.setFilters(content.data)
+                if (content.hasOwnProperty('result')) {
+                    if (content.result === 'filter') {
+                        props.setFilters(content.data)
+                    }
+
                     actions.setMessages([
                         ...newMessages,
                         {
                             role: 'assistant',
-                            content: IS_DEBUG ? JSON.stringify(content.data) ?? '' : 'Done! Filters have been updated',
-                        } as ChatCompletionAssistantMessageParam,
-                    ])
-                }
-                if (content.hasOwnProperty('result') && content.result === 'question') {
-                    actions.setMessages([
-                        ...newMessages,
-                        {
-                            role: 'assistant',
-                            content: content.data.question ?? '',
+                            content: content.result === 'filter' ? JSON.stringify(content.data) : content.data.question,
                         } as ChatCompletionAssistantMessageParam,
                     ])
                 }

@@ -51,7 +51,11 @@ export function AiFilterThread({ logic }: { logic: BuiltLogic<sessionRecordingsP
                                                 />
                                             </Tooltip>
                                             <div className="border py-2 px-3 rounded-lg bg-surface-primary font-medium">
-                                                <LemonMarkdown>{message.content}</LemonMarkdown>
+                                                <LemonMarkdown>
+                                                    {message.content.length > 0 && message.content[0] === '{'
+                                                        ? 'Done! Filters have been updated'
+                                                        : message.content}
+                                                </LemonMarkdown>
                                             </div>
                                         </div>
                                     </>
