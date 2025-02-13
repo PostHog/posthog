@@ -3,6 +3,7 @@ import dataclasses
 import json
 from collections.abc import Sequence
 from typing import Any
+from collections.abc import Generator, Iterator
 from dateutil import parser
 import uuid
 import orjson
@@ -237,11 +238,8 @@ def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger)
     ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
 
 
-def _convert_uuid_to_string(table_data: list[Any]) -> list[dict]:
-    return [
-        {key: (str(value) if isinstance(value, uuid.UUID) else value) for key, value in record.items()}
-        for record in table_data
-    ]
+def _convert_uuid_to_string(row: dict) -> dict:
+    return {key: str(value) if isinstance(value, uuid.UUID) else value for key, value in row.items()}
 
 
 def _json_dumps(obj: Any) -> str:
@@ -253,47 +251,62 @@ def _json_dumps(obj: Any) -> str:
         raise TypeError(e)
 
 
-def table_from_py_list(table_data: list[Any]) -> pa.Table:
+def table_from_iterator(data_iterator: Iterator[dict]) -> pa.Table:
     try:
-        return pa.Table.from_pylist(table_data)
-    except:
-        # There exists mismatched types in the data
-        column_types: dict[str, set[type]] = {key: set() for key in table_data[0].keys()}
+        # Get the first batch to initialize column types
+        batch = list(data_iterator)
+        if not batch:
+            return pa.Table.from_pylist([])
 
-        for row in table_data:
-            for column, value in row.items():
-                if value is None:
-                    continue
+        processed_batch = list(_process_row(batch))
 
-                column_types[column].add(type(value))
+        return pa.Table.from_pylist(processed_batch)
 
-        inconsistent_columns = {column: types for column, types in column_types.items() if len(types) > 1}
+    except Exception as e:
+        raise ValueError(f"Failed to process data stream: {str(e)}")
 
-        for column_name, types in inconsistent_columns.items():
-            if list not in types:
-                raise
 
+def table_from_py_list(table_data: list[Any]) -> pa.Table:
+    """
+    Convert a list of Python dictionaries to a PyArrow Table.
+    This is a wrapper around table_from_iterator for backward compatibility.
+    """
+    return table_from_iterator(iter(table_data))
+
+
+def _process_row(table_data: list[dict]) -> Generator[dict, None, None]:
+    column_types: dict[str, set[type]] = {key: set() for key in table_data[0].keys()}
+
+    for row in table_data:
+        for column, value in row.items():
+            if value is None:
+                continue
+
+            column_types[column].add(type(value))
+
+    inconsistent_columns_with_lists = {
+        column: types for column, types in column_types.items() if len(types) > 1 and list in types
+    }
+
+    for row in table_data:
+        # Handle list type mismatches
+        for column_name in inconsistent_columns_with_lists.keys():
             # If one type is a list, then make everything into a list
-            for row in table_data:
-                value = row[column_name]
-                if not isinstance(value, list):
-                    row[column_name] = [value]
+            value = row[column_name]
+            if not isinstance(value, list):
+                row[column_name] = [value]
 
         # Convert any dict/lists to json strings to avoid schema mismatches in nested objects
         for column_name, types in column_types.items():
             has_dict_or_list = any(issubclass(column_type, dict | list) for column_type in types)
-            if not has_dict_or_list:
-                continue
+            if has_dict_or_list:
+                row[column_name] = _json_dumps(row[column_name])
 
-            for row in table_data:
-                value = row[column_name]
-                row[column_name] = _json_dumps(value)
+        # Convert UUIDs to strings if needed
+        if any(isinstance(value, uuid.UUID) for value in row.values()):
+            row = _convert_uuid_to_string(row)
 
-        uuid_exists = any(isinstance(value, uuid.UUID) for value in table_data[0].values())
-        if uuid_exists:
-            table_data = _convert_uuid_to_string(table_data)
-
-        return pa.Table.from_pylist(table_data)
+        yield row
 
 
 def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> str:

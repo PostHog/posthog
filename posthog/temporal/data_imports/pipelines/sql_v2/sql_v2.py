@@ -4,7 +4,7 @@ import psycopg
 from psycopg import sql
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
 from posthog.warehouse.models import ExternalDataSource, IncrementalFieldType
 
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -36,11 +36,10 @@ def postgres_source(
 
     def get_rows() -> Iterator[Any]:
         with psycopg.connect(
-            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
+            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}",
+            cursor_factory=psycopg.ServerCursor,
         ) as connection:
-            with connection.cursor(name=f"posthog_{team_id}_{table_name}", scrollable=True) as cursor:
-                cursor.itersize = 10_000
-
+            with connection.cursor(name=f"posthog_{team_id}_{table_name}") as cursor:
                 query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(table_name))
                 cursor.execute(query)
 
@@ -51,7 +50,7 @@ def postgres_source(
                     if not rows:
                         break
 
-                    yield table_from_py_list([dict(zip(column_names, row)) for row in rows])
+                    yield table_from_iterator(dict(zip(column_names, row)) for row in rows)
 
     name = NamingConvention().normalize_identifier(table_name)
 
