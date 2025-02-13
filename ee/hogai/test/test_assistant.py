@@ -1,6 +1,6 @@
 import json
 from itertools import cycle
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 from unittest.mock import patch
 
 import pytest
@@ -114,7 +114,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         output = self._run_assistant_graph(
             AssistantGraph(self.team)
             .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-            .add_trends_planner(AssistantNodeName.QUERY_EXECUTOR)
+            .add_trends_planner(AssistantNodeName.QUERY_EXECUTOR, AssistantNodeName.END)
             .add_query_executor(AssistantNodeName.END)
             .compile(),
             conversation=self.conversation,
@@ -177,7 +177,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         output = self._run_assistant_graph(
             AssistantGraph(self.team)
             .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-            .add_trends_planner(AssistantNodeName.END)
+            .add_trends_planner(AssistantNodeName.END, AssistantNodeName.END)
             .compile(),
             conversation=self.conversation,
         )
@@ -212,13 +212,32 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
         self.assertConversationEqual(output, expected_output)
 
-    def _test_human_in_the_loop(self, graph: CompiledStateGraph):
-        with patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
+    def _test_human_in_the_loop(
+        self, graph: CompiledStateGraph, insight_type: Literal["trends", "funnel", "retention"]
+    ):
+        with (
+            patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock,
+            patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as planner_mock,
+        ):
             config: RunnableConfig = {
                 "configurable": {
                     "thread_id": self.conversation.id,
                 }
             }
+
+            def root_side_effect(prompt):
+                return messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "1",
+                            "name": "create_and_query_insight",
+                            "args": {"query_description": "Foobar", "query_kind": insight_type},
+                        }
+                    ],
+                )
+
+            root_mock.return_value = RunnableLambda(root_side_effect)
 
             # Interrupt the graph
             message = """
@@ -231,7 +250,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             }
             ```
             """
-            mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content=message))
+            planner_mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content=message))
             output = self._run_assistant_graph(graph, conversation=self.conversation)
             expected_output = [
                 ("message", HumanMessage(content="Hello")),
@@ -255,7 +274,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             }
             ```
             """
-            mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content=message))
+            planner_mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content=message))
             output = self._run_assistant_graph(graph, conversation=self.conversation, message="It's straightforward")
             expected_output = [
                 ("message", HumanMessage(content="It's straightforward")),
@@ -270,22 +289,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertEqual(snapshot.values["plan"], "Plan")
 
     def test_trends_interrupt_when_asking_for_help(self):
-        graph = (
-            AssistantGraph(self.team)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-            .add_trends_planner(AssistantNodeName.END)
-            .compile()
-        )
-        self._test_human_in_the_loop(graph)
+        graph = AssistantGraph(self.team).compile_full_graph()
+        self._test_human_in_the_loop(graph, "trends")
 
     def test_funnels_interrupt_when_asking_for_help(self):
-        graph = (
-            AssistantGraph(self.team)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.FUNNEL_PLANNER)
-            .add_funnel_planner(AssistantNodeName.END)
-            .compile()
-        )
-        self._test_human_in_the_loop(graph)
+        graph = AssistantGraph(self.team).compile_full_graph()
+        self._test_human_in_the_loop(graph, "funnel")
 
     def test_messages_are_updated_after_feedback(self):
         with patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:

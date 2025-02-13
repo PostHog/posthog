@@ -84,7 +84,11 @@ class AssistantGraph:
         )
         return self
 
-    def add_trends_planner(self, next_node: AssistantNodeName = AssistantNodeName.TRENDS_GENERATOR):
+    def add_trends_planner(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.TRENDS_GENERATOR,
+        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+    ):
         builder = self._graph
 
         create_trends_plan_node = TrendsPlannerNode(self._team)
@@ -105,7 +109,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.TRENDS_PLANNER,
                 "plan_found": next_node,
-                "root": AssistantNodeName.ROOT,
+                "root": root_node,
             },
         )
 
@@ -132,7 +136,11 @@ class AssistantGraph:
 
         return self
 
-    def add_funnel_planner(self, next_node: AssistantNodeName = AssistantNodeName.FUNNEL_GENERATOR):
+    def add_funnel_planner(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.FUNNEL_GENERATOR,
+        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+    ):
         builder = self._graph
 
         funnel_planner = FunnelPlannerNode(self._team)
@@ -153,7 +161,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.FUNNEL_PLANNER,
                 "plan_found": next_node,
-                "root": AssistantNodeName.ROOT,
+                "root": root_node,
             },
         )
 
@@ -180,7 +188,11 @@ class AssistantGraph:
 
         return self
 
-    def add_retention_planner(self, next_node: AssistantNodeName = AssistantNodeName.RETENTION_GENERATOR):
+    def add_retention_planner(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.RETENTION_GENERATOR,
+        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+    ):
         builder = self._graph
 
         retention_planner = RetentionPlannerNode(self._team)
@@ -201,7 +213,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.RETENTION_PLANNER,
                 "plan_found": next_node,
-                "root": AssistantNodeName.ROOT,
+                "root": root_node,
             },
         )
 
