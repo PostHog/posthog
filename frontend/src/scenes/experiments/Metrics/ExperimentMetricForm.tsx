@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { ActionsNode, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -51,7 +51,7 @@ export function ExperimentMetricForm({ isSecondary = false }: { isSecondary?: bo
                 setFilters={({ actions, events }: Partial<FilterType>): void => {
                     // We only support one event/action for experiment metrics
                     const entity = events?.[0] || actions?.[0]
-                    const metricConfig = filterToMetricConfig(entity as EventsNode | ActionsNode)
+                    const metricConfig = filterToMetricConfig(entity)
                     if (metricConfig) {
                         setMetric({
                             metricIdx,

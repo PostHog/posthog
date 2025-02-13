@@ -3,7 +3,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { ActionsNode, EventsNode, ExperimentMetricType } from '~/queries/schema/schema-general'
+import { ExperimentMetricType } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { commonActionFilterProps } from '../Metrics/Selectors'
@@ -46,7 +46,7 @@ export function SharedExperimentMetricForm(): JSX.Element {
                 setFilters={({ actions, events }: Partial<FilterType>): void => {
                     // We only support one event/action for experiment metrics
                     const entity = events?.[0] || actions?.[0]
-                    const metricConfig = filterToMetricConfig(entity as EventsNode | ActionsNode)
+                    const metricConfig = filterToMetricConfig(entity)
                     if (metricConfig) {
                         setSharedMetric({
                             ...sharedMetric,
