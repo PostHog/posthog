@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, Literal
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -88,7 +88,7 @@ GROUP BY "context.columns.url"
 
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
         column = None
-        direction = "DESC"
+        direction: Literal["ASC", "DESC"] = "DESC"
         if self.query.orderBy:
             field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
             direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
