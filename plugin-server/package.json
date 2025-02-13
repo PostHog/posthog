@@ -28,7 +28,7 @@
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
-        "build:cyclotron": "cd ../rust/cyclotron-node && pnpm run package",
+        "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
         "pnpm:devPreinstall": "pnpm run build:cyclotron",
         "update-ai-costs": "ts-node scripts/update-ai-costs.ts"
     },

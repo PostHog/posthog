@@ -17,7 +17,6 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
         addEvent: (event: EventType) => ({ event }),
         markExpanded: (id: string | null | undefined) => ({ id }),
         setSearchText: (searchText: string) => ({ searchText }),
-        setSearchVisible: (visible: boolean) => ({ visible }),
         setSelectedEventType: (eventType: 'posthog' | 'custom' | 'snapshot', enabled: boolean) => ({
             eventType,
             enabled,
@@ -36,12 +35,6 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             false,
             {
                 setHidePostHogFlags: (_, { hide }) => hide,
-            },
-        ],
-        searchVisible: [
-            false,
-            {
-                setSearchVisible: (_, { visible }) => visible,
             },
         ],
         searchText: [

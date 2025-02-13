@@ -590,10 +590,11 @@ def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bo
                 name="GeoIP",
                 description="Enrich events with GeoIP data",
                 icon_url="/static/transformations/geoip.png",
-                hog=geoip_template.hog,
-                inputs_schema=geoip_template.inputs_schema,
                 enabled=True,
                 execution_order=1,
+                hog=geoip_template.hog,
+                inputs_schema=geoip_template.inputs_schema,
+                template_id=geoip_template.id,
             )
     else:
         # Old way: Enable all preinstalled plugins including GeoIP
