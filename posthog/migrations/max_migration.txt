@@ -1,1 +1,1 @@
-0663_datawarehousesavedquery_sync_frequency
+0663_alter_insightvariable_type
