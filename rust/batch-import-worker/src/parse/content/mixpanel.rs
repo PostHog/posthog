@@ -30,12 +30,12 @@ pub struct MixpanelProperties {
 impl MixpanelEvent {
     pub fn parse_fn(
         context: TransformContext,
-    ) -> impl Fn(Self) -> Result<InternallyCapturedEvent, Error> {
+        event_transform: impl Fn(RawEvent) -> Result<Option<RawEvent>, Error>,
+    ) -> impl Fn(Self) -> Result<Option<InternallyCapturedEvent>, Error> {
         move |mx| {
             let token = context.token.clone();
             let team_id = context.team_id;
 
-            // Getting entropy is surprisingly expensive, so don't do it a lot unless we have to
             let generated_id = Uuid::now_v7();
 
             let distinct_id = mx
@@ -43,7 +43,7 @@ impl MixpanelEvent {
                 .distinct_id
                 .as_ref()
                 .cloned()
-                .unwrap_or(format!("mixpanel-generated-{}", generated_id));
+                .unwrap_or(format!("posthog-import-generated-{}", generated_id));
 
             // We don't support subsecond precision for historical imports
             let timestamp = DateTime::<Utc>::from_timestamp(mx.properties.timestamp_ms / 1000, 0)
@@ -62,6 +62,10 @@ impl MixpanelEvent {
                 offset: None,
             };
 
+            let Some(raw_event) = event_transform(raw_event)? else {
+                return Ok(None);
+            };
+
             let inner = CapturedEvent {
                 uuid: generated_id,
                 distinct_id,
@@ -73,7 +77,7 @@ impl MixpanelEvent {
                 is_cookieless_mode: false,
             };
 
-            Ok(InternallyCapturedEvent { team_id, inner })
+            Ok(Some(InternallyCapturedEvent { team_id, inner }))
         }
     }
 }
