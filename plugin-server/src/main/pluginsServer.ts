@@ -547,6 +547,8 @@ export async function startPluginsServer(
 
         if (capabilities.cdpApi) {
             const hub = await setupHub()
+            // NOTE: For silly reasons piscina is where the mmdb server is loaded which we need...
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const api = new CdpApi(hub)
             await api.start()
             services.push(api.service)
