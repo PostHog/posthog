@@ -36,6 +36,7 @@ from posthog.schema import (
     StickinessQueryResponse,
     CompareFilter,
     StickinessActorsQuery,
+    StickinessComputationMode,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import APIBaseTest, _create_event, _create_person, ClickhouseTestMixin
@@ -803,6 +804,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             ],
                         ),
                     ],
+                    properties={},
                 ),
                 SeriesTestData(
                     distinct_id="p2",
@@ -815,6 +817,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             ],
                         ),
                     ],
+                    properties={},
                 ),
                 SeriesTestData(
                     distinct_id="p3",
@@ -826,6 +829,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             ],
                         ),
                     ],
+                    properties={},
                 ),
             ]
         )
@@ -833,7 +837,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run_query(
             date_from="2020-01-11",
             date_to="2020-01-13",
-            filters=StickinessFilter(**{"cumulative": True}),
+            filters=StickinessFilter(**{"computedAs": StickinessComputationMode.CUMULATIVE}),
         )
 
         result = response.results[0]
@@ -857,6 +861,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             ],
                         ),
                     ],
+                    properties={},
                 ),
                 SeriesTestData(
                     distinct_id="p2",
@@ -869,6 +874,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             ],
                         ),
                     ],
+                    properties={},
                 ),
             ]
         )
@@ -877,7 +883,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             date_from="2020-01-11T12:00:00Z",
             date_to="2020-01-11T14:00:00Z",
             interval="hour",
-            filters=StickinessFilter(**{"cumulative": True}),
+            filters=StickinessFilter(**{"computedAs": StickinessComputationMode.CUMULATIVE}),
         )
 
         result = response.results[0]
@@ -922,12 +928,8 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run_query(
             date_from="2020-01-11",
             date_to="2020-01-13",
-            filters=StickinessFilter(
-                **{
-                    "cumulative": True,
-                    "properties": [{"key": "browser", "value": "Chrome"}],
-                }
-            ),
+            properties=[EventPropertyFilter(key="browser", value="Chrome", operator=PropertyOperator.EXACT)],
+            filters=StickinessFilter(**{"computedAs": StickinessComputationMode.CUMULATIVE}),
         )
 
         result = response.results[0]
@@ -941,7 +943,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run_query(
             date_from="2020-01-11",
             date_to="2020-01-13",
-            filters=StickinessFilter(**{"cumulative": True}),
+            filters=StickinessFilter(**{"computedAs": StickinessComputationMode.CUMULATIVE}),
         )
 
         result = response.results[0]
@@ -960,11 +962,14 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             event="$pageview",
                             timestamps=[
                                 "2020-01-11T12:00:00Z",
+                                "2020-01-11T12:00:00Z",
+                                "2020-01-12T12:00:00Z",
                                 "2020-01-12T12:00:00Z",
                                 "2020-01-13T12:00:00Z",
                             ],
                         ),
                     ],
+                    properties={},
                 ),
                 SeriesTestData(
                     distinct_id="p2",
@@ -973,10 +978,12 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             event="$pageview",
                             timestamps=[
                                 "2020-01-11T12:00:00Z",
+                                "2020-01-11T12:00:00Z",
                                 "2020-01-12T12:00:00Z",
                             ],
                         ),
                     ],
+                    properties={},
                 ),
                 SeriesTestData(
                     distinct_id="p3",
@@ -988,6 +995,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             ],
                         ),
                     ],
+                    properties={},
                 ),
             ]
         )
@@ -995,12 +1003,17 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run_query(
             date_from="2020-01-11",
             date_to="2020-01-13",
-            filters=StickinessFilter(**{"cumulative": True, "stickinessCriteria": {"operator": "gte", "value": 2}}),
+            filters=StickinessFilter(
+                **{
+                    "computedAs": StickinessComputationMode.CUMULATIVE,
+                    "stickinessCriteria": {"operator": "gte", "value": 2},
+                }
+            ),
         )
 
         result = response.results[0]
 
         # Test cumulative data with stickiness criteria
         # Only users who were active for 2 or more days should be counted
-        assert result["data"] == [2, 2, 1]  # 2 users active 2+ days, same 2 users for 2+ days, 1 user for 3 days
+        assert result["data"] == [2, 1, 0]  # 2 users active 1+ days, 2 users active 2+ days, 1 user for 3 days
         assert result["labels"] == ["1 day or more", "2 days or more", "3 days or more"]
