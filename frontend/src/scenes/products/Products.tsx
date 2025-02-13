@@ -5,7 +5,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
-import { availableOnboardingProducts, getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
+import { getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
+import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -96,7 +97,11 @@ export function Products(): JSX.Element {
                         <div className="flex flex-wrap gap-4 items-center justify-center">
                             {Object.keys(availableOnboardingProducts).map((productKey) => (
                                 <SelectableProductCard
-                                    product={availableOnboardingProducts[productKey]}
+                                    product={
+                                        availableOnboardingProducts[
+                                            productKey as keyof typeof availableOnboardingProducts
+                                        ]
+                                    }
                                     key={productKey}
                                     productKey={productKey}
                                     onClick={() => {

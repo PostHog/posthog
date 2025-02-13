@@ -163,6 +163,9 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
+        '/api/organizations/:organization_id/proxy_records/': [],
+        '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
+        '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
@@ -175,6 +178,7 @@ export const defaultMocks: Mocks = {
     },
     patch: {
         '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
+        '/api/environments/:team_id/': MOCK_DEFAULT_TEAM,
     },
     options: {
         'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
