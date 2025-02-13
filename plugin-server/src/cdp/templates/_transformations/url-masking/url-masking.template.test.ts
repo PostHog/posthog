@@ -69,11 +69,11 @@ describe('url-masking.template', () => {
         })
     })
 
-    it('should handle malformed URLs', async () => {
+    it('should handle malformed URLs starting with question mark', async () => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
-                    $current_url: 'not-a-url?email=test@example.com',
+                    $current_url: '?email=test@example.com',
                 },
             },
         })
@@ -92,7 +92,7 @@ describe('url-masking.template', () => {
         expect(response.error).toBeUndefined()
         expect(response.execResult).toMatchObject({
             properties: {
-                $current_url: 'not-a-url?email=[REDACTED]',
+                $current_url: '?email=test@example.com',
             },
         })
     })
@@ -122,6 +122,34 @@ describe('url-masking.template', () => {
         expect(response.execResult).toMatchObject({
             properties: {
                 $current_url: 'https://example.com?email=[REDACTED]',
+            },
+        })
+    })
+
+    it('should handle parameters without values', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $current_url: 'https://example.com?email&token=123&password',
+                },
+            },
+        })
+
+        const response = await tester.invoke(
+            {
+                urlProperties: {
+                    $current_url: 'email, password, token',
+                },
+                maskWith: '[REDACTED]',
+            },
+            mockGlobals
+        )
+
+        expect(response.finished).toBe(true)
+        expect(response.error).toBeUndefined()
+        expect(response.execResult).toMatchObject({
+            properties: {
+                $current_url: 'https://example.com?email=[REDACTED]&token=[REDACTED]&password=[REDACTED]',
             },
         })
     })

@@ -38,24 +38,35 @@ fun maskURLParameters(url, paramsToMask, maskValue) {
         let baseUrl := parts[1]
         let queryString := parts[2]
         
+        // Handle malformed URLs that start with ?
+        if (empty(baseUrl)) {
+            return url
+        }
+        
         // Split query string into parameters
         let params := splitByString('&', queryString)
         let maskedParams := []
         
         // Process each parameter
         for (let param in params) {
-            let keyValue := splitByString('=', param, 2)
-            if (length(keyValue) < 2) {
-                maskedParams := arrayPushBack(maskedParams, param)
-                continue
-            }
-            
-            let paramName := keyValue[1]
-            
-            if (isParameterInList(paramName, paramsToMask)) {
-                maskedParams := arrayPushBack(maskedParams, concat(paramName, '=', maskValue))
-            } else {
-                maskedParams := arrayPushBack(maskedParams, param)
+            if (not empty(param)) {
+                let keyValue := splitByString('=', param, 2)
+                let paramName := keyValue[1]
+                
+                // Handle parameters without values (e.g., ?key&foo=bar)
+                if (length(keyValue) < 2) {
+                    if (isParameterInList(paramName, paramsToMask)) {
+                        maskedParams := arrayPushBack(maskedParams, concat(paramName, '=', maskValue))
+                    } else {
+                        maskedParams := arrayPushBack(maskedParams, paramName)
+                    }
+                } else {
+                    if (isParameterInList(paramName, paramsToMask)) {
+                        maskedParams := arrayPushBack(maskedParams, concat(paramName, '=', maskValue))
+                    } else {
+                        maskedParams := arrayPushBack(maskedParams, param)
+                    }
+                }
             }
         }
         
