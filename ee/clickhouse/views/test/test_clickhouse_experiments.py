@@ -735,18 +735,22 @@ class TestExperimentCRUD(APILicensedTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_from"], "2025-02-01T00:00")
+        self.assertEqual(
+            response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
+        )
         self.assertEqual(response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_to"], "")
         self.assertEqual(
-            response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00"
+            response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
         )
         self.assertEqual(response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_to"], "")
         self.assertEqual(
-            response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_from"], "2025-02-01T00:00"
+            response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_from"],
+            "2025-02-01T00:00:00Z",
         )
         self.assertEqual(response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_to"], "")
         self.assertEqual(
-            response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00"
+            response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_from"],
+            "2025-02-01T00:00:00Z",
         )
         self.assertEqual(response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_to"], "")
 

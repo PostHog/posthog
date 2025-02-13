@@ -1,6 +1,5 @@
 from typing import Any, Optional
 from collections.abc import Callable
-from zoneinfo import ZoneInfo
 
 from django.utils.timezone import now
 from rest_framework import serializers, viewsets
@@ -211,16 +210,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         # Normalize query date ranges to the experiment's current range
         # Cribbed from ExperimentTrendsQuery
-        if instance.team.timezone:
-            tz = ZoneInfo(instance.team.timezone)
-            start_date = instance.start_date.astimezone(tz) if instance.start_date else None
-            end_date = instance.end_date.astimezone(tz) if instance.end_date else None
-        else:
-            start_date = instance.start_date
-            end_date = instance.end_date
         new_date_range = {
-            "date_from": start_date.strftime("%Y-%m-%dT%H:%M") if start_date else "",
-            "date_to": end_date.strftime("%Y-%m-%dT%H:%M") if end_date else "",
+            "date_from": data["start_date"],
+            "date_to": data["end_date"],
             "explicitDate": True,
         }
         for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
