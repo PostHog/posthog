@@ -27,6 +27,7 @@ from posthog.schema import (
     CachedStickinessQueryResponse,
     DataWarehouseNode,
     EventsNode,
+    StickinessComputationMode,
     StickinessQuery,
     HogQLQueryModifiers,
     StickinessQueryResponse,
@@ -270,7 +271,10 @@ class StickinessQueryRunner(QueryRunner):
                 data = val[0]
 
                 # Calculate cumulative values if requested
-                if self.query.stickinessFilter and self.query.stickinessFilter.cumulative:
+                if (
+                    self.query.stickinessFilter
+                    and self.query.stickinessFilter.computedAs == StickinessComputationMode.CUMULATIVE
+                ):
                     cumulative_data = []
                     for i in range(len(data)):
                         total_for_days = sum(data[i:])
@@ -284,7 +288,10 @@ class StickinessQueryRunner(QueryRunner):
                     "label": "All events" if series_label is None else series_label,
                     "labels": [
                         f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'} or more"
-                        if (self.query.stickinessFilter and self.query.stickinessFilter.cumulative)
+                        if (
+                            self.query.stickinessFilter
+                            and self.query.stickinessFilter.computedAs == StickinessComputationMode.CUMULATIVE
+                        )
                         else f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'}"
                         for day in val[1]
                     ],
