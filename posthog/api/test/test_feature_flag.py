@@ -2365,7 +2365,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
-        self.assertEqual(len(response_data["flags"]), 3)  # inactive flags not sent
+        self.assertEqual(len(response_data["flags"]), 4)
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 

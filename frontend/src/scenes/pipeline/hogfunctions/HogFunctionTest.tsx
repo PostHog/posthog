@@ -299,7 +299,7 @@ export function HogFunctionTest(): JSX.Element {
                 {expanded && (
                     <>
                         {testResult ? (
-                            <div className="space-y-2">
+                            <div className="space-y-2" data-attr="test-results">
                                 <LemonBanner type={testResult.status === 'success' ? 'success' : 'error'}>
                                     {testResult.status === 'success' ? 'Success' : 'Error'}
                                 </LemonBanner>

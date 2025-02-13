@@ -877,9 +877,10 @@ def fetch_earliest_backfill_start_at(
         exclude_events = exclude_events or []
         include_events = include_events or []
         query = """
-            SELECT toStartOfInterval(MIN(timestamp), INTERVAL %(interval_seconds)s SECONDS)
+            SELECT MIN(toStartOfInterval(timestamp, INTERVAL %(interval_seconds)s SECONDS))
             FROM events
             WHERE team_id = %(team_id)s
+            AND timestamp > '2000-01-01'
             AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
             AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
         """
@@ -925,7 +926,7 @@ def fetch_earliest_backfill_start_at(
             return None
         return min(results)
     else:
-        raise ValueError(f"Invalid model: {model}")
+        raise NotImplementedError(f"Invalid model: {model}")
 
 
 @dataclass(kw_only=True)
