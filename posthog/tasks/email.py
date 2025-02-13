@@ -353,6 +353,39 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     send_message_to_all_staff_users(message)
 
 
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_auth_enabled_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        campaign_key=f"2fa_enabled_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="2fa_enabled",
+    )
+    message.add_recipient(user.email)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_auth_disabled_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        campaign_key=f"2fa_disabled_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="2fa_disabled",
+    )
+    message.add_recipient(user.email)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        campaign_key=f"2fa_backup_code_used_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="2fa_backup_code_used",
+    )
+    message.add_recipient(user.email)
+    message.send()
+
+
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
     # Get all users for organization that haven't ingested any events
     users = []
