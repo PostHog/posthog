@@ -162,7 +162,7 @@ export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
                 : 'Share to Linear',
         content: <PlayerShareRecording {...props} />,
         width: 600,
-        zIndex: '1062',
+        zIndex: '1162',
         primaryButton: null,
     })
 }

@@ -541,14 +541,14 @@
     --z-command-palette: 1400;
     --z-force-modal-above-popovers: 1350;
     --z-tooltip: 1300;
-
-    // 1066 through 1069 are reserved to be set from code
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
-
-    // 1061 and 1062 are reserved to be set from code
     --z-modal: 1100;
+
+    // 1161 and 1162 are reserved to be set from code
+    // 1166 through 1169 are reserved to be set from code
+    // this allows us to place some modal on top of others
     --z-hedgehog-buddy: 1050;
     --z-annotation-popover: 100;
     --z-drawer: 900;
