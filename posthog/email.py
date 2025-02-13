@@ -238,7 +238,7 @@ def _send_email(
             template_name=template_name,
             properties=properties or {},
         )
-    elif not use_http and is_smtp_email_service_available():
+    elif is_smtp_email_service_available():
         _send_via_smtp(
             to=to,
             campaign_key=campaign_key,
@@ -278,18 +278,12 @@ class EmailMessage:
         self.subject = subject or ""
         self.reply_to = reply_to
         self.template_name = template_name
+        self.properties = properties or {}
 
-        if use_http:
-            self.properties = properties or {}
-            # These aren't used for http
-            self.txt_body = ""
-            self.html_body = ""
-            self.headers = {}
-        else:
-            template = get_template(f"email/{template_name}.html")
-            self.html_body = inline_css(template.render(template_context))
-            self.txt_body = ""
-            self.headers = headers if headers else {}
+        template = get_template(f"email/{template_name}.html")
+        self.html_body = inline_css(template.render(template_context))
+        self.txt_body = ""
+        self.headers = headers if headers else {}
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:
         self.to.append({"recipient": f'"{name}" <{email}>' if name else email, "raw_email": email})
