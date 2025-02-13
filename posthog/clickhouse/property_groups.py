@@ -16,12 +16,13 @@ class PropertyGroupDefinition:
     key_filter_function: Callable[[str], bool]
     codec: str = "ZSTD(1)"
     is_materialized: bool = True
+    column_type_name: str = "map"
 
     def contains(self, property_key: str) -> bool:
         return self.key_filter_function(property_key)
 
     def get_column_name(self, column: ColumnName, group_name: PropertyGroupName):
-        return f"{column}_group_{group_name}"
+        return f"{column}_{self.column_type_name}_{group_name}"
 
 
 class PropertyGroupManager:
@@ -137,10 +138,12 @@ event_property_group_definitions = {
         "custom": PropertyGroupDefinition(
             f"key NOT LIKE '$%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in ignore_custom_properties) + f")",
             lambda key: not key.startswith("$") and key not in ignore_custom_properties,
+            column_type_name="group",
         ),
         "feature_flags": PropertyGroupDefinition(
             "key like '$feature/%'",
             lambda key: key.startswith("$feature/"),
+            column_type_name="group",
         ),
     },
     "person_properties": {
