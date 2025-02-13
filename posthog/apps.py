@@ -2,6 +2,7 @@ import os
 
 import posthoganalytics
 import structlog
+from asgiref.sync import async_to_sync
 from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
@@ -9,7 +10,7 @@ from posthoganalytics.exception_capture import Integrations
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.tasks.tasks import sync_all_organization_available_product_features
-from posthog.utils import get_machine_id
+from posthog.utils import get_machine_id, initialize_self_capture_api_token
 
 logger = structlog.get_logger(__name__)
 
@@ -49,6 +50,8 @@ class PostHogConfig(AppConfig):
                     "development server launched",
                     {"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
+            if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
+                async_to_sync(initialize_self_capture_api_token)()
 
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:

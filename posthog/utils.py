@@ -13,7 +13,6 @@ import string
 import time
 import uuid
 import zlib
-from django.apps import apps
 from collections.abc import Generator, Mapping
 from enum import Enum
 from functools import lru_cache, wraps
@@ -31,8 +30,10 @@ from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
+from django.db import ProgrammingError
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -519,7 +520,7 @@ async def initialize_self_capture_api_token():
         else:
             team = await Team.objects.only("api_token").aget()
         local_api_key = team.api_token
-    except (User.DoesNotExist, Team.DoesNotExist):
+    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
         local_api_key = None
 
     # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
