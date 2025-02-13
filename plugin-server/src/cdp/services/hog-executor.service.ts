@@ -156,26 +156,6 @@ export class HogExecutorService {
         this.telemetryMatcher = buildIntegerMatcher(this.hub.CDP_HOG_FILTERS_TELEMETRY_TEAMS, true)
     }
 
-    findHogFunctionsUsingCohorts(triggerGlobals: HogFunctionInvocationGlobals[]): HogFunctionType[] {
-        const foundHogFunctions: HogFunctionType[] = []
-
-        for (const globals of triggerGlobals) {
-            const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(globals.project.id)
-
-            for (const hogFunction of allFunctionsForTeam) {
-                if (
-                    hogFunction.filters?.bytecode &&
-                    (hogFunction.filters.bytecode.includes('inCohort') ||
-                        hogFunction.filters.bytecode.includes('notInCohort'))
-                ) {
-                    foundHogFunctions.push(hogFunction)
-                }
-            }
-        }
-
-        return foundHogFunctions
-    }
-
     findHogFunctionInvocations(triggerGlobals: HogFunctionInvocationGlobals) {
         // Build and generate invocations for all the possible mappings
         const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(triggerGlobals.project.id)

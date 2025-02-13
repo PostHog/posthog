@@ -1,9 +1,39 @@
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { HogFunctionInvocationGlobals } from '../types'
+import { HogFunctionManagerService } from './hog-function-manager.service'
 
 export class CohortsManagerService {
-    constructor(private hub: Hub) {}
+    constructor(private hub: Hub, private hogFunctionManager: HogFunctionManagerService) {}
+
+    /**
+     * Helper to reduce the number of cohorts we load from the DB. We only need to load them if the functions
+     * that are being executed use them.
+     */
+    private filterInvocationsUsingCohorts(
+        triggerGlobals: HogFunctionInvocationGlobals[]
+    ): HogFunctionInvocationGlobals[] {
+        const teamCache: Record<number, boolean> = {}
+
+        return triggerGlobals.filter((globals) => {
+            if (typeof teamCache[globals.project.id] === 'boolean') {
+                return teamCache[globals.project.id]
+            }
+
+            const allFunctionsForTeam = this.hogFunctionManager.getTeamHogFunctions(globals.project.id)
+
+            for (const hogFunction of allFunctionsForTeam) {
+                const bytecode = hogFunction.filters?.bytecode || []
+                if (bytecode.includes('inCohort') || bytecode.includes('notInCohort')) {
+                    teamCache[globals.project.id] = true
+                    return true
+                }
+            }
+
+            teamCache[globals.project.id] = false
+            return false
+        })
+    }
 
     private async fetchPersonsCohorts(
         items: Record<string, { teamId: number; personId: string }>
@@ -32,7 +62,12 @@ export class CohortsManagerService {
     }
 
     public async enrichCohorts(items: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocationGlobals[]> {
-        const itemsNeedingCohorts = items.filter((x) => !x.cohorts)
+        const itemsNeedingCohorts = this.filterInvocationsUsingCohorts(items)
+
+        if (itemsNeedingCohorts.length === 0) {
+            return items
+        }
+
         const teamAndPersonIds: Record<string, { teamId: number; personId: string }> = {}
 
         itemsNeedingCohorts.forEach((x) => {
