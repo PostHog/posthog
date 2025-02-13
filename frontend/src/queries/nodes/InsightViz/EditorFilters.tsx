@@ -78,6 +78,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel || isTrendsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
+    const isLineGraph =
+        isTrends &&
+        display &&
+        [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
@@ -300,17 +304,18 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'sampling',
                     component: SamplingFilter,
                 },
-                isTrends && {
-                    key: 'goal-lines',
-                    label: 'Goal lines',
-                    tooltip: (
-                        <>
-                            Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits (Web
-                            Vitals, etc.)
-                        </>
-                    ),
-                    component: GoalLines,
-                },
+                isTrends &&
+                    isLineGraph && {
+                        key: 'goal-lines',
+                        label: 'Goal lines',
+                        tooltip: (
+                            <>
+                                Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits
+                                (Web Vitals, etc.)
+                            </>
+                        ),
+                        component: GoalLines,
+                    },
             ]),
         },
     ]
