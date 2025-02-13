@@ -1,11 +1,12 @@
 import { IconInfo, IconX } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonLabel,
+    LemonSegmentedButton,
     LemonSwitch,
     LemonTable,
-    LemonTag,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -16,8 +17,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { editor as monacoEditor, MarkerSeverity } from 'monaco-editor'
+import { useRef } from 'react'
 
-import { hogFunctionTestLogic, HogFunctionTestLogicProps } from './hogFunctionTestLogic'
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { hogFunctionTestLogic } from './hogFunctionTestLogic'
 
 const HogFunctionTestEditor = ({
     value,
@@ -26,14 +30,83 @@ const HogFunctionTestEditor = ({
     value: string
     onChange?: (value?: string) => void
 }): JSX.Element => {
+    const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null)
+    const decorationsRef = useRef<string[]>([]) // Track decoration IDs
+
+    const handleValidation = (newValue: string): void => {
+        if (!editorRef.current?.getModel()) {
+            return
+        }
+        const model = editorRef.current.getModel()!
+
+        // First clear everything
+        monacoEditor.setModelMarkers(model, 'owner', [])
+
+        // Clear existing decorations and get new empty array of IDs
+        decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, [])
+
+        // Now validate with clean state
+        try {
+            JSON.parse(newValue)
+            // Valid JSON - keep decorations cleared
+        } catch (err: any) {
+            // Invalid JSON - add new decoration
+            const match = err.message.match(/position (\d+)/)
+            if (match) {
+                const position = parseInt(match[1], 10)
+                const pos = model.getPositionAt(position)
+
+                // Set error marker
+                monacoEditor.setModelMarkers(model, 'owner', [
+                    {
+                        startLineNumber: pos.lineNumber,
+                        startColumn: pos.column,
+                        endLineNumber: pos.lineNumber,
+                        endColumn: pos.column + 1,
+                        message: err.message,
+                        severity: MarkerSeverity.Error,
+                    },
+                ])
+
+                // Set new decoration and store the IDs
+                decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, [
+                    {
+                        range: {
+                            startLineNumber: pos.lineNumber,
+                            startColumn: 1,
+                            endLineNumber: pos.lineNumber,
+                            endColumn: model.getLineLength(pos.lineNumber) + 1,
+                        },
+                        options: {
+                            isWholeLine: true,
+                            className: 'bg-danger-highlight',
+                            glyphMarginClassName: 'text-danger flex items-center justify-center',
+                            glyphMarginHoverMessage: { value: err.message },
+                        },
+                    },
+                ])
+
+                // Scroll to error
+                editorRef.current.revealLineInCenter(pos.lineNumber)
+            }
+        }
+    }
+
     return (
         <CodeEditorResizeable
             language="json"
             value={value}
             height={400}
-            onChange={onChange}
+            onChange={(newValue) => {
+                onChange?.(newValue)
+                handleValidation(newValue ?? '')
+            }}
+            onMount={(editor) => {
+                editorRef.current = editor
+                handleValidation(value)
+            }}
             options={{
-                lineNumbers: 'off',
+                lineNumbers: 'on',
                 minimap: {
                     enabled: false,
                 },
@@ -47,31 +120,18 @@ const HogFunctionTestEditor = ({
                     showKeywords: false,
                 },
                 scrollbar: {
-                    vertical: 'hidden',
-                    verticalScrollbarSize: 0,
+                    vertical: 'auto',
+                    verticalScrollbarSize: 14,
                 },
                 folding: true,
+                glyphMargin: true,
             }}
         />
     )
 }
 
-export function HogFunctionTestPlaceholder({
-    title,
-    description,
-}: {
-    title?: string | JSX.Element
-    description?: string | JSX.Element
-}): JSX.Element {
-    return (
-        <div className="border bg-accent-3000 rounded p-3 space-y-2">
-            <h2 className="flex-1 m-0">{title || 'Testing'}</h2>
-            <p>{description || 'Save your configuration to enable testing'}</p>
-        </div>
-    )
-}
-
-export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
+export function HogFunctionTest(): JSX.Element {
+    const { logicProps } = useValues(hogFunctionConfigurationLogic)
     const {
         isTestInvocationSubmitting,
         testResult,
@@ -81,7 +141,10 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
         type,
         savedGlobals,
         testInvocation,
-    } = useValues(hogFunctionTestLogic(props))
+        testResultMode,
+        sortedTestsResult,
+        jsonError,
+    } = useValues(hogFunctionTestLogic(logicProps))
     const {
         submitTestInvocation,
         setTestResult,
@@ -90,27 +153,24 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
         deleteSavedGlobals,
         setSampleGlobals,
         saveGlobals,
-    } = useActions(hogFunctionTestLogic(props))
+        setTestResultMode,
+    } = useActions(hogFunctionTestLogic(logicProps))
 
     return (
-        <Form logic={hogFunctionTestLogic} props={props} formKey="testInvocation" enableFormOnSubmit>
+        <Form logic={hogFunctionTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
             <div
-                className={clsx('border rounded p-3 space-y-2', expanded ? 'bg-bg-light min-h-120' : 'bg-accent-3000')}
+                className={clsx(
+                    'border rounded p-3 space-y-2',
+                    expanded ? 'bg-surface-secondary min-h-120' : 'bg-surface-primary'
+                )}
             >
-                <div className="flex items-center gap-2 justify-end">
+                <div className="flex items-center justify-end gap-2">
                     <div className="flex-1 space-y-2">
-                        <h2 className="mb-0 flex gap-2 items-center">
+                        <h2 className="flex items-center gap-2 mb-0">
                             <span>Testing</span>
                             {sampleGlobalsLoading ? <Spinner /> : null}
                         </h2>
-                        {!expanded &&
-                            (type === 'email' ? (
-                                <p>Click here to test the provider with a sample e-mail</p>
-                            ) : type === 'broadcast' ? (
-                                <p>Click here to test your broadcast</p>
-                            ) : (
-                                <p>Click here to test your function with an example event</p>
-                            ))}
+                        {!expanded && <p>Click here to test your function with an example event</p>}
                     </div>
 
                     {!expanded ? (
@@ -171,7 +231,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                 </LemonButton>
                                                 <LemonDivider />
                                                 {savedGlobals.map(({ name, globals }, index) => (
-                                                    <div className="flex w-full justify-between" key={index}>
+                                                    <div className="flex justify-between w-full" key={index}>
                                                         <LemonButton
                                                             data-attr="open-hog-test-data"
                                                             key={index}
@@ -239,13 +299,78 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                 {expanded && (
                     <>
                         {testResult ? (
-                            <div className="space-y-2">
-                                <div className="flex justify-between items-center">
-                                    <LemonLabel>Test invocation result </LemonLabel>
-                                    <LemonTag type={testResult.status === 'success' ? 'success' : 'danger'}>
-                                        {testResult.status}
-                                    </LemonTag>
-                                </div>
+                            <div className="space-y-2" data-attr="test-results">
+                                <LemonBanner type={testResult.status === 'success' ? 'success' : 'error'}>
+                                    {testResult.status === 'success' ? 'Success' : 'Error'}
+                                </LemonBanner>
+
+                                {type === 'transformation' && testResult.status === 'success' ? (
+                                    <>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <LemonLabel>Transformation result</LemonLabel>
+
+                                            {sortedTestsResult?.hasDiff && (
+                                                <LemonSegmentedButton
+                                                    size="xsmall"
+                                                    options={[
+                                                        { value: 'raw', label: 'Output' },
+                                                        { value: 'diff', label: 'Diff' },
+                                                    ]}
+                                                    onChange={(value) => setTestResultMode(value as 'raw' | 'diff')}
+                                                    value={testResultMode}
+                                                />
+                                            )}
+                                        </div>
+                                        <p>Below you can see the event after the transformation has been applied.</p>
+                                        {testResult.result ? (
+                                            <>
+                                                {!sortedTestsResult?.hasDiff && (
+                                                    <LemonBanner type="info">
+                                                        The event was unmodified by the transformation.
+                                                    </LemonBanner>
+                                                )}
+                                                <CodeEditorResizeable
+                                                    language="json"
+                                                    originalValue={
+                                                        sortedTestsResult?.hasDiff && testResultMode === 'diff'
+                                                            ? sortedTestsResult?.input
+                                                            : undefined
+                                                    }
+                                                    value={sortedTestsResult?.output}
+                                                    height={400}
+                                                    options={{
+                                                        readOnly: true,
+                                                        lineNumbers: 'off',
+                                                        minimap: {
+                                                            enabled: false,
+                                                        },
+                                                        quickSuggestions: {
+                                                            other: true,
+                                                            strings: true,
+                                                        },
+                                                        suggest: {
+                                                            showWords: false,
+                                                            showFields: false,
+                                                            showKeywords: false,
+                                                        },
+                                                        scrollbar: {
+                                                            vertical: 'hidden',
+                                                            verticalScrollbarSize: 0,
+                                                        },
+                                                        folding: true,
+                                                    }}
+                                                />
+                                            </>
+                                        ) : (
+                                            <LemonBanner type="warning">
+                                                The event was dropped by the transformation. If this is expected then
+                                                great news! If not, you should double check the configuration.
+                                            </LemonBanner>
+                                        )}
+                                    </>
+                                ) : null}
+
+                                <LemonLabel>Test invocation logs</LemonLabel>
 
                                 <LemonTable
                                     dataSource={testResult.logs ?? []}
@@ -301,6 +426,8 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                     </>
                 )}
             </div>
+
+            {jsonError && <LemonBanner type="error">JSON Error: {jsonError}</LemonBanner>}
         </Form>
     )
 }

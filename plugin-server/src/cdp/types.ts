@@ -212,7 +212,7 @@ export type HogFunctionInvocation = {
     teamId: Team['id']
     hogFunction: HogFunctionType
     priority: number
-    queue: 'hog' | 'fetch'
+    queue: 'hog' | 'fetch' | 'plugins'
     queueParameters?: HogFunctionInvocationQueueParameters
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
@@ -256,10 +256,6 @@ export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFu
     hogFunction?: HogFunctionType
 }
 
-export type HogFunctionInvocationSerializedCompressed = {
-    state: string // Serialized HogFunctionInvocation
-}
-
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
     type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
@@ -275,6 +271,7 @@ export type HogFunctionInputSchemaType = {
     requires_field?: string
     integration_field?: string
     requiredScopes?: string
+    templating?: boolean
 }
 
 export type HogFunctionTypeType =
@@ -300,6 +297,7 @@ export type HogFunctionType = {
     team_id: number
     name: string
     enabled: boolean
+    deleted: boolean
     hog: string
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -309,6 +307,10 @@ export type HogFunctionType = {
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
+    template_id?: string
+    execution_order?: number
+    created_at: string
+    updated_at: string
 }
 
 export type HogFunctionInputType = {
@@ -337,11 +339,7 @@ export type HogFunctionAppMetric = Pick<
 
 export type HogFunctionMessageToProduce = {
     topic: string
-    value:
-        | HogFunctionLogEntrySerialized
-        | HogHooksFetchResponse
-        | AppMetric2Type
-        | HogFunctionInvocationSerializedCompressed
+    value: HogFunctionLogEntrySerialized | HogHooksFetchResponse | AppMetric2Type
     key: string
 }
 

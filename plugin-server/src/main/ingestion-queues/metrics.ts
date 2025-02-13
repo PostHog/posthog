@@ -55,3 +55,9 @@ export const ingestionPartitionKeyOverflowed = new Counter({
     help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
     labelNames: ['partition_key'],
 })
+
+export const cookielessRedisErrorCounter = new Counter({
+    name: 'cookieless_redis_error',
+    help: 'Count redis errors.',
+    labelNames: ['operation'],
+})

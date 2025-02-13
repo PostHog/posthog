@@ -4,6 +4,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    free=False,
     type="destination",
     id="template-google-ads",
     name="Google Ads Conversions",
@@ -32,6 +33,9 @@ if (not empty(inputs.conversionValue)) {
 }
 if (not empty(inputs.currencyCode)) {
     body.conversions[1].currency_code := inputs.currencyCode
+}
+if (not empty(inputs.orderId)) {
+    body.conversions[1].order_id := inputs.orderId
 }
 
 let res := fetch(f'https://googleads.googleapis.com/v18/customers/{replaceAll(inputs.customerId, '-', '')}:uploadClickConversions', {
@@ -112,6 +116,15 @@ if (res.status >= 400) {
             "type": "string",
             "label": "Currency code",
             "description": "Currency associated with the conversion value. This is the ISO 4217 3-character currency code. For example: USD, EUR.",
+            "default": "",
+            "secret": False,
+            "required": False,
+        },
+        {
+            "key": "orderId",
+            "type": "string",
+            "label": "Order ID",
+            "description": "The order ID associated with the conversion. An order id can only be used for one conversion per conversion action.",
             "default": "",
             "secret": False,
             "required": False,

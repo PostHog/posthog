@@ -15,10 +15,10 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,
+    AssistantToolCallMessage,
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
-    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -94,7 +94,6 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             AssistantState(
                 messages=[
                     HumanMessage(content="Text", id="0"),
-                    RouterMessage(content="trends", id="1"),
                     AssistantMessage(content="test", id="2"),
                 ],
                 start_id="0",
@@ -127,17 +126,15 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             AssistantState(
                 messages=[
                     HumanMessage(content="Question 1", id="0"),
-                    RouterMessage(content="trends", id="1"),
                     VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", id="2", initiator="0"),
                     AssistantMessage(content="Summary 1", id="3"),
                     HumanMessage(content="Question 2", id="4"),
-                    RouterMessage(content="funnel", id="5"),
+                    AssistantToolCallMessage(content="funnel", id="5", tool_call_id="5"),
                     AssistantMessage(content="Loop 1", id="6"),
                     HumanMessage(content="Loop Answer 1", id="7"),
                     VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", id="8", initiator="4"),
                     AssistantMessage(content="Summary 2", id="9"),
                     HumanMessage(content="Question 3", id="10"),
-                    RouterMessage(content="funnel", id="11"),
                 ],
                 start_id="10",
             )
@@ -164,7 +161,6 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             AssistantState(
                 messages=[
                     HumanMessage(content="Question 1", id="0"),
-                    RouterMessage(content="trends", id="1"),
                     AssistantMessage(content="Loop 1", id="2"),
                     HumanMessage(content="Loop Answer 1", id="3"),
                 ],
@@ -244,9 +240,6 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         node = self._get_node()
         self.assertNotIn("Human:", node._get_react_format_prompt(DummyToolkit(self.team)))
         self.assertIn("retrieve_event_properties,", node._get_react_format_prompt(DummyToolkit(self.team)))
-        self.assertIn(
-            "retrieve_event_properties(event_name: str)", node._get_react_format_prompt(DummyToolkit(self.team))
-        )
 
     def test_property_filters_prompt(self):
         GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
@@ -254,6 +247,51 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         node = self._get_node()
         prompt = node._get_react_property_filters_prompt()
         self.assertIn("org, account.", prompt)
+
+    def test_injects_insight_description(self):
+        node = self._get_node()
+        history = node._construct_messages(
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Text", id="0"),
+                    AssistantMessage(content="test", id="2"),
+                ],
+                start_id="0",
+                root_tool_insight_plan="Foobar",
+                root_tool_insight_type="trends",
+            )
+        )
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("Foobar", history[0].content)
+        self.assertNotIn("{{question}}", history[0].content)
+
+    def test_injects_insight_description_and_keeps_original_question(self):
+        node = self._get_node()
+        history = node._construct_messages(
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Original question", id="1"),
+                    VisualizationMessage(plan="Plan 1", id="2", initiator="1"),
+                    HumanMessage(content="Second question", id="3"),
+                    AssistantMessage(content="test", id="4"),
+                ],
+                start_id="3",
+                root_tool_insight_plan="Foobar",
+                root_tool_insight_type="trends",
+            )
+        )
+        self.assertEqual(len(history), 3)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("Original question", history[0].content)
+        self.assertNotIn("{{question}}", history[0].content)
+        self.assertEqual(history[1].type, "ai")
+        self.assertIn("Plan 1", history[1].content)
+        self.assertNotIn("{{question}}", history[1].content)
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Foobar", history[2].content)
+        self.assertNotIn("Second question", history[2].content)
+        self.assertNotIn("{{question}}", history[2].content)
 
 
 @override_settings(IN_UNIT_TESTING=True)

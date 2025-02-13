@@ -298,8 +298,8 @@ User ID,
             content_type="application/csv",
         )
 
-        #  A weird issue with pytest client, need to user Rest framework's one
-        #  see https://stackoverflow.com/questions/39906956/patch-and-put-dont-work-as-expected-when-pytest-is-interacting-with-rest-framew
+        #  A weird issue with pytest client, need to user Rest framework's one
+        #  see https://stackoverflow.com/questions/39906956/patch-and-put-dont-work-as-expected-when-pytest-is-interacting-with-rest-framew
         client = APIClient()
         client.force_login(self.user)
         response = client.patch(
@@ -395,6 +395,116 @@ email@example.org,
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=nomatch").json()
         self.assertEqual(len(response["results"]), 0)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_list_cohorts_excludes_behavioral_cohorts(self, patch_capture):
+        # Create a regular cohort
+        regular_cohort = Cohort.objects.create(
+            team=self.team,
+            name="regular cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "person", "key": "email", "value": "test@posthog.com"}],
+                }
+            },
+        )
+
+        # Create a behavioral cohort
+        Cohort.objects.create(
+            team=self.team,
+            name="behavioral cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "key": "$pageview",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Test without filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
+
+        # Test with behavioral filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], regular_cohort.id)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_list_cohorts_excludes_nested_behavioral_cohorts(self, patch_capture):
+        # Create a behavioral cohort
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team,
+            name="behavioral cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Create a cohort that references the behavioral cohort
+        Cohort.objects.create(
+            team=self.team,
+            name="cohort with nested behavioral",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "cohort",
+                            "value": str(behavioral_cohort.pk),
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Create a regular cohort
+        regular_cohort = Cohort.objects.create(
+            team=self.team,
+            name="regular cohort not behavioral",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "person", "key": "email", "value": "test@posthog.com"}],
+                }
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], regular_cohort.id)
 
     def test_cohort_activity_log(self):
         self.team.app_urls = ["http://somewebsite.com"]

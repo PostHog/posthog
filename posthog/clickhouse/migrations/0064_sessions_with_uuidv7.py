@@ -8,9 +8,9 @@ from posthog.models.raw_sessions.sql import (
 )
 
 operations = [
-    run_sql_with_exceptions(WRITABLE_RAW_SESSIONS_TABLE_SQL),
-    run_sql_with_exceptions(DISTRIBUTED_RAW_SESSIONS_TABLE_SQL),
-    run_sql_with_exceptions(RAW_SESSIONS_TABLE_SQL),
-    run_sql_with_exceptions(RAW_SESSIONS_TABLE_MV_SQL),
-    run_sql_with_exceptions(RAW_SESSIONS_VIEW_SQL),
+    run_sql_with_exceptions(WRITABLE_RAW_SESSIONS_TABLE_SQL()),
+    run_sql_with_exceptions(DISTRIBUTED_RAW_SESSIONS_TABLE_SQL()),
+    run_sql_with_exceptions(RAW_SESSIONS_TABLE_SQL()),
+    run_sql_with_exceptions(RAW_SESSIONS_TABLE_MV_SQL()),
+    run_sql_with_exceptions(RAW_SESSIONS_VIEW_SQL()),
 ]

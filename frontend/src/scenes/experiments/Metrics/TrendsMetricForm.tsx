@@ -145,7 +145,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     <LemonButton
                                         className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             !currentMetric.exposure_query
-                                                ? 'border-primary bg-primary-highlight'
+                                                ? 'border-accent-primary bg-accent-primary-highlight'
                                                 : 'border-border'
                                         }`}
                                         onClick={() => {
@@ -163,10 +163,10 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         <div className="font-semibold flex justify-between items-center">
                                             <span>Default</span>
                                             {!currentMetric.exposure_query && (
-                                                <IconCheckCircle fontSize={18} color="var(--primary)" />
+                                                <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
                                             )}
                                         </div>
-                                        <div className="text-muted text-sm leading-relaxed mt-1">
+                                        <div className="text-secondary text-sm leading-relaxed mt-1">
                                             Uses the number of unique users who trigger the{' '}
                                             <LemonTag>$feature_flag_called</LemonTag> event as your exposure count. This
                                             is the recommended setting for most experiments, as it accurately tracks
@@ -176,7 +176,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     <LemonButton
                                         className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             currentMetric.exposure_query
-                                                ? 'border-primary bg-primary-highlight'
+                                                ? 'border-accent-primary bg-accent-primary-highlight'
                                                 : 'border-border'
                                         }`}
                                         disabledReason={
@@ -226,10 +226,10 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         <div className="font-semibold flex justify-between items-center">
                                             <span>Custom</span>
                                             {currentMetric.exposure_query && (
-                                                <IconCheckCircle fontSize={18} color="var(--primary)" />
+                                                <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
                                             )}
                                         </div>
-                                        <div className="text-muted text-sm leading-relaxed mt-1">
+                                        <div className="text-secondary text-sm leading-relaxed mt-1">
                                             Define your own exposure metric for specific use cases, such as counting by
                                             sessions instead of users. This gives you full control but requires careful
                                             configuration.

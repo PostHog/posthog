@@ -40,7 +40,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeMapAttributes>)
     return (
         <Map
             center={personCoordinates}
-            markers={[new Marker({ color: 'var(--primary)' }).setLngLat(personCoordinates)]}
+            markers={[new Marker({ color: 'var(--accent-primary)' }).setLngLat(personCoordinates)]}
             className="h-full"
         />
     )

@@ -61,6 +61,7 @@ const HOG_TEMPLATE: HogFunctionTemplateType = {
             inputs: null,
         },
     ],
+    free: false,
     status: 'beta',
     id: 'template-webhook',
     type: 'destination',

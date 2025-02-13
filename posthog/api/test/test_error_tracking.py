@@ -1,11 +1,8 @@
 import os
-import json
 from boto3 import resource
 
 from rest_framework import status
-
-from django.utils.http import urlsafe_base64_encode
-
+from freezegun import freeze_time
 from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 
@@ -15,7 +12,9 @@ from posthog.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
 )
+from posthog.models.utils import uuid7
 from botocore.config import Config
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
@@ -33,6 +32,13 @@ def get_path_to(fixture_file: str) -> str:
 
 
 class TestErrorTracking(APIBaseTest):
+    def create_issue(self, fingerprints=None) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        fingerprints = fingerprints if fingerprints else []
+        for fingerprint in fingerprints:
+            ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        return issue
+
     def teardown_method(self, method) -> None:
         s3 = resource(
             "s3",
@@ -45,59 +51,79 @@ class TestErrorTracking(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
-    def send_request(self, fingerprint, data, endpoint=""):
-        base64_fingerprint = urlsafe_base64_encode(json.dumps(fingerprint).encode("utf-8"))
-        request_method = self.client.patch if endpoint == "" else self.client.post
-        request_method(
-            f"/api/projects/{self.team.id}/error_tracking/{base64_fingerprint}/{endpoint}",
-            data=data,
+    def test_issue_not_found_fingerprint_redirect(self):
+        deleted_issue_id = uuid7()
+        merged_fingerprint = "merged_fingerprint"
+
+        merged_issue = self.create_issue()
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue=merged_issue, fingerprint=merged_fingerprint
         )
 
-    # def test_reuses_existing_group_for_team(self):
-    #     fingerprint = ["CustomFingerprint"]
-    #     ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=self.team)
+        # no fingerprint
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}",
+        )
+        assert response.status_code == 404
 
-    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
-    #     self.send_request(fingerprint, {"assignee": self.user.id})
-    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
+        # with fingerprint hint
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}?fingerprint={merged_fingerprint}",
+        )
+        assert response.status_code == 308
+        assert response.json() == {"issue_id": str(merged_issue.id)}
 
-    # def test_creates_group_if_not_already_existing_for_team(self):
-    #     fingerprint = ["CustomFingerprint"]
-    #     other_team = Team.objects.create(organization=self.organization)
-    #     ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=other_team)
+    @freeze_time("2025-01-01")
+    def test_issue_fetch(self):
+        issue = self.create_issue()
 
-    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
-    #     self.send_request(fingerprint, {"assignee": self.user.id})
-    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 2)
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}")
 
-    # def test_can_only_update_allowed_fields(self):
-    #     fingerprint = ["CustomFingerprint"]
-    #     other_team = Team.objects.create(organization=self.organization)
-    #     group = ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=other_team)
+        assert response.status_code == 200
+        assert response.json() == {
+            "id": str(issue.id),
+            "name": None,
+            "description": None,
+            "status": "active",
+            "assignee": None,
+            "first_seen": "2025-01-01T00:00:00Z",
+        }
 
-    #     self.send_request(fingerprint, {"fingerprint": ["NewFingerprint"], "assignee": self.user.id})
-    #     group.refresh_from_db()
-    #     self.assertEqual(group.fingerprint, ["CustomFingerprint"])
+    @freeze_time("2025-01-01")
+    def test_issue_update(self):
+        issue = self.create_issue()
 
-    # def test_merging_of_an_existing_group(self):
-    #     fingerprint = ["CustomFingerprint"]
-    #     merging_fingerprints = [["NewFingerprint"]]
-    #     group = ErrorTrackingGroup.objects.create(fingerprint=fingerprint, team=self.team)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}", data={"status": "resolved"}
+        )
+        issue.refresh_from_db()
 
-    #     self.send_request(fingerprint, {"merging_fingerprints": merging_fingerprints}, endpoint="merge")
+        assert response.status_code == 200
+        assert response.json() == {
+            "id": str(issue.id),
+            "name": None,
+            "description": None,
+            "status": "resolved",
+            "assignee": None,
+            "first_seen": "2025-01-01T00:00:00Z",
+        }
+        assert issue.status == ErrorTrackingIssue.Status.RESOLVED
 
-    #     group.refresh_from_db()
-    #     self.assertEqual(group.merged_fingerprints, merging_fingerprints)
+    def test_issue_merge(self):
+        issue_one = self.create_issue(fingerprints=["fingerprint_one"])
+        issue_two = self.create_issue(fingerprints=["fingerprint_two"])
 
-    # def test_merging_when_no_group_exists(self):
-    #     fingerprint = ["CustomFingerprint"]
-    #     merging_fingerprints = [["NewFingerprint"]]
+        assert ErrorTrackingIssue.objects.count() == 2
 
-    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 0)
-    #     self.send_request(fingerprint, {"merging_fingerprints": merging_fingerprints}, endpoint="merge")
-    #     self.assertEqual(ErrorTrackingGroup.objects.count(), 1)
-    #     groups = ErrorTrackingGroup.objects.only("merged_fingerprints")
-    #     self.assertEqual(groups[0].merged_fingerprints, merging_fingerprints)
+        repsonse = self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{issue_one.id}/merge", data={"ids": [issue_two.id]}
+        )
+
+        assert repsonse.status_code == 200
+        assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_one.id).count() == 2
+        assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one", version=0).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two", version=1).exists()
+        assert ErrorTrackingIssue.objects.count() == 1
 
     def test_can_upload_a_source_map(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER=TEST_BUCKET):
@@ -201,7 +227,7 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)
 
     def test_assigning_issues(self):
-        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        issue = self.create_issue()
 
         self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
         self.client.patch(

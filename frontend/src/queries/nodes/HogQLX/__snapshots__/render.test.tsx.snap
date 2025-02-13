@@ -21,17 +21,17 @@ exports[`HogQLX render should render Sparkline 1`] = `
 `;
 
 exports[`HogQLX render should render array 1`] = `
-<JSONViewer
-  collapsed={1}
-  name={null}
-  src={
-    [
-      1,
-      2,
-      3,
-    ]
-  }
-/>
+<React.Fragment>
+  <React.Fragment>
+    1
+  </React.Fragment>
+  <React.Fragment>
+    2
+  </React.Fragment>
+  <React.Fragment>
+    3
+  </React.Fragment>
+</React.Fragment>
 `;
 
 exports[`HogQLX render should render object 1`] = `

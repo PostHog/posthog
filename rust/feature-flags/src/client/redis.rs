@@ -61,7 +61,7 @@ impl Client for RedisClient {
         let mut conn = self.client.get_async_connection().await?;
 
         let results = conn.zrangebyscore(k, min, max);
-        let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         Ok(fut?)
     }
@@ -76,7 +76,7 @@ impl Client for RedisClient {
 
         let count = count.unwrap_or(1);
         let results = conn.hincr(k, v, count);
-        let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         fut.map_err(CustomRedisError::from)
     }
@@ -86,7 +86,7 @@ impl Client for RedisClient {
 
         let results = conn.get(k);
         let fut: Result<Vec<u8>, RedisError> =
-            timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+            timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         // return NotFound error when empty or not found
         if match &fut {
@@ -96,9 +96,11 @@ impl Client for RedisClient {
             return Err(CustomRedisError::NotFound);
         }
 
+        let raw_bytes = fut?;
+
         // TRICKY: We serialise data to json, then django pickles it.
         // Here we deserialize the bytes using serde_pickle, to get the json string.
-        let string_response: String = serde_pickle::from_slice(&fut?, Default::default())?;
+        let string_response: String = serde_pickle::from_slice(&raw_bytes, Default::default())?;
 
         Ok(string_response)
     }
@@ -111,7 +113,7 @@ impl Client for RedisClient {
         let mut conn = self.client.get_async_connection().await?;
 
         let results = conn.set(k, bytes);
-        let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         Ok(fut?)
     }
@@ -120,7 +122,7 @@ impl Client for RedisClient {
         let mut conn = self.client.get_async_connection().await?;
 
         let results = conn.del(k);
-        let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         fut.map_err(CustomRedisError::from)
     }
@@ -130,7 +132,7 @@ impl Client for RedisClient {
 
         let results = conn.hget(k, field);
         let fut: Result<Option<String>, RedisError> =
-            timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+            timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         match fut? {
             Some(value) => Ok(value),

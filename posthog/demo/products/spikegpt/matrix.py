@@ -11,7 +11,7 @@ class SpikeGPTCluster(Cluster):
     MAX_RADIUS: int = 0
 
     def __str__(self) -> str:
-        return f"Social Circle #{self.index+1}"
+        return f"Social Circle #{self.index + 1}"
 
     def radius_distribution(self) -> float:
         return self.random.betavariate(1.5, 5)

@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey } from '~/types'
 
+import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { DataWarehouseSources } from './data-warehouse/sources'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
@@ -55,6 +56,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
+    const showNewPlansStep = useFeatureFlag('ONBOARDING_NEW_PLANS_STEP', 'test')
+
     useEffect(() => {
         createAllSteps()
     }, [children, billingLoading])
@@ -87,7 +90,11 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             steps = [...steps, ReverseProxyStep]
         }
         if (shouldShowBillingStep && billingProduct) {
-            const BillingStep = <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            const BillingStep = showNewPlansStep ? (
+                <OnboardingUpgradeStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            ) : (
+                <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            )
             steps = [...steps, BillingStep]
         }
         const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
@@ -98,7 +105,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     if (!currentOnboardingStep) {
         return (
             <div className="flex items-center justify-center my-20">
-                <Spinner className="text-2xl text-muted w-10 h-10" />
+                <Spinner className="text-2xl text-secondary w-10 h-10" />
             </div>
         )
     }
@@ -120,7 +127,9 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         window.innerWidth > 1000 &&
         combinedSnippetAndLiveEventsHosts.length > 0
 
-    const showSessionReplayStep = useFeatureFlag('ONBOARDING_SESSION_REPLAY_SEPERATE_STEP', 'test')
+    const showSessionReplayStep =
+        useFeatureFlag('ONBOARDING_SESSION_REPLAY_SEPARATE_STEP', 'test') &&
+        !selectedProducts.includes(ProductKey.SESSION_REPLAY)
 
     const options: ProductConfigOption[] = [
         {

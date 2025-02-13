@@ -14,10 +14,16 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
+from freezegun import freeze_time
 
+
+@snapshot_clickhouse_queries
 class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
     def _create_events(self, data, metric: WebVitalsMetric = WebVitalsMetric.INP):
         for distinct_id, timestamps in data:
             for timestamp, path, value in timestamps:
@@ -43,16 +49,17 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         percentile: PropertyMathType = PropertyMathType.P75,
         properties=None,
     ):
-        query = WebVitalsPathBreakdownQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
-            metric=metric,
-            percentile=percentile,
-            thresholds=thresholds,
-            properties=properties or [],
-        )
+        with freeze_time(self.QUERY_TIMESTAMP):
+            query = WebVitalsPathBreakdownQuery(
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
+                metric=metric,
+                percentile=percentile,
+                thresholds=thresholds,
+                properties=properties or [],
+            )
 
-        runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
-        return runner.calculate()
+            runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
+            return runner.calculate()
 
     def test_no_crash_when_no_data(self):
         results = self._run_web_vitals_path_breakdown_query(

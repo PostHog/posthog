@@ -1,6 +1,6 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { type EditorProps, loader, Monaco } from '@monaco-editor/react'
+import MonacoEditor, { DiffEditor as MonacoDiffEditor, type EditorProps, loader, Monaco } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -35,6 +35,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
     onError?: (error: string | null, isValidView: boolean) => void
+    /** The original value to compare against - renders it in diff mode */
+    originalValue?: string
 }
 let codeEditorIndex = 0
 
@@ -124,6 +126,7 @@ export function CodeEditor({
     onError,
     onMetadata,
     onMetadataLoading,
+    originalValue,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -202,73 +205,91 @@ export function CodeEditor({
         }
     }, [])
 
+    const editorOptions: editor.IStandaloneEditorConstructionOptions = {
+        minimap: {
+            enabled: false,
+        },
+        scrollBeyondLastLine: false,
+        automaticLayout: true,
+        fixedOverflowWidgets: true,
+        glyphMargin: false,
+        folding: true,
+        wordWrap: 'off',
+        lineNumbers: 'on',
+        tabFocusMode: false,
+        overviewRulerBorder: true,
+        hideCursorInOverviewRuler: false,
+        overviewRulerLanes: 3,
+        overflowWidgetsDomNode: monacoRoot,
+        ...options,
+        padding: { bottom: 8, top: 8 },
+        scrollbar: {
+            vertical: scrollbarRendering,
+            horizontal: scrollbarRendering,
+            ...options?.scrollbar,
+        },
+    }
+
+    const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
+        setMonacoAndEditor([monaco, editor])
+        initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
+        if (onPressCmdEnter) {
+            monacoDisposables.current.push(
+                editor.addAction({
+                    id: 'saveAndRunPostHog',
+                    label: 'Save and run query',
+                    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+                    run: () => {
+                        const selection = editor.getSelection()
+                        const model = editor.getModel()
+                        if (selection && model) {
+                            const highlightedText = model.getValueInRange(selection)
+                            onPressCmdEnter(highlightedText, 'selection')
+                            return
+                        }
+
+                        onPressCmdEnter(editor.getValue(), 'full')
+                    },
+                })
+            )
+        }
+        if (autoFocus) {
+            editor.focus()
+            const model = editor.getModel()
+            if (model) {
+                editor.setPosition({
+                    column: model.getLineContent(model.getLineCount()).length + 1,
+                    lineNumber: model.getLineCount(),
+                })
+            }
+        }
+
+        onMount?.(editor, monaco)
+    }
+
+    if (originalValue) {
+        // If originalValue is provided, we render a diff editor instead
+        return (
+            <MonacoDiffEditor
+                key={queryKey}
+                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
+                loading={<Spinner />}
+                original={originalValue}
+                modified={value}
+                options={editorOptions}
+                {...editorProps}
+            />
+        )
+    }
+
     return (
         <MonacoEditor // eslint-disable-line react/forbid-elements
             key={queryKey}
             theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
             loading={<Spinner />}
-            options={{
-                // :TRICKY: We need to declare all options here, as omitting something will carry its value from one <CodeEditor> to another.
-                minimap: {
-                    enabled: false,
-                },
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                fixedOverflowWidgets: true,
-                glyphMargin: false,
-                folding: true,
-                wordWrap: 'off',
-                lineNumbers: 'on',
-                tabFocusMode: false,
-                overviewRulerBorder: true,
-                hideCursorInOverviewRuler: false,
-                overviewRulerLanes: 3,
-                overflowWidgetsDomNode: monacoRoot,
-                ...options,
-                padding: { bottom: 8, top: 8 },
-                scrollbar: {
-                    vertical: scrollbarRendering,
-                    horizontal: scrollbarRendering,
-                    ...options?.scrollbar,
-                },
-            }}
             value={value}
-            onMount={(editor, monaco) => {
-                setMonacoAndEditor([monaco, editor])
-                initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
-                if (onPressCmdEnter) {
-                    monacoDisposables.current.push(
-                        editor.addAction({
-                            id: 'saveAndRunPostHog',
-                            label: 'Save and run query',
-                            keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-                            run: () => {
-                                const selection = editor.getSelection()
-                                const model = editor.getModel()
-                                if (selection && model) {
-                                    const highlightedText = model.getValueInRange(selection)
-                                    onPressCmdEnter(highlightedText, 'selection')
-                                    return
-                                }
-
-                                onPressCmdEnter(editor.getValue(), 'full')
-                            },
-                        })
-                    )
-                }
-                if (autoFocus) {
-                    editor.focus()
-                    const model = editor.getModel()
-                    if (model) {
-                        editor.setPosition({
-                            column: model.getLineContent(model.getLineCount()).length + 1,
-                            lineNumber: model.getLineCount(),
-                        })
-                    }
-                }
-
-                onMount?.(editor, monaco)
-            }}
+            options={editorOptions}
+            onMount={editorOnMount}
             {...editorProps}
         />
     )

@@ -201,7 +201,7 @@ export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
             color = 'text-text-3000'
             break
         case 'INFO':
-            color = 'text-primary'
+            color = 'text-accent-primary'
             break
         case 'WARNING':
         case 'WARN':

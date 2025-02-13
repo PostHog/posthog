@@ -1,11 +1,12 @@
-FROM docker.io/library/rust:1.80.1-bullseye as builder
+FROM docker.io/library/rust:1.80.1-bookworm as builder
 
-RUN apt update && apt install build-essential cmake -y
-RUN cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres --root /app/target/release/
+RUN apt update && apt -y install build-essential cmake libssl-dev
+RUN cargo install sqlx-cli@0.8.3 --locked --no-default-features --features native-tls,postgres --root /app/target/release/
 
-FROM debian:bullseye-20230320-slim AS runtime
+FROM debian:bookworm-20241223-slim AS runtime
 WORKDIR /sqlx
 
+RUN apt update && apt install libssl-dev -y && apt clean
 COPY bin /sqlx/bin/
 COPY migrations /sqlx/migrations/
 

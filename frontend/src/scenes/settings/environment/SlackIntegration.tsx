@@ -147,7 +147,7 @@ export function SlackIntegration(): JSX.Element {
                             </>
                         )
                     ) : (
-                        <p className="text-muted">
+                        <p className="text-secondary">
                             This PostHog instance is not configured for Slack. Please contact the instance owner to
                             configure it.
                         </p>

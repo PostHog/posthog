@@ -2,7 +2,7 @@ import json
 from typing import Any, Optional, cast
 from datetime import datetime
 
-from django.db.models import QuerySet, Q, deletion
+from django.db.models import QuerySet, Q, deletion, Prefetch
 from django.conf import settings
 from drf_spectacular.utils import OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
@@ -17,7 +17,7 @@ from posthog.api.utils import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.api.cohort import CohortSerializer
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -62,6 +62,7 @@ from posthog.queries.base import (
 )
 from posthog.rate_limit import BurstRateThrottle
 from loginas.utils import is_impersonated_session
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -99,6 +100,7 @@ class FeatureFlagSerializer(
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
 
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
@@ -154,13 +156,30 @@ class FeatureFlagSerializer(
             "has_enriched_analytics",
             "user_access_level",
             "creation_context",
+            "is_remote_configuration",
+            "status",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         # TODO: make sure this isn't n+1
         return (
+            # Old access control
             can_user_edit_feature_flag(self.context["request"], feature_flag)
-            and self.get_user_access_level(feature_flag) == "editor"
+            or
+            # New access control
+            (
+                self.get_user_access_level(feature_flag) == "editor"
+                and
+                # This is an added check for mid-migration to the new access control. We want to check
+                # if the user has permissions from either system but in the case they are still using
+                # the old system, since the new system defaults to editor we need to check what that
+                # organization is defaulting to for access (view or edit)
+                not OrganizationResourceAccess.objects.filter(
+                    organization=self.context["request"].user.organization,
+                    resource="feature flags",
+                    access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+                ).exists()
+            )
         )
 
     # Simple flags are ones that only have rollout_percentage
@@ -433,6 +452,46 @@ class FeatureFlagSerializer(
         if active:
             validated_data["performed_rollback"] = False
 
+    def get_status(self, feature_flag: FeatureFlag) -> str:
+        checker = FeatureFlagStatusChecker(feature_flag=feature_flag)
+        flag_status, _ = checker.get_status()
+        return flag_status.name
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        filters = representation.get("filters", {})
+        groups = filters.get("groups", [])
+
+        # Get all cohort IDs used in the feature flag
+        cohort_ids = set()
+        for group in groups:
+            for property in group.get("properties", []):
+                if property.get("type") == "cohort":
+                    cohort_ids.add(property.get("value"))
+
+        # Use prefetched cohorts if available
+        if hasattr(instance.team, "available_cohorts"):
+            cohorts = {
+                str(cohort.id): cohort.name
+                for cohort in instance.team.available_cohorts
+                if str(cohort.id) in map(str, cohort_ids)
+            }
+        else:
+            # Fallback to database query if cohorts weren't prefetched
+            cohorts = {
+                str(cohort.id): cohort.name
+                for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
+            }
+
+        # Add cohort names to the response
+        for group in groups:
+            for property in group.get("properties", []):
+                if property.get("type") == "cohort":
+                    property["cohort_name"] = cohorts.get(str(property.get("value")))
+
+        representation["filters"] = filters
+        return representation
+
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
@@ -535,6 +594,13 @@ class FeatureFlagViewSet(
                 .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related("surveys_linked_flag")
+                .prefetch_related(
+                    Prefetch(
+                        "team__cohort_set",
+                        queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
+                        to_attr="available_cohorts",
+                    )
+                )
             )
 
             survey_targeting_flags = Survey.objects.filter(
@@ -694,7 +760,7 @@ class FeatureFlagViewSet(
     )
     def local_evaluation(self, request: request.Request, **kwargs):
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team__project_id=self.project_id, deleted=False, active=True
+            team__project_id=self.project_id, deleted=False
         )
 
         should_send_cohorts = "send_cohorts" in request.GET

@@ -32,7 +32,7 @@ const isViewTable = (
 }
 
 const isJoined = (field: DatabaseSchemaField): boolean => {
-    return field.type === 'view'
+    return field.type === 'view' || field.type === 'lazy_table'
 }
 
 export const editorSceneLogic = kea<editorSceneLogicType>([

@@ -1,20 +1,32 @@
 from unittest.mock import patch
 
-from django.test import override_settings
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-from ee.hogai.trends.nodes import TrendsGeneratorNode, TrendsSchemaGeneratorOutput
+from ee.hogai.trends.nodes import TrendsGeneratorNode, TrendsPlannerNode, TrendsSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantTrendsQuery,
     HumanMessage,
     VisualizationMessage,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest
 
 
-@override_settings(IN_UNIT_TESTING=True)
-class TestTrendsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
+class TestTrendsPlannerNode(BaseTest):
+    def test_trends_planner_prompt_has_tools(self):
+        node = TrendsPlannerNode(self.team)
+        with patch.object(TrendsPlannerNode, "_model") as model_mock:
+
+            def assert_prompt(prompt):
+                self.assertIn("retrieve_event_properties", str(prompt))
+                return AIMessage(content="Thought.\nAction: abc")
+
+            model_mock.return_value = RunnableLambda(assert_prompt)
+            node.run(AssistantState(messages=[HumanMessage(content="Text")]), {})
+
+
+class TestTrendsGeneratorNode(BaseTest):
     maxDiff = None
 
     def setUp(self):

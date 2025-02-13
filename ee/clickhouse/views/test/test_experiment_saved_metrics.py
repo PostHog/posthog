@@ -108,6 +108,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                         "series": [{"kind": "EventsNode", "event": "$pageview"}],
                     },
                 },
+                "tags": ["tag1"],
             },
             format="json",
         )
@@ -124,7 +125,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             },
         )
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
-
+        self.assertEqual(response.json()["tags"], ["tag1"])
         # Generate experiment to have saved metric
         ff_key = "a-b-tests"
         response = self.client.post(

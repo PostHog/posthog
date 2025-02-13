@@ -30,6 +30,11 @@ from posthog.permissions import (
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
+from rest_framework.decorators import action
+from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
+from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
+from sentry_sdk import capture_exception
+from drf_spectacular.utils import extend_schema
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -99,6 +104,7 @@ class OrganizationSerializer(
             "customer_id",
             "enforce_2fa",
             "member_count",
+            "is_ai_data_processing_approved",
         ]
         read_only_fields = [
             "id",
@@ -263,3 +269,18 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         return super().update(request, *args, **kwargs)
+
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=["post"])
+    def migrate_access_control(self, request: Request, **kwargs) -> Response:
+        organization = Organization.objects.get(id=kwargs["id"])
+        self.check_object_permissions(request, organization)
+
+        try:
+            rbac_team_access_control_migration(organization.id)
+            rbac_feature_flag_role_access_migration(organization.id)
+        except Exception as e:
+            capture_exception(e)
+            return Response({"status": False, "error": "An internal error has occurred."}, status=500)
+
+        return Response({"status": True})

@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime
 from typing import cast
 
 import pytest
@@ -44,3 +45,17 @@ def test_node_replaces_equals_with_contains(call_node):
     assert "icontains" in actual_output
     assert "John" not in actual_output
     assert "john" in actual_output
+
+
+def test_current_date(call_node):
+    query = "what is the conversion rate from a page view to a next page view in this January?"
+    plan = """Sequence:
+    1. $pageview
+    2. $pageview
+    """
+    date_range = call_node(query, plan).dateRange
+    assert date_range is not None
+    year = str(datetime.now().year)
+    assert (date_range.date_from and year in date_range.date_from) or (
+        date_range.date_to and year in date_range.date_to
+    )

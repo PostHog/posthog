@@ -11,7 +11,7 @@
 # experience as rich as possible. Perhaps later down the line it might be worth
 # rolling our own
 #
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.11-bullseye
+FROM mcr.microsoft.com/vscode/devcontainers/python:3.11-bookworm
 
 # Make sure all exit codes on pipes cause failures
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -31,9 +31,9 @@ CMD ["sleep", "infinity"]
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
     # Add in useful db debugging tools
-    "postgresql-client=13+*" \
+    "postgresql-client=15+*" \
     # needed for posthog to run
-    netcat brotli curl \
+    netcat-openbsd brotli curl \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \

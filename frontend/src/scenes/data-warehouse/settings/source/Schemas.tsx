@@ -75,6 +75,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             return (
                                 <LemonSelect
                                     className="my-1"
+                                    disabled={!schema.should_sync}
                                     value={schema.sync_frequency || '6hour'}
                                     onChange={(value) =>
                                         updateSchema({ ...schema, sync_frequency: value as DataWarehouseSyncInterval })

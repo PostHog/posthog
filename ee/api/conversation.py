@@ -18,6 +18,7 @@ from posthog.schema import HumanMessage
 class MessageSerializer(serializers.Serializer):
     content = serializers.CharField(required=True, max_length=1000)
     conversation = serializers.UUIDField(required=False)
+    trace_id = serializers.UUIDField(required=True)
 
     def validate(self, data):
         try:
@@ -65,5 +66,6 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             serializer.validated_data["message"],
             user=cast(User, request.user),
             is_new_conversation=not conversation_id,
+            trace_id=serializer.validated_data["trace_id"],
         )
         return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)

@@ -3,24 +3,23 @@ import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
+import { ExperimentFunnelsQuery, ExperimentQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
 import {
     FilterLogicalOperator,
     InsightType,
-    PropertyFilterType,
-    PropertyOperator,
     RecordingUniversalFilters,
     ReplayTabs,
     TrendExperimentVariant,
-    UniversalFiltersGroupValue,
 } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { getViewRecordingFilters } from '../utils'
 import { VariantTag } from './components'
 
 export function SummaryTable({
@@ -28,7 +27,7 @@ export function SummaryTable({
     metricIndex = 0,
     isSecondary = false,
 }: {
-    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery
     metricIndex?: number
     isSecondary?: boolean
 }): JSX.Element {
@@ -45,6 +44,7 @@ export function SummaryTable({
         countDataForVariant,
         getHighestProbabilityVariant,
         credibleIntervalForVariant,
+        featureFlags,
     } = useValues(experimentLogic)
     const metricType = getMetricType(metric)
     const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
@@ -102,7 +102,7 @@ export function SummaryTable({
                             </div>
                         }
                     >
-                        <IconInfo className="text-muted-alt text-base" />
+                        <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -133,7 +133,7 @@ export function SummaryTable({
                 <div className="inline-flex items-center space-x-1">
                     <div className="">Delta %</div>
                     <Tooltip title="Delta % indicates the percentage change in the mean between the control and the test variant.">
-                        <IconInfo className="text-muted-alt text-base" />
+                        <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -175,7 +175,7 @@ export function SummaryTable({
                 <div className="inline-flex items-center space-x-1">
                     <div className="">Credible interval (95%)</div>
                     <Tooltip title="A credible interval estimates the percentage change in the mean, indicating with 95% probability how much higher or lower the test variant's mean is compared to the control.">
-                        <IconInfo className="text-muted-alt text-base" />
+                        <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -219,7 +219,7 @@ export function SummaryTable({
                     <div className="inline-flex items-center space-x-1">
                         <div className="">Delta %</div>
                         <Tooltip title="Delta % indicates the percentage change in the conversion rate between the control and the test variant.">
-                            <IconInfo className="text-muted-alt text-base" />
+                            <IconInfo className="text-secondary text-base" />
                         </Tooltip>
                     </div>
                 ),
@@ -250,7 +250,7 @@ export function SummaryTable({
                     <div className="inline-flex items-center space-x-1">
                         <div className="">Credible interval (95%)</div>
                         <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
-                            <IconInfo className="text-muted-alt text-base" />
+                            <IconInfo className="text-secondary text-base" />
                         </Tooltip>
                     </div>
                 ),
@@ -274,6 +274,32 @@ export function SummaryTable({
             })
     }
 
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENT_P_VALUE]) {
+        columns.push({
+            key: 'pValue',
+            title: 'P-value',
+            render: function Key(_, item): JSX.Element {
+                const variantKey = item.key
+                const pValue =
+                    result?.probability?.[variantKey] !== undefined ? 1 - result.probability[variantKey] : undefined
+
+                return (
+                    <>
+                        {pValue != undefined ? (
+                            <span className="inline-flex items-center w-52 space-x-4">
+                                <span className="w-1/4 font-semibold">
+                                    {pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)}
+                                </span>
+                            </span>
+                        ) : (
+                            '—'
+                        )}
+                    </>
+                )
+            },
+        })
+    }
+
     columns.push({
         key: 'winProbability',
         title: 'Win probability',
@@ -284,12 +310,17 @@ export function SummaryTable({
         },
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
-            const percentage = result?.probability?.[variantKey] != undefined && result.probability?.[variantKey] * 100
+            const percentage = result?.probability?.[variantKey] !== undefined && result.probability?.[variantKey] * 100
             const isWinning = variantKey === winningVariant
+
+            // Only show the win probability if the conversion rate exists
+            // TODO: move this to the backend
+            const conversionRate = conversionRateForVariant(result, variantKey)
+            const hasValidConversionRate = conversionRate !== null && conversionRate !== undefined
 
             return (
                 <>
-                    {percentage ? (
+                    {percentage && hasValidConversionRate ? (
                         <span className="inline-flex items-center w-52 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
@@ -309,47 +340,16 @@ export function SummaryTable({
         title: '',
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
+
+            const filters = getViewRecordingFilters(metric, experiment.feature_flag_key, variantKey)
             return (
                 <LemonButton
                     size="xsmall"
                     icon={<IconRewindPlay />}
                     tooltip="Watch recordings of people who were exposed to this variant."
+                    disabledReason={filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined}
                     type="secondary"
                     onClick={() => {
-                        const filters: UniversalFiltersGroupValue[] = [
-                            {
-                                id: '$feature_flag_called',
-                                name: '$feature_flag_called',
-                                type: 'events',
-                                properties: [
-                                    {
-                                        key: `$feature/${experiment.feature_flag_key}`,
-                                        type: PropertyFilterType.Event,
-                                        value: [variantKey],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                    {
-                                        key: `$feature/${experiment.feature_flag_key}`,
-                                        type: PropertyFilterType.Event,
-                                        value: 'is_set',
-                                        operator: PropertyOperator.IsSet,
-                                    },
-                                    {
-                                        key: '$feature_flag',
-                                        type: PropertyFilterType.Event,
-                                        value: experiment.feature_flag_key,
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
-                            },
-                        ]
-                        if (experiment.filters.insight === InsightType.FUNNELS) {
-                            if (experiment.filters?.events?.[0]) {
-                                filters.push(experiment.filters.events[0])
-                            } else if (experiment.filters?.actions?.[0]) {
-                                filters.push(experiment.filters.actions[0])
-                            }
-                        }
                         const filterGroup: Partial<RecordingUniversalFilters> = {
                             filter_group: {
                                 type: FilterLogicalOperator.And,
@@ -360,6 +360,14 @@ export function SummaryTable({
                                     },
                                 ],
                             },
+                            date_from: experiment?.start_date,
+                            date_to: experiment?.end_date,
+                            filter_test_accounts:
+                                metric.kind === NodeKind.ExperimentQuery
+                                    ? false
+                                    : metric.kind === NodeKind.ExperimentTrendsQuery
+                                    ? metric.count_query.filterTestAccounts
+                                    : metric.funnels_query.filterTestAccounts,
                         }
                         router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
                         posthog.capture('viewed recordings from experiment', { variant: variantKey })
@@ -373,7 +381,11 @@ export function SummaryTable({
 
     return (
         <div className="mb-4">
-            <LemonTable loading={false} columns={columns} dataSource={tabularExperimentResults(0)} />
+            <LemonTable
+                loading={false}
+                columns={columns}
+                dataSource={tabularExperimentResults(metricIndex, isSecondary)}
+            />
         </div>
     )
 }

@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Literal, Optional, get_args, TYPE_CHECKING
+from typing import Literal, Optional, TYPE_CHECKING
 
 
 if TYPE_CHECKING:
@@ -12,7 +12,6 @@ SubTemplateId = Literal[
     "early-access-feature-enrollment", "survey-response", "activity-log", "error-tracking-issue-created"
 ]
 
-SUB_TEMPLATE_ID: tuple[SubTemplateId, ...] = get_args(SubTemplateId)
 
 HogFunctionTemplateType = Literal[
     "destination",
@@ -59,14 +58,15 @@ class HogFunctionMappingTemplate:
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionTemplate:
-    status: Literal["alpha", "beta", "stable", "free", "client-side"]
+    status: Literal["alpha", "beta", "stable", "deprecated"]
+    free: bool
     type: HogFunctionTemplateType
     id: str
     name: str
-    description: str
     hog: str
     inputs_schema: list[dict]
     category: list[str]
+    description: Optional[str] = None
     sub_templates: Optional[list[HogFunctionSubTemplate]] = None
     filters: Optional[dict] = None
     mappings: Optional[list[HogFunctionMapping]] = None
@@ -85,6 +85,11 @@ class HogFunctionTemplateMigrator:
 
 
 def derive_sub_templates(templates: list[HogFunctionTemplate]) -> list[HogFunctionTemplate]:
+    """
+    Given a list of templates, derive the sub templates from them.
+    Sub templates just override certain params of the parent template.
+    This allows the API to filter for templates based on a SubTemplateId such as ones designed for surveys.
+    """
     sub_templates = []
     for template in templates:
         for sub_template in template.sub_templates or []:

@@ -343,9 +343,11 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
 
             self.assertEqual(len(probabilities), 4)
             if stats_version == 2:
-                self.assertTrue(probabilities[2] > 0.9)
-                self.assertTrue(probabilities[1] < 0.1)
                 self.assertTrue(probabilities[0] < 0.1)
+                self.assertTrue(probabilities[1] > 0.9)
+                self.assertTrue(probabilities[2] > 0.9)
+                self.assertTrue(probabilities[3] > 0.9)
+
                 self.assertEqual(significance, ExperimentSignificanceCode.SIGNIFICANT)
                 self.assertEqual(p_value, 0)
 
@@ -386,6 +388,55 @@ class TestExperimentTrendsStatisticsContinuous(APIBaseTest):
                 # Test C slightly higher at $110
                 self.assertAlmostEqual(intervals["test_c"][0], 110, delta=1)
                 self.assertAlmostEqual(intervals["test_c"][1], 110, delta=1)
+
+        self.run_test_for_both_implementations(run_test)
+
+    @flaky(max_runs=5, min_passes=1)
+    def test_many_variants_win_probabilty_compared_to_control(self):
+        """Test with multiple variants, win probability compared to control"""
+
+        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
+            control_absolute_exposure = 1000
+            control = create_variant(
+                "control",
+                total_sum=100.0 * control_absolute_exposure,
+                exposure=1,
+                absolute_exposure=control_absolute_exposure,
+            )
+            test_a_absolute_exposure = 1000
+            test_a = create_variant(
+                "test_a",
+                total_sum=85.0 * test_a_absolute_exposure,
+                exposure=test_a_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_a_absolute_exposure,
+            )
+            test_b_absolute_exposure = 1000
+            test_b = create_variant(
+                "test_b",
+                total_sum=150.0 * test_b_absolute_exposure,
+                exposure=test_b_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_b_absolute_exposure,
+            )
+            test_c_absolute_exposure = 1000
+            test_c = create_variant(
+                "test_c",
+                total_sum=110.0 * test_c_absolute_exposure,
+                exposure=test_c_absolute_exposure / control_absolute_exposure,
+                absolute_exposure=test_c_absolute_exposure,
+            )
+            probabilities = calculate_probabilities(control, [test_a, test_b, test_c])
+
+            self.assertEqual(len(probabilities), 4)
+            if stats_version == 2:
+                self.assertAlmostEqual(probabilities[0], 0, delta=0.05)
+                self.assertAlmostEqual(probabilities[1], 0.05, delta=0.05)
+                self.assertAlmostEqual(probabilities[2], 0.99, delta=0.05)
+                self.assertAlmostEqual(probabilities[3], 0.99, delta=0.05)
+            else:
+                self.assertAlmostEqual(probabilities[0], 0, delta=0.05)
+                self.assertAlmostEqual(probabilities[1], 0, delta=0.05)
+                self.assertAlmostEqual(probabilities[2], 0.99, delta=0.05)
+                self.assertAlmostEqual(probabilities[3], 0.0, delta=0.05)
 
         self.run_test_for_both_implementations(run_test)
 

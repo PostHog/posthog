@@ -367,7 +367,7 @@
   SELECT behavior_query.person_id AS id
   FROM
     (SELECT pdi.person_id AS person_id,
-            countIf(timestamp > 'explicit_timestamp'
+            countIf(timestamp > 'explicit_redacted_timestamp'
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND (has(['something'], replaceRegexpAll(JSONExtractRaw(properties, '$filter_prop'), '^"|"$', '')))) > 0 AS performed_event_condition_None_level_level_0_level_0_0

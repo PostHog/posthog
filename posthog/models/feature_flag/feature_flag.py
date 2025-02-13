@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.db import models
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.utils import timezone
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.constants import (
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
@@ -53,6 +53,8 @@ class FeatureFlag(models.Model):
     )
     # whether a feature is sending us rich analytics, like views & interactions.
     has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)
+
+    is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]

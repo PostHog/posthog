@@ -187,8 +187,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
-        CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
-        CDP_CYCLOTRON_ENABLED_TEAMS: '',
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
@@ -213,6 +211,35 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+
+        // Session recording V2
+        SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
+        SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
+        SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
+        SESSION_RECORDING_V2_S3_PREFIX: 'session_recording_batches',
+        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:19000',
+        SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
+        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
+        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
+
+        // Hog Transformations (Alpha)
+        HOG_TRANSFORMATIONS_ENABLED: false,
+        HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: 0,
+
+        // Cookieless
+        COOKIELESS_FORCE_STATELESS_MODE: false,
+        COOKIELESS_DISABLED: false,
+        COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000, // 1 hour
+        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * 24, // 24 hours
+        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * 24, // 24 hours
+        COOKIELESS_SESSION_INACTIVITY_MS: 30 * 60 * 1000, // 30 minutes
+        COOKIELESS_IDENTIFIES_TTL_SECONDS:
+            (24 + // max supported ingestion lag
+                12 + // max negative timezone in the world*/
+                14 + // max positive timezone in the world */
+                24) * // amount of time salt is valid in one timezone
+            60 *
+            60,
     }
 }
 

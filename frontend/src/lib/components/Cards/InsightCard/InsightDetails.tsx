@@ -273,13 +273,17 @@ function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
             {' performed'}
             <EntityDisplay
                 entity={
-                    {
-                        ...query.retentionFilter.targetEntity,
-                        kind:
-                            query.retentionFilter.targetEntity?.type === 'actions'
-                                ? NodeKind.ActionsNode
-                                : NodeKind.EventsNode,
-                    } as AnyEntityNode
+                    query.retentionFilter.targetEntity?.type === 'actions'
+                        ? {
+                              kind: NodeKind.ActionsNode,
+                              name: query.retentionFilter.targetEntity.name,
+                              id: query.retentionFilter.targetEntity.id as number,
+                          }
+                        : {
+                              kind: NodeKind.EventsNode,
+                              name: query.retentionFilter.targetEntity?.name,
+                              event: query.retentionFilter.targetEntity?.id as string,
+                          }
                 }
             />
             <strong>

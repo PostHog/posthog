@@ -14,7 +14,6 @@ from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.batch_exports.models import BatchExport
-from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
 
 pytestmark = [
@@ -23,7 +22,7 @@ pytestmark = [
 
 
 @pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"])
-def test_create_batch_export_with_interval_schedule(client: HttpClient, interval):
+def test_create_batch_export_with_interval_schedule(client: HttpClient, interval, temporal):
     """Test creating a BatchExport.
 
     When creating a BatchExport, we should create a corresponding Schedule in
@@ -31,7 +30,6 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
     test we assert this Schedule is created in Temporal and populated with the
     expected inputs.
     """
-    temporal = sync_connect()
 
     destination_data = {
         "type": "S3",
@@ -123,14 +121,13 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
     "timezone",
     ["US/Pacific", "UTC", "Europe/Berlin", "Asia/Tokyo", "Pacific/Marquesas", "Asia/Katmandu"],
 )
-def test_create_batch_export_with_different_team_timezones(client: HttpClient, timezone: str):
+def test_create_batch_export_with_different_team_timezones(client: HttpClient, timezone: str, temporal):
     """Test creating a BatchExport.
 
     When creating a BatchExport, we should create a corresponding Schedule in
     Temporal as described by the associated BatchExportSchedule model. In this
     test we assert this Schedule is created in Temporal with the Team's timezone.
     """
-    temporal = sync_connect()
 
     destination_data = {
         "type": "S3",
@@ -172,9 +169,7 @@ def test_create_batch_export_with_different_team_timezones(client: HttpClient, t
         assert schedule.schedule.spec.time_zone_name == timezone
 
 
-def test_cannot_create_a_batch_export_for_another_organization(client: HttpClient):
-    temporal = sync_connect()
-
+def test_cannot_create_a_batch_export_for_another_organization(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -210,9 +205,7 @@ def test_cannot_create_a_batch_export_for_another_organization(client: HttpClien
     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
-def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(client: HttpClient):
-    temporal = sync_connect()
-
+def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -271,7 +264,7 @@ FROM events
 """
 
 
-def test_create_batch_export_with_custom_schema(client: HttpClient):
+def test_create_batch_export_with_custom_schema(client: HttpClient, temporal):
     """Test creating a BatchExport with a custom schema expressed as a HogQL Query.
 
     When creating a BatchExport, we should create a corresponding Schedule in
@@ -279,7 +272,6 @@ def test_create_batch_export_with_custom_schema(client: HttpClient):
     test we assert this Schedule is created in Temporal and populated with the
     expected inputs.
     """
-    temporal = sync_connect()
 
     destination_data = {
         "type": "S3",
@@ -348,7 +340,7 @@ def test_create_batch_export_with_custom_schema(client: HttpClient):
         }
 
         assert batch_export.schema == expected_schema
-        assert args["batch_export_model"] == {"name": "events", "schema": expected_schema}
+        assert args["batch_export_model"] == {"filters": None, "name": "events", "schema": expected_schema}
 
 
 @pytest.mark.parametrize(
@@ -361,9 +353,8 @@ def test_create_batch_export_with_custom_schema(client: HttpClient):
         "SELECT event FROM events UNION ALL SELECT event FROM events",
     ],
 )
-def test_create_batch_export_fails_with_invalid_query(client: HttpClient, invalid_query):
+def test_create_batch_export_fails_with_invalid_query(client: HttpClient, invalid_query, temporal):
     """Test creating a BatchExport should fail with an invalid query."""
-    temporal = sync_connect()
 
     destination_data = {
         "type": "S3",
@@ -396,3 +387,76 @@ def test_create_batch_export_fails_with_invalid_query(client: HttpClient, invali
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+@pytest.mark.parametrize(
+    "auth_type,credentials,expected_status",
+    [
+        # Password auth type tests
+        (
+            "password",
+            {"password": "abc123"},
+            status.HTTP_201_CREATED,
+        ),
+        (
+            "password",
+            {},
+            status.HTTP_400_BAD_REQUEST,
+        ),
+        # Key pair auth type tests
+        (
+            "keypair",
+            {"private_key": "SECRET_KEY"},
+            status.HTTP_201_CREATED,
+        ),
+        (
+            "keypair",
+            {},
+            status.HTTP_400_BAD_REQUEST,
+        ),
+    ],
+)
+def test_create_snowflake_batch_export_validates_credentials(
+    client: HttpClient, auth_type, credentials, expected_status, temporal
+):
+    """Test creating a BatchExport with Snowflake destination validates credentials based on auth type."""
+
+    destination_data = {
+        "type": "Snowflake",
+        "config": {
+            "account": "my-account",
+            "user": "user",
+            "database": "my-db",
+            "warehouse": "COMPUTE_WH",
+            "schema": "public",
+            "table_name": "my_events",
+            "authentication_type": auth_type,
+            **credentials,
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-snowflake-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        assert response.status_code == expected_status
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            if auth_type == "password":
+                assert "Password is required if authentication type is password" in response.json()["detail"]
+            else:
+                assert "Private key is required if authentication type is key pair" in response.json()["detail"]

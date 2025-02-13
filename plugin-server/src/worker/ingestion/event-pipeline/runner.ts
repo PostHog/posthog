@@ -1,6 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
+import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
+
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent } from '../../../types'
@@ -8,8 +10,11 @@ import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { cloneObject } from '../../../utils/utils'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
+import { compareToHogTransformStep } from './compareToHogTransformStep'
+import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
@@ -27,10 +32,11 @@ import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
+import { transformEventStep } from './transformEventStep'
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
-    // contains the Kafka producer ACKs, to avoid blocking after every message.
+    // contains the Kafka producer ACKs and message promises, to avoid blocking after every message.
     ackPromises?: Array<Promise<void>>
     // Only used in tests
     // TODO: update to test for side-effects of running the pipeline rather than
@@ -53,11 +59,13 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
+    hogTransformer: HogTransformerService | null
 
-    constructor(hub: Hub, event: PipelineEvent) {
+    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null = null) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
+        this.hogTransformer = hogTransformer
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -127,7 +135,11 @@ export class EventPipelineRunner {
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ
-                return { lastStep: error.step, args: [], error: error.message }
+                return {
+                    lastStep: error.step,
+                    args: [],
+                    error: error.message,
+                }
             } else {
                 // Otherwise rethrow, which leads to Kafka offsets not getting committed and retries
                 Sentry.captureException(error, {
@@ -216,15 +228,59 @@ export class EventPipelineRunner {
             return this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
+        const [postCookielessEvent] = await this.runStep(cookielessServerHashStep, [this.hub, event], event.team_id)
+        if (postCookielessEvent == null) {
+            return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
+        }
+
+        // Setup a cloned event so we can compare the post-plugins event to the pre-plugins event
+        let clonedSourceEvent: PluginEvent | null = null
+
+        try {
+            const shouldCompareToHogFunctions =
+                this.hogTransformer && Math.random() < (this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE ?? 0)
+
+            if (shouldCompareToHogFunctions) {
+                clonedSourceEvent = cloneObject(postCookielessEvent)
+            }
+        } catch (error) {
+            status.error('🔔', 'Error cloning event for hog transform comparison', { error })
+        }
+
+        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
+
+        if (clonedSourceEvent) {
+            // NOTE: We don't use the step process here as we don't want it to interfere with other metrics
+            try {
+                await compareToHogTransformStep(this.hogTransformer, clonedSourceEvent, processedEvent)
+            } catch (error) {
+                status.error('🔔', 'Error comparing to hog transform', { error })
+            }
+        }
+
         if (processedEvent == null) {
             // A plugin dropped the event.
-            return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
+            return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
+        }
+
+        const { event: transformedEvent, messagePromises } = await this.runStep(
+            transformEventStep,
+            [processedEvent, this.hub.HOG_TRANSFORMATIONS_ENABLED ? this.hogTransformer : null],
+            event.team_id
+        )
+
+        // Add message promises to kafkaAcks
+        if (messagePromises) {
+            kafkaAcks.push(...messagePromises)
+        }
+
+        if (transformedEvent === null) {
+            return this.registerLastStep('transformEventStep', [processedEvent], kafkaAcks)
         }
 
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
-            [processedEvent, processPerson],
+            [transformedEvent, processPerson],
             event.team_id
         )
 
@@ -277,7 +333,11 @@ export class EventPipelineRunner {
 
     registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {
         pipelineLastStepCounter.labels(stepName).inc()
-        return { ackPromises, lastStep: stepName, args }
+        return {
+            ackPromises,
+            lastStep: stepName,
+            args,
+        }
     }
 
     protected runStep<Step extends (...args: any[]) => any>(

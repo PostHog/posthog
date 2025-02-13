@@ -4,13 +4,16 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include
 from django.urls.conf import path
+from django.views.decorators.csrf import csrf_exempt
 
 from ee.api import integration
+from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import (
     authentication,
     billing,
     conversation,
+    core_memory,
     dashboard_collaborator,
     explicit_team_member,
     feature_flag_role_access,
@@ -99,6 +102,10 @@ def extend_api_router() -> None:
         r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
     )
 
+    environments_router.register(
+        r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
+    )
+
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 admin_urlpatterns = (
@@ -109,5 +116,6 @@ admin_urlpatterns = (
 urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
+    path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     *admin_urlpatterns,
 ]

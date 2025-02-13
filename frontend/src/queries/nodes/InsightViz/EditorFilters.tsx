@@ -16,6 +16,7 @@ import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
 import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
+import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -102,7 +103,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           },
                           hasPathsHogQL && {
                               key: 'hogql',
-                              label: 'HogQL Expression',
+                              label: 'SQL Expression',
                               component: PathsHogQL,
                           },
                           hasPathsAdvanced && {
@@ -186,7 +187,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                           </div>
                                       }
                                   >
-                                      <IconInfo className="text-xl text-muted-alt shrink-0 ml-1" />
+                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
                                   </Tooltip>
                               </div>
                           ),
@@ -260,7 +261,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                           </div>
                                       }
                                   >
-                                      <IconInfo className="text-xl text-muted-alt shrink-0 ml-1" />
+                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
                                   </Tooltip>
                               </div>
                           ),
@@ -296,6 +297,16 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'funnels-advanced',
                     position: 'left',
                     component: FunnelsAdvanced,
+                },
+            ]),
+        },
+        {
+            title: 'PoE Override',
+            editorFilters: filterFalsy([
+                {
+                    key: 'poe',
+                    position: 'right',
+                    component: PoeFilter,
                 },
             ]),
         },

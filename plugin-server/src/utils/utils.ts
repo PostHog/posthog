@@ -1,6 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
+import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
@@ -43,6 +44,38 @@ export function bufferToStream(binary: Buffer): Readable {
     })
 
     return readableInstanceStream
+}
+
+export function base64StringToUint32ArrayLE(base64: string): Uint32Array {
+    const buffer = Buffer.from(base64, 'base64')
+    const dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    const length = buffer.byteLength / 4
+    const result = new Uint32Array(length)
+
+    for (let i = 0; i < length; i++) {
+        // explicitly set little-endian
+        result[i] = dataView.getUint32(i * 4, true)
+    }
+
+    return result
+}
+
+export function uint32ArrayLEToBase64String(uint32Array: Uint32Array): string {
+    const buffer = new ArrayBuffer(uint32Array.length * 4)
+    const dataView = new DataView(buffer)
+
+    for (let i = 0; i < uint32Array.length; i++) {
+        // explicitly set little-endian
+        dataView.setUint32(i * 4, uint32Array[i], true)
+    }
+
+    return Buffer.from(buffer).toString('base64')
+}
+
+export function createRandomUint32x4(): Uint32Array {
+    const randomArray = new Uint32Array(4)
+    crypto.webcrypto.getRandomValues(randomArray)
+    return randomArray
 }
 
 export function cloneObject<T>(obj: T): T {

@@ -4,9 +4,9 @@ from django.db import migrations
 
 
 def migrate_action_webhooks_forward(apps, schema_editor):
-    from posthog.management.commands.migrate_action_webhooks import migrate_all_teams_action_webhooks
-
-    migrate_all_teams_action_webhooks()
+    # Migration code removed as it has already been released and applied in production
+    # Original migration converted action webhooks to HogFunction destinations
+    pass
 
 
 def migrate_action_webhooks_backward(apps, schema_editor):

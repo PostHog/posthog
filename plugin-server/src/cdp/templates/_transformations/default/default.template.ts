@@ -1,6 +1,7 @@
 import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
+    free: false,
     status: 'alpha',
     type: 'transformation',
     id: 'template-blank-transformation',

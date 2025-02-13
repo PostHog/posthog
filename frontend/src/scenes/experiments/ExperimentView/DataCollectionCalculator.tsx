@@ -107,12 +107,12 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
 }
 
 export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { getMetricType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
+    const { getMetricType, firstPrimaryMetric, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
         experimentLogic({ experimentId })
     )
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
 
-    const metricType = getMetricType(experiment.metrics[0])
+    const metricType = getMetricType(firstPrimaryMetric)
 
     // :KLUDGE: need these to mount the Query component to load the insight */
     const insightLogicInstance = insightLogic({
@@ -126,8 +126,8 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
             kind: NodeKind.InsightVizNode,
             source:
                 metricType === InsightType.FUNNELS
-                    ? (experiment.metrics[0] as ExperimentFunnelsQuery).funnels_query
-                    : (experiment.metrics[0] as ExperimentTrendsQuery).count_query,
+                    ? (firstPrimaryMetric as ExperimentFunnelsQuery).funnels_query
+                    : (firstPrimaryMetric as ExperimentTrendsQuery).count_query,
         }
     }
 
@@ -171,7 +171,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                             }
                             closeDelayMs={200}
                         >
-                            <IconInfo className="text-muted-alt text-base ml-1" />
+                            <IconInfo className="text-secondary text-base ml-1" />
                         </Tooltip>
                     </div>
                     <div className="flex gap-4">
@@ -217,7 +217,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         The calculations are based on the events received in the last 14 days. This event count may
                         differ from what was considered in earlier estimates.
                     </LemonBanner>
-                    {getMetricType(experiment.metrics[0]) === InsightType.TRENDS ? (
+                    {getMetricType(firstPrimaryMetric) === InsightType.TRENDS ? (
                         <TrendCalculation experimentId={experimentId} />
                     ) : (
                         <FunnelCalculation experimentId={experimentId} />

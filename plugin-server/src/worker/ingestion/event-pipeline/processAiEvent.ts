@@ -1,8 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import bigDecimal from 'js-big-decimal'
 
-import { ModelRow } from '../../../types'
-import { providers } from '../../../utils/ai-cost-data/mappings'
+import { costs } from '../../../utils/ai-costs'
+import { ModelRow } from '../../../utils/ai-costs/types'
 
 export const processAiEvent = (event: PluginEvent): PluginEvent => {
     if ((event.event !== '$ai_generation' && event.event !== '$ai_embedding') || !event.properties) {
@@ -14,16 +14,24 @@ export const processAiEvent = (event: PluginEvent): PluginEvent => {
 }
 
 const processCost = (event: PluginEvent) => {
-    if (!event.properties || !event.properties['$ai_provider'] || !event.properties['$ai_model']) {
+    if (!event.properties) {
         return event
     }
 
-    const provider = providers.find((provider) => event?.properties?.$ai_provider === provider.provider.toLowerCase())
-    if (!provider || !provider.costs) {
+    // If we already have input and output costs, we can skip the rest of the logic
+    if (event.properties['$ai_input_cost_usd'] && event.properties['$ai_output_cost_usd']) {
+        if (!event.properties['$ai_total_cost_usd']) {
+            event.properties['$ai_total_cost_usd'] =
+                event.properties['$ai_input_cost_usd'] + event.properties['$ai_output_cost_usd']
+        }
         return event
     }
 
-    const cost = findCostFromModel(provider.costs, event.properties['$ai_model'])
+    if (!event.properties['$ai_provider'] || !event.properties['$ai_model']) {
+        return event
+    }
+
+    const cost = findCostFromModel(event.properties['$ai_model'])
     if (!cost) {
         return event
     }
@@ -90,14 +98,19 @@ export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
     return event
 }
 
-const findCostFromModel = (costs: ModelRow[], aiModel: string): ModelRow | undefined => {
-    return costs.find((cost) => {
-        const valueLower = cost.model.value.toLowerCase()
-        if (cost.model.operator === 'startsWith') {
-            return aiModel.startsWith(valueLower)
-        } else if (cost.model.operator === 'includes') {
-            return aiModel.includes(valueLower)
-        }
-        return valueLower === aiModel
-    })
+const findCostFromModel = (aiModel: string): ModelRow | undefined => {
+    // Check if the model is an exact match
+    let cost = costs.find((cost) => cost.model.toLowerCase() === aiModel.toLowerCase())
+    // Check if the model is a variant of a known model
+    if (!cost) {
+        cost = costs.find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
+    }
+    // Check if the model is a variant of a known model
+    if (!cost) {
+        cost = costs.find((cost) => cost.model.toLowerCase().includes(aiModel.toLowerCase()))
+    }
+    if (!cost) {
+        console.warn(`No cost found for model: ${aiModel}`)
+    }
+    return cost
 }

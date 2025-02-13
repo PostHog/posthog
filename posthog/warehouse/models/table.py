@@ -23,14 +23,14 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from django.db.models import Q
 from .credential import DataWarehouseCredential
 from uuid import UUID
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.warehouse.util import database_sync_to_async
 from posthog.warehouse.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type, STR_TO_HOGQL_MAPPING
 from .external_table_definitions import external_tables
 from posthog.hogql.context import HogQLContext
 
 if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataJob
+    pass
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -143,7 +143,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     def get_columns(
         self,
-        pipeline_version: Optional["ExternalDataJob.PipelineVersion"] = None,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableColumns:
         try:
@@ -154,7 +153,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
-                pipeline_version=pipeline_version,
             )
 
             result = sync_execute(
@@ -262,6 +260,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             if fields.get("_dlt_id") and fields.get("_dlt_load_id"):
                 del fields["_dlt_id"]
                 del fields["_dlt_load_id"]
+                fields = {**fields, **default_fields}
+            if fields.get("_ph_debug"):
+                del fields["_ph_debug"]
                 fields = {**fields, **default_fields}
 
         return S3Table(

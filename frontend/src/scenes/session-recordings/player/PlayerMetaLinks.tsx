@@ -1,4 +1,4 @@
-import { IconDownload, IconEllipsis, IconNotebook, IconPin, IconPinFilled, IconShare, IconTrash } from '@posthog/icons'
+import { IconDownload, IconEllipsis, IconNotebook, IconPin, IconPinFilled, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,7 +12,7 @@ import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
+import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
 import { NotebookNodeType } from '~/types'
@@ -69,7 +69,7 @@ function PinToPlaylistButton({
 
 export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
+    const { setPause } = useActions(sessionRecordingPlayerLogic)
 
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
@@ -78,15 +78,6 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
         // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
         const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
         return Math.floor(playerTime / 1000)
-    }
-
-    const onShare = (): void => {
-        setPause()
-        setIsFullScreen(false)
-        openPlayerShareDialog({
-            seconds: getCurrentPlayerTime(),
-            id: sessionRecordingId,
-        })
     }
 
     const commonProps: Partial<LemonButtonProps> = {
@@ -136,9 +127,7 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                         {buttonContent('Comment')}
                     </NotebookSelectButton>
 
-                    <LemonButton icon={<IconShare />} onClick={onShare} {...commonProps} tooltip="Share this recording">
-                        {buttonContent('Share')}
-                    </LemonButton>
+                    <PlayerShareMenu iconsOnly={iconsOnly} />
 
                     {nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
                         <LemonButton

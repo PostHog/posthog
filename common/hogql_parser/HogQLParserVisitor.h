@@ -187,6 +187,8 @@ public:
 
     virtual std::any visitColumnExprInterval(HogQLParser::ColumnExprIntervalContext *context) = 0;
 
+    virtual std::any visitColumnExprCallSelect(HogQLParser::ColumnExprCallSelectContext *context) = 0;
+
     virtual std::any visitColumnExprIsNull(HogQLParser::ColumnExprIsNullContext *context) = 0;
 
     virtual std::any visitColumnExprWinFunctionTarget(HogQLParser::ColumnExprWinFunctionTargetContext *context) = 0;
@@ -240,6 +242,8 @@ public:
     virtual std::any visitColumnExprAsterisk(HogQLParser::ColumnExprAsteriskContext *context) = 0;
 
     virtual std::any visitColumnLambdaExpr(HogQLParser::ColumnLambdaExprContext *context) = 0;
+
+    virtual std::any visitHogqlxChildElement(HogQLParser::HogqlxChildElementContext *context) = 0;
 
     virtual std::any visitHogqlxTagElementClosed(HogQLParser::HogqlxTagElementClosedContext *context) = 0;
 

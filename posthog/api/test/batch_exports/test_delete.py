@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 
 import pytest
 import temporalio.client
@@ -15,21 +16,20 @@ from posthog.api.test.batch_exports.operations import (
     delete_batch_export,
     delete_batch_export_ok,
     get_batch_export,
+    wait_for_workflow_executions,
 )
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
+from posthog.test.base import _create_event
 
 pytestmark = [
     pytest.mark.django_db,
 ]
 
 
-def test_delete_batch_export(client: HttpClient):
+def test_delete_batch_export(client: HttpClient, temporal):
     """Test deleting a BatchExport."""
-    temporal = sync_connect()
-
     destination_data = {
         "type": "S3",
         "config": {
@@ -62,26 +62,6 @@ def test_delete_batch_export(client: HttpClient):
 
     with pytest.raises(RPCError):
         describe_schedule(temporal, batch_export_id)
-
-
-@async_to_sync
-async def wait_for_workflow_executions(
-    temporal: temporalio.client.Client, query: str, timeout: int = 30, sleep: int = 1
-):
-    """Wait for Workflow Executions matching query."""
-    workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
-
-    total = 0
-    while not workflows:
-        total += sleep
-
-        if total > timeout:
-            raise TimeoutError(f"No backfill Workflow Executions after {timeout} seconds")
-
-        await asyncio.sleep(sleep)
-        workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
-
-    return workflows
 
 
 @async_to_sync
@@ -110,10 +90,8 @@ async def wait_for_workflow_in_status(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_delete_batch_export_cancels_backfills(client: HttpClient):
+def test_delete_batch_export_cancels_backfills(client: HttpClient, temporal):
     """Test deleting a BatchExport cancels ongoing BatchExportBackfill."""
-    temporal = sync_connect()
-
     destination_data = {
         "type": "S3",
         "config": {
@@ -141,6 +119,14 @@ def test_delete_batch_export_cancels_backfills(client: HttpClient):
 
         start_at = "2023-10-23T00:00:00+00:00"
         end_at = "2023-10-24T00:00:00+00:00"
+
+        # ensure there is data to backfill, otherwise validation will fail
+        _create_event(
+            team=team,
+            event="$pageview",
+            distinct_id="person_1",
+            timestamp=dt.datetime(2023, 10, 23, 0, 0, 0, tzinfo=dt.UTC),
+        )
         batch_export_backfill = backfill_batch_export_ok(client, team.pk, batch_export_id, start_at, end_at)
 
         # In order for the backfill to be cancelable, it needs to be running and requesting backfills.
@@ -163,9 +149,7 @@ def test_delete_batch_export_cancels_backfills(client: HttpClient):
         describe_schedule(temporal, batch_export_id)
 
 
-def test_cannot_delete_export_of_other_organizations(client: HttpClient):
-    temporal = sync_connect()
-
+def test_cannot_delete_export_of_other_organizations(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -205,9 +189,7 @@ def test_cannot_delete_export_of_other_organizations(client: HttpClient):
         assert response.status_code == status.HTTP_200_OK
 
 
-def test_deletes_are_partitioned_by_team_id(client: HttpClient):
-    temporal = sync_connect()
-
+def test_deletes_are_partitioned_by_team_id(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -244,10 +226,8 @@ def test_deletes_are_partitioned_by_team_id(client: HttpClient):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_delete_batch_export_even_without_underlying_schedule(client: HttpClient):
+def test_delete_batch_export_even_without_underlying_schedule(client: HttpClient, temporal):
     """Test deleting a BatchExport completes even if underlying Schedule was already deleted."""
-    temporal = sync_connect()
-
     destination_data = {
         "type": "S3",
         "config": {

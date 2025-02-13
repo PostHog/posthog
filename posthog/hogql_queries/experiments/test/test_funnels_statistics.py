@@ -174,6 +174,35 @@ class TestExperimentFunnelStatistics(APIBaseTest):
         self.run_test_for_both_implementations(run_test)
 
     @flaky(max_runs=5, min_passes=1)
+    def test_many_variants_win_probabilty_compared_to_control(self):
+        """Test with multiple variants, win probability compared to control"""
+
+        def run_test(stats_version, calculate_probabilities, are_results_significant, calculate_credible_intervals):
+            # test_a is worse than control
+            # test_b is best overall
+            # test_c is slightly better than control
+            control = create_variant("control", success_count=100, failure_count=900)  # 10% conversion
+            test_a = create_variant("test_a", success_count=80, failure_count=920)  # 8% conversion
+            test_b = create_variant("test_b", success_count=150, failure_count=850)  # 15% conversion
+            test_c = create_variant("test_c", success_count=110, failure_count=890)  # 11% conversion
+
+            probabilities = calculate_probabilities(control, [test_a, test_b, test_c])
+
+            self.assertEqual(len(probabilities), 4)
+            if stats_version == 2:
+                self.assertAlmostEqual(probabilities[0], 0, delta=0.05)
+                self.assertAlmostEqual(probabilities[1], 0.05, delta=0.05)
+                self.assertAlmostEqual(probabilities[2], 0.99, delta=0.05)
+                self.assertAlmostEqual(probabilities[3], 0.76, delta=0.05)
+            else:
+                self.assertAlmostEqual(probabilities[0], 0, delta=0.05)
+                self.assertAlmostEqual(probabilities[1], 0, delta=0.05)
+                self.assertAlmostEqual(probabilities[2], 0.99, delta=0.05)
+                self.assertAlmostEqual(probabilities[3], 0.0, delta=0.05)
+
+        self.run_test_for_both_implementations(run_test)
+
+    @flaky(max_runs=5, min_passes=1)
     def test_insufficient_sample_size(self):
         """Test with sample size below threshold"""
 

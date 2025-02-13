@@ -1,0 +1,188 @@
+# serializer version: 1
+# name: TestSessionAttributionQueryRunner.test_filters
+  '''
+  SELECT count() AS `context.columns.count`,
+         sessions.`$channel_type` AS `context.columns.channel_type`,
+         topK(10)(sessions.`$entry_referring_domain`) AS `context.columns.referring_domain`,
+         sessions.`$entry_utm_source` AS `context.columns.utm_source`,
+         sessions.`$entry_utm_medium` AS `context.columns.utm_medium`,
+         topK(10)(sessions.`$entry_utm_campaign`) AS `context.columns.utm_campaign`,
+         topK(10)(nullIf(arrayStringConcat([if(isNotNull(sessions.`$entry_gclid`), 'glcid', NULL), if(isNotNull(sessions.`$entry_gad_source`), 'gad_source', NULL)], ','), '')) AS `context.columns.ad_ids`,
+         topK(10)(sessions.`$entry_current_url`) AS `context.columns.example_entry_urls`
+  FROM
+    (SELECT multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(ifNull(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), 0), startsWith(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'paid'), isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')), isNotNull(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null'))), ifNull(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct')), 0)), not(isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Organic Social', ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '')), 'Referral', 'Unknown'))) AS `$channel_type`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '') AS `$entry_referring_domain`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), '') AS `$entry_utm_medium`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), '') AS `$entry_utm_campaign`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '') AS `$entry_gclid`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), '') AS `$entry_gad_source`,
+            nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '') AS `$entry_current_url`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE equals(raw_sessions.team_id, 99999)
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  WHERE and(ifNull(equals(sessions.`$entry_utm_source`, 'source1'), 0), 1)
+  GROUP BY `context.columns.channel_type`,
+           `context.columns.utm_source`,
+           `context.columns.utm_medium`
+  ORDER BY `context.columns.count` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestSessionAttributionQueryRunner.test_group_by_initial_url
+  '''
+  SELECT count() AS `context.columns.count`,
+         topK(10)(sessions.`$channel_type`) AS `context.columns.channel_type`,
+         topK(10)(sessions.`$entry_referring_domain`) AS `context.columns.referring_domain`,
+         topK(10)(sessions.`$entry_utm_source`) AS `context.columns.utm_source`,
+         topK(10)(sessions.`$entry_utm_medium`) AS `context.columns.utm_medium`,
+         topK(10)(sessions.`$entry_utm_campaign`) AS `context.columns.utm_campaign`,
+         topK(10)(nullIf(arrayStringConcat([if(isNotNull(sessions.`$entry_gclid`), 'glcid', NULL), if(isNotNull(sessions.`$entry_gad_source`), 'gad_source', NULL)], ','), '')) AS `context.columns.ad_ids`,
+         sessions.`$entry_current_url` AS `context.columns.example_entry_urls`
+  FROM
+    (SELECT multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(ifNull(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), 0), startsWith(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'paid'), isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')), isNotNull(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null'))), ifNull(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct')), 0)), not(isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Organic Social', ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '')), 'Referral', 'Unknown'))) AS `$channel_type`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '') AS `$entry_referring_domain`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), '') AS `$entry_utm_medium`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), '') AS `$entry_utm_campaign`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '') AS `$entry_gclid`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), '') AS `$entry_gad_source`,
+            nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '') AS `$entry_current_url`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE equals(raw_sessions.team_id, 99999)
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  WHERE and(1, 1)
+  GROUP BY `context.columns.example_entry_urls`
+  ORDER BY `context.columns.count` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestSessionAttributionQueryRunner.test_group_by_nothing
+  '''
+  SELECT count() AS `context.columns.count`,
+         topK(10)(sessions.`$channel_type`) AS `context.columns.channel_type`,
+         topK(10)(sessions.`$entry_referring_domain`) AS `context.columns.referring_domain`,
+         topK(10)(sessions.`$entry_utm_source`) AS `context.columns.utm_source`,
+         topK(10)(sessions.`$entry_utm_medium`) AS `context.columns.utm_medium`,
+         topK(10)(sessions.`$entry_utm_campaign`) AS `context.columns.utm_campaign`,
+         topK(10)(nullIf(arrayStringConcat([if(isNotNull(sessions.`$entry_gclid`), 'glcid', NULL), if(isNotNull(sessions.`$entry_gad_source`), 'gad_source', NULL)], ','), '')) AS `context.columns.ad_ids`,
+         topK(10)(sessions.`$entry_current_url`) AS `context.columns.example_entry_urls`
+  FROM
+    (SELECT multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(ifNull(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), 0), startsWith(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'paid'), isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')), isNotNull(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null'))), ifNull(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct')), 0)), not(isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Organic Social', ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '')), 'Referral', 'Unknown'))) AS `$channel_type`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '') AS `$entry_referring_domain`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), '') AS `$entry_utm_medium`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), '') AS `$entry_utm_campaign`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '') AS `$entry_gclid`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), '') AS `$entry_gad_source`,
+            nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '') AS `$entry_current_url`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE equals(raw_sessions.team_id, 99999)
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  WHERE and(1, 1)
+  ORDER BY `context.columns.count` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestSessionAttributionQueryRunner.test_group_channel_medium_source
+  '''
+  SELECT count() AS `context.columns.count`,
+         sessions.`$channel_type` AS `context.columns.channel_type`,
+         topK(10)(sessions.`$entry_referring_domain`) AS `context.columns.referring_domain`,
+         sessions.`$entry_utm_source` AS `context.columns.utm_source`,
+         sessions.`$entry_utm_medium` AS `context.columns.utm_medium`,
+         topK(10)(sessions.`$entry_utm_campaign`) AS `context.columns.utm_campaign`,
+         topK(10)(nullIf(arrayStringConcat([if(isNotNull(sessions.`$entry_gclid`), 'glcid', NULL), if(isNotNull(sessions.`$entry_gad_source`), 'gad_source', NULL)], ','), '')) AS `context.columns.ad_ids`,
+         topK(10)(sessions.`$entry_current_url`) AS `context.columns.example_entry_urls`
+  FROM
+    (SELECT multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(ifNull(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), 0), startsWith(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'paid'), isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')), isNotNull(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null'))), ifNull(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct')), 0)), not(isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Organic Social', ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '')), 'Referral', 'Unknown'))) AS `$channel_type`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '') AS `$entry_referring_domain`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), '') AS `$entry_utm_medium`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), '') AS `$entry_utm_campaign`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '') AS `$entry_gclid`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), '') AS `$entry_gad_source`,
+            nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '') AS `$entry_current_url`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE equals(raw_sessions.team_id, 99999)
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  WHERE and(1, 1)
+  GROUP BY `context.columns.channel_type`,
+           `context.columns.utm_source`,
+           `context.columns.utm_medium`
+  ORDER BY `context.columns.count` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestSessionAttributionQueryRunner.test_no_crash_when_no_data
+  '''
+  SELECT count() AS `context.columns.count`,
+         topK(10)(sessions.`$channel_type`) AS `context.columns.channel_type`,
+         topK(10)(sessions.`$entry_referring_domain`) AS `context.columns.referring_domain`,
+         topK(10)(sessions.`$entry_utm_source`) AS `context.columns.utm_source`,
+         topK(10)(sessions.`$entry_utm_medium`) AS `context.columns.utm_medium`,
+         topK(10)(sessions.`$entry_utm_campaign`) AS `context.columns.utm_campaign`,
+         topK(10)(nullIf(arrayStringConcat([if(isNotNull(sessions.`$entry_gclid`), 'glcid', NULL), if(isNotNull(sessions.`$entry_gad_source`), 'gad_source', NULL)], ','), '')) AS `context.columns.ad_ids`,
+         topK(10)(sessions.`$entry_current_url`) AS `context.columns.example_entry_urls`
+  FROM
+    (SELECT multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(ifNull(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), 0), startsWith(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'paid'), isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')), isNotNull(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'))), coalesce(coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null'))), or(isNull(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null'))), ifNull(in(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct')), 0)), not(isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')))), 'Direct', coalesce(coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), ''), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')), 'Organic Social', ifNull(equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), ''), '$direct'), 0), 'Direct', isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '')), 'Referral', 'Unknown'))) AS `$channel_type`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_referring_domain), 'null'), '') AS `$entry_referring_domain`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_source), 'null'), '') AS `$entry_utm_source`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_medium), 'null'), '') AS `$entry_utm_medium`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_utm_campaign), 'null'), '') AS `$entry_utm_campaign`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '') AS `$entry_gclid`,
+            nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), '') AS `$entry_gad_source`,
+            nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '') AS `$entry_current_url`,
+            raw_sessions.session_id_v7 AS session_id_v7
+     FROM raw_sessions
+     WHERE equals(raw_sessions.team_id, 99999)
+     GROUP BY raw_sessions.session_id_v7,
+              raw_sessions.session_id_v7) AS sessions
+  WHERE and(1, 1)
+  ORDER BY `context.columns.count` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
+  '''
+# ---

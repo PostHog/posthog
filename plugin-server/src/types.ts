@@ -18,6 +18,7 @@ import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ObjectStorage } from './main/services/object_storage'
@@ -89,8 +90,9 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_internal_events = 'cdp-internal-events',
-    cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
+    cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
+    cdp_api = 'cdp-api',
     functional_tests = 'functional-tests',
 }
 
@@ -119,9 +121,7 @@ export type CdpConfig = {
     CDP_WATCHER_REFILL_RATE: number // The number of tokens to be refilled per second
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
-    CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
-    CDP_CYCLOTRON_ENABLED_TEAMS: string
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_REDIS_HOST: string
@@ -320,6 +320,28 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
+
+    // HOG Transformations (Alpha feature)
+    HOG_TRANSFORMATIONS_ENABLED: boolean
+    HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: number | undefined
+
+    // cookieless
+    COOKIELESS_DISABLED: boolean
+    COOKIELESS_FORCE_STATELESS_MODE: boolean
+    COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
+    COOKIELESS_SESSION_TTL_SECONDS: number
+    COOKIELESS_SALT_TTL_SECONDS: number
+    COOKIELESS_SESSION_INACTIVITY_MS: number
+    COOKIELESS_IDENTIFIES_TTL_SECONDS: number
+
+    SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
+    SESSION_RECORDING_MAX_BATCH_AGE_MS: number
+    SESSION_RECORDING_V2_S3_BUCKET: string
+    SESSION_RECORDING_V2_S3_PREFIX: string
+    SESSION_RECORDING_V2_S3_ENDPOINT: string
+    SESSION_RECORDING_V2_S3_REGION: string
+    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
+    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -363,6 +385,9 @@ export interface Hub extends PluginsServerConfig {
     eventsToDropByToken: Map<string, string[]>
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
+
+    // cookieless
+    cookielessManager: CookielessManager
 }
 
 export interface PluginServerCapabilities {
@@ -384,8 +409,9 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
     cdpInternalEvents?: boolean
-    cdpFunctionCallbacks?: boolean
     cdpCyclotronWorker?: boolean
+    cdpCyclotronWorkerPlugins?: boolean
+    cdpApi?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
@@ -981,6 +1007,7 @@ export enum PropertyOperator {
     IsNotSet = 'is_not_set',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    IsCleanedPathExact = 'is_cleaned_path_exact',
 }
 
 /** Sync with posthog/frontend/src/types.ts */
@@ -1191,8 +1218,6 @@ export interface EventPropertyType {
     project_id: number | null
 }
 
-export type PluginFunction = 'onEvent' | 'processEvent' | 'pluginTask'
-
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 
 export enum PropertyUpdateOperation {
@@ -1293,59 +1318,4 @@ export type AppMetric2Type = {
         | 'inputs_failed'
         | 'fetch'
     count: number
-}
-
-interface TextOperator {
-    operator: 'equals' | 'startsWith' | 'includes'
-    value: string
-}
-
-export interface ModelDetails {
-    matches: string[]
-    searchTerms: string[]
-    info: {
-        releaseDate: string
-        maxTokens?: number
-        description: string
-        tradeOffs: string[]
-        benchmarks: {
-            [key: string]: number
-        }
-        capabilities: string[]
-        strengths: string[]
-        weaknesses: string[]
-        recommendations: string[]
-    }
-}
-
-export type ModelDetailsMap = {
-    [key: string]: ModelDetails
-}
-
-export interface ModelRow {
-    model: TextOperator
-    cost: {
-        prompt_token: number
-        completion_token: number
-    }
-    showInPlayground?: boolean
-    targetUrl?: string
-    dateRange?: {
-        start: string
-        end: string
-    }
-}
-
-export interface ModelRow {
-    model: TextOperator
-    cost: {
-        prompt_token: number
-        completion_token: number
-    }
-    showInPlayground?: boolean
-    targetUrl?: string
-    dateRange?: {
-        start: string
-        end: string
-    }
 }

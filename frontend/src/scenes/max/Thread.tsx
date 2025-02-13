@@ -25,7 +25,6 @@ import {
     AssistantForm,
     AssistantMessage,
     FailureMessage,
-    HumanMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -58,7 +57,7 @@ interface MessageGroupProps {
     index: number
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup, index: messageGroupIndex }: MessageGroupProps): JSX.Element {
+function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
@@ -102,7 +101,6 @@ function MessageGroup({ messages, isFinal: isFinalGroup, index: messageGroupInde
                                 message={message}
                                 interactable={messageIndex === messages.length - 1}
                                 isFinalGroup={isFinalGroup}
-                                messageGroupIndex={messageGroupIndex}
                             />
                         )
                     } else if (isVisualizationMessage(message)) {
@@ -117,7 +115,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup, index: messageGroupInde
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <LemonMarkdown
                                         key={substepIndex}
-                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-accent-3000 rounded w-fit"
+                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-primary rounded w-fit"
                                     >
                                         {substep}
                                     </LemonMarkdown>
@@ -159,7 +157,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
         >
             <div
                 className={twMerge(
-                    'border py-2 px-3 rounded-lg bg-bg-light',
+                    'border py-2 px-3 rounded-lg bg-surface-primary',
                     type === 'human' && 'font-medium',
                     boxClassName
                 )}
@@ -173,13 +171,12 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
 
 interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage) & ThreadMessage
-    messageGroupIndex: number
     interactable?: boolean
     isFinalGroup?: boolean
 }
 
 const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
-    { message, messageGroupIndex, interactable, isFinalGroup },
+    { message, interactable, isFinalGroup },
     ref
 ) {
     const retriable = !!(interactable && isFinalGroup)
@@ -205,7 +202,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             }
 
             // Show answer actions if the assistant's response is complete at this point
-            return <SuccessActions retriable={retriable} messageGroupIndex={messageGroupIndex} />
+            return <SuccessActions retriable={retriable} />
         }
 
         return null
@@ -280,7 +277,7 @@ function VisualizationAnswer({
                       </div>
                       <div className="relative mb-1">
                           <LemonButton
-                              to={urls.insightNew(undefined, undefined, query)}
+                              to={urls.insightNew({ query })}
                               sideIcon={<IconOpenInNew />}
                               size="xsmall"
                               targetBlank
@@ -315,39 +312,23 @@ function RetriableFailureActions(): JSX.Element {
     )
 }
 
-function SuccessActions({
-    messageGroupIndex,
-    retriable,
-}: {
-    messageGroupIndex: number
-    retriable: boolean
-}): JSX.Element {
-    const { threadGrouped } = useValues(maxLogic)
+function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
+    const { traceId } = useValues(maxLogic)
     const { retryLastMessage } = useActions(maxLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
 
-    const [relevantHumanMessage, relevantVisualizationMessage] = useMemo(() => {
-        // We need to find the relevant visualization message (which might be a message earlier if the most recent one
-        // is a results summary message), and the human message that triggered it.
-        const visualizationMessage = threadGrouped[messageGroupIndex].find(
-            isVisualizationMessage
-        ) as VisualizationMessage
-        const humanMessage = threadGrouped[messageGroupIndex - 1][0] as HumanMessage
-        return [humanMessage, visualizationMessage]
-    }, [threadGrouped, messageGroupIndex])
-
     function submitRating(newRating: 'good' | 'bad'): void {
         if (rating) {
             return // Already rated
         }
         setRating(newRating)
-        posthog.capture('chat rating', {
-            question: relevantHumanMessage.content,
-            answer: JSON.stringify(relevantVisualizationMessage.answer),
-            answer_rating: rating,
+        posthog.capture('$ai_metric', {
+            $ai_metric_name: 'quality',
+            $ai_metric_value: newRating,
+            $ai_trace_id: traceId,
         })
         if (newRating === 'bad') {
             setFeedbackInputStatus('pending')
@@ -358,10 +339,9 @@ function SuccessActions({
         if (!feedback) {
             return // Input is empty
         }
-        posthog.capture('chat feedback', {
-            question: relevantHumanMessage.content,
-            answer: JSON.stringify(relevantVisualizationMessage.answer),
-            feedback,
+        posthog.capture('$ai_feedback', {
+            $ai_feedback_text: feedback,
+            $ai_trace_id: traceId,
         })
         setFeedbackInputStatus('submitted')
     }
@@ -399,7 +379,7 @@ function SuccessActions({
             </div>
             {feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-1">
                         <h4 className="m-0 text-sm grow">
                             {feedbackInputStatus === 'pending'
                                 ? 'What disappointed you about the answer?'
