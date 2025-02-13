@@ -119,6 +119,7 @@ export function PersonsModal({
     return (
         <>
             <LemonModal
+                data-attr="persons-modal"
                 title={null}
                 isOpen={isModalOpen}
                 onClose={closeModal}
@@ -241,7 +242,7 @@ export function PersonsModal({
                                 <LemonSkeleton active={false} className="h-4 w-3/5" />
                             </div>
                         ) : (
-                            <div className="text-center p-5">
+                            <div className="text-center p-5" data-attr="persons-modal-no-matches">
                                 We couldn't find any matching {actorLabel.plural} for this data point.
                             </div>
                         )}
