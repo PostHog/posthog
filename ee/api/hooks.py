@@ -1,6 +1,7 @@
 from typing import cast
 from urllib.parse import urlparse
 
+from django.http import Http404
 from rest_framework import exceptions, serializers, mixins, viewsets, status
 from rest_framework.response import Response
 
@@ -131,9 +132,10 @@ class HookViewSet(
         serializer.save(user=user, team_id=self.team_id)
 
     def destroy(self, request, *args, **kwargs):
-        # Try and get the instance
+        found = False
         try:
             instance = self.get_object()
+            found = True
 
             # If we have the instance then we need to delete it as well as any matching hog functions
             if instance:
@@ -146,13 +148,23 @@ class HookViewSet(
 
             self.perform_destroy(instance)
 
-        except Hook.DoesNotExist:
+        except (Hook.DoesNotExist, Http404):
             pass
 
         # Otherwise we try and delete the hog function by id
-        HogFunction.objects.filter(team_id=self.team_id, template_id=template_zapier.id, id=kwargs["pk"]).delete()
+        try:
+            hog_function = HogFunction.objects.get(
+                team_id=self.team_id, template_id=template_zapier.id, id=kwargs["pk"]
+            )
+            hog_function.delete()
+            found = True
+        except HogFunction.DoesNotExist:
+            pass
 
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        if found:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        else:
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
 
 def valid_domain(url) -> bool:

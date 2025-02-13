@@ -1,8 +1,9 @@
 from typing import cast
+import uuid
 
 from inline_snapshot import snapshot
 
-from ee.api.hooks import valid_domain
+from ee.api.hooks import valid_domain, create_zapier_hog_function
 from ee.api.test.base import APILicensedTest
 from ee.models.hook import Hook
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
@@ -208,33 +209,40 @@ if (inputs.debug) {
 
         assert HogFunction.objects.count() == 1
 
-        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
-            res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
-            assert res.status_code == 204
+        res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
+        assert res.status_code == 204
 
         assert not HogFunction.objects.exists()
 
     def test_delete_migrated_hog_function_via_hook(self):
-        test_delete_hog_function_via_hook
+        hooks = []
+        hog_functions = []
+        for hook_id in [uuid.uuid4(), uuid.uuid4()]:
+            hook = Hook.objects.create(
+                id=hook_id,
+                user=self.user,
+                team=self.team,
+                resource_id=20,
+                target=f"https://hooks.zapier.com/hooks/standard/{hook_id}",
+            )
 
-        data = {
-            "target": "https://hooks.zapier.com/hooks/standard/1234/abcd",
-            "event": "action_performed",
-            "resource_id": self.action.id,
-        }
+            hog_function = create_zapier_hog_function(
+                hook, {"user": hook.user, "get_team": lambda hook=hook: hook.team}
+            )
+            hog_function.save()
+            hooks.append(hook)
+            hog_functions.append(hog_function)
 
-        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
-            res = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
+        res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hooks[0].id}")
+        assert res.status_code == 204
 
-        hook_id = res.json()["id"]
-
-        assert HogFunction.objects.count() == 1
-
-        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
-            res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
-            assert res.status_code == 204
-
-        assert not HogFunction.objects.exists()
+        # Ensure the right hook and hog function were deleted
+        loaded_hooks = Hook.objects.all()
+        assert len(loaded_hooks) == 1
+        assert str(loaded_hooks[0].id) == str(hooks[1].id)
+        loaded_hog_functions = HogFunction.objects.all()
+        assert len(loaded_hog_functions) == 1
+        assert str(loaded_hog_functions[0].id) == str(hog_functions[1].id)
 
 
 def test_valid_domain() -> None:
