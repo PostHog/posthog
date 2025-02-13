@@ -132,6 +132,8 @@ const loadMetrics = async ({
         | null
     )[] = []
 
+    const currentErrors = new Array(metrics.length).fill(null)
+
     return await Promise.all(
         metrics.map(async (metric, index) => {
             try {
@@ -150,7 +152,6 @@ const loadMetrics = async ({
                 const errorDetailMatch = error.detail?.match(/\{.*\}/)
                 const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail || error.message
 
-                const currentErrors = new Array(metrics.length).fill(null)
                 currentErrors[index] = {
                     detail: errorDetail,
                     statusCode: error.status,
