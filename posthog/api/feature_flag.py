@@ -759,6 +759,23 @@ class FeatureFlagViewSet(
         methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle], required_scopes=["feature_flag:read"]
     )
     def local_evaluation(self, request: request.Request, **kwargs):
+        # Check if team is quota limited for feature flags
+        if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
+            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+            limited_tokens_flags = list_limited_team_attributes(
+                QuotaResource.FEATURE_FLAGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            if self.team.api_token in limited_tokens_flags:
+                return Response(
+                    {
+                        "flags": [],
+                        "group_type_mapping": {},
+                        "cohorts": {},
+                        "quotaLimited": ["feature_flags"],
+                    }
+                )
+
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
             team__project_id=self.project_id, deleted=False, active=True
         )
