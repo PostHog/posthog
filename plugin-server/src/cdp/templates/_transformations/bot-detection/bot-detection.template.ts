@@ -62,19 +62,39 @@ let known_bot_filter_list := ['bot', 'crawler', 'spider', 'feedfetcher-google',
 'domains project', 'pagepeeker', 'vigil', 'php-curl-class', 'ptst',
 'seostar.co']
 
-let userAgentProperty := lower(inputs.userAgent)
+let userAgentProperty := inputs.userAgent
 
-// Check if user agent exists
+// Check if user agent property exists in event
+// We treat missing user agent as bot traffic
 if (empty(event.properties[userAgentProperty])) {
-    return event
+    return null
 }
 
-// Convert user agent to lower case for case-insensitive comparison
-let user_agent := lower(event.properties[userAgentProperty])
+// Get the user agent value
+let user_agent := event.properties[userAgentProperty]
+
+// Check for empty string
+// We treat empty user agent as bot traffic
+if (user_agent == '') {
+    return null
+}
+
+// Now that we know we have a valid user agent, convert to lower case
+user_agent := lower(user_agent)
+
+// Handle custom bot patterns
+let bot_list := known_bot_filter_list
+if (notEmpty(inputs.customBotPatterns)) {
+    let custom_patterns := splitByString(',', inputs.customBotPatterns)
+    // Add each custom pattern to the list
+    for (let pattern in custom_patterns) {
+        bot_list := arrayPushBack(bot_list, trim(pattern))
+    }
+}
 
 // Function to check if user agent contains any bot identifier
 fun isBot(ua) {
-    for (let bot_name in known_bot_filter_list) {
+    for (let bot_name in bot_list) {
         if (ua =~* bot_name) {
             return true
         }
@@ -99,6 +119,15 @@ return event
             default: '$raw_user_agent',
             secret: false,
             required: true,
+        },
+        {
+            key: 'customBotPatterns',
+            type: 'string',
+            label: 'Custom Bot Patterns',
+            description: 'Additional bot patterns to detect, separated by commas (e.g. mybot,customcrawler)',
+            default: '',
+            secret: false,
+            required: false,
         },
     ],
 }
