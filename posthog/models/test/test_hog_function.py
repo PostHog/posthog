@@ -1,11 +1,8 @@
 import json
-from unittest.mock import patch
 from django.test import TestCase
 from inline_snapshot import snapshot
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
-from posthog.api.hog_function_template import HogFunctionTemplates
-from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
