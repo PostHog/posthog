@@ -15,7 +15,7 @@
     "engines": {
         "node": ">=18 <19"
     },
-    "packageManager": "pnpm@9.15.4",
+    "packageManager": "pnpm@9.15.5+sha256.8472168c3e1fd0bff287e694b053fccbbf20579a3ff9526b6333beab8df65a8d",
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && ./bin/copy-posthog-js",
         "test": "pnpm test:unit && pnpm test:visual",

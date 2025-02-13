@@ -368,7 +368,7 @@ def render_template(
 
         if api_token:
             context["js_posthog_api_key"] = api_token
-            context["js_posthog_host"] = None
+            context["js_posthog_host"] = ""
     else:
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
         context["js_posthog_host"] = "https://internal-t.posthog.com"
