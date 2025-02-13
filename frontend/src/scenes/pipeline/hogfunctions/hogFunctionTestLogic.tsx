@@ -154,7 +154,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             },
         ],
 
-        isCancellingGlobalsLoading: [
+        isGlobalLoadingCancelled: [
             false as boolean,
             {
                 loadSampleGlobals: () => false,

@@ -149,7 +149,7 @@ export function HogFunctionTest(): JSX.Element {
         testResultMode,
         sortedTestsResult,
         jsonError,
-        isCancellingGlobalsLoading,
+        isGlobalLoadingCancelled,
     } = useValues(hogFunctionTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -420,7 +420,7 @@ export function HogFunctionTest(): JSX.Element {
                                                         ? 'The provider will be tested with this sample data:'
                                                         : 'Here are all the global variables you can use in your code:'}
                                                 </div>
-                                                {sampleGlobalsLoading && !isCancellingGlobalsLoading && (
+                                                {sampleGlobalsLoading && !isGlobalLoadingCancelled && (
                                                     <div className="flex items-center gap-2 text-muted">
                                                         <Spinner />
                                                         <span>Fetching new event...</span>
@@ -440,7 +440,7 @@ export function HogFunctionTest(): JSX.Element {
                                             <HogFunctionTestEditor
                                                 value={value}
                                                 onChange={onChange}
-                                                readOnly={sampleGlobalsLoading && !isCancellingGlobalsLoading}
+                                                readOnly={sampleGlobalsLoading && !isGlobalLoadingCancelled}
                                             />
                                         </>
                                     )}
