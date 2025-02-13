@@ -164,6 +164,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
+        needs: [jest, frontend-code-quality, changes]
         runs-on: ubuntu-24.04
         if: needs.changes.outputs.frontend == 'true'
         steps:
