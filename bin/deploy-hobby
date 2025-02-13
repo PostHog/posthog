@@ -80,7 +80,7 @@ sudo apt update
 echo "Installing PostHog 🦔 from Github"
 sudo apt install -y git
 # try to clone - if folder is already there pull latest for that branch
-git clone https://github.com/PostHog/posthog.git &> /dev/null || true
+git clone --depth=1  https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
 
 if [[ "$POSTHOG_APP_TAG" = "latest-release" ]]
@@ -88,6 +88,7 @@ then
     git fetch --tags
     latestReleaseTag=$(git describe --tags `git rev-list --tags --max-count=1`)
     echo "Checking out latest PostHog release: $latestReleaseTag"
+    echo "Warning PostHog don't create tagged releases anymore. It's way better to use 'latest' than 'latest-release'"
     git checkout $latestReleaseTag
 elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
 then

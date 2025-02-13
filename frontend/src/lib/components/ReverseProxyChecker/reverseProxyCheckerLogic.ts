@@ -1,7 +1,9 @@
-import { afterMount, kea, path, reducers } from 'kea'
+import { afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
+import { ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
@@ -32,6 +34,13 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
             },
         ],
     }),
+    listeners(({ values }) => ({
+        loadHasReverseProxySuccess: () => {
+            if (values.hasReverseProxy) {
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.SetUpReverseProxy)
+            }
+        },
+    })),
     reducers({
         lastCheckedTimestamp: [
             0,
