@@ -2,6 +2,7 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.team import Team
+from posthog.models.project import Project
 from posthog.models.utils import UUIDModel, UniqueConstraintByExpression
 
 
@@ -12,7 +13,7 @@ class HostDefinition(UUIDModel):
         related_name="host_definitions",
         related_query_name="host_definition",
     )
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, null=True)
     host = models.CharField(max_length=400)
     created_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(default=timezone.now)
