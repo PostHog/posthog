@@ -203,7 +203,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             # KLUDGE: We need to do this to ensure create_person_id_override_by_distinct_id
             # works correctly. Worth considering other approaches as we generally avoid
             # truncating tables in tests.
-            sync_execute("TRUNCATE TABLE sharded_events")
+            sync_execute("TRUNCATE TABLE sharded_events", is_insert=True)
             self._create_multiple_people()
             create_person_id_override_by_distinct_id("person1", "person2", self.team.pk)
 

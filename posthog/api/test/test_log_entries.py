@@ -29,6 +29,7 @@ def create_log_entry(
             "level": level,
             "message": message,
         },
+        is_insert=True,
     )
 
 
