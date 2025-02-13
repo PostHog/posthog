@@ -17,9 +17,15 @@ class PropertyGroupDefinition:
     codec: str = "ZSTD(1)"
     is_materialized: bool = True
     column_type_name: str = "map"
+    hidden: bool = (
+        False  # whether or not this column should be returned when searching for groups containing a property key
+    )
 
     def contains(self, property_key: str) -> bool:
-        return self.key_filter_function(property_key)
+        if self.hidden:
+            return False
+        else:
+            return self.key_filter_function(property_key)
 
     def get_column_name(self, column: ColumnName, group_name: PropertyGroupName):
         return f"{column}_{self.column_type_name}_{group_name}"
@@ -150,6 +156,7 @@ event_property_group_definitions = {
         "custom": PropertyGroupDefinition(
             f"key NOT LIKE '$%'",
             lambda key: not key.startswith("$"),
+            hidden=True,
         ),
     },
 }
