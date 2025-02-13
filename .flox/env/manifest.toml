@@ -33,7 +33,7 @@ libiconv.pkg-path = "libiconv"
 libiconv.systems = ["aarch64-darwin"]
 libiconv.pkg-group = "rust-toolchain"
 
-# rust-analyzer should be isolated in it's own group, details in cookbook example
+# rust-analyzer should be isolated in its own group, details in cookbook example
 rust-analyzer.pkg-path = "rust-analyzer"
 rust-analyzer.pkg-group = "rust-analyzer"
 
