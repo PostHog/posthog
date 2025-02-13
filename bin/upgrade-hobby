@@ -138,4 +138,5 @@ else
     exit
 fi
 
+echo "Consider running 'docker system prune -a' to clean up old images and free disk space"
 echo "PostHog upgraded successfully!"
