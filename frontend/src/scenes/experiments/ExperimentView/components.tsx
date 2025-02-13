@@ -93,7 +93,7 @@ export function VariantTag({
                 }}
             />
             <span
-                className={`ml-2 font-semibold truncate ${muted ? 'text-[var(--text-tertiary)]' : ''}`}
+                className={`ml-2 font-semibold truncate ${muted ? 'text-secondary' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -498,8 +498,15 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
             title: 'Reset this experiment?',
             content: (
                 <>
-                    <div className="text-sm text-secondary">
-                        All data collected so far will be discarded and the experiment will go back to draft mode.
+                    <div className="text-sm text-secondary max-w-md">
+                        <p>
+                            The experiment start and end dates will be reset and the experiment will go back to draft
+                            mode.
+                        </p>
+                        <p>
+                            All events collected thus far will still exist, but won't be applied to the experiment
+                            unless you manually change the start date after launching the experiment again.
+                        </p>
                     </div>
                     {experiment.archived && (
                         <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>

@@ -1,4 +1,4 @@
-import { IconAI, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -12,9 +12,8 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import posthog from 'posthog-js'
-import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
-import { aiRegexHelperLogic } from 'scenes/session-recordings/components/AiRegexHelper/aiRegexHelperLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
 
@@ -29,8 +28,7 @@ function UrlConfigForm({
     onCancel: () => void
     isSubmitting: boolean
 }): JSX.Element {
-    const filterLogic = aiRegexHelperLogic()
-    const { setIsOpen } = useActions(filterLogic)
+    const { addUrlTrigger, addUrlBlocklist } = useActions(replayTriggersLogic)
 
     return (
         <Form
@@ -39,9 +37,6 @@ function UrlConfigForm({
             enableFormOnSubmit
             className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-surface-primary gap-2"
         >
-            <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
-                <AiRegexHelper type={type} />
-            </FlaggedFeature>
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
                     We always wrap the URL regex with anchors to avoid unexpected behavior (if you do not). This is
@@ -57,19 +52,28 @@ function UrlConfigForm({
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
-                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
-                        <LemonButton
-                            type="tertiary"
-                            icon={<IconAI />}
-                            onClick={() => {
-                                setIsOpen(true)
-                                posthog.capture('ai_regex_helper_open')
+                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_REGEX}>
+                        <AiRegexHelper
+                            onApply={(regex) => {
+                                try {
+                                    const payload: SessionReplayUrlTriggerConfig = {
+                                        url: regex,
+                                        matching: 'regex',
+                                    }
+                                    if (type === 'trigger') {
+                                        addUrlTrigger(payload)
+                                    } else {
+                                        addUrlBlocklist(payload)
+                                    }
+                                } catch (error) {
+                                    lemonToast.error('Failed to apply regex')
+                                }
                             }}
-                        >
-                            Help me with Regex
-                        </LemonButton>
+                        />
+                        <AiRegexHelperButton />
                     </FlaggedFeature>
                 </div>
+
                 <div className="flex gap-2">
                     <LemonButton type="secondary" onClick={onCancel}>
                         Cancel

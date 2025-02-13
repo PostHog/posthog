@@ -1,9 +1,10 @@
 from datetime import date, datetime
-from enum import StrEnum
 import sys
-from typing import Optional, Literal, TypeAlias
+from enum import StrEnum
+from typing import Literal, Optional, TypeAlias
 from uuid import UUID
-from pydantic import ConfigDict, BaseModel
+
+from pydantic import BaseModel, ConfigDict
 
 ConstantDataType: TypeAlias = Literal[
     "int",

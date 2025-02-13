@@ -20,11 +20,8 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
-    BatchExportSchema,
     S3BatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -44,6 +41,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
+    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
@@ -53,6 +51,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import set_status_to_running_task
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import (
     bind_temporal_worker_logger,
@@ -734,28 +733,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         details = S3HeartbeatDetails()
         done_ranges: list[DateRange] = details.done_ranges
 
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None and "batch_export_model" in {
-            field.name for field in dataclasses.fields(inputs)
-        }:
-            model = inputs.batch_export_model
-            if model is not None:
-                model_name = model.name
-                extra_query_parameters = model.schema["values"] if model.schema is not None else None
-                fields = model.schema["fields"] if model.schema is not None else None
-                filters = model.filters
-            else:
-                model_name = "events"
-                extra_query_parameters = None
-                fields = None
-                filters = None
-        else:
-            model = inputs.batch_export_schema
-            model_name = "custom"
-            extra_query_parameters = model["values"] if model is not None else {}
-            fields = model["fields"] if model is not None else None
-            filters = None
-
+        _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+        )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
         )
@@ -763,7 +743,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer()
+        producer = Producer(record_batch_model)
         producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
@@ -803,7 +783,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             writer_format=WriterFormat.from_str(inputs.file_format, "S3"),
             s3_inputs=inputs,
         )
-        await run_consumer(
+        _ = await run_consumer(
             consumer=consumer,
             queue=queue,
             producer_task=producer_task,

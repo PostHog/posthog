@@ -2,7 +2,7 @@ import json
 from typing import Any, Optional, cast
 from datetime import datetime
 
-from django.db.models import QuerySet, Q, deletion
+from django.db.models import QuerySet, Q, deletion, Prefetch
 from django.conf import settings
 from drf_spectacular.utils import OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
@@ -457,6 +457,41 @@ class FeatureFlagSerializer(
         flag_status, _ = checker.get_status()
         return flag_status.name
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        filters = representation.get("filters", {})
+        groups = filters.get("groups", [])
+
+        # Get all cohort IDs used in the feature flag
+        cohort_ids = set()
+        for group in groups:
+            for property in group.get("properties", []):
+                if property.get("type") == "cohort":
+                    cohort_ids.add(property.get("value"))
+
+        # Use prefetched cohorts if available
+        if hasattr(instance.team, "available_cohorts"):
+            cohorts = {
+                str(cohort.id): cohort.name
+                for cohort in instance.team.available_cohorts
+                if str(cohort.id) in map(str, cohort_ids)
+            }
+        else:
+            # Fallback to database query if cohorts weren't prefetched
+            cohorts = {
+                str(cohort.id): cohort.name
+                for cohort in Cohort.objects.filter(id__in=cohort_ids, team__project_id=self.context["project_id"])
+            }
+
+        # Add cohort names to the response
+        for group in groups:
+            for property in group.get("properties", []):
+                if property.get("type") == "cohort":
+                    property["cohort_name"] = cohorts.get(str(property.get("value")))
+
+        representation["filters"] = filters
+        return representation
+
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
@@ -559,6 +594,13 @@ class FeatureFlagViewSet(
                 .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related("surveys_linked_flag")
+                .prefetch_related(
+                    Prefetch(
+                        "team__cohort_set",
+                        queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
+                        to_attr="available_cohorts",
+                    )
+                )
             )
 
             survey_targeting_flags = Survey.objects.filter(
@@ -718,7 +760,7 @@ class FeatureFlagViewSet(
     )
     def local_evaluation(self, request: request.Request, **kwargs):
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team__project_id=self.project_id, deleted=False, active=True
+            team__project_id=self.project_id, deleted=False
         )
 
         should_send_cohorts = "send_cohorts" in request.GET
