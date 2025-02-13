@@ -122,7 +122,13 @@ event_property_group_definitions = {
             "key like '$feature/%'",
             lambda key: key.startswith("$feature/"),
         ),
-    }
+    },
+    "person_properties": {
+        "custom": PropertyGroupDefinition(
+            f"key NOT LIKE '$%'",
+            lambda key: not key.startswith("$"),
+        ),
+    },
 }
 
 property_groups = PropertyGroupManager(
