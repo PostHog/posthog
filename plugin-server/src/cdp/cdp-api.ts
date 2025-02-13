@@ -1,3 +1,4 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import express from 'express'
 import { DateTime } from 'luxon'
 
@@ -11,7 +12,13 @@ import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.ser
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import { HogFunctionInvocationResult, HogFunctionQueueParametersFetchRequest, HogFunctionType, LogEntry } from './types'
+import {
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationResult,
+    HogFunctionQueueParametersFetchRequest,
+    HogFunctionType,
+    LogEntry,
+} from './types'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -147,7 +154,7 @@ export class CdpApi {
             let result: any = null
             const errors: any[] = []
 
-            const triggerGlobals = {
+            const triggerGlobals: HogFunctionInvocationGlobals = {
                 ...globals,
                 project: {
                     id: team.id,
@@ -239,7 +246,9 @@ export class CdpApi {
                 // NOTE: We override the ID so that the transformer doesn't cache the result
                 // TODO: We could do this with a "special" ID to indicate no caching...
                 compoundConfiguration.id = new UUIDT().toString()
-                const response = await this.hogTransformer.transformEvent(triggerGlobals, [compoundConfiguration])
+                const response = await this.hogTransformer.transformEvent(triggerGlobals.event as PluginEvent, [
+                    compoundConfiguration,
+                ])
 
                 result = response.event
 
