@@ -128,7 +128,7 @@ class ClickhouseCluster:
             (self.__shards[shard_num] if host_info.shard_num is not None else self.__extra_hosts).add(host_info)
 
         if extra_hosts is not None and len(extra_hosts) > 0:
-            self.__extra_hosts.extend(
+            self.__extra_hosts.update(
                 [
                     HostInfo(
                         connection_info,
