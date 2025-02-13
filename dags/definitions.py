@@ -12,6 +12,7 @@ from dagster import fs_io_manager
 from django.conf import settings
 
 from . import ch_examples, deletes, orm_examples
+from .materialized_columns import materialize_column
 from .person_overrides import ClickhouseClusterResource, squash_person_overrides
 
 all_assets = load_assets_from_modules([ch_examples, orm_examples])
@@ -58,7 +59,7 @@ def run_deletes_after_squash(context):
 
 defs = Definitions(
     assets=all_assets,
-    jobs=[squash_person_overrides, deletes.deletes_job],
+    jobs=[squash_person_overrides, deletes.deletes_job, materialize_column],
     schedules=[squash_schedule],
     sensors=[run_deletes_after_squash],
     resources=resources,

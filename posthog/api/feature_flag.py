@@ -344,10 +344,10 @@ class FeatureFlagSerializer(
         # TODO: Once we move to no DB level evaluation, can get rid of this.
 
         temporary_flag = FeatureFlag(**data)
-        team_id = self.context["team_id"]
+        project_id = self.context["project_id"]
 
         try:
-            check_flag_evaluation_query_is_ok(temporary_flag, team_id)
+            check_flag_evaluation_query_is_ok(temporary_flag, project_id)
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
@@ -604,10 +604,10 @@ class FeatureFlagViewSet(
             )
 
             survey_targeting_flags = Survey.objects.filter(
-                team__project_id=self.team.project_id, targeting_flag__isnull=False
+                team__project_id=self.project_id, targeting_flag__isnull=False
             ).values_list("targeting_flag_id", flat=True)
             survey_internal_targeting_flags = Survey.objects.filter(
-                team__project_id=self.team.project_id, internal_targeting_flag__isnull=False
+                team__project_id=self.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
             queryset = queryset.exclude(Q(id__in=survey_targeting_flags)).exclude(
                 Q(id__in=survey_internal_targeting_flags)
@@ -735,14 +735,14 @@ class FeatureFlagViewSet(
             raise exceptions.NotAuthenticated()
 
         feature_flags = list(
-            FeatureFlag.objects.filter(team__project_id=self.team.project_id, deleted=False).order_by("-created_at")
+            FeatureFlag.objects.filter(team__project_id=self.project_id, deleted=False).order_by("-created_at")
         )
 
         if not feature_flags:
             return Response([])
 
         groups = json.loads(request.GET.get("groups", "{}"))
-        matches, *_ = get_all_feature_flags(self.team_id, request.user.distinct_id, groups)
+        matches, *_ = get_all_feature_flags(self.team, request.user.distinct_id, groups)
 
         all_serialized_flags = MinimalFeatureFlagSerializer(
             feature_flags, many=True, context=self.get_serializer_context()
@@ -815,7 +815,7 @@ class FeatureFlagViewSet(
                         else:
                             cohort = (
                                 Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-                                .filter(id=id, team_id=self.team_id, deleted=False)
+                                .filter(id=id, team__project_id=self.project_id, deleted=False)
                                 .first()
                             )
                             seen_cohorts_cache[id] = cohort or ""
@@ -850,7 +850,7 @@ class FeatureFlagViewSet(
         if not distinct_id:
             raise exceptions.ValidationError(detail="distinct_id is required")
 
-        flags, reasons, _, _ = get_all_feature_flags(self.team_id, distinct_id, groups)
+        flags, reasons, _, _ = get_all_feature_flags(self.team, distinct_id, groups)
 
         flags_with_evaluation_reasons = {}
 

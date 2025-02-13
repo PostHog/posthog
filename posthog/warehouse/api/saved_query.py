@@ -26,6 +26,15 @@ from posthog.warehouse.models import (
     DataWarehouseSavedQuery,
     clean_type,
 )
+from posthog.warehouse.models.external_data_schema import (
+    sync_frequency_to_sync_frequency_interval,
+    sync_frequency_interval_to_sync_frequency,
+)
+from posthog.warehouse.data_load.saved_query_service import (
+    saved_query_workflow_exists,
+    sync_saved_query_workflow,
+    delete_saved_query_schedule,
+)
 import uuid
 
 
@@ -35,6 +44,7 @@ logger = structlog.get_logger(__name__)
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
+    sync_frequency = serializers.SerializerMethodField()
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -45,6 +55,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "query",
             "created_by",
             "created_at",
+            "sync_frequency",
             "columns",
             "status",
             "last_run_at",
@@ -73,11 +84,15 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             for field in fields
         ]
 
+    def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
+        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
 
         view = DataWarehouseSavedQuery(**validated_data)
+
         # The columns will be inferred from the query
         try:
             client_types = self.context["request"].data.get("types", [])
@@ -100,7 +115,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             view.save()
-
             try:
                 DataWarehouseModelPath.objects.create_from_saved_query(view)
             except Exception:
@@ -112,6 +126,21 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        sync_frequency = self.context["request"].data.get("sync_frequency", None)
+        was_sync_frequency_updated = False
+        if sync_frequency == "never":
+            delete_saved_query_schedule(str(instance.id))
+            instance.sync_frequency_interval = None
+        else:
+            if sync_frequency:
+                sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
+                validated_data["sync_frequency_interval"] = sync_frequency_interval
+                was_sync_frequency_updated = True
+                instance.sync_frequency_interval = sync_frequency_interval
+            schedule_exists = saved_query_workflow_exists(str(instance.id))
+            if was_sync_frequency_updated:
+                sync_saved_query_workflow(instance, create=not schedule_exists)
+
         with transaction.atomic():
             view: DataWarehouseSavedQuery = super().update(instance, validated_data)
 
@@ -184,6 +213,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
+
+        delete_saved_query_schedule(str(instance.id))
 
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
