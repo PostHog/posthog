@@ -308,7 +308,7 @@ export const activationLogic = kea<activationLogicType>([
                 return
             }
 
-            posthog.capture('activation sidebar task marked completed', {
+            posthog.capture('activation sidebar task completed', {
                 task: id,
             })
 
@@ -400,7 +400,7 @@ export enum ActivationTask {
     // Experiments
     LaunchExperiment = 'launch_experiment',
 
-    // Data Pipelines
+    // Data Warehouse
     ConnectSource = 'connect_source',
 
     // Surveys
@@ -545,7 +545,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         title: 'Launch an experiment',
         canSkip: false,
     },
-    // Data Pipelines
+    // Data Warehouse
     {
         id: ActivationTask.ConnectSource,
         title: 'Connect external data source',
