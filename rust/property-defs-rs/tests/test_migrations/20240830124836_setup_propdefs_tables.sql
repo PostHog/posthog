@@ -67,9 +67,5 @@ CREATE TABLE IF NOT EXISTS posthog_grouptypemapping (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_grouptypemapping_pkey ON posthog_grouptypemapping (id);
-CREATE INDEX IF NOT EXISTS posthog_grouptypemapping_team_id_5fb54d04 ON posthog_grouptypemapping USING btree (team_id);
-CREATE INDEX IF NOT EXISTS posthog_grouptypemapping_project_id_239c0515 ON posthog_grouptypemapping USING btree (project_id);
-CREATE INDEX IF NOT EXISTS posthog_group_type_proj_idx ON posthog_grouptypemapping USING btree (project_id, group_type);
 CREATE UNIQUE INDEX IF NOT EXISTS "unique group types for project" ON posthog_grouptypemapping USING btree (project_id, group_type);
-CREATE INDEX IF NOT EXISTS posthog_group_type_i_proj_idx ON posthog_grouptypemapping USING btree (project_id, group_type_index);
 CREATE UNIQUE INDEX IF NOT EXISTS "unique event column indexes for project" ON posthog_grouptypemapping USING btree (project_id, group_type_index);
