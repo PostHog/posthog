@@ -78,6 +78,7 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "person_version",
     "person_distinct_id_version",
     "created_at",
+    "is_deleted",
 ]
 
 

@@ -78,6 +78,7 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "person_distinct_id_version",
     "created_at",
     "_inserted_at",
+    "is_deleted",
 ]
 
 
@@ -1005,7 +1006,7 @@ async def test_insert_into_bigquery_activity_handles_person_schema_changes(
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
-        # this time we don't expected there to be a created_at column
+        # this time we don't expect there to be a created_at column
         expected_fields = [field for field in EXPECTED_PERSONS_BATCH_EXPORT_FIELDS if field != "created_at"]
         await assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
