@@ -150,7 +150,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                         key: savedQuery.id,
                         name: savedQuery.name,
                         url: '',
-                        icon: savedQuery.status ? (
+                        icon: savedQuery.last_run_at ? (
                             <Tooltip title="Materialized view">
                                 <IconCalculate />
                             </Tooltip>
