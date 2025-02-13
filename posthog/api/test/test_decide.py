@@ -66,6 +66,7 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "linkedFlag": None,
         "minimumDurationMilliseconds": None,
         "networkPayloadCapture": None,
+        "masking": None,
         "urlTriggers": [],
         "urlBlocklist": [],
         "scriptConfig": None,
@@ -434,39 +435,17 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["maskingConfig"], None)
+        self.assertEqual(response["sessionRecording"]["masking"], None)
 
-        self._update_team({"session_recording_masking_config": {"maskAllInputs": True, "maskTextSelector": True}})
-
-        response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"]["maskingConfig"], {"maskAllInputs": True, "maskTextSelector": True}
-        )
-
-        self._update_team(
-            {"session_recording_masking_config": {"maskAllInputs": True, "maskInputOptions": {"password": True}}}
-        )
+        self._update_team({"session_recording_masking_config": {"maskAllInputs": True}})
 
         response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"]["maskingConfig"],
-            {"maskAllInputs": True, "maskInputOptions": {"password": True}},
-        )
+        self.assertEqual(response["sessionRecording"]["masking"], {"maskAllInputs": True})
 
-        self._update_team(
-            {
-                "session_recording_masking_config": {
-                    "maskAllInputs": True,
-                    "maskInputOptions": {"password": True, "email": False, "text": True},
-                }
-            }
-        )
+        self._update_team({"session_recording_masking_config": {"maskAllInputs": False, "maskTextSelector": "*"}})
 
         response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"]["maskingConfig"],
-            {"maskAllInputs": True, "maskInputOptions": {"password": True, "email": False, "text": True}},
-        )
+        self.assertEqual(response["sessionRecording"]["masking"], {"maskAllInputs": False, "maskTextSelector": "*"})
 
     def test_session_recording_empty_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching

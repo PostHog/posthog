@@ -542,7 +542,6 @@ export type SessionRecordingMaskingInputOptions = Partial<Record<HTMLInputType, 
 
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
-    maskInputOptions?: SessionRecordingMaskingInputOptions
     maskTextSelector?: string
 }
 

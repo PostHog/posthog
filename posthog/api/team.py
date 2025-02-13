@@ -320,7 +320,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-        allowed_keys = {"maskAllInputs", "maskInputOptions", "maskTextSelector"}
+        allowed_keys = {"maskAllInputs", "maskTextSelector"}
 
         if not all(key in allowed_keys for key in value.keys()):
             raise exceptions.ValidationError(
@@ -330,36 +330,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if "maskAllInputs" in value:
             if not isinstance(value["maskAllInputs"], bool):
                 raise exceptions.ValidationError("maskAllInputs must be a boolean.")
-
-        if "maskInputOptions" in value:
-            mask_input_options = value["maskInputOptions"]
-            if not isinstance(mask_input_options, dict):
-                raise exceptions.ValidationError("maskInputOptions must be a dictionary.")
-            allowed_html_input_types = {
-                "password",
-                "color",
-                "date",
-                "datetime-local",
-                "email",
-                "month",
-                "number",
-                "range",
-                "search",
-                "tel",
-                "text",
-                "time",
-                "url",
-                "week",
-                "textarea",
-                "select",
-            }
-            for input_type, include in mask_input_options.items():
-                if input_type not in allowed_html_input_types:
-                    raise exceptions.ValidationError(
-                        f"Invalid HTML input type '{input_type}' in maskInputOptions. Allowed types: {', '.join(sorted(allowed_html_input_types))}."
-                    )
-                if not isinstance(include, bool):
-                    raise exceptions.ValidationError(f"Value for '{input_type}' in maskInputOptions must be a boolean.")
 
         if "maskTextSelector" in value:
             if not isinstance(value["maskTextSelector"], str):

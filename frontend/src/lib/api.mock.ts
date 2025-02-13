@@ -79,9 +79,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_network_payload_capture_config: { recordHeaders: true, recordBody: true },
     session_recording_masking_config: {
         maskAllInputs: true,
-        maskInputOptions: {
-            password: true,
-        },
     },
     session_replay_config: null,
     capture_console_log_opt_in: true,
