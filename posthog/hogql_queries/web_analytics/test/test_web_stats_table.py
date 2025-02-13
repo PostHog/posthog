@@ -18,6 +18,7 @@ from posthog.schema import (
     ActionConversionGoal,
     BounceRatePageViewMode,
     WebAnalyticsOrderByFields,
+    WebAnalyticsOrderByDirection,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -1601,7 +1602,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.PAGE,
-            orderBy=(WebAnalyticsOrderByFields.VISITORS, "ASC"),
+            orderBy=(WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.ASC),
         ).results
 
         assert [row[0] for row in results] == ["/path3", "/path2", "/path1"]
@@ -1611,7 +1612,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.PAGE,
-            orderBy=(WebAnalyticsOrderByFields.VISITORS, "DESC"),
+            orderBy=(WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC),
         ).results
 
         assert [row[0] for row in results] == ["/path1", "/path2", "/path3"]
@@ -1634,7 +1635,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.PAGE,
-            orderBy=(WebAnalyticsOrderByFields.VIEWS, "ASC"),
+            orderBy=(WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.ASC),
         ).results
 
         assert [row[0] for row in results] == ["/path1", "/path2", "/path3"]
@@ -1644,7 +1645,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "all",
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.PAGE,
-            orderBy=(WebAnalyticsOrderByFields.VIEWS, "DESC"),
+            orderBy=(WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.DESC),
         ).results
 
         assert [row[0] for row in results] == ["/path3", "/path2", "/path1"]
@@ -1678,7 +1679,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
-            orderBy=(WebAnalyticsOrderByFields.BOUNCE_RATE, "ASC"),
+            orderBy=(WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.ASC),
         ).results
 
         assert [row[0] for row in results] == ["/path2", "/path3", "/path1"]
@@ -1689,10 +1690,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-15",
             breakdown_by=WebStatsBreakdown.PAGE,
             include_bounce_rate=True,
-            orderBy=(WebAnalyticsOrderByFields.BOUNCE_RATE, "DESC"),
+            orderBy=(WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.DESC),
         ).results
 
-        assert [row[0] for row in results] == ["/path1", "/path2", "/path3"]
+        assert [row[0] for row in results] == ["/path1", "/path3", "/path2"]
 
     def test_sorting_by_scroll_depth(self):
         self._create_pageviews(
@@ -1723,7 +1724,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
-            orderBy=(WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE, "ASC"),
+            orderBy=(WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE, WebAnalyticsOrderByDirection.ASC),
         ).results
 
         assert [row[0] for row in results] == ["/path1", "/path2", "/path3"]
@@ -1735,7 +1736,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
             include_scroll_depth=True,
             include_bounce_rate=True,
-            orderBy=(WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE, "DESC"),
+            orderBy=(WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE, WebAnalyticsOrderByDirection.DESC),
         ).results
 
         assert [row[0] for row in results] == ["/path3", "/path2", "/path1"]
@@ -1763,7 +1764,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01",
             "2023-12-03",
             breakdown_by=WebStatsBreakdown.PAGE,
-            orderBy=(WebAnalyticsOrderByFields.TOTAL_CONVERSIONS, "ASC"),
+            orderBy=(WebAnalyticsOrderByFields.TOTAL_CONVERSIONS, WebAnalyticsOrderByDirection.ASC),
             action=action,
         )
 
@@ -1773,7 +1774,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01",
             "2023-12-03",
             breakdown_by=WebStatsBreakdown.PAGE,
-            orderBy=(WebAnalyticsOrderByFields.TOTAL_CONVERSIONS, "DESC"),
+            orderBy=(WebAnalyticsOrderByFields.TOTAL_CONVERSIONS, WebAnalyticsOrderByDirection.DESC),
             action=action,
         )
 
@@ -1802,7 +1803,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01",
             "2023-12-03",
             breakdown_by=WebStatsBreakdown.PAGE,
-            orderBy=(WebAnalyticsOrderByFields.CONVERSION_RATE, "ASC"),
+            orderBy=(WebAnalyticsOrderByFields.CONVERSION_RATE, WebAnalyticsOrderByDirection.ASC),
             action=action,
         )
 
@@ -1812,7 +1813,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01",
             "2023-12-03",
             breakdown_by=WebStatsBreakdown.PAGE,
-            orderBy=(WebAnalyticsOrderByFields.CONVERSION_RATE, "DESC"),
+            orderBy=(WebAnalyticsOrderByFields.CONVERSION_RATE, WebAnalyticsOrderByDirection.DESC),
             action=action,
         )
 

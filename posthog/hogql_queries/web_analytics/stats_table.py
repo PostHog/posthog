@@ -98,21 +98,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 select=selects,
                 select_from=ast.JoinExpr(table=self._main_inner_query(breakdown)),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
-                order_by=self._order_by(columns=[select.alias for select in selects])
-                or [
-                    ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC"),
-                    ast.OrderExpr(
-                        expr=ast.Field(
-                            chain=[
-                                "context.columns.views"
-                                if self.query.conversionGoal is None
-                                else "context.columns.total_conversions"
-                            ]
-                        ),
-                        order="DESC",
-                    ),
-                    ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
-                ],
+                order_by=self._order_by(columns=[select.alias for select in selects]),
             )
 
         return query
@@ -235,13 +221,8 @@ ON counts.breakdown_value = scroll.breakdown_value
         assert isinstance(query, ast.SelectQuery)
 
         # Compute query order based on the columns we're selecting
-        # Use our default order if we don't have any columns to order by
         columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
-        query.order_by = self._order_by(columns) or [
-            ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
-        ]
+        query.order_by = self._order_by(columns)
 
         return query
 
@@ -323,13 +304,8 @@ ON counts.breakdown_value = bounce.breakdown_value
         assert isinstance(query, ast.SelectQuery)
 
         # Compute query order based on the columns we're selecting
-        # Use our default order if we don't have any columns to order by
         columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
-        query.order_by = self._order_by(columns) or [
-            ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
-        ]
+        query.order_by = self._order_by(columns)
 
         return query
 
@@ -366,11 +342,12 @@ GROUP BY session_id, breakdown_value
         return query
 
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
+        column = None
+        direction = "DESC"
         if self.query.orderBy:
             field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
+            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
 
-            column = None
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"
             elif field == WebAnalyticsOrderByFields.VIEWS:
@@ -390,13 +367,25 @@ GROUP BY session_id, breakdown_value
             elif field == WebAnalyticsOrderByFields.CONVERSION_RATE:
                 column = "context.columns.conversion_rate"
 
-            if column is not None and column in columns:
-                # Add a secondary sort by breakdown_value to ensure consistent ordering
-                return [
-                    ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction.value),
-                    ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
-                ]
-        return None
+        return [
+            expr
+            for expr in [
+                ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
+                if column is not None and column in columns
+                else None,
+                ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order=direction)
+                if column != "context.columns.visitors"
+                else None,
+                ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order=direction)
+                if column != "context.columns.views" and "context.columns.views" in columns
+                else None,
+                ast.OrderExpr(expr=ast.Field(chain=["context.columns.total_conversions"]), order=direction)
+                if column != "context.columns.total_conversions" and "context.columns.total_conversions" in columns
+                else None,
+                ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
+            ]
+            if expr is not None
+        ]
 
     def _period_comparison_tuple(self, column, alias, function_name):
         return ast.Alias(
