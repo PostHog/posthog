@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
+import { getCoreFilterDefinition, getFirstFilterTypeFor } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, findLastIndex, humanFriendlyDuration, objectsEqual, percentage } from 'lib/utils'
 import posthog from 'posthog-js'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
@@ -279,7 +279,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 deviceTypePropertyKeys.forEach((property) => {
                     if (recordingProperties[property] || personProperties[property]) {
                         const propertyType = recordingProperties[property]
-                            ? TaxonomicFilterGroupType.EventProperties
+                            ? // HogQL query can return multiple types, so we need to check
+                              getFirstFilterTypeFor(property)
                             : TaxonomicFilterGroupType.PersonProperties
                         const value = recordingProperties[property] || personProperties[property]
 
