@@ -42,7 +42,7 @@ jobs:
                         - 'frontend/**'
                         - 'ee/frontend/**'
                         # Make sure we run if someone is explicitly change the workflow
-                        - .github/workflows/ci-frontend.yml
+                        - .github/workflows/storybook-chromatic.yml
                         # various JS config files
                         - .eslintrc.js
                         - .prettier*
