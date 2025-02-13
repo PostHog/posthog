@@ -105,6 +105,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.TRENDS_PLANNER,
                 "plan_found": next_node,
+                "root": AssistantNodeName.ROOT,
             },
         )
 
@@ -152,6 +153,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.FUNNEL_PLANNER,
                 "plan_found": next_node,
+                "root": AssistantNodeName.ROOT,
             },
         )
 
@@ -199,6 +201,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.RETENTION_PLANNER,
                 "plan_found": next_node,
+                "root": AssistantNodeName.ROOT,
             },
         )
 

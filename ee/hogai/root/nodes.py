@@ -114,6 +114,7 @@ class RootNode(AssistantNode):
 
         if state.messages and isinstance(state.messages[-1], AssistantMessage):
             history.append(LangchainHumanMessage(content=POST_QUERY_USER_PROMPT))
+
         return history
 
 
