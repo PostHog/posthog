@@ -7,8 +7,10 @@ use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
 use issue_resolution::resolve_issue;
 use metric_consts::FRAME_RESOLUTION;
+use serde_json::Value;
 use tracing::{error, warn};
 use types::{Exception, RawErrProps, Stacktrace};
+use uuid::Uuid;
 
 pub mod app_context;
 pub mod config;
@@ -90,14 +92,73 @@ pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
         return Err(EventError::NoProperties(event.uuid));
     };
 
-    let properties: RawErrProps = match serde_json::from_str(properties) {
+    let mut properties: Value = match serde_json::from_str(properties) {
         Ok(r) => r,
         Err(e) => {
             return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
         }
     };
 
-    Ok(properties)
+    if let Some(v) = properties
+        .as_object_mut()
+        .and_then(|o| o.get_mut("$exception_list"))
+    {
+        // We PG sanitize the exception list, because the strings in it can end up in PG kind of arbitrarily.
+        recursively_sanitize_properties(event.uuid, v, 0)?;
+    }
+
+    let props: RawErrProps = match serde_json::from_value(properties) {
+        Ok(r) => r,
+        Err(e) => {
+            return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
+        }
+    };
+
+    Ok(props)
+}
+
+// Remove null bytes from all strings found in an arbitrary JSON structure.
+fn recursively_sanitize_properties(
+    id: Uuid,
+    value: &mut Value,
+    depth: usize,
+) -> Result<(), EventError> {
+    if depth > 64 {
+        // We don't want to recurse too deeply, in case we have a circular reference or something.
+        return Err(EventError::InvalidProperties(
+            id,
+            "Recursion limit exceeded".to_string(),
+        ));
+    }
+    match value {
+        Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                recursively_sanitize_properties(id, v, depth + 1)?;
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                recursively_sanitize_properties(id, v, depth + 1)?;
+            }
+        }
+        Value::String(s) => {
+            if needs_sanitization(s) {
+                warn!("Sanitizing null bytes from string in event {}", id);
+                *s = sanitize_string(s.clone());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+// Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD.
+pub fn sanitize_string(s: String) -> String {
+    s.replace('\u{0000}', "\u{FFFD}")
+}
+
+pub fn needs_sanitization(s: &str) -> bool {
+    s.contains('\u{0000}')
 }
 
 async fn process_exception(
