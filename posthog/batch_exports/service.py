@@ -539,7 +539,7 @@ def create_batch_export_run(
     data_interval_start: str | None,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
-    records_total_count: int | None = None,
+    backfill_id: UUID | None = None,
 ) -> BatchExportRun:
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -551,45 +551,16 @@ def create_batch_export_run(
         data_interval_start: The start of the period of data exported in this BatchExportRun.
         data_interval_end: The end of the period of data exported in this BatchExportRun.
         status: The initial status for the created BatchExportRun.
+        backfill_id: The UUID of the BatchExportBackfill the BatchExportRun belongs to (if any).
     """
     run = BatchExportRun(
         batch_export_id=batch_export_id,
         status=status,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start) if data_interval_start else None,
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
-        records_total_count=records_total_count,
+        backfill_id=backfill_id,
     )
     run.save()
-
-    return run
-
-
-async def acreate_batch_export_run(
-    batch_export_id: UUID,
-    data_interval_start: str,
-    data_interval_end: str,
-    status: str = BatchExportRun.Status.STARTING,
-    records_total_count: int | None = None,
-) -> BatchExportRun:
-    """Create a BatchExportRun after a Temporal Workflow execution.
-
-    In a first approach, this method is intended to be called only by Temporal Workflows,
-    as only the Workflows themselves can know when they start.
-
-    Args:
-        batch_export_id: The UUID of the BatchExport the BatchExportRun to create belongs to.
-        data_interval_start: The start of the period of data exported in this BatchExportRun.
-        data_interval_end: The end of the period of data exported in this BatchExportRun.
-        status: The initial status for the created BatchExportRun.
-    """
-    run = BatchExportRun(
-        batch_export_id=batch_export_id,
-        status=status,
-        data_interval_start=dt.datetime.fromisoformat(data_interval_start),
-        data_interval_end=dt.datetime.fromisoformat(data_interval_end),
-        records_total_count=records_total_count,
-    )
-    await run.asave()
 
     return run
 

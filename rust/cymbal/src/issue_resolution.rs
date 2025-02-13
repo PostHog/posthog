@@ -219,8 +219,8 @@ where
 
     // UNWRAP: We never resolve an issue for an exception with no exception list
     let first = fingerprinted.exception_list.first().unwrap();
-    let new_name = sanitize_string(first.exception_type.clone());
-    let new_description = sanitize_string(first.exception_message.clone());
+    let new_name = first.exception_type.clone();
+    let new_description = first.exception_message.clone();
 
     // Start a transaction, so we can roll it back on override insert failure
     conn.begin().await?;
@@ -263,14 +263,9 @@ where
     Ok(fingerprinted.to_output(issue_override.issue_id))
 }
 
-// Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD.
-pub fn sanitize_string(s: String) -> String {
-    s.replace('\u{0000}', "\u{FFFD}")
-}
-
 #[cfg(test)]
 mod test {
-    use crate::issue_resolution::sanitize_string;
+    use crate::sanitize_string;
 
     #[test]
     fn it_replaces_null_characters() {

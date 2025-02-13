@@ -136,9 +136,9 @@ async def assert_clickhouse_records_in_bigquery(
                 continue
 
             if k in json_columns:
-                assert (
-                    isinstance(v, dict) or v is None
-                ), f"Expected '{k}' to be JSON, but it was not deserialized to dict"
+                assert isinstance(v, dict) or v is None, (
+                    f"Expected '{k}' to be JSON, but it was not deserialized to dict"
+                )
 
             inserted_record[k] = v
 
@@ -252,9 +252,9 @@ async def assert_clickhouse_records_in_bigquery(
     assert inserted_records == expected_records
 
     if len(inserted_bq_ingested_timestamp) > 0:
-        assert (
-            min_ingested_timestamp is not None
-        ), "Must set `min_ingested_timestamp` for comparison with exported value"
+        assert min_ingested_timestamp is not None, (
+            "Must set `min_ingested_timestamp` for comparison with exported value"
+        )
         assert all(ts >= min_ingested_timestamp for ts in inserted_bq_ingested_timestamp)
 
 
@@ -1481,7 +1481,7 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
         interval=interval,
         batch_export_model=model,
         backfill_details=BackfillDetails(
-            backfill_id=str(uuid.uuid4()),
+            backfill_id=None,
             start_at=None,
             end_at=data_interval_end.isoformat(),
             is_earliest_backfill=True,
