@@ -1,21 +1,41 @@
-from posthog.api.shared import UserBasicSerializer
-from posthog.models import Team, User, FeatureFlag, Experiment, Insight, Dashboard, Notebook
-from posthog.schema import ProjectTreeQuery, ProjectTreeQueryResponse, ProjectTreeItem, ProjectTreeItemType
+from django.db import models
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.schema import FileSystemType
 from posthog.models.utils import uuid7
 
 
-class ProjectTreeBuilder:
+class FileSystem(models.Model):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    id = models.UUIDField(primary_key=True, default=uuid7)
+    path = models.TextField()
+    type = models.CharField(max_length=100)
+    ref = models.CharField(max_length=100)
+    href = models.TextField()
+    meta = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    def __str__(self):
+        return self.name
+
+
+class UnfiledFileFinder:
     def __init__(self, team: Team, user: User):
         self.team = team
         self.user = user
 
-    def collect_feature_flags(self) -> list[ProjectTreeItem]:
+    def collect_feature_flags(self) -> list[FileSystem]:
+        from posthog.api.shared import UserBasicSerializer
+        from posthog.models import FeatureFlag
+
         flags = FeatureFlag.objects.filter(team=self.team, deleted=False)
         return [
-            ProjectTreeItem(
+            FileSystem(
                 id=str(uuid7()),
                 path=f"Unfiled/Feature Flags/{flag.name}",
-                type=ProjectTreeItemType.FEATURE_FLAG,
+                type=FileSystemType.FEATURE_FLAG,
+                ref=str(flag.id),
                 href="/feature_flags/" + str(flag.id),
                 meta={
                     "created_at": str(flag.created_at),
@@ -25,13 +45,17 @@ class ProjectTreeBuilder:
             for flag in flags
         ]
 
-    def collect_experiments(self):
+    def collect_experiments(self) -> list[FileSystem]:
+        from posthog.api.shared import UserBasicSerializer
+        from posthog.models import Experiment
+
         experiments = Experiment.objects.filter(team=self.team)
         return [
-            ProjectTreeItem(
+            FileSystem(
                 id=str(uuid7()),
                 path=f"Unfiled/Experiments/{experiment.name}",
-                type=ProjectTreeItemType.EXPERIMENT,
+                type=FileSystemType.EXPERIMENT,
+                ref=str(experiment.id),
                 href="/experiments/" + str(experiment.id),
                 meta={
                     "created_at": str(experiment.created_at),
@@ -43,14 +67,18 @@ class ProjectTreeBuilder:
             for experiment in experiments
         ]
 
-    def collect_insights(self):
+    def collect_insights(self) -> list[FileSystem]:
+        from posthog.api.shared import UserBasicSerializer
+        from posthog.models import Insight
+
         insights = Insight.objects.filter(team=self.team, deleted=False)
         return [
-            ProjectTreeItem(
+            FileSystem(
                 id=str(uuid7()),
                 path=f"Unfiled/Insights/{insight.name}",
-                type=ProjectTreeItemType.INSIGHT,
-                href="/insights/" + str(insight.id),
+                type=FileSystemType.INSIGHT,
+                ref=str(insight.short_id),
+                href="/insights/" + str(insight.short_id),
                 meta={
                     "created_at": str(insight.created_at),
                     "created_by": UserBasicSerializer(instance=insight.created_by).dat if insight.created_by else None,
@@ -59,13 +87,17 @@ class ProjectTreeBuilder:
             for insight in insights
         ]
 
-    def collect_dashboards(self):
+    def collect_dashboards(self) -> list[FileSystem]:
+        from posthog.api.shared import UserBasicSerializer
+        from posthog.models import Dashboard
+
         dashboards = Dashboard.objects.filter(team=self.team, deleted=False)
         return [
-            ProjectTreeItem(
+            FileSystem(
                 id=str(uuid7()),
                 path=f"Unfiled/Dashboards/{dashboard.name}",
-                type=ProjectTreeItemType.DASHBOARD,
+                type=FileSystemType.DASHBOARD,
+                ref=str(dashboard.id),
                 href="/dashboard/" + str(dashboard.id),
                 meta={
                     "created_at": str(dashboard.created_at),
@@ -77,13 +109,17 @@ class ProjectTreeBuilder:
             for dashboard in dashboards
         ]
 
-    def collect_notebooks(self):
+    def collect_notebooks(self) -> list[FileSystem]:
+        from posthog.api.shared import UserBasicSerializer
+        from posthog.models import Notebook
+
         notebooks = Notebook.objects.filter(team=self.team, deleted=False)
         return [
-            ProjectTreeItem(
+            FileSystem(
                 id=str(uuid7()),
                 path=f"Unfiled/Notebooks/{notebook.title or 'Untitled'}",
-                type=ProjectTreeItemType.NOTEBOOK,
+                type=FileSystemType.NOTEBOOK,
+                ref=str(notebook.id),
                 href="/notebooks/" + str(notebook.id),
                 meta={
                     "created_at": str(notebook.created_at),
@@ -95,16 +131,19 @@ class ProjectTreeBuilder:
             for notebook in notebooks
         ]
 
-    def build(self, query: ProjectTreeQuery) -> ProjectTreeQueryResponse:
-        tree: list[ProjectTreeItem] = [
+    def collect(self) -> list[FileSystem]:
+        return [
             *self.collect_feature_flags(),
             *self.collect_experiments(),
             *self.collect_insights(),
             *self.collect_dashboards(),
             *self.collect_notebooks(),
         ]
-        return ProjectTreeQueryResponse(results=tree)
 
 
-def get_project_tree(query: ProjectTreeQuery, team: Team, user: User) -> ProjectTreeQueryResponse:
-    return ProjectTreeBuilder(team, user).build(query)
+def get_unfiled_files(team: Team, user: User) -> list[FileSystem]:
+    return UnfiledFileFinder(team, user).collect()
+
+
+def get_filed_files(team: Team, user: User) -> list[FileSystem]:
+    return FileSystem.objects.filter(team=team).order_by("path").all()

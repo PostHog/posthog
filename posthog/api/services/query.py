@@ -16,7 +16,6 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, get_query_runner
 from posthog.models import Team, User
-from posthog.models.project_tree import get_project_tree
 from posthog.schema import (
     DatabaseSchemaQueryResponse,
     HogQLVariable,
@@ -27,7 +26,6 @@ from posthog.schema import (
     QuerySchemaRoot,
     DatabaseSchemaQuery,
     HogQueryResponse,
-    ProjectTreeQuery,
 )
 
 logger = structlog.get_logger(__name__)
@@ -119,8 +117,6 @@ def process_query_model(
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")
         elif isinstance(query, HogQLAutocomplete):
             result = get_hogql_autocomplete(query=query, team=team)
-        elif isinstance(query, ProjectTreeQuery):
-            result = get_project_tree(query, team, user)
         elif isinstance(query, HogQLMetadata):
             metadata_query = HogQLMetadata.model_validate(query)
             metadata_response = get_hogql_metadata(query=metadata_query, team=team)

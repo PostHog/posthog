@@ -391,9 +391,6 @@
                 },
                 {
                     "$ref": "#/definitions/TracesQuery"
-                },
-                {
-                    "$ref": "#/definitions/ProjectTreeQuery"
                 }
             ]
         },
@@ -511,9 +508,6 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
-                },
-                {
-                    "$ref": "#/definitions/ProjectTreeQueryResponse"
                 }
             ]
         },
@@ -5276,42 +5270,6 @@
                             },
                             "required": ["results"],
                             "type": "object"
-                        },
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "error": {
-                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                                    "type": "string"
-                                },
-                                "hogql": {
-                                    "description": "Generated HogQL query.",
-                                    "type": "string"
-                                },
-                                "modifiers": {
-                                    "$ref": "#/definitions/HogQLQueryModifiers",
-                                    "description": "Modifiers used when performing the query"
-                                },
-                                "query_status": {
-                                    "$ref": "#/definitions/QueryStatus",
-                                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                                },
-                                "results": {
-                                    "items": {
-                                        "$ref": "#/definitions/ProjectTreeItem"
-                                    },
-                                    "type": "array"
-                                },
-                                "timings": {
-                                    "description": "Measured timings for different parts of the query generation process",
-                                    "items": {
-                                        "$ref": "#/definitions/QueryTiming"
-                                    },
-                                    "type": "array"
-                                }
-                            },
-                            "required": ["results"],
-                            "type": "object"
                         }
                     ]
                 },
@@ -5438,9 +5396,6 @@
                         },
                         {
                             "$ref": "#/definitions/TracesQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/ProjectTreeQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -7270,6 +7225,55 @@
             },
             "required": ["key", "operator", "type"],
             "type": "object"
+        },
+        "FileSystemEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "href": {
+                    "description": "Object's URL",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "Unique UUID for tree entry",
+                    "type": "string"
+                },
+                "meta": {
+                    "description": "Metadata",
+                    "type": "object"
+                },
+                "path": {
+                    "description": "Object's name and folder",
+                    "type": "string"
+                },
+                "ref": {
+                    "description": "Object's ID or other unique reference",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/FileSystemType",
+                    "description": "Type of object, used for icon, e.g. feature_flag, insight, etc"
+                }
+            },
+            "required": ["id", "path"],
+            "type": "object"
+        },
+        "FileSystemType": {
+            "enum": [
+                "feature_flag",
+                "insight",
+                "dashboard",
+                "experiment",
+                "notebook",
+                "repl",
+                "survey",
+                "sql",
+                "source",
+                "destination",
+                "site_app",
+                "transformation",
+                "folder"
+            ],
+            "type": "string"
         },
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
@@ -9688,7 +9692,6 @@
                 "RecordingsQuery",
                 "SessionAttributionExplorerQuery",
                 "ErrorTrackingQuery",
-                "ProjectTreeQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
                 "SavedInsightNode",
@@ -10111,114 +10114,6 @@
                 }
             },
             "required": ["kind"],
-            "type": "object"
-        },
-        "ProjectTreeItem": {
-            "additionalProperties": false,
-            "properties": {
-                "href": {
-                    "description": "Object's URL",
-                    "type": "string"
-                },
-                "id": {
-                    "description": "Unique UUID for tree entry",
-                    "type": "string"
-                },
-                "meta": {
-                    "description": "Metadata",
-                    "type": "object"
-                },
-                "path": {
-                    "description": "Object's name and folder",
-                    "type": "string"
-                },
-                "type": {
-                    "$ref": "#/definitions/ProjectTreeItemType",
-                    "description": "Type of object, used for icon, e.g. feature_flag, insight, etc"
-                }
-            },
-            "required": ["id", "path"],
-            "type": "object"
-        },
-        "ProjectTreeItemType": {
-            "enum": [
-                "feature_flag",
-                "insight",
-                "dashboard",
-                "experiment",
-                "notebook",
-                "repl",
-                "survey",
-                "sql",
-                "source",
-                "destination",
-                "site_app",
-                "transformation",
-                "folder"
-            ],
-            "type": "string"
-        },
-        "ProjectTreeQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "kind": {
-                    "const": "ProjectTreeQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "path": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "response": {
-                    "$ref": "#/definitions/ProjectTreeQueryResponse"
-                },
-                "searchQuery": {
-                    "type": "string"
-                }
-            },
-            "required": ["kind"],
-            "type": "object"
-        },
-        "ProjectTreeQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/ProjectTreeItem"
-                    },
-                    "type": "array"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
             "type": "object"
         },
         "PropertyFilterType": {
@@ -11016,42 +10911,6 @@
                         "p_value",
                         "credible_intervals"
                     ],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/ProjectTreeItem"
-                            },
-                            "type": "array"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -12029,42 +11888,6 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/ProjectTreeItem"
-                            },
-                            "type": "array"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
                         "hasMore": {
                             "description": "Wether more breakdown values are available.",
                             "type": "boolean"
@@ -12574,9 +12397,6 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentTrendsQuery"
-                },
-                {
-                    "$ref": "#/definitions/ProjectTreeQuery"
                 },
                 {
                     "$ref": "#/definitions/WebOverviewQuery"

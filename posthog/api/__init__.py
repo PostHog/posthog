@@ -32,6 +32,7 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    file_system,
     hog,
     hog_function,
     hog_function_template,
@@ -182,6 +183,7 @@ projects_router.register(
 environment_dashboards_router, legacy_project_dashboards_router = register_grandfathered_environment_nested_viewset(
     r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
 )
+environments_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_systen", ["project_id"])
 
 register_grandfathered_environment_nested_viewset(
     r"exports", exports.ExportedAssetViewSet, "environment_exports", ["team_id"]

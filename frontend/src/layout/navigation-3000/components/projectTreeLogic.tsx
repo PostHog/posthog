@@ -20,6 +20,7 @@ import {
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import api from 'lib/api'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { uuid } from 'lib/utils'
@@ -30,13 +31,12 @@ import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTa
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 
-import { performQuery } from '~/queries/query'
-import { NodeKind, ProjectTreeItem, ProjectTreeItemType, ProjectTreeQuery } from '~/queries/schema'
+import { FileSystemEntry, FileSystemType } from '~/queries/schema'
 import { InsightType, PipelineStage, ReplayTabs } from '~/types'
 
 import type { projectTreeLogicType } from './projectTreeLogicType'
 
-export function iconForType(type?: ProjectTreeItemType): JSX.Element {
+export function iconForType(type?: FileSystemType): JSX.Element {
     switch (type) {
         case 'feature_flag':
             return <IconToggle />
@@ -90,15 +90,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadProjectTree: true,
         addFolder: (folder: string) => ({ folder }),
         renameItem: (oldName: string, newName: string) => ({ oldName, newName }),
-        createItem: (item: ProjectTreeItem) => ({ item }),
-        deleteItem: (item: ProjectTreeItem) => ({ item }),
+        createItem: (item: FileSystemEntry) => ({ item }),
+        deleteItem: (item: FileSystemEntry) => ({ item }),
     }),
     loaders({
         rawProjectTree: [
-            [] as ProjectTreeItem[],
+            [] as FileSystemEntry[],
             {
                 loadProjectTree: async () => {
-                    const response = await performQuery<ProjectTreeQuery>({ kind: NodeKind.ProjectTreeQuery })
+                    const response = await api.fileSystem.unfiled()
                     return response.results
                 },
             },
@@ -106,7 +106,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     }),
     reducers({
         customProjectTree: [
-            [] as ProjectTreeItem[],
+            [] as FileSystemEntry[],
             {
                 addFolder: (state, { folder }) => {
                     return [
@@ -121,17 +121,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
                 renameItem: (state, { oldName, newName }) => {
                     return state.map((item) => {
-                        const itemName = (item.folder ? item.folder + '/' : '') + item.name
-                        if (itemName === oldName) {
+                        if (item.path === oldName) {
                             return {
                                 ...item,
                                 path: newName,
                                 meta: { ...item.meta, custom: true },
                             }
-                        } else if (itemName.startsWith(oldName + '/')) {
+                        } else if (item.path.startsWith(oldName + '/')) {
                             return {
                                 ...item,
-                                path: newName + itemName.slice(oldName.length),
+                                path: newName + item.path.slice(oldName.length),
                                 meta: { ...item.meta, custom: true },
                             }
                         }
@@ -149,11 +148,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     ]
                 },
                 deleteItem: (state, { item }) => {
-                    const deleteName = (item.folder ? item.folder + '/' : '') + item.name
-                    return state.filter((i) => {
-                        const itemName = (i.folder ? i.folder + '/' : '') + i.name
-                        return !(itemName === deleteName || itemName.startsWith(deleteName + '/'))
-                    })
+                    return state.filter((i) => !(i.path === item.path || i.path.startsWith(item.path + '/')))
                 },
             },
         ],
