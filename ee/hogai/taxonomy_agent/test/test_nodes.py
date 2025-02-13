@@ -351,7 +351,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             node.router(
                 AssistantState(
-                    messages=[AssistantToolCallMessage(content="help", id="1")], root_tool_call_id="", plan=""
+                    messages=[AssistantToolCallMessage(content="help", tool_call_id="1")], root_tool_call_id="", plan=""
                 ),
             ),
             "root",
