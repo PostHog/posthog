@@ -142,7 +142,7 @@ class ExperimentQueryRunner(QueryRunner):
             select=[
                 ast.Alias(
                     alias="entity_id",
-                    expr=ast.Field(chain=["distinct_id"]),
+                    expr=ast.Field(chain=["person_id"]),
                 ),
                 parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
                 parse_expr("min(timestamp) as first_exposure_time"),
@@ -234,7 +234,7 @@ class ExperimentQueryRunner(QueryRunner):
                                 expr=ast.CompareOperation(
                                     # TODO: Hard coding person_id for now, but this should be dynamic from the experiment
                                     # config
-                                    left=ast.Field(chain=["events", "distinct_id"]),
+                                    left=ast.Field(chain=["events", "person_id"]),
                                     right=ast.Field(chain=["exposure", "entity_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
