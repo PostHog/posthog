@@ -4,7 +4,7 @@ You have access to the tools that are listed in the <tools> tag.
 
 Use a JSON blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
 
-Valid "action" values: {{tool_names}}
+Valid "action" values: {{{tool_names}}}
 
 Provide only ONE action per $JSON_BLOB, as shown:
 
@@ -100,23 +100,23 @@ Reminder that you must ALWAYS respond with a valid JSON blob of a single action 
 
 REACT_DEFINITIONS_PROMPT = """
 Here are the event names.
-{{events}}
+{{{events}}}
 """
 
 REACT_SCRATCHPAD_PROMPT = """
-Thought: {{agent_scratchpad}}
+Thought: {{{agent_scratchpad}}}
 """
 
 REACT_USER_PROMPT = """
 Answer the following question as best you can.
-Question: What events, properties and/or property values should I use to answer this question "{{question}}"?{{#react_format_reminder}}
-{{react_format_reminder}}
+Question: What events, properties and/or property values should I use to answer this question "{{{question}}}"?{{#react_format_reminder}}
+{{{react_format_reminder}}}
 {{/react_format_reminder}}
 """
 
 REACT_FOLLOW_UP_PROMPT = """
-Improve the previously generated plan based on the feedback: {{feedback}}{{#react_format_reminder}}
-{{react_format_reminder}}
+Improve the previously generated plan based on the feedback: {{{feedback}}}{{#react_format_reminder}}
+{{{react_format_reminder}}}
 {{/react_format_reminder}}
 """
 
@@ -125,7 +125,7 @@ Your previous answer didn't output the `Action:` block. You must always follow t
 """
 
 REACT_MISSING_ACTION_CORRECTION_PROMPT = """
-{{output}}
+{{{output}}}
 Action: I didn't output the `Action:` block.
 """
 
@@ -137,7 +137,7 @@ REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """
 The action input you previously provided didn't pass the validation and raised a Pydantic validation exception.
 
 <pydantic_exception>
-{{exception}}
+{{{exception}}}
 </pydantic_exception>
 
 You must fix the exception and try again.

@@ -1,11 +1,10 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { CacheExtension, Properties, RetryError } from '@posthog/plugin-scaffold'
+import { Properties, RetryError } from '@posthog/plugin-scaffold'
 import { URL } from 'url'
 
 import type { Response } from '~/src/utils/fetch'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 
 export interface EventSink {
     salesforcePath: string
@@ -32,7 +31,6 @@ export const parseEventSinkConfig = (config: SalesforcePluginConfig): EventToSin
     return eventMapping
 }
 
-const CACHE_TOKEN = 'SF_AUTH_TOKEN_'
 const CACHE_TTL = 60 * 60 * 5 // in seconds
 
 export interface SalesforcePluginConfig {
@@ -50,7 +48,6 @@ export interface SalesforcePluginConfig {
 }
 
 export type SalesforceMeta = LegacyDestinationPluginMeta & {
-    cache: CacheExtension
     config: SalesforcePluginConfig
 }
 
@@ -186,16 +183,19 @@ export async function sendEventToSalesforce(
 }
 
 async function getToken(meta: SalesforceMeta): Promise<string> {
-    const { cache } = meta
-    const token = await cache.get(CACHE_TOKEN, null)
-    if (token == null) {
-        await generateAndSetToken(meta)
-        return await getToken(meta)
+    const { global } = meta
+
+    let token = global.token
+
+    if (!token || token.expiresAt < Date.now()) {
+        token = await generateToken(meta)
+        global.token = token
+        global.expiresAt = Date.now() + CACHE_TTL * 1000
     }
-    return token as string
+    return token
 }
 
-async function generateAndSetToken({ config, cache, logger, fetch }: SalesforceMeta): Promise<string> {
+async function generateToken({ config, logger, fetch }: SalesforceMeta): Promise<string> {
     const details: Record<string, string> = {
         grant_type: 'password',
         client_id: config.consumerKey,
@@ -223,7 +223,7 @@ async function generateAndSetToken({ config, cache, logger, fetch }: SalesforceM
         throw new Error(`Got bad response getting the token ${response.status}`)
     }
     const body = await response.json()
-    void cache.set(CACHE_TOKEN, body.access_token, CACHE_TTL)
+
     return body.access_token
 }
 
@@ -299,11 +299,4 @@ export function getProperties(
     })
 
     return mappedProperties
-}
-
-export const salesforcePlugin: LegacyDestinationPlugin = {
-    id: 'salesforce-plugin',
-    metadata: metadata as any,
-    setupPlugin: setupPlugin as any,
-    onEvent,
 }

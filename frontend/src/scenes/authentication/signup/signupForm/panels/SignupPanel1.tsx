@@ -27,7 +27,7 @@ export function SignupPanel1(): JSX.Element | null {
             {!preflight?.demo && socialAuthAvailable && (
                 <>
                     <SocialLoginButtons caption="Sign up with" bottomDivider className="mt-6" />
-                    <p className="text-muted text-center mb-0">Or use email & password</p>
+                    <p className="text-secondary text-center mb-0">Or use email & password</p>
                 </>
             )}
             <Form logic={signupLogic} formKey="signupPanel1" className="space-y-4" enableFormOnSubmit>

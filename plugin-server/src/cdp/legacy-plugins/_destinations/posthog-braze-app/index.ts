@@ -3,8 +3,7 @@ import crypto from 'crypto'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 
 export type FetchBraze = (
     endpoint: string,
@@ -207,10 +206,4 @@ export const onEvent = async (pluginEvent: ProcessedPluginEvent, meta: BrazePlug
 
     const elapsedTime = (Date.now() - startTime) / 1000
     meta.logger.log(`🚀 Exported 1 event to Braze in ${elapsedTime} seconds.`)
-}
-
-export const brazePlugin: LegacyDestinationPlugin = {
-    id: 'posthog-braze-app',
-    metadata: metadata as any,
-    onEvent,
 }

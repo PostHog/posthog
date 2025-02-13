@@ -100,6 +100,7 @@ export function SDKs({
                     )}
                     {sdks?.map((sdk) => (
                         <React.Fragment key={`sdk-${sdk.key}`}>
+                            {/* // TODO: Make light/dark version of the logos */}
                             <LemonButton
                                 data-attr={`onboarding-sdk-${sdk.key}`}
                                 active={selectedSDK?.key === sdk.key}
@@ -149,14 +150,14 @@ export function SDKs({
                                             </LemonButton>
                                         </div>
                                         {hasCheckedInstallation && !showListeningFor && (
-                                            <p className="italic text-muted mt-2 text-xs">
+                                            <p className="italic text-secondary mt-2 text-xs">
                                                 No {listeningForName}s received. Please check your implementation and
                                                 try again.
                                             </p>
                                         )}
                                     </>
                                 ) : (
-                                    <p className="flex items-center italic text-muted">
+                                    <p className="flex items-center italic text-secondary">
                                         {!currentTeam?.[teamPropertyToVerify] ? (
                                             <>
                                                 <Spinner className="text-3xl mr-2" /> Verifying installation...

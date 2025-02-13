@@ -73,6 +73,7 @@ export default function SurveyEdit(): JSX.Element {
         dataCollectionType,
         surveyUsesLimit,
         surveyUsesAdaptiveLimit,
+        surveyErrors,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -175,7 +176,7 @@ export default function SurveyEdit(): JSX.Element {
                     onChange={(section) => {
                         setSelectedSection(section)
                     }}
-                    className="bg-bg-light"
+                    className="bg-surface-primary"
                     panels={[
                         {
                             key: SurveyEditSection.Presentation,
@@ -467,7 +468,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 icon={<IconPlus />}
                                                 sideIcon={
                                                     surveysMultipleQuestionsAvailable ? null : (
-                                                        <IconLock className="ml-1 text-base text-muted" />
+                                                        <IconLock className="ml-1 text-base text-secondary" />
                                                     )
                                                 }
                                                 disabledReason={
@@ -561,6 +562,7 @@ export default function SurveyEdit(): JSX.Element {
                                                           isCustomFontsEnabled={
                                                               !!featureFlags[FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS]
                                                           }
+                                                          validationErrors={surveyErrors?.appearance}
                                                       />
                                                   </>
                                               )}
@@ -598,7 +600,7 @@ export default function SurveyEdit(): JSX.Element {
                                         data-attr="survey-display-conditions-select"
                                     />
                                     {!hasTargetingSet ? (
-                                        <span className="text-muted">
+                                        <span className="text-secondary">
                                             Survey <b>will be released to everyone</b>
                                         </span>
                                     ) : (

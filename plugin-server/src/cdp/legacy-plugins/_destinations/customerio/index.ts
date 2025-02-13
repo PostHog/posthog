@@ -3,8 +3,8 @@ import { RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
+
 const DEFAULT_HOST = 'track.customer.io'
 const DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS = 'Send all events'
 
@@ -42,6 +42,7 @@ const EVENTS_CONFIG_MAP = {
 
 interface Customer {
     status: Set<'seen' | 'identified' | 'with_email'>
+    existsAlready: boolean
     email: string | null
 }
 
@@ -92,7 +93,8 @@ async function callCustomerIoApi(
 }
 
 export const setupPlugin = async (meta: CustomerIoMeta) => {
-    const { config, global, logger } = meta
+    const { config, global, logger, storage } = meta
+
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
     )
@@ -107,8 +109,16 @@ export const setupPlugin = async (meta: CustomerIoMeta) => {
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
     global.identifyByEmail = config.identifyByEmail === 'Yes'
 
+    const credentialsVerifiedPreviously = await storage.get(global.authorizationHeader, false)
+
+    if (credentialsVerifiedPreviously) {
+        logger.log('Customer.io credentials verified previously. Completing setupPlugin.')
+        return
+    }
+
     // See https://www.customer.io/docs/api/#operation/getCioAllowlist
     await callCustomerIoApi(meta, 'GET', 'api.customer.io', '/v1/api/info/ip_addresses', global.authorizationHeader)
+    await storage.set(global.authorizationHeader, true)
     logger.log('Successfully authenticated with Customer.io. Completing setupPlugin.')
 }
 
@@ -126,9 +136,9 @@ export const onEvent = async (event: ProcessedPluginEvent, meta: CustomerIoMeta)
         return
     }
 
-    const customer: Customer = syncCustomerMetadata(meta, event)
+    const customer: Customer = await syncCustomerMetadata(meta, event)
     logger.debug(customer)
-    logger.debug('Should customer be tracked:', shouldCustomerBeTracked(customer, global.eventsConfig))
+    logger.debug(shouldCustomerBeTracked(customer, global.eventsConfig))
     if (!shouldCustomerBeTracked(customer, global.eventsConfig)) {
         return
     }
@@ -143,11 +153,16 @@ export const onEvent = async (event: ProcessedPluginEvent, meta: CustomerIoMeta)
     )
 }
 
-function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPluginEvent): Customer {
-    const { logger } = meta
+async function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPluginEvent): Promise<Customer> {
+    const { storage, logger } = meta
+
+    const customerStatusKey = `customer-status/${event.distinct_id}`
+    const customerStatusArray = (await storage.get(customerStatusKey, [])) as string[]
+    const customerStatus = new Set(customerStatusArray) as Customer['status']
+    const customerExistsAlready = customerStatus.has('seen')
     const email = getEmailFromEvent(event)
-    const customerStatus = new Set() as Customer['status']
-    logger.debug('Detected email:', email)
+
+    logger.debug('Detected email', email)
 
     // Update customer status
     customerStatus.add('seen')
@@ -158,8 +173,13 @@ function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPluginEvent)
         customerStatus.add('with_email')
     }
 
+    if (customerStatus.size > customerStatusArray.length) {
+        await storage.set(customerStatusKey, Array.from(customerStatus))
+    }
+
     return {
         status: customerStatus,
+        existsAlready: customerExistsAlready,
         email,
     }
 }
@@ -193,6 +213,7 @@ async function exportSingleEvent(
 
     const customerPayload: Record<string, any> = {
         ...(event.$set || {}),
+        _update: customer.existsAlready,
         identifier: event.distinct_id,
     }
 
@@ -252,11 +273,4 @@ function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
         return event.distinct_id
     }
     return null
-}
-
-export const customerioPlugin: LegacyDestinationPlugin = {
-    id: 'customerio-plugin',
-    metadata,
-    setupPlugin: setupPlugin as any,
-    onEvent,
 }

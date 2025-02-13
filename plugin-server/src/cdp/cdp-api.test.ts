@@ -9,7 +9,7 @@ import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { CdpApi } from './cdp-api'
-import { template as filterOutPluginTemplate } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 const mockConsumer = {
@@ -451,7 +451,7 @@ describe('CDP API', () => {
         beforeEach(() => {
             configuration = createHogFunction({
                 type: 'transformation',
-                name: filterOutPluginTemplate.name,
+                name: posthogFilterOutPlugin.template.name,
                 template_id: 'plugin-posthog-filter-out-plugin',
                 inputs: {
                     eventsToDrop: {
@@ -460,8 +460,8 @@ describe('CDP API', () => {
                 },
                 team_id: team.id,
                 enabled: true,
-                hog: filterOutPluginTemplate.hog,
-                inputs_schema: filterOutPluginTemplate.inputs_schema,
+                hog: posthogFilterOutPlugin.template.hog,
+                inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
             })
         })
 
@@ -474,7 +474,7 @@ describe('CDP API', () => {
 
             expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin posthog-filter-out-plugin",
+                  "Executing plugin plugin-posthog-filter-out-plugin",
                   "Execution successful",
                 ]
             `)
@@ -504,7 +504,7 @@ describe('CDP API', () => {
 
             expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin posthog-filter-out-plugin",
+                  "Executing plugin plugin-posthog-filter-out-plugin",
                   "Execution successful",
                 ]
             `)

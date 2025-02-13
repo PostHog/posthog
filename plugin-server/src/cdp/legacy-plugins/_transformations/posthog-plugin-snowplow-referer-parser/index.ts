@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 export function processEvent(event: PluginEvent, { logger }: LegacyTransformationPluginMeta) {
     const props = event.properties
@@ -3182,9 +3181,3 @@ const directReferrerDomains = [
     'blog.getjoan.com',
     'support.getjoan.com',
 ]
-
-export const posthogSnowplowRefererParser: LegacyTransformationPlugin = {
-    id: 'plugin-posthog-plugin-snowplow-referer-parser',
-    metadata,
-    processEvent,
-}

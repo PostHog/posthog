@@ -1,8 +1,7 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { randomUUID } from 'crypto'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 
 type AvoPluginMeta = LegacyDestinationPluginMeta & {
     global: {
@@ -45,7 +44,7 @@ export const setupPlugin = ({ config, global }: AvoPluginMeta): Promise<void> =>
     return Promise.resolve()
 }
 
-const onEvent = async (
+export const onEvent = async (
     event: ProcessedPluginEvent,
     { config, global, fetch }: LegacyDestinationPluginMeta
 ): Promise<void> => {
@@ -132,11 +131,4 @@ const getPropValueType = (propValue: any): string => {
     } else {
         return propType
     }
-}
-
-export const avoPlugin: LegacyDestinationPlugin = {
-    id: 'posthog-avo-plugin',
-    metadata: metadata as any,
-    setupPlugin: setupPlugin as any,
-    onEvent,
 }
