@@ -6,13 +6,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { GroupType } from '~/types'
 
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
-
 export interface FeatureFlagSnippet {
     flagKey: string
     multivariant?: boolean
     groupType?: GroupType
     localEvaluation?: boolean
     payload?: boolean
+    encryptedPayload?: boolean
     samplePropertyName?: string
     instantlyAvailableProperties?: boolean
 }
@@ -26,12 +26,24 @@ export function NodeJSSnippet({
     multivariant,
     localEvaluation,
     payload,
+    encryptedPayload,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'await client.'
     const flagFunction = payload ? 'getFeatureFlagPayload' : multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
     const propertyName = samplePropertyName || 'is_authorized'
+
+    if (encryptedPayload) {
+        return (
+            <>
+                <CodeSnippet language={Language.JavaScript} wrap>
+                    {`// Must initialize SDK with a personal API key to enable payload decryption
+const decryptedFlagPayload = await client.getRemoteConfigPayload('${flagKey}')`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -155,15 +167,28 @@ if (${conditional}) {
 export function GolangSnippet({
     flagKey,
     groupType,
+    payload,
+    encryptedPayload,
     multivariant,
     localEvaluation,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'client.'
 
-    const flagFunction = multivariant ? 'GetFeatureFlag' : 'IsFeatureEnabled'
+    const flagFunction = payload ? 'GetFeatureFlagPayload' : multivariant ? 'GetFeatureFlag' : 'IsFeatureEnabled'
 
     const propertyName = samplePropertyName || 'is_authorized'
+
+    if (encryptedPayload) {
+        return (
+            <>
+                <CodeSnippet language={Language.Go} wrap>
+                    {`// Must initialize SDK with a personal API key to enable payload decryption
+decryptedFlagPayload, err := ${clientSuffix}GetRemoteConfigPayload("${flagKey}")`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -213,12 +238,24 @@ export function RubySnippet({
     multivariant,
     localEvaluation,
     payload,
+    encryptedPayload,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
     const flagFunction = payload ? 'get_feature_flag_payload' : multivariant ? 'get_feature_flag' : 'is_feature_enabled'
 
     const propertyName = samplePropertyName || 'is_authorized'
+
+    if (encryptedPayload) {
+        return (
+            <>
+                <CodeSnippet language={Language.Ruby} wrap>
+                    {`# Must initialize SDK with a personal API key to enable payload decryption
+decrypted_flag_payload = posthog.get_remote_config_payload('${flagKey}')`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -271,12 +308,24 @@ export function PythonSnippet({
     multivariant,
     localEvaluation,
     payload,
+    encryptedPayload,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
     const flagFunction = payload ? 'get_feature_flag_payload' : multivariant ? 'get_feature_flag' : 'feature_enabled'
 
     const propertyName = samplePropertyName || 'is_authorized'
+
+    if (encryptedPayload) {
+        return (
+            <>
+                <CodeSnippet language={Language.Python} wrap>
+                    {`# Must initialize SDK with a personal API key to enable payload decryption
+decrypted_flag_payload = posthog.get_remote_config_payload('${flagKey}')`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -458,13 +507,27 @@ function App() {
     )
 }
 
-export function APISnippet({ groupType }: FeatureFlagSnippet): JSX.Element {
+export function APISnippet({ flagKey, groupType, encryptedPayload }: FeatureFlagSnippet): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const groupAddition = groupType
         ? `,
     "groups": { "${groupType.group_type}": "<${groupType.name_singular || 'group'} ID>" },`
         : ''
+
+    if (encryptedPayload) {
+        return (
+            <>
+                <CodeSnippet language={Language.Bash} wrap>
+                    {`curl ${apiHostOrigin()}/api/projects/${currentTeam?.id || ':projectId'}/feature_flags/${
+                        flagKey || ':featureFlagKey'
+                    }/remote_config/ \\
+-H 'Content-Type: application/json' \\
+-H 'Authorization: Bearer [personal_api_key]'`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     return (
         <>

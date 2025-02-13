@@ -55,6 +55,7 @@ class FeatureFlag(models.Model):
     has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)
 
     is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
+    has_encrypted_payloads = models.BooleanField(default=False, null=True, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
