@@ -11,7 +11,9 @@ from django.db import transaction
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
-from posthog.exceptions_capture import capture_exception
+from sentry_sdk import capture_exception
+from decimal import Decimal
+import requests
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
@@ -30,16 +32,41 @@ def inline_css(value: str) -> str:
     return lxml.html.tostring(tree, doctype="<!DOCTYPE html>").decode("utf-8")
 
 
+def is_http_email_service_available() -> bool:
+    """
+    Returns whether HTTP email services are available on this instance (i.e. settings are in place).
+    This currently only supports Customer.io.
+    """
+    return bool(settings.CUSTOMER_IO_API_KEY)
+
+
+def is_smtp_email_service_available() -> bool:
+    """
+    Returns whether SMTP email services are available on this instance (i.e. settings are in place).
+    """
+    return bool(get_instance_setting("EMAIL_HOST"))
+
+
 def is_email_available(with_absolute_urls: bool = False) -> bool:
     """
     Returns whether email services are available on this instance (i.e. settings are in place).
     Emails with absolute URLs can't be sent if SITE_URL is unset.
     """
-    return (
-        get_instance_setting("EMAIL_ENABLED")
-        and bool(get_instance_setting("EMAIL_HOST"))
-        and (not with_absolute_urls or settings.SITE_URL is not None)
-    )
+    email_enabled = get_instance_setting("EMAIL_ENABLED")
+    smtp_email_service_available = is_smtp_email_service_available()
+    http_email_service_available = is_http_email_service_available()
+    site_url_set = settings.SITE_URL is not None
+
+    if not email_enabled:
+        return False
+
+    if not (smtp_email_service_available or http_email_service_available):
+        return False
+
+    if with_absolute_urls and not site_url_set:
+        return False
+
+    return True
 
 
 EMAIL_TASK_KWARGS = {
@@ -50,21 +77,81 @@ EMAIL_TASK_KWARGS = {
     "retry_backoff": True,
 }
 
+CUSTOMER_IO_TEMPLATE_ID_MAP = {
+    # TODO
+}
 
-@shared_task(**EMAIL_TASK_KWARGS)
-def _send_email(
-    campaign_key: str,
+
+def get_customer_io_template_id(template_name: str) -> str:
+    """Get Customer.io template ID from template name"""
+    template_id = CUSTOMER_IO_TEMPLATE_ID_MAP.get(template_name)
+    if not template_id:
+        raise Exception(f"Unknown template name: {template_name}")
+    return template_id
+
+
+# Note: this http sender is only configure for customer.io right now and it's set up to send
+# via templates so all the configuration is done in the customer.io - i.e. no subject, body, etc.
+def _send_via_http(
     to: list[dict[str, str]],
+    campaign_key: str,
+    properties: dict,
+) -> None:
+    """Sends emails using Customer.io API"""
+    customerio_api_key = settings.CUSTOMER_IO_API_KEY
+
+    if not customerio_api_key:
+        raise Exception("Missing Customer.io API key")
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {customerio_api_key}",
+    }
+
+    try:
+        for dest in to:
+            with transaction.atomic():
+                record, _ = MessagingRecord.objects.get_or_create(
+                    raw_email=dest["raw_email"], campaign_key=campaign_key
+                )
+
+                record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+                if record.sent_at:
+                    continue
+
+                # Convert any Decimal values to float for JSON serialization
+                properties = {k: float(v) if isinstance(v, Decimal) else v for k, v in properties.items()}
+
+                payload = {
+                    "transactional_message_id": get_customer_io_template_id(campaign_key),
+                    "to": dest["raw_email"],
+                    "identifiers": {"email": dest["raw_email"]},
+                    "message_data": properties,
+                }
+
+                response = requests.post("https://api.customer.io/v1/send/email", headers=headers, json=payload)
+
+                if response.status_code != 200:
+                    raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
+
+                record.sent_at = timezone.now()
+                record.save()
+
+    except Exception as err:
+        print("Could not send email via http:", err, file=sys.stderr)
+        capture_exception(err)
+
+
+def _send_via_smtp(
+    to: list[dict[str, str]],
+    campaign_key: str,
     subject: str,
+    txt_body: str,
+    html_body: str,
     headers: dict,
-    txt_body: str = "",
-    html_body: str = "",
     reply_to: Optional[str] = None,
 ) -> None:
-    """
-    Sends built email message asynchronously.
-    """
-
+    """Sends emails using SMTP"""
     messages: list = []
     records: list = []
 
@@ -72,11 +159,9 @@ def _send_email(
         for dest in to:
             record, _ = MessagingRecord.objects.get_or_create(raw_email=dest["raw_email"], campaign_key=campaign_key)
 
-            # Lock object (database-level) while the message is sent
             record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
-            # If an email for this campaign was already sent to this user, skip recipient
             if record.sent_at:
-                record.save()  # release DB lock
+                record.save()
                 continue
 
             records.append(record)
@@ -113,12 +198,9 @@ def _send_email(
                 record.save()
 
         except Exception as err:
-            # Handle exceptions gracefully to avoid breaking the entire task for all teams
-            # but make sure they're tracked on Sentry.
             print("Could not send email:", err, file=sys.stderr)
             capture_exception(err)
         finally:
-            # Ensure that connection has been closed
             try:
                 connection.close()  # type: ignore
             except Exception as err:
@@ -127,6 +209,39 @@ def _send_email(
                     err,
                     file=sys.stderr,
                 )
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def _send_email(
+    campaign_key: str,
+    to: list[dict[str, str]],
+    subject: str,
+    headers: dict,
+    txt_body: str = "",
+    html_body: str = "",
+    reply_to: Optional[str] = None,
+    use_http: Optional[bool] = False,
+    properties: Optional[dict] = None,
+) -> None:
+    """
+    Sends built email message asynchronously, either through SMTP or HTTP
+    """
+    if use_http:
+        _send_via_http(
+            to=to,
+            campaign_key=campaign_key,
+            properties=properties,
+        )
+    else:
+        _send_via_smtp(
+            to=to,
+            campaign_key=campaign_key,
+            subject=subject,
+            txt_body=txt_body,
+            html_body=html_body,
+            headers=headers,
+            reply_to=reply_to,
+        )
 
 
 class EmailMessage:
@@ -138,6 +253,8 @@ class EmailMessage:
         template_context: Optional[dict] = None,
         headers: Optional[dict] = None,
         reply_to: Optional[str] = None,
+        use_http: Optional[bool] = False,
+        properties: Optional[dict] = None,
     ):
         if template_context is None:
             template_context = {}
@@ -148,13 +265,22 @@ class EmailMessage:
             template_context.update({"utm_tags": f"utm_source=posthog&utm_medium=email&utm_campaign={template_name}"})
 
         self.campaign_key = campaign_key
-        self.subject = subject
-        template = get_template(f"email/{template_name}.html")
-        self.html_body = inline_css(template.render(template_context))
-        self.txt_body = ""
-        self.headers = headers if headers else {}
+        self.use_http = use_http
         self.to: list[dict[str, str]] = []
+        self.subject = subject
         self.reply_to = reply_to
+
+        if use_http:
+            self.properties = properties or {}
+            # These aren't used for http
+            self.txt_body = ""
+            self.html_body = ""
+            self.headers = {}
+        else:
+            template = get_template(f"email/{template_name}.html")
+            self.html_body = inline_css(template.render(template_context))
+            self.txt_body = ""
+            self.headers = headers if headers else {}
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:
         self.to.append({"recipient": f'"{name}" <{email}>' if name else email, "raw_email": email})
@@ -171,6 +297,8 @@ class EmailMessage:
             "txt_body": self.txt_body,
             "html_body": self.html_body,
             "reply_to": self.reply_to,
+            "use_http": self.use_http,
+            "properties": self.properties,
         }
 
         if send_async:

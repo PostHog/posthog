@@ -2,6 +2,8 @@ from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 from freezegun import freeze_time
+from unittest.mock import patch, MagicMock
+from decimal import Decimal
 
 from posthog.email import EmailMessage, _send_email
 from posthog.models import MessagingRecord, Organization, Person, Team, User
@@ -79,3 +81,60 @@ class TestEmail(BaseTest):
                 f"https://posthog.com/questions?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign={template}"
                 in message.html_body
             )
+
+    @patch("requests.post")
+    def test_send_via_http_success(self, mock_post) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            message = EmailMessage("test_campaign", "Test subject", "async_migration_error", use_http=True)
+            message.add_recipient("test@posthog.com", "Test User")
+            message.send(send_async=False)
+
+            mock_post.assert_called_once()
+            call_kwargs = mock_post.call_args[1]
+            self.assertEqual(call_kwargs["headers"]["Authorization"], "Bearer test-key")
+            self.assertEqual(call_kwargs["json"]["to"], "test@posthog.com")
+            self.assertEqual(call_kwargs["json"]["transactional_message_id"], "test_campaign")
+
+    @patch("requests.post")
+    def test_send_via_http_handles_decimal_values(self, mock_post) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            message = EmailMessage(
+                "test_campaign",
+                "Test subject",
+                "async_migration_error",
+                headers={"decimal_value": Decimal("1.23")},
+                use_http=True,
+            )
+            message.add_recipient("test@posthog.com")
+            message.send(send_async=False)
+
+            mock_post.assert_called_once()
+            call_kwargs = mock_post.call_args[1]
+            self.assertIsInstance(call_kwargs["json"]["message_data"]["decimal_value"], float)
+            self.assertEqual(call_kwargs["json"]["message_data"]["decimal_value"], 1.23)
+
+    @patch("requests.post")
+    def test_send_via_http_api_error(self, mock_post) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.text = "Bad Request"
+        mock_post.return_value = mock_response
+
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            message = EmailMessage("test_campaign", "Test subject", "async_migration_error", use_http=True)
+            message.add_recipient("test@posthog.com")
+
+            # The error should be caught and logged, not raised
+            message.send(send_async=False)
+
+            # Verify the message wasn't marked as sent
+            record = MessagingRecord.objects.get(raw_email="test@posthog.com", campaign_key="test_campaign")
+            self.assertIsNone(record.sent_at)
