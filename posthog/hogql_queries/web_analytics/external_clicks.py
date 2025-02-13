@@ -15,6 +15,7 @@ from posthog.schema import (
     WebExternalClicksTableQuery,
     WebExternalClicksTableQueryResponse,
     WebAnalyticsOrderByFields,
+    WebAnalyticsOrderByDirection,
 )
 
 
@@ -90,15 +91,17 @@ GROUP BY "context.columns.url"
 
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
         if self.query.orderBy:
-            field, direction = self.query.orderBy
+            field: WebAnalyticsOrderByFields = self.query.orderBy[0]
+            direction: WebAnalyticsOrderByDirection = self.query.orderBy[1]
             column = None
+
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"
             elif field == WebAnalyticsOrderByFields.CLICKS:
                 column = "context.columns.clicks"
 
             if column is not None and column in columns:
-                return [ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)]
+                return [ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction.value)]
         return None
 
     def _all_properties(self) -> ast.Expr:
