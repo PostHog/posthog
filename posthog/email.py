@@ -79,9 +79,9 @@ EMAIL_TASK_KWARGS = {
 
 CUSTOMER_IO_TEMPLATE_ID_MAP = {
     # Set up in customer.io
-    "2fa_enabled": 31,
-    "2fa_disabled": 30,
-    "2fa_backup_code_used": 29,
+    "2fa_enabled": "31",
+    "2fa_disabled": "30",
+    "2fa_backup_code_used": "29",
 }
 
 
@@ -236,7 +236,7 @@ def _send_email(
             to=to,
             campaign_key=campaign_key,
             template_name=template_name,
-            properties=properties,
+            properties=properties or {},
         )
     else:
         _send_via_smtp(
@@ -254,8 +254,8 @@ class EmailMessage:
     def __init__(
         self,
         campaign_key: str,
-        subject: str,
         template_name: str,
+        subject: Optional[str] = None,
         template_context: Optional[dict] = None,
         headers: Optional[dict] = None,
         reply_to: Optional[str] = None,
@@ -273,7 +273,7 @@ class EmailMessage:
         self.campaign_key = campaign_key
         self.use_http = use_http
         self.to: list[dict[str, str]] = []
-        self.subject = subject
+        self.subject = subject or ""
         self.reply_to = reply_to
         self.template_name = template_name
 
