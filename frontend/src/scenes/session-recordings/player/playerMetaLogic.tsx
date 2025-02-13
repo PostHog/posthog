@@ -24,7 +24,14 @@ import { SimpleTimeLabel } from '../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 
-const browserPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os', '$referring_domain']
+const browserPropertyKeys = [
+    '$geoip_country_code',
+    '$browser',
+    '$device_type',
+    '$os',
+    '$entry_referring_domain',
+    '$entry_current_url',
+]
 const mobilePropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
@@ -291,6 +298,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                                     type={
                                         propertyType === TaxonomicFilterGroupType.EventProperties
                                             ? PropertyFilterType.Event
+                                            : TaxonomicFilterGroupType.SessionProperties
+                                            ? PropertyFilterType.Session
                                             : PropertyFilterType.Person
                                     }
                                 />
@@ -300,6 +309,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                             keyTooltip:
                                 propertyType === TaxonomicFilterGroupType.EventProperties
                                     ? 'Event property'
+                                    : TaxonomicFilterGroupType.SessionProperties
+                                    ? 'Session property'
                                     : 'Person property',
                             valueTooltip:
                                 property === '$geoip_country_code' && value in countryCodeToName
