@@ -489,8 +489,9 @@ export function MissingPersonsAlert({
 }): JSX.Element {
     return (
         <LemonBanner type="info" className="mb-2">
-            {missingActorsCount} {missingActorsCount > 1 ? `${actorLabel.plural} are` : `${actorLabel.singular} is`} not
-            shown because they've been merged with those listed, or deleted.{' '}
+            {missingActorsCount}{' '}
+            <span>{missingActorsCount > 1 ? `${actorLabel.plural} are` : `${actorLabel.singular} is`}</span> not shown
+            because they've been merged with those listed, or deleted.{' '}
             <Link to="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
                 Learn more.
             </Link>
