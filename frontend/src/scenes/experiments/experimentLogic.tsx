@@ -2023,6 +2023,9 @@ export const experimentLogic = kea<experimentLogicType>([
         compatibleSharedMetrics: [
             (s) => [s.sharedMetrics, s.shouldUseExperimentMetrics],
             (sharedMetrics: SharedMetric[], shouldUseExperimentMetrics: boolean): SharedMetric[] => {
+                if (!sharedMetrics) {
+                    return []
+                }
                 if (shouldUseExperimentMetrics) {
                     return sharedMetrics.filter((metric) => metric.query.kind === NodeKind.ExperimentMetric)
                 }
