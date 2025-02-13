@@ -34,7 +34,7 @@ switch (alternativeMode) {
     case AlternativeMode.Version:
         break
     case AlternativeMode.Migrate:
-        initApp(defaultConfig)
+        void initApp(defaultConfig)
 
         status.info(`🔗`, 'Attempting to connect to Graphile Worker to run migrations')
         void (async function () {
@@ -52,7 +52,7 @@ switch (alternativeMode) {
         break
     default:
         // void the returned promise
-        initApp(defaultConfig)
+        void initApp(defaultConfig)
         const capabilities = getPluginServerCapabilities(defaultConfig)
         void startPluginsServer(defaultConfig, makePiscina, capabilities)
         break

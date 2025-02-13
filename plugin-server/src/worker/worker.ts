@@ -14,7 +14,7 @@ import { TimeoutError } from './vm/vm'
 export type PiscinaTaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
 
 export async function createWorker(config: PluginsServerConfig, hub: Hub): Promise<PiscinaTaskWorker> {
-    initApp(config)
+    void initApp(config)
 
     return runInTransaction(
         {
