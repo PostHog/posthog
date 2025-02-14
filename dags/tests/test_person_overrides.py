@@ -1,9 +1,7 @@
-from collections.abc import Iterator
 from datetime import datetime, timedelta
 from uuid import UUID
 
 import dagster
-import pytest
 from clickhouse_driver import Client
 
 from dags.person_overrides import (
@@ -13,12 +11,7 @@ from dags.person_overrides import (
     populate_snapshot_table,
     squash_person_overrides,
 )
-from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
-
-
-@pytest.fixture
-def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
-    yield get_cluster()
+from posthog.clickhouse.cluster import ClickhouseCluster
 
 
 def test_full_job(cluster: ClickhouseCluster):

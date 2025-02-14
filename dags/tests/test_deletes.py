@@ -1,7 +1,5 @@
-from collections.abc import Iterator
 from datetime import datetime, timedelta
 from uuid import UUID
-
 
 import pytest
 from clickhouse_driver import Client
@@ -12,13 +10,8 @@ from dags.deletes import (
     PendingPersonEventDeletesTable,
     PendingDeletesDictionary,
 )
-from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-
-
-@pytest.fixture
-def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
-    yield get_cluster()
 
 
 @pytest.mark.django_db
@@ -88,15 +81,15 @@ def test_full_job(cluster: ClickhouseCluster):
 
     # Check that events after the deletion window remain
     target_uuid = UUID(int=hour_delay - 1)
-    assert any(
-        target_uuid == uuid for _, uuid in final_events.keys()
-    ), f"Expected to find UUID {target_uuid} in remaining events"
+    assert any(target_uuid == uuid for _, uuid in final_events.keys()), (
+        f"Expected to find UUID {target_uuid} in remaining events"
+    )
 
     # Check that early events were deleted
     deleted_uuid = UUID(int=hour_delay + 1)
-    assert not any(
-        deleted_uuid == uuid for _, uuid in final_events.keys()
-    ), f"Expected UUID {deleted_uuid} to be deleted"
+    assert not any(deleted_uuid == uuid for _, uuid in final_events.keys()), (
+        f"Expected UUID {deleted_uuid} to be deleted"
+    )
 
     # Verify that the deletions have been marked verified
     assert all(deletion.delete_verified_at is not None for deletion in AsyncDeletion.objects.all())

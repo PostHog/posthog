@@ -206,6 +206,30 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "saved_metrics",
         ]
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Normalize query date ranges to the experiment's current range
+        # Cribbed from ExperimentTrendsQuery
+        new_date_range = {
+            "date_from": data["start_date"] if data["start_date"] else "",
+            "date_to": data["end_date"] if data["end_date"] else "",
+            "explicitDate": True,
+        }
+        for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
+            for metric in metrics_list:
+                if metric.get("count_query", {}).get("dateRange"):
+                    metric["count_query"]["dateRange"] = new_date_range
+                if metric.get("funnels_query", {}).get("dateRange"):
+                    metric["funnels_query"]["dateRange"] = new_date_range
+
+        for saved_metric in data.get("saved_metrics", []):
+            if saved_metric.get("query", {}).get("count_query", {}).get("dateRange"):
+                saved_metric["query"]["count_query"]["dateRange"] = new_date_range
+            if saved_metric.get("query", {}).get("funnels_query", {}).get("dateRange"):
+                saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+
+        return data
+
     def validate_saved_metrics_ids(self, value):
         if value is None:
             return value
@@ -311,7 +335,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             feature_flag_serializer = FeatureFlagSerializer(
                 data={
                     "key": feature_flag_key,
-                    "name": f'Feature Flag for Experiment {validated_data["name"]}',
+                    "name": f"Feature Flag for Experiment {validated_data['name']}",
                     "filters": feature_flag_filters,
                     "active": not is_draft,
                     "creation_context": "experiments",

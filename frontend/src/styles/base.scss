@@ -397,6 +397,7 @@
     --bg-fill-tertiary: var(--primitive-3000-50);
     --bg-fill-info-secondary: var(--color-blue-100); /* promonent bg for info blocks */
     --bg-fill-input: var(--color-white);
+    --bg-fill-switch: var(--primitive-neutral-cool-250);
     --bg-fill-info-tertiary: var(--color-blue-50); /* subtle bg for info blocks */
     --bg-fill-warning-secondary: var(--color-yellow-100); /* prominent bg for warning blocks */
     --bg-fill-warning-tertiary: var(--color-yellow-50); /* subtle bg for warning blocks */
@@ -540,13 +541,15 @@
     --z-command-palette: 1400;
     --z-force-modal-above-popovers: 1350;
     --z-tooltip: 1300;
-
-    // 1066 through 1069 are reserved to be set from code
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
 
-    // 1061 and 1062 are reserved to be set from code
+    // 1161 and 1162 are reserved to be set from code
+    // 1166 through 1169 are reserved to be set from code
+    // this allows us to place some modals on top of others
+    // we should never be forgiven
+    // if we ever need more than 7 modals active at the same time
     --z-modal: 1100;
     --z-hedgehog-buddy: 1050;
     --z-annotation-popover: 100;
@@ -800,6 +803,7 @@
     --bg-fill-tertiary: var(--primitive-neutral-cool-800);
     --bg-fill-info-secondary: var(--color-blue-950);
     --bg-fill-input: var(--primitive-neutral-cool-850);
+    --bg-fill-switch: var(--primitive-neutral-cool-900);
     --bg-fill-info-tertiary: var(--color-blue-950);
     --bg-fill-warning-secondary: var(--color-yellow-950);
     --bg-fill-warning-tertiary: color-mix(in oklab, var(--color-yellow-950) 10%, transparent);

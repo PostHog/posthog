@@ -41,6 +41,8 @@ pub struct UrlListConfig {
     allow_internal_ips: bool,
     #[serde(default = "UrlListConfig::default_timeout_seconds")]
     timeout_seconds: u64,
+    #[serde(default = "UrlListConfig::default_retries")]
+    retries: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -173,12 +175,17 @@ impl UrlListConfig {
             urls,
             self.allow_internal_ips,
             Duration::from_secs(self.timeout_seconds),
+            self.retries,
         )
         .await
     }
 
     fn default_timeout_seconds() -> u64 {
         30
+    }
+
+    fn default_retries() -> usize {
+        3
     }
 }
 

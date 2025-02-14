@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 import unittest
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
@@ -29,7 +29,8 @@ from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ch_pool
+from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
@@ -514,7 +515,7 @@ class MemoryLeakTestMixin:
         self.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
         )
 
 
@@ -610,6 +611,8 @@ def cleanup_materialized_columns():
         )
         if drops:
             sync_execute(f"ALTER TABLE {table} {drops} SETTINGS mutations_sync = 2")
+            if table == "events":
+                sync_execute(f"ALTER TABLE sharded_events {drops} SETTINGS mutations_sync = 2")
 
     default_column_names = {
         get_materialized_columns("events")[(prop, "properties")].name
@@ -619,6 +622,20 @@ def cleanup_materialized_columns():
     optionally_drop("events", lambda name: name not in default_column_names)
     optionally_drop("person")
     optionally_drop("groups")
+
+
+@contextmanager
+def materialized(table, property) -> Iterator[MaterializedColumn]:
+    """Materialize a property within the managed block, removing it on exit."""
+    try:
+        from ee.clickhouse.materialized_columns.analyze import materialize
+    except ModuleNotFoundError as e:
+        pytest.xfail(str(e))
+
+    try:
+        yield materialize(table, property)
+    finally:
+        cleanup_materialized_columns()
 
 
 def also_test_with_materialized_columns(
@@ -776,9 +793,9 @@ class BaseTestMigrations(QueryMatchingTest):
     assert_snapshots = False
 
     def setUp(self):
-        assert hasattr(self, "migrate_from") and hasattr(
-            self, "migrate_to"
-        ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
+            "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        )
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
@@ -946,14 +963,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
     @contextmanager
     def capture_queries(self, query_filter: Callable[[str], bool]):
         queries = []
-        original_get_client = ch_pool.get_client
 
         # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
         # a roundabout way to handle this, but it seems tricky to spy on the
         # unbound class method `Client.execute` directly easily
         @contextmanager
-        def get_client():
-            with original_get_client() as client:
+        def get_client(orig_fn, *args, **kwargs):
+            with orig_fn(*args, **kwargs) as client:
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
@@ -964,7 +980,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 with patch.object(client, "execute", wraps=execute_wrapper) as _:
                     yield client
 
-        with patch("posthog.clickhouse.client.connection.ch_pool.get_client", wraps=get_client) as _:
+        with get_client_from_pool._temp_patch(get_client) as _:
             yield queries
 
 

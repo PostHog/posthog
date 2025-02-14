@@ -15,6 +15,7 @@ import {
     type ProductIntentProperties,
 } from 'lib/utils/product-intents'
 
+import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
@@ -136,7 +137,9 @@ export const teamLogic = kea<teamLogicType>([
                         eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
                     })
 
-                    if (!window.location.pathname.match(/\/(onboarding|products)/)) {
+                    const isUpdatingOnboardingTasks = Object.keys(payload).every((key) => key === 'onboarding_tasks')
+
+                    if (!window.location.pathname.match(/\/(onboarding|products)/) && !isUpdatingOnboardingTasks) {
                         lemonToast.success(message)
                     }
 
@@ -238,6 +241,11 @@ export const teamLogic = kea<teamLogicType>([
         loadCurrentTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
+            }
+        },
+        updateCurrentTeamSuccess: ({ currentTeam, payload }) => {
+            if (currentTeam && !payload?.onboarding_tasks) {
+                activationLogic.findMounted()?.actions?.onTeamLoad(currentTeam)
             }
         },
         createTeamSuccess: ({ currentTeam }) => {
