@@ -1946,16 +1946,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return false
                 }
 
-                const hogFunction = hogFunctionsResponse.value.results.find(
-                    (hogFunction) =>
-                        GEOIP_TEMPLATE_IDS.includes(hogFunction.template?.id ?? '') || hogFunction.name === 'GeoIP' // Failsafe in case someone implements their custom GeoIP function
-                )
+                const enabledGeoIPHogFunction = hogFunctionsResponse.value.results.find((hogFunction) => {
+                    const isFromTemplate = GEOIP_TEMPLATE_IDS.includes(hogFunction.template?.id ?? '')
+                    const matchesName = hogFunction.name === 'GeoIP' // Failsafe in case someone implements their custom GeoIP function
 
-                if (!hogFunction?.enabled) {
-                    return false
-                }
+                    return (isFromTemplate || matchesName) && hogFunction.enabled
+                })
 
-                return true
+                return Boolean(enabledGeoIPHogFunction)
             },
         },
     })),
