@@ -589,7 +589,7 @@ function SurveyNPSResults({
     surveyNPSScore?: string
     questionIndex: number
 }): JSX.Element {
-    const { dateRange, interval, compareFilter } = useValues(surveyLogic)
+    const { dateRange, interval, compareFilter, defaultInterval } = useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
     return (
@@ -612,7 +612,7 @@ function SurveyNPSResults({
                         />
                         <span>grouped by</span>
                         <IntervalFilterStandalone
-                            interval={interval}
+                            interval={interval ?? defaultInterval}
                             onIntervalChange={setInterval}
                             options={[
                                 { value: 'hour', label: 'Hour' },
@@ -632,7 +632,7 @@ function SurveyNPSResults({
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
-                            interval: interval,
+                            interval: interval ?? defaultInterval,
                             compareFilter: compareFilter,
                             dateRange: dateRange ?? {
                                 date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),

@@ -975,7 +975,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         interval: [
-            'day' as IntervalType,
+            null as IntervalType | null,
             {
                 setInterval: (_, { interval }) => interval,
             },
@@ -1310,31 +1310,20 @@ export const surveyLogic = kea<surveyLogicType>([
         defaultInterval: [
             (s) => [s.survey],
             (survey: Survey): IntervalType => {
-                if (!survey.created_at) {
+                if (!survey?.start_date) {
                     return 'day'
                 }
 
-                const startDate = dayjs(survey.created_at)
-                const endDate = survey.end_date ? dayjs(survey.end_date) : dayjs()
-                const daysDifference = endDate.diff(startDate, 'days')
+                const start = dayjs(survey.start_date)
+                const end = survey.end_date ? dayjs(survey.end_date) : dayjs().add(1, 'day')
+                const diffInWeeks = end.diff(start, 'weeks')
 
-                if (daysDifference <= 7) {
+                if (diffInWeeks <= 4) {
                     return 'day'
-                } else if (daysDifference <= 60) {
+                } else if (diffInWeeks <= 12) {
                     return 'week'
                 }
                 return 'month'
-            },
-        ],
-        defaultDateRange: [
-            (s) => [s.survey],
-            (survey: Survey): SurveyDateRange => {
-                return {
-                    date_from: survey.created_at ? dayjs(survey.created_at).format('YYYY-MM-DD') : null,
-                    date_to: survey.end_date
-                        ? dayjs(survey.end_date).format('YYYY-MM-DD')
-                        : dayjs().format('YYYY-MM-DD'),
-                }
             },
         ],
     }),
