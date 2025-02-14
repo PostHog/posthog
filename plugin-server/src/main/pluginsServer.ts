@@ -28,7 +28,7 @@ import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
-import { posthog } from '../utils/posthog'
+import { captureException, posthog } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
@@ -180,7 +180,7 @@ export async function startPluginsServer(
             }
         }
 
-        Sentry.captureException(error, {
+        captureException(error, {
             extra: { detected_at: `pluginServer.ts on unhandledRejection` },
         })
     })
@@ -608,7 +608,7 @@ export async function startPluginsServer(
 
         return serverInstance
     } catch (error) {
-        Sentry.captureException(error)
+        captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
         void posthog.flush().catch(() => null)

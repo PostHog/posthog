@@ -38,7 +38,7 @@ import type {
     DashboardFilter,
     DatabaseSchemaField,
     ExperimentFunnelsQuery,
-    ExperimentQuery,
+    ExperimentMetric,
     ExperimentTrendsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -2238,6 +2238,8 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
+export type SlowQueryPossibilities = 'all_events' | 'large_date_range' | 'first_time_for_user' | 'strict_funnel'
+
 // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
 export type BreakdownKeyType = integer | string | number | (integer | string | number)[] | null
 
@@ -3352,8 +3354,8 @@ export interface Experiment {
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
     filters: TrendsFilterType | FunnelsFilterType
-    metrics: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
-    metrics_secondary: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
@@ -3470,7 +3472,6 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
-    livestream_host?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

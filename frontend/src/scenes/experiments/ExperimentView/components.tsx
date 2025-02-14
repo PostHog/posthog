@@ -216,7 +216,12 @@ export function ResultsHeader(): JSX.Element {
             </div>
 
             <div className="w-1/2 flex flex-col justify-end">
-                <div className="ml-auto">{result && <ExploreButton result={result} />}</div>
+                <div className="ml-auto">
+                    {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                    {result &&
+                        (result.kind === NodeKind.ExperimentTrendsQuery ||
+                            result.kind === NodeKind.ExperimentFunnelsQuery) && <ExploreButton result={result} />}
+                </div>
             </div>
         </div>
     )
