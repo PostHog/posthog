@@ -95,21 +95,23 @@ function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () 
     const { location } = useValues(router)
 
     const relativeOtherProjectPath = useMemo(() => {
-        // NOTE: There is a tradeoff here - because we choose keep the whole path it could be that the
-        // project switch lands on something like insight/abc that won't exist.
-        // On the other hand, if we remove the ID, it could be that someone opens a page, realizes they're in the wrong project
-        // and after switching is on a different page than before.
         let route = removeProjectIdIfPresent(location.pathname)
         route = removeFlagIdIfPresent(route)
 
         // List of routes that should redirect to project home
-        // instead of keeping the current path.
         const redirectToHomeRoutes = ['/products', '/onboarding']
+
+        // Check if we're on an insights page
+        const isInsightsPage = route.includes('/insights/')
 
         const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
 
         if (shouldRedirectToHome) {
             return urls.project(team.id) // Go to project home
+        }
+
+        if (isInsightsPage) {
+            return urls.project(team.id, '/insights') // Go to insights list instead of specific insight
         }
 
         return urls.project(team.id, route)
