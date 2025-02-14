@@ -2,7 +2,7 @@ import asyncio
 import dataclasses
 import json
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Optional
 from collections.abc import Generator, Iterator
 from dateutil import parser
 import uuid
@@ -251,7 +251,7 @@ def _json_dumps(obj: Any) -> str:
         raise TypeError(e)
 
 
-def table_from_iterator(data_iterator: Iterator[dict]) -> pa.Table:
+def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
     try:
         # Get the first batch to initialize column types
         batch = list(data_iterator)
@@ -260,7 +260,7 @@ def table_from_iterator(data_iterator: Iterator[dict]) -> pa.Table:
 
         processed_batch = list(_process_row(batch))
 
-        return pa.Table.from_pylist(processed_batch)
+        return pa.Table.from_pylist(processed_batch, schema=schema)
 
     except Exception as e:
         raise ValueError(f"Failed to process data stream: {str(e)}")
