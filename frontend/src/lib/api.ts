@@ -2381,8 +2381,8 @@ const api = {
     },
 
     dataWarehouseTables: {
-        async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
-            return await new ApiRequest().dataWarehouseTables().get()
+        async list(params: Record<string, any> = {}): Promise<PaginatedResponse<DataWarehouseTable>> {
+            return await new ApiRequest().dataWarehouseTables().withQueryString(toParams(params)).get()
         },
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
