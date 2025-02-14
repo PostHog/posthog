@@ -338,6 +338,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ErrorTrackingSymbolSets />,
             },
             {
+                id: 'exception-autocapture',
+                title: 'Exception autocapture',
+                component: <ExceptionAutocaptureSettings />,
+            },
+            {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
                 flag: 'ERROR_TRACKING_ALERTING',
