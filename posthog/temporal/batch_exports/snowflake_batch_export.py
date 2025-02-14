@@ -700,7 +700,7 @@ def get_snowflake_fields_from_record_schema(
             snowflake_type = "FLOAT"
 
         elif pa.types.is_boolean(pa_field.type):
-            snowflake_type = "BOOL"
+            snowflake_type = "BOOLEAN"
 
         elif pa.types.is_timestamp(pa_field.type):
             snowflake_type = "TIMESTAMP"
