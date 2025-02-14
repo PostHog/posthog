@@ -50,7 +50,7 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
     let additionalProperties = {}
     if (hint) {
         additionalProperties = {
-            level: hint?.level,
+            ...(hint.level ? { level: hint.level } : {}),
             ...(hint.tags || {}),
             ...(hint.extra || {}),
         }
