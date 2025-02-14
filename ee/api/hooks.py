@@ -140,11 +140,16 @@ class HookViewSet(
             # If we have the instance then we need to delete it as well as any matching hog functions
             if instance:
                 # We do this by finding one where the description contains the hook id
-                HogFunction.objects.filter(
+                fns = HogFunction.objects.filter(
                     team_id=self.team_id,
                     template_id=template_zapier.id,
                     description__icontains=f"{instance.id}",
-                ).delete()
+                )
+
+                for fn in fns:
+                    fn.enabled = False
+                    fn.deleted = True
+                    fn.save()
 
             self.perform_destroy(instance)
 
@@ -156,7 +161,9 @@ class HookViewSet(
             hog_function = HogFunction.objects.get(
                 team_id=self.team_id, template_id=template_zapier.id, id=kwargs["pk"]
             )
-            hog_function.delete()
+            hog_function.enabled = False
+            hog_function.deleted = True
+            hog_function.save()
             found = True
         except (HogFunction.DoesNotExist, ValidationError):
             pass
