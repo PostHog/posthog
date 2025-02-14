@@ -139,10 +139,9 @@ class ExperimentQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-        # Exposures, find those to include in the experiment
-        # One row per entity, with the variant and first exposure time
-        # Currently grouping by distinct_id, but this would be changed to group_id or session_id,
-        # if that is the chosen aggregation
+        # First exposure query: One row per user-variant combination
+        # Columns: distinct_id, variant, first_exposure_time
+        # Finds when each user was first exposed to each experiment variant
         exposure_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["distinct_id"]),
@@ -166,6 +165,7 @@ class ExperimentQueryRunner(QueryRunner):
                             ),
                         ]
                     ),
+                    # Filter by experiment date range
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
                         left=ast.Field(chain=["timestamp"]),
@@ -184,6 +184,10 @@ class ExperimentQueryRunner(QueryRunner):
 
         match self.metric.metric_config:
             case ExperimentDataWarehouseMetricConfig() as metric_config:
+                # Events after exposure query: One row per event after exposure
+                # Columns: timestamp, distinct_id, variant, value
+                # Joins data warehouse events with exposure data to get all relevant events
+                # that occurred after a user was exposed to a variant
                 events_after_exposure_query = ast.SelectQuery(
                     select=[
                         ast.Alias(
@@ -194,7 +198,7 @@ class ExperimentQueryRunner(QueryRunner):
                             alias="distinct_id",
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
                         ),
-                        ast.Field(chain=["exposure", "variant"]),
+                        ast.Field(chain=["exposure_data", "variant"]),
                         ast.Alias(alias="value", expr=metric_value),
                     ],
                     select_from=ast.JoinExpr(
@@ -202,38 +206,33 @@ class ExperimentQueryRunner(QueryRunner):
                         next_join=ast.JoinExpr(
                             table=exposure_query,
                             join_type="INNER JOIN",
-                            alias="exposure",
+                            alias="exposure_data",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
                                     left=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
-                                    right=ast.Field(chain=["exposure", "distinct_id"]),
+                                    right=ast.Field(chain=["exposure_data", "distinct_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
                             ),
                         ),
                     ),
-                    where=ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
-                                right=ast.Field(chain=["exposure", "first_exposure_time"]),
-                                op=ast.CompareOperationOp.GtEq,
-                            ),
-                            # :TODO: Figure out if we actually need this
-                            # parse_expr(f"event = '{self.query.count_query.series[0].event}'"),
-                        ],
+                    where=ast.CompareOperation(
+                        left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                        right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
+                        op=ast.CompareOperationOp.GtEq,
                     ),
                 )
 
             case ExperimentEventMetricConfig() as metric_config:
-                # Metric events seen after exposure
-                # One row per event
+                # Events after exposure query: One row per PostHog event after exposure
+                # Columns: timestamp, distinct_id, variant, event, value
+                # Finds all matching events that occurred after a user was exposed to a variant
                 events_after_exposure_query = ast.SelectQuery(
                     select=[
                         ast.Field(chain=["events", "timestamp"]),
                         ast.Field(chain=["events", "distinct_id"]),
-                        ast.Field(chain=["exposure", "variant"]),
+                        ast.Field(chain=["exposure_data", "variant"]),
                         ast.Field(chain=["events", "event"]),
                         ast.Alias(alias="value", expr=metric_value),
                     ],
@@ -242,11 +241,11 @@ class ExperimentQueryRunner(QueryRunner):
                         next_join=ast.JoinExpr(
                             table=exposure_query,
                             join_type="INNER JOIN",
-                            alias="exposure",
+                            alias="exposure_data",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
                                     left=ast.Field(chain=["events", "distinct_id"]),
-                                    right=ast.Field(chain=["exposure", "distinct_id"]),
+                                    right=ast.Field(chain=["exposure_data", "distinct_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -255,9 +254,10 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                     where=ast.And(
                         exprs=[
+                            # Only include events after exposure
                             ast.CompareOperation(
                                 left=ast.Field(chain=["events", "timestamp"]),
-                                right=ast.Field(chain=["exposure", "first_exposure_time"]),
+                                right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
                                 op=ast.CompareOperationOp.GtEq,
                             ),
                             ast.CompareOperation(
@@ -270,30 +270,33 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                 )
 
-        metrics_aggregated_per_entity_query = ast.SelectQuery(
+        # User metrics aggregation: One row per user
+        # Columns: variant, distinct_id, value (sum of all event values)
+        # Aggregates all events per user to get their total contribution to the metric
+        metrics_aggregated_per_user_query = ast.SelectQuery(
             select=[
-                ast.Field(chain=["base", "variant"]),
-                ast.Field(chain=["base", "distinct_id"]),
-                parse_expr("sum(coalesce(eae.value, 0)) as value"),
+                ast.Field(chain=["exposure_data", "variant"]),
+                ast.Field(chain=["exposure_data", "distinct_id"]),
+                parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
             ],
             select_from=ast.JoinExpr(
                 table=exposure_query,
-                alias="base",
+                alias="exposure_data",
                 next_join=ast.JoinExpr(
                     table=events_after_exposure_query,
                     join_type="LEFT JOIN",
-                    alias="eae",
+                    alias="events_after_exposure",
                     constraint=ast.JoinConstraint(
                         expr=ast.And(
                             exprs=[
                                 ast.CompareOperation(
-                                    left=ast.Field(chain=["base", "distinct_id"]),
-                                    right=ast.Field(chain=["eae", "distinct_id"]),
+                                    left=ast.Field(chain=["exposure_data", "distinct_id"]),
+                                    right=ast.Field(chain=["events_after_exposure", "distinct_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 ast.CompareOperation(
-                                    left=ast.Field(chain=["base", "variant"]),
-                                    right=ast.Field(chain=["eae", "variant"]),
+                                    left=ast.Field(chain=["exposure_data", "variant"]),
+                                    right=ast.Field(chain=["events_after_exposure", "variant"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                             ]
@@ -303,23 +306,23 @@ class ExperimentQueryRunner(QueryRunner):
                 ),
             ),
             group_by=[
-                ast.Field(chain=["base", "variant"]),
-                ast.Field(chain=["base", "distinct_id"]),
+                ast.Field(chain=["exposure_data", "variant"]),
+                ast.Field(chain=["exposure_data", "distinct_id"]),
             ],
         )
 
-        # Here we coumpute what we need for our statistical analysis
-        # We are aggregating population metrics per variant, so we can easily compute the mean and variance
-        # This is part of our methodology and not depending on the chosen metric
+        # Final results: One row per variant
+        # Columns: variant, num_users, total_sum, total_sum_of_squares
+        # Aggregates user metrics into final statistics used for significance calculations
         experiment_variant_results_query = ast.SelectQuery(
             select=[
-                ast.Field(chain=["maq", "variant"]),
-                parse_expr("count(maq.distinct_id) as num_users"),
-                parse_expr("sum(maq.value) as total_sum"),
-                parse_expr("sum(power(maq.value, 2)) as total_sum_of_squares"),
+                ast.Field(chain=["metrics_per_user", "variant"]),
+                parse_expr("count(metrics_per_user.distinct_id) as num_users"),
+                parse_expr("sum(metrics_per_user.value) as total_sum"),
+                parse_expr("sum(power(metrics_per_user.value, 2)) as total_sum_of_squares"),
             ],
-            select_from=ast.JoinExpr(table=metrics_aggregated_per_entity_query, alias="maq"),
-            group_by=[ast.Field(chain=["maq", "variant"])],
+            select_from=ast.JoinExpr(table=metrics_aggregated_per_user_query, alias="metrics_per_user"),
+            group_by=[ast.Field(chain=["metrics_per_user", "variant"])],
         )
 
         return experiment_variant_results_query

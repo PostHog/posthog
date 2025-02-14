@@ -1,14 +1,14 @@
 # serializer version: 1
 # name: TestExperimentQueryRunner.test_query_runner_funnel_metric
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -16,11 +16,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -31,11 +31,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, 'purchase'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -47,14 +47,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_includes_date_range
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -62,11 +62,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -77,11 +77,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, 'purchase'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -93,14 +93,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_includes_event_property_filters
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -108,11 +108,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -123,11 +123,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, 'purchase'), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'pro'), 1))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'pro'), 1))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -139,14 +139,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_standard_flow_v2_stats
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -154,11 +154,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -169,11 +169,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -185,14 +185,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -217,11 +217,11 @@
                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -250,11 +250,11 @@
                                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -266,14 +266,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -281,11 +281,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -297,11 +297,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -313,14 +313,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -328,11 +328,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -344,11 +344,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -360,14 +360,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -375,11 +375,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -391,11 +391,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -407,14 +407,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -422,11 +422,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -438,11 +438,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -454,14 +454,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -469,11 +469,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -485,11 +485,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -510,14 +510,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -535,11 +535,11 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -561,11 +561,11 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                         FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -577,14 +577,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.2
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -592,11 +592,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -608,11 +608,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -644,14 +644,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.2
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -669,11 +669,11 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -695,11 +695,11 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                         FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -711,14 +711,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.3
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -726,11 +726,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -742,11 +742,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -758,14 +758,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -781,11 +781,11 @@
                     groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -805,11 +805,11 @@
                        groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -821,14 +821,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -836,11 +836,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -852,11 +852,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -868,14 +868,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -883,11 +883,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -899,11 +899,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -915,14 +915,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -930,11 +930,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT usage.ds AS timestamp,
                usage.userid AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                accurateCastOrNull('usage', 'Float64') AS value
         FROM
           (SELECT *
@@ -946,11 +946,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(usage.userid, exposure_data.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -962,14 +962,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_0_person_properties
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -994,11 +994,11 @@
                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1026,11 +1026,11 @@
                                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1042,14 +1042,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_0_person_properties.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1057,11 +1057,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1072,11 +1072,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1088,14 +1088,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_1_event_properties
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1103,11 +1103,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1118,11 +1118,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1134,14 +1134,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_1_event_properties.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1149,11 +1149,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1164,11 +1164,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1180,14 +1180,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_2_feature_flags
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1195,11 +1195,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1210,11 +1210,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1226,14 +1226,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_2_feature_flags.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1241,11 +1241,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1256,11 +1256,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1281,14 +1281,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_3_cohort_static.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1306,11 +1306,11 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1331,11 +1331,11 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                         FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1347,14 +1347,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_3_cohort_static.2
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1362,11 +1362,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1377,11 +1377,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1413,14 +1413,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.2
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1438,11 +1438,11 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1463,11 +1463,11 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                         FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1479,14 +1479,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.3
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1494,11 +1494,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1509,11 +1509,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1525,14 +1525,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_5_group
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1548,11 +1548,11 @@
                     groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1571,11 +1571,11 @@
                        groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1587,14 +1587,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_5_group.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1602,11 +1602,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1617,11 +1617,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1633,14 +1633,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_6_element
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1648,11 +1648,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1663,11 +1663,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1679,14 +1679,14 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_6_element.1
   '''
-  SELECT maq.variant AS variant,
-         count(maq.distinct_id) AS num_users,
-         sum(maq.value) AS total_sum,
-         sum(power(maq.value, 2)) AS total_sum_of_squares
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.distinct_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
   FROM
-    (SELECT base.variant AS variant,
-            base.distinct_id AS distinct_id,
-            sum(coalesce(eae.value, 0)) AS value
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.distinct_id AS distinct_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT events.distinct_id AS distinct_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -1694,11 +1694,11 @@
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
-                 events.distinct_id) AS base
+                 events.distinct_id) AS exposure_data
      LEFT JOIN
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.distinct_id AS distinct_id,
-               exposure.variant AS variant,
+               exposure_data.variant AS variant,
                events.event AS event,
                1 AS value
         FROM events
@@ -1709,11 +1709,11 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
-                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
-     GROUP BY base.variant,
-              base.distinct_id) AS maq
-  GROUP BY maq.variant
+                    events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.distinct_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
