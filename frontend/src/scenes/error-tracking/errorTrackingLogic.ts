@@ -146,14 +146,16 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         ],
     }),
     subscriptions(({ values, actions }) => ({
-        sparklineOptions: (sparklineOptions: { custom: SparklineOption; default: SparklineOption }) => {
-            const options = Object.values(sparklineOptions).map((o) => o.value)
-            const validOption = values.sparklineSelectedPeriod && options.includes(values.sparklineSelectedPeriod)
-
-            if (options.length === 0) {
+        sparklineOptions: (sparklineOptions: { custom: SparklineOption; default: SparklineOption } | null) => {
+            if (!sparklineOptions) {
                 actions.setSparklineSelectedPeriod(null)
-            } else if (!validOption) {
-                actions.setSparklineSelectedPeriod(sparklineOptions.custom.value)
+            } else {
+                const options = Object.values(sparklineOptions).map((o) => o.value)
+                const validOption = values.sparklineSelectedPeriod && options.includes(values.sparklineSelectedPeriod)
+
+                if (!validOption) {
+                    actions.setSparklineSelectedPeriod(sparklineOptions.custom.value)
+                }
             }
         },
     })),
