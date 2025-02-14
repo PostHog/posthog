@@ -30,9 +30,12 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     page: async ({ page }, use) => {
         // // Add custom methods to the page object
         page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
-            await page.evaluate(() => {
-                ;(window as WindowWithPostHog).POSTHOG_APP_CONTEXT[key] = value
-            })
+            await page.evaluate(
+                ([key, value]) => {
+                    ;(window as WindowWithPostHog).POSTHOG_APP_CONTEXT[key] = value
+                },
+                [key as string, value]
+            )
         }
         // page.resetCapturedEvents = async function () {
         //     await this.evaluate(() => {
