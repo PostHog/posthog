@@ -441,7 +441,7 @@ def property_group_to_Q(
 
 
 def properties_to_Q(
-    team_id: int,
+    project_id: int,
     properties: list[Property],
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
@@ -459,7 +459,7 @@ def properties_to_Q(
         return filters
 
     return property_group_to_Q(
-        team_id,
+        project_id,
         PropertyGroup(type=PropertyOperatorType.AND, values=properties),
         override_property_values,
         cohorts_cache,
