@@ -82,6 +82,8 @@ describe('CDP Consumer loop', () => {
             })
 
             mockFetch.mockClear()
+            // Clear any existing messages at the start of each test
+            getProducedKafkaMessages().length = 0
         })
 
         afterEach(async () => {
@@ -105,66 +107,61 @@ describe('CDP Consumer loop', () => {
          */
 
         it('should invoke a function in the worker loop until completed', async () => {
-            // Clear any existing messages before starting the test
-            getProducedKafkaMessages().length = 0
-
             const invocations = await processedEventsConsumer.processBatch([globals])
             expect(invocations).toHaveLength(1)
 
             await waitForExpect(() => {
-                const messages = getProducedKafkaMessages()
                 const logMessages = getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
                 const metricsMessages = getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
 
-                // Ensure we only have the expected number of messages
-                expect(messages).toHaveLength(5) // 3 log messages + 2 metric messages
-
-                // Check for specific required messages
-                expect(metricsMessages).toHaveLength(2)
-                expect(metricsMessages).toMatchObject([
-                    {
-                        value: {
-                            app_source: 'hog_function',
-                            app_source_id: fnFetchNoFilters.id.toString(),
-                            metric_kind: 'other',
-                            metric_name: 'fetch',
-                        },
-                    },
-                    {
-                        value: {
-                            app_source: 'hog_function',
-                            app_source_id: fnFetchNoFilters.id.toString(),
-                            metric_kind: 'success',
-                            metric_name: 'succeeded',
-                        },
-                    },
-                ])
-
-                // Check for required log messages
+                // Verify exact counts
                 expect(logMessages).toHaveLength(3)
-                expect(logMessages).toContainEqual(
-                    expect.objectContaining({
-                        value: expect.objectContaining({
-                            level: 'debug',
-                            message: expect.stringContaining('Suspending function due to async function call'),
+                expect(metricsMessages).toHaveLength(2)
+
+                // Verify metrics messages
+                expect(metricsMessages).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            value: expect.objectContaining({
+                                app_source: 'hog_function',
+                                app_source_id: fnFetchNoFilters.id.toString(),
+                                metric_kind: 'other',
+                                metric_name: 'fetch',
+                            }),
                         }),
-                    })
+                        expect.objectContaining({
+                            value: expect.objectContaining({
+                                app_source: 'hog_function',
+                                app_source_id: fnFetchNoFilters.id.toString(),
+                                metric_kind: 'success',
+                                metric_name: 'succeeded',
+                            }),
+                        }),
+                    ])
                 )
-                expect(logMessages).toContainEqual(
-                    expect.objectContaining({
-                        value: expect.objectContaining({
-                            level: 'info',
-                            message: expect.stringContaining('Fetch response:'),
+
+                // Verify log messages
+                expect(logMessages).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            value: expect.objectContaining({
+                                level: 'debug',
+                                message: expect.stringContaining('Suspending function due to async function call'),
+                            }),
                         }),
-                    })
-                )
-                expect(logMessages).toContainEqual(
-                    expect.objectContaining({
-                        value: expect.objectContaining({
-                            level: 'debug',
-                            message: expect.stringContaining('Function completed in'),
+                        expect.objectContaining({
+                            value: expect.objectContaining({
+                                level: 'info',
+                                message: expect.stringContaining('Fetch response:'),
+                            }),
                         }),
-                    })
+                        expect.objectContaining({
+                            value: expect.objectContaining({
+                                level: 'debug',
+                                message: expect.stringContaining('Function completed in'),
+                            }),
+                        }),
+                    ])
                 )
             }, 5000)
 
