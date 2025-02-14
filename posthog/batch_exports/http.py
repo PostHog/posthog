@@ -526,7 +526,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         """
         disable_and_delete_export(instance)
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
     def test(self, request: request.Request, *args, **kwargs) -> response.Response:
         from posthog.temporal.batch_exports.destination_tests import get_destination_test
 
@@ -539,7 +539,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response(destination_test.as_dict())
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
         from posthog.temporal.batch_exports.destination_tests import get_destination_test
 
@@ -550,8 +550,8 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         destination_test = get_destination_test(
             destination=serializer.validated_data["destination"]["type"],
-            **serializer.validated_data["destination"]["config"],
         )
+        destination_test.configure(**serializer.validated_data["destination"]["config"])
 
         result = destination_test.run_step(test_step)
         return response.Response(result.as_dict())
