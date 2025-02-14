@@ -60,8 +60,12 @@ export function SharedMetrics(): JSX.Element {
         {
             title: 'Type',
             key: 'type',
-            render: (_, metric: SharedMetric) =>
-                metric.query.kind === NodeKind.ExperimentTrendsQuery ? 'Trend' : 'Funnel',
+            render: (_, metric: SharedMetric) => {
+                if (metric.query.kind === NodeKind.ExperimentMetric) {
+                    return metric.query.metric_type
+                }
+                return metric.query.kind === NodeKind.ExperimentTrendsQuery ? 'Trend' : 'Funnel'
+            },
         },
         createdByColumn<SharedMetric>() as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
         createdAtColumn<SharedMetric>() as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,

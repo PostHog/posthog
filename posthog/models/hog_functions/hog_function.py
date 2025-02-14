@@ -1,6 +1,7 @@
 import enum
 from typing import Optional
 
+from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_save, post_delete
 from django.dispatch.dispatcher import receiver
@@ -220,3 +221,27 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
     if team is not None:
         # This controls whether /decide makes extra queries to get the site apps or not
         sync_team_inject_web_apps(instance.team)
+
+
+@receiver(models.signals.post_save, sender=Team)
+def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: bool, **kwargs):
+    if settings.DISABLE_MMDB or not created:
+        return
+
+    # New way: Create GeoIP transformation
+    from posthog.models.hog_functions.hog_function import HogFunction
+
+    # NOTE: This is hardcoded to simplify the creation
+    HogFunction.objects.create(
+        team=instance,
+        created_by=kwargs.get("initiating_user"),
+        template_id="plugin-posthog-plugin-geoip",
+        type="transformation",
+        name="GeoIP",
+        description="Enrich events with GeoIP data",
+        icon_url="/static/transformations/geoip.png",
+        hog="return event",
+        inputs_schema=[],
+        enabled=True,
+        execution_order=1,
+    )
