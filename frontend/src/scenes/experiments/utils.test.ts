@@ -3,7 +3,14 @@ import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_fun
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
 import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
-import { ExperimentFunnelsQuery, ExperimentQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import {
+    ExperimentActionMetricConfig,
+    ExperimentEventMetricConfig,
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     EntityType,
     FeatureFlagFilters,
@@ -16,8 +23,10 @@ import {
 import { getNiceTickValues } from './MetricsView/MetricsView'
 import {
     featureFlagEligibleForExperiment,
+    filterToMetricConfig,
     getMinimumDetectableEffect,
     getViewRecordingFilters,
+    metricConfigToFilter,
     percentageDistribution,
     transformFiltersForWinningVariant,
 } from './utils'
@@ -285,7 +294,7 @@ describe('getViewRecordingFilters', () => {
 
     it('returns the correct filters for an experiment query', () => {
         const filters = getViewRecordingFilters(
-            EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.metrics[0] as ExperimentQuery,
+            EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.metrics[0] as ExperimentMetric,
             featureFlagKey,
             'control'
         )
@@ -535,5 +544,129 @@ describe('checkFeatureFlagEligibility', () => {
             },
         }
         expect(featureFlagEligibleForExperiment(featureFlag)).toEqual(true)
+    })
+})
+
+describe('metricConfigToFilter', () => {
+    it('returns the correct filter for an event', () => {
+        const metricConfig = {
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+            name: '$pageview',
+            math: 'total',
+            math_property: undefined,
+            math_hogql: undefined,
+            properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
+        } as ExperimentEventMetricConfig
+        const filter = metricConfigToFilter(metricConfig)
+        expect(filter).toEqual({
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    math: 'total',
+                    math_property: undefined,
+                    math_hogql: undefined,
+                    properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
+                    kind: NodeKind.EventsNode,
+                },
+            ],
+            actions: [],
+        })
+    })
+    it('returns the correct filter for an action', () => {
+        const metricConfig = {
+            kind: NodeKind.ExperimentActionMetricConfig,
+            action: 8,
+            name: 'jan-16-running payment action',
+            math: 'total',
+            math_property: undefined,
+            math_hogql: undefined,
+            properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
+        } as ExperimentActionMetricConfig
+        const filter = metricConfigToFilter(metricConfig)
+        expect(filter).toEqual({
+            events: [],
+            actions: [
+                {
+                    id: 8,
+                    name: 'jan-16-running payment action',
+                    type: 'actions',
+                    math: 'total',
+                    math_property: undefined,
+                    math_hogql: undefined,
+                    properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
+                    kind: NodeKind.EventsNode,
+                },
+            ],
+        })
+    })
+})
+
+describe('filterToMetricConfig', () => {
+    it('returns the correct metric config for an event', () => {
+        const event = {
+            kind: NodeKind.EventsNode,
+            id: '$pageview',
+            name: '$pageview',
+            type: 'events',
+            order: 0,
+            uuid: 'b2aa47bc-c39b-4743-a2a2-ab88f78faf11',
+            properties: [
+                {
+                    key: '$browser',
+                    value: ['Chrome'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ],
+        } as Record<string, any>
+        const metricConfig = filterToMetricConfig(event)
+        expect(metricConfig).toEqual({
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+            name: '$pageview',
+            math: 'total',
+            math_property: undefined,
+            math_hogql: undefined,
+            properties: [
+                {
+                    key: '$browser',
+                    value: ['Chrome'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ],
+        })
+    })
+    it('returns the correct metric config for an action', () => {
+        const action = {
+            id: '8',
+            name: 'jan-16-running payment action',
+            kind: 'EventsNode',
+            type: 'actions',
+            math: 'total',
+            properties: [
+                {
+                    key: '$lib',
+                    type: 'event',
+                    value: ['python'],
+                    operator: 'exact',
+                },
+            ],
+            order: 0,
+            uuid: '29c01ac4-ebc3-4cb8-9d82-287c0487056e',
+        } as Record<string, any>
+        const metricConfig = filterToMetricConfig(action)
+        expect(metricConfig).toEqual({
+            kind: NodeKind.ExperimentActionMetricConfig,
+            action: '8',
+            name: 'jan-16-running payment action',
+            math: 'total',
+            math_property: undefined,
+            math_hogql: undefined,
+            properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
+        })
     })
 })
