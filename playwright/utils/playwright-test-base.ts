@@ -1,5 +1,6 @@
 import { expect, Page, test as base } from '@playwright/test'
 import { urls } from 'scenes/urls'
+
 import { AppContext } from '~/types'
 
 export const LOGIN_USERNAME = process.env.LOGIN_USERNAME || 'test@posthog.com'
@@ -21,9 +22,6 @@ declare module '@playwright/test' {
         // expectCapturedEventsToBe(expectedEvents: string[]): Promise<void>
     }
 }
-
-let authCookies: any[] = [] // Store cookies in memory
-let authStorage: Record<string, string> = {} // Store local/session storage data
 
 /**
  * we override the base playwright test to add things useful to us
@@ -69,55 +67,29 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     },
     // this auto fixture makes sure we log in before every test
     loginBeforeTests: [
-        async ({ page, context }, use) => {
-            // If we already have auth state, reuse it
-            if (authCookies.length > 0) {
-                await context.addCookies(authCookies)
+        async ({ page }, use) => {
+            // Perform authentication steps
+            await page.goto(urls.login())
 
-                // Restore session/local storage from memory
-                await page.goto(urls.login()) // Ensure we're on the right domain
-                await page.evaluate((storage) => {
-                    for (const [key, value] of Object.entries(storage)) {
-                        sessionStorage.setItem(key, value)
-                    }
-                }, authStorage)
-            } else {
-                // Perform authentication steps
-                await page.goto(urls.login())
+            const loginField = page.getByPlaceholder('email@yourcompany.com')
+            const homepageMenuItem = page.locator('[data-attr="menu-item-projecthomepage"]')
 
-                const loginField = page.getByPlaceholder('email@yourcompany.com')
-                const homepageMenuItem = page.locator('[data-attr="menu-item-projecthomepage"]')
+            const firstVisible = await Promise.race([
+                loginField.waitFor({ timeout: 5000 }).then(() => 'login'),
+                homepageMenuItem.waitFor({ timeout: 5000 }).then(() => 'authenticated'),
+            ]).catch(() => 'timeout')
 
-                const firstVisible = await Promise.race([
-                    loginField.waitFor({ timeout: 5000 }).then(() => 'login'),
-                    homepageMenuItem.waitFor({ timeout: 5000 }).then(() => 'authenticated'),
-                ]).catch(() => 'timeout')
+            if (firstVisible === 'login') {
+                await loginField.fill(LOGIN_USERNAME)
 
-                if (firstVisible === 'login') {
-                    await loginField.fill(LOGIN_USERNAME)
+                const passwd = page.getByPlaceholder('••••••••••')
+                await expect(passwd).toBeVisible()
+                await passwd.fill(LOGIN_PASSWORD)
 
-                    const passwd = page.getByPlaceholder('••••••••••')
-                    await expect(passwd).toBeVisible()
-                    await passwd.fill(LOGIN_PASSWORD)
-
-                    await page.getByRole('button', { name: 'Log in' }).click()
-                    await homepageMenuItem.waitFor()
-                } else if (firstVisible === 'timeout') {
-                    throw new Error('Neither login page nor authenticated UI loaded')
-                }
-
-                // Store authentication data in memory
-                authCookies = await context.cookies()
-                authStorage = await page.evaluate(() => {
-                    const storage = {}
-                    for (let i = 0; i < sessionStorage.length; i++) {
-                        const key = sessionStorage.key(i)
-                        if (key) {
-                            storage[key] = sessionStorage.getItem(key)
-                        }
-                    }
-                    return storage
-                })
+                await page.getByRole('button', { name: 'Log in' }).click()
+                await homepageMenuItem.waitFor()
+            } else if (firstVisible === 'timeout') {
+                throw new Error('Neither login page nor authenticated UI loaded')
             }
 
             // Continue with tests

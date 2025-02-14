@@ -1,5 +1,6 @@
-import { expect, LOGIN_PASSWORD, LOGIN_USERNAME, test } from '../utils/playwright-test-base'
 import { PreflightStatus } from '~/types'
+
+import { expect, LOGIN_PASSWORD, LOGIN_USERNAME, test } from '../utils/playwright-test-base'
 
 test.describe('Auth', () => {
     test.beforeEach(async ({ page }) => {
