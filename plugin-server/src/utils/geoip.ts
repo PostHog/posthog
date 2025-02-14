@@ -10,7 +10,14 @@ const MMDB_ENDPOINT = 'https://mmdbcdn.posthog.net/'
 
 const brotliDecompressAsync = (brotliContents: ArrayBuffer): Promise<Buffer> =>
     new Promise((resolve, reject) => {
-        brotliDecompress(brotliContents, (error, result) => (error ? reject(error) : resolve(result)))
+        try {
+            brotliDecompress(brotliContents, (error, result) => {
+                console.log(error)
+                return error ? reject(error) : resolve(result)
+            })
+        } catch (error) {
+            reject(error)
+        }
     })
 
 export type GeoIp = {
@@ -32,13 +39,12 @@ export class GeoIPService {
             // TODO: use local GeoLite2 on container at share/GeoLite2-City.mmdb instead of downloading it each time
             status.info('⏳', 'Downloading GeoLite2 database from PostHog servers...')
             const response = await fetch(MMDB_ENDPOINT, { compress: false })
-            const filename = response.headers.get('content-disposition')!.match(/filename="(.+)"/)![1]
             const brotliContents = await response.arrayBuffer()
             const decompressed = await brotliDecompressAsync(brotliContents)
 
             status.info(
                 '🪗',
-                `Decompressed ${filename} from ${prettyBytes(brotliContents.byteLength)} into ${prettyBytes(
+                `Decompressed from ${prettyBytes(brotliContents.byteLength)} into ${prettyBytes(
                     decompressed.byteLength
                 )}`
             )
