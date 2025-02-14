@@ -3,7 +3,6 @@ import { PostHog } from 'posthog-node'
 import { SeverityLevel } from 'posthog-node/src/extensions/error-tracking/types'
 
 import { Team } from '../types'
-import { UUID7 } from './utils'
 
 export const posthog = new PostHog('sTMFPsFhdP1Ssg', {
     host: 'https://us.i.posthog.com',
@@ -39,18 +38,13 @@ export interface ExceptionHint {
     extra: Record<string, any>
 }
 
-export function captureException(exception: any, hint?: Partial<ExceptionHint>, distinctId?: string): string {
+export function captureException(exception: any, hint?: Partial<ExceptionHint>): string {
     //If the passed "exception" is a string, capture it as a message, otherwise, capture it as an exception
     let sentryId: string
     if (typeof exception === 'string') {
         sentryId = captureSentryMessage(exception, hint)
     } else {
         sentryId = captureSentryException(exception, hint)
-    }
-
-    if (!distinctId) {
-        // If we weren't given a distinct_id, we randomly generate one
-        distinctId = new UUID7().toString()
     }
 
     let additionalProperties = {}
@@ -61,6 +55,6 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>, 
             ...(hint.extra || {}),
         }
     }
-    posthog.captureException(exception, distinctId, additionalProperties)
+    posthog.captureException(exception, undefined, additionalProperties)
     return sentryId
 }
