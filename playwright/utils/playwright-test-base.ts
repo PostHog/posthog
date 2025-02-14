@@ -29,12 +29,14 @@ declare module '@playwright/test' {
 export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     page: async ({ page }, use) => {
         // // Add custom methods to the page object
+        // you can see that page/window is separate to test context.
+        // e.g. how we have to pass key and value in setAppContext
         page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
             await page.evaluate(
                 ([key, value]) => {
-                    ;(window as WindowWithPostHog).POSTHOG_APP_CONTEXT[key] = value
+                    ;(window as WindowWithPostHog).POSTHOG_APP_CONTEXT[key as string] = value
                 },
-                [key as string, value]
+                [key, value]
             )
         }
         // page.resetCapturedEvents = async function () {

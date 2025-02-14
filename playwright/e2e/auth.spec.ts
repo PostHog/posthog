@@ -101,10 +101,8 @@ test.describe('Auth', () => {
         await expect(page).toHaveURL(/\/project\/\d+/)
     })
 
-    test('Logout in another tab results in logout in the current tab too', async ({ page, browser }) => {
-        // Perform logout in a new context (simulating another tab)
-        const secondContext = await browser.newContext()
-        const secondPage = await secondContext.newPage()
+    test('Logout in another tab results in logout in the current tab too', async ({ page, context }) => {
+        const secondPage = await context.newPage()
         await secondPage.goto('/logout')
 
         // Now interact with the original page
