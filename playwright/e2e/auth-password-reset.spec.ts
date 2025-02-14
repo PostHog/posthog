@@ -46,7 +46,7 @@ test.describe('Password Reset', () => {
         await page.fill('[data-attr="password-confirm"]', '123')
         await page.click('button[type=submit]')
         await expect(page.getByText('Add another word or two')).toBeVisible()
-        await expect(page.getByText('Add another word or two')).toHaveClass('text-danger')
+        await expect(page.getByText('Add another word or two')).toHaveClass(/text-danger/)
         await expect(page).toHaveURL('/reset/e2e_test_user/e2e_test_token')
     })
 
