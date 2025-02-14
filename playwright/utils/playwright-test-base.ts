@@ -1,11 +1,17 @@
 import { expect, Page, test as base } from '@playwright/test'
 import { urls } from 'scenes/urls'
+import { AppContext } from '~/types'
 
 export const LOGIN_USERNAME = process.env.LOGIN_USERNAME || 'test@posthog.com'
 export const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || '12345678'
 
+export type WindowWithPostHog = typeof globalThis & {
+    POSTHOG_APP_CONTEXT: AppContext
+}
+
 declare module '@playwright/test' {
     interface Page {
+        setAppContext<K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void>
         // resetCapturedEvents(): Promise<void>
         //
         // capturedEvents(): Promise<CaptureResult[]>
@@ -25,6 +31,11 @@ let authStorage: Record<string, string> = {} // Store local/session storage data
 export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     page: async ({ page }, use) => {
         // // Add custom methods to the page object
+        page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
+            await page.evaluate(() => {
+                ;(window as WindowWithPostHog).POSTHOG_APP_CONTEXT[key] = value
+            })
+        }
         // page.resetCapturedEvents = async function () {
         //     await this.evaluate(() => {
         //         ;(window as WindowWithPostHog).capturedEvents = []

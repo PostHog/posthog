@@ -1,4 +1,5 @@
 import { expect, LOGIN_PASSWORD, LOGIN_USERNAME, test } from '../utils/playwright-test-base'
+import { PreflightStatus } from '~/types'
 
 test.describe('Auth', () => {
     test.beforeEach(async ({ page }) => {
@@ -29,11 +30,11 @@ test.describe('Auth', () => {
     test('Logout and verify Google login button has correct link', async ({ page }) => {
         await page.locator('[data-attr=top-menu-item-logout]').click()
 
-        await page.evaluate(() => {
-            window.POSTHOG_APP_CONTEXT.preflight.available_social_auth_providers = {
+        await page.setAppContext('preflight', {
+            available_social_auth_providers: {
                 'google-oauth2': true,
-            }
-        })
+            },
+        } as Partial<PreflightStatus> as PreflightStatus)
 
         await expect(page.locator('a[href="/login/google-oauth2/"]')).toBeVisible()
     })
@@ -99,9 +100,9 @@ test.describe('Auth', () => {
         await expect(page).toHaveURL('/project/1')
     })
 
-    test('Logout in another tab results in logout in the current tab too', async ({ page, context }) => {
+    test('Logout in another tab results in logout in the current tab too', async ({ page, browser }) => {
         // Perform logout in a new context (simulating another tab)
-        const secondContext = await context.newContext()
+        const secondContext = await browser.newContext()
         const secondPage = await secondContext.newPage()
         await secondPage.goto('/logout')
 
