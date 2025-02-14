@@ -139,8 +139,8 @@ def sync_execute(
         "query_id": query_id,
     }
 
-    with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
-        try:
+    try:
+        with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
             result = client.execute(
                 prepared_sql,
                 params=prepared_args,
@@ -148,23 +148,23 @@ def sync_execute(
                 with_column_types=with_column_types,
                 query_id=query_id,
             )
-        except Exception as e:
-            err = wrap_query_error(e)
-            exception_type = type(err).__name__
-            set_tag("clickhouse_exception_type", exception_type)
-            QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
+    except Exception as e:
+        err = wrap_query_error(e)
+        exception_type = type(err).__name__
+        set_tag("clickhouse_exception_type", exception_type)
+        QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
 
-            raise err from e
-        finally:
-            execution_time = perf_counter() - start_time
+        raise err from e
+    finally:
+        execution_time = perf_counter() - start_time
 
-            QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
+        QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
 
-            if query_counter := getattr(thread_local_storage, "query_counter", None):
-                query_counter.total_query_time += execution_time
+        if query_counter := getattr(thread_local_storage, "query_counter", None):
+            query_counter.total_query_time += execution_time
 
-            if app_settings.SHELL_PLUS_PRINT_SQL:
-                print("Execution time: %.6fs" % (execution_time,))  # noqa T201
+        if app_settings.SHELL_PLUS_PRINT_SQL:
+            print("Execution time: %.6fs" % (execution_time,))  # noqa T201
     return result
 
 
