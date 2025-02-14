@@ -60,7 +60,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                     className={clsx('-mx-1 py-1 px-2', hasOverride && 'bg-fill-primary')}
                                     key={feature_flag.key}
                                 >
-                                    <div className="flex flex-row items-center">
+                                    <div className="flex flex-row items-center space-x-2">
                                         <div className="flex-1 truncate">
                                             <Link
                                                 className="font-medium"
@@ -76,7 +76,16 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                 <IconOpenInNew />
                                             </Link>
                                         </div>
-
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={() => setPayloadEditorOpen(feature_flag.key, true)}
+                                            disabledReason={
+                                                currentValue ? undefined : 'Cannot edit payload while flag is disabled'
+                                            }
+                                        >
+                                            Edit payload
+                                        </LemonButton>
                                         <LemonSwitch
                                             checked={!!currentValue}
                                             onChange={(checked) => {
@@ -160,12 +169,6 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                                 {JSON.stringify(payloadOverride)}
                                                             </div>
                                                         )}
-                                                        <LemonButton
-                                                            size="xsmall"
-                                                            onClick={() => setPayloadEditorOpen(feature_flag.key, true)}
-                                                        >
-                                                            Edit payload
-                                                        </LemonButton>
                                                     </div>
                                                 )}
                                             </div>

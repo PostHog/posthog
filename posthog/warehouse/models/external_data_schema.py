@@ -177,7 +177,9 @@ def sync_old_schemas_with_new_schemas(new_schemas: list[str], source_id: uuid.UU
     return schemas_to_create
 
 
-def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta:
+def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:
+    if frequency == "never":
+        return None
     if frequency == "5min":
         return timedelta(minutes=5)
     if frequency == "30min":
@@ -198,25 +200,27 @@ def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta:
     raise ValueError(f"Frequency {frequency} is not supported")
 
 
-def sync_frequency_interval_to_sync_frequency(schema: ExternalDataSchema) -> str:
-    if schema.sync_frequency_interval == timedelta(minutes=5):
+def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta | None) -> str | None:
+    if sync_frequency_interval is None:
+        return None
+    if sync_frequency_interval == timedelta(minutes=5):
         return "5min"
-    if schema.sync_frequency_interval == timedelta(minutes=30):
+    if sync_frequency_interval == timedelta(minutes=30):
         return "30min"
-    if schema.sync_frequency_interval == timedelta(hours=1):
+    if sync_frequency_interval == timedelta(hours=1):
         return "1hour"
-    if schema.sync_frequency_interval == timedelta(hours=6):
+    if sync_frequency_interval == timedelta(hours=6):
         return "6hour"
-    if schema.sync_frequency_interval == timedelta(hours=12):
+    if sync_frequency_interval == timedelta(hours=12):
         return "12hour"
-    if schema.sync_frequency_interval == timedelta(hours=24):
+    if sync_frequency_interval == timedelta(hours=24):
         return "24hour"
-    if schema.sync_frequency_interval == timedelta(days=7):
+    if sync_frequency_interval == timedelta(days=7):
         return "7day"
-    if schema.sync_frequency_interval == timedelta(days=30):
+    if sync_frequency_interval == timedelta(days=30):
         return "30day"
 
-    raise ValueError(f"Frequency interval {schema.sync_frequency_interval} is not supported")
+    raise ValueError(f"Frequency interval {sync_frequency_interval} is not supported")
 
 
 def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:

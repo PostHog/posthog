@@ -183,8 +183,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
                 /** Unique series in the results, determined by `item.label` and `item.action.order`. */
                 const uniqSeries = Array.from(
-                    // :TRICKY: Stickiness insights don't have an `action` object, despite
-                    // types here not reflecting that.
                     new Set(
                         indexedResults.map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
                     )
