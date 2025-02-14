@@ -21,13 +21,16 @@ test.describe('Password Reset', () => {
         await expect(page).toHaveURL('/reset')
         await page.fill('[data-attr="reset-email"]', 'test@posthog.com')
         await page.click('button[type=submit]')
-        await expect(page.locator('div')).toContainText('Request received successfully!')
-        await expect(page.locator('b')).toContainText('test@posthog.com')
+        await expect(page.locator('.BridgePage__content h2')).toContainText('Reset password')
+        await expect(page.locator('.BridgePage__content')).toContainText('Request received successfully!')
+        await expect(page.locator('.BridgePage__content')).toContainText('test@posthog.com')
     })
 
     test('Cannot reset with invalid token', async ({ page }) => {
         await page.goto('/reset/user_id/token')
-        await expect(page.locator('div')).toContainText('The provided link is invalid or has expired.')
+        await expect(page.locator('.BridgePage__content .text-center')).toContainText(
+            'The provided link is invalid or has expired.'
+        )
     })
 
     test('Shows validation error if passwords do not match', async ({ page }) => {
