@@ -211,7 +211,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if value is None:
             return value
 
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Conditions must be an object")
+
         actions = value.get("actions")
+
         if actions is None:
             return value
 
@@ -755,7 +759,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         survey = self.get_object()
 
-        cache_key = f'summarize_survey_responses_{self.team.pk}_{self.kwargs["pk"]}'
+        cache_key = f"summarize_survey_responses_{self.team.pk}_{self.kwargs['pk']}"
         # Check if the response is cached
         cached_response = cache.get(cache_key)
         if cached_response is not None:
