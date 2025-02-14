@@ -394,6 +394,8 @@ export function CSharpSnippet({
     multivariant,
     localEvaluation,
     payload,
+    remoteConfiguration,
+    encryptedPayload,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
@@ -404,6 +406,19 @@ export function CSharpSnippet({
         : 'IsFeatureEnabledAsync'
 
     const propertyName = samplePropertyName || 'isAuthorized'
+
+    if (remoteConfiguration) {
+        const reminder = `// ` + REMOTE_CONFIG_REMINDER + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+
+        return (
+            <>
+                <CodeSnippet language={Language.CSharp} wrap>
+                    {`${reminder}
+var remoteConfigPayload = await posthog.GetRemoteConfigPayloadAsync("${flagKey}");`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     const localEvalCommentAddition = localEvaluation
         ? groupType
