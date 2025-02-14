@@ -3,6 +3,8 @@ import collections.abc
 import dataclasses
 import enum
 
+from asgiref.sync import async_to_sync
+
 
 class Status(enum.StrEnum):
     PASSED = "Passed"
@@ -41,7 +43,7 @@ class DestinationTestStep:
         self.result: DestinationTestStepResult | None = None
 
     @abc.abstractmethod
-    def run(self) -> DestinationTestStepResult:
+    async def run(self) -> DestinationTestStepResult:
         raise NotImplementedError
 
     def as_dict(self) -> DestinationTestStepDict:
@@ -58,7 +60,7 @@ class DestinationTest:
         raise NotImplementedError
 
     def run_step(self, step: int) -> DestinationTestStepResult:
-        step_result = self.steps[step].run()
+        step_result = async_to_sync(self.steps[step].run)()
 
         return step_result
 
@@ -66,8 +68,90 @@ class DestinationTest:
         return {"steps": [step.as_dict() for step in self.steps]}
 
 
+class S3CheckBucketExistsTestStep(DestinationTestStep):
+    def __init__(
+        self,
+        bucket_name: str | None = None,
+        region: str | None = None,
+        endpoint_url: str | None = None,
+        aws_access_key_id: str | None = None,
+        aws_secret_access_key: str | None = None,
+    ) -> None:
+        super().__init__(
+            name="Check S3 bucket exists", description="Verify the configured S3 bucket exists and we can access it"
+        )
+        self.bucket_name = bucket_name
+        self.region = region
+        self.endpoint_url = endpoint_url
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
+
+    async def run(self) -> DestinationTestStepResult:
+        import aioboto3
+        from botocore.exceptions import ClientError
+
+        if self.bucket_name is None or self.aws_access_key_id is None or self.aws_secret_access_key is None:
+            raise ValueError("Test step not configured")
+
+        session = aioboto3.Session()
+        async with session.client(
+            "s3",
+            region_name=self.region,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+            endpoint_url=self.endpoint_url,
+        ) as client:
+            try:
+                await client.head_bucket(Bucket=self.bucket_name)
+            except ClientError as err:
+                error_code = err.response.get("Error", {}).get("Code")
+                if error_code == "404":
+                    return DestinationTestStepResult(
+                        status=Status.FAILED,
+                        message=f"Bucket '{self.bucket_name}' does not exist or we don't have permissions to use it",
+                    )
+                else:
+                    return DestinationTestStepResult(
+                        status=Status.FAILED,
+                        message=f"An unknown error occurred when trying to access bucket '{self.bucket_name}': {err}",
+                    )
+
+        return DestinationTestStepResult(status=Status.PASSED)
+
+
 class S3DestinationTest(DestinationTest):
-    pass
+    def __init__(self):
+        self.bucket_name = None
+        self.region = None
+        self.aws_access_key_id = None
+        self.aws_secret_access_key = None
+        self.endpoint_url = None
+
+    def configure(
+        self,
+        bucket_name: str,
+        region: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        endpoint_url: str,
+    ):
+        self.bucket_name = bucket_name
+        self.region = region
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
+        self.endpoint_url = endpoint_url
+
+    @property
+    def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
+        return [
+            S3CheckBucketExistsTestStep(
+                bucket_name=self.bucket_name,
+                region=self.region,
+                endpoint_url=self.endpoint_url,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+            )
+        ]
 
 
 class BigQueryCheckProjectExistsTestStep(DestinationTestStep):
@@ -76,7 +160,7 @@ class BigQueryCheckProjectExistsTestStep(DestinationTestStep):
         self.project_id = project_id
         self.service_account_info = service_account_info
 
-    def run(self) -> DestinationTestStepResult:
+    async def run(self) -> DestinationTestStepResult:
         from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
 
         if self.project_id is None or self.service_account_info is None:
@@ -106,7 +190,7 @@ class BigQueryCheckDatasetExistsTestStep(DestinationTestStep):
         self.project_id = project_id
         self.service_account_info = service_account_info
 
-    def run(self) -> DestinationTestStepResult:
+    async def run(self) -> DestinationTestStepResult:
         from google.cloud.exceptions import NotFound
 
         from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
@@ -143,7 +227,7 @@ class BigQueryCheckTableTestStep(DestinationTestStep):
         self.table_id = table_id
         self.service_account_info = service_account_info
 
-    def run(self) -> DestinationTestStepResult:
+    async def run(self) -> DestinationTestStepResult:
         from google.api_core.exceptions import BadRequest
         from google.cloud import bigquery
         from google.cloud.exceptions import NotFound
@@ -184,7 +268,7 @@ class BigQueryCheckTableTestStep(DestinationTestStep):
                 )
             else:
                 try:
-                    _ = client.delete_table(table, not_found_ok=True)
+                    client.delete_table(table, not_found_ok=True)
                 except BadRequest as err:
                     return DestinationTestStepResult(
                         status=Status.FAILED,

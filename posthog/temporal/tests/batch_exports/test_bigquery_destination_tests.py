@@ -19,7 +19,7 @@ SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
     reason="Google credentials not set in environment",
 )
 
-pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS]
+pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio]
 
 
 @pytest.fixture
@@ -79,25 +79,25 @@ def service_account_info(bigquery_config):
     return {k: v for k, v in bigquery_config.items() if k != "project_id"}
 
 
-def test_bigquery_check_dataset_exists_test_step(project_id, service_account_info, bigquery_dataset):
+async def test_bigquery_check_dataset_exists_test_step(project_id, service_account_info, bigquery_dataset):
     test_step = BigQueryCheckDatasetExistsTestStep(
         project_id=project_id,
         dataset_id=bigquery_dataset.dataset_id,
         service_account_info=service_account_info,
     )
-    result = test_step.run()
+    result = await test_step.run()
 
     assert result.status == Status.PASSED
     assert result.message is None
 
 
-def test_bigquery_check_dataset_exists_test_step_without_dataset(project_id, service_account_info):
+async def test_bigquery_check_dataset_exists_test_step_without_dataset(project_id, service_account_info):
     test_step = BigQueryCheckDatasetExistsTestStep(
         project_id=project_id,
         dataset_id="garbage",
         service_account_info=service_account_info,
     )
-    result = test_step.run()
+    result = await test_step.run()
 
     assert result.status == Status.FAILED
     assert (
@@ -106,23 +106,23 @@ def test_bigquery_check_dataset_exists_test_step_without_dataset(project_id, ser
     )
 
 
-def test_bigquery_check_project_exists_test_step(project_id, service_account_info):
+async def test_bigquery_check_project_exists_test_step(project_id, service_account_info):
     test_step = BigQueryCheckProjectExistsTestStep(
         project_id=project_id,
         service_account_info=service_account_info,
     )
-    result = test_step.run()
+    result = await test_step.run()
 
     assert result.status == Status.PASSED
     assert result.message is None
 
 
-def test_bigquery_check_project_exists_test_step_without_project(service_account_info):
+async def test_bigquery_check_project_exists_test_step_without_project(service_account_info):
     test_step = BigQueryCheckProjectExistsTestStep(
         project_id="garbage",
         service_account_info=service_account_info,
     )
-    result = test_step.run()
+    result = await test_step.run()
 
     assert result.status == Status.FAILED
     assert (
@@ -131,7 +131,7 @@ def test_bigquery_check_project_exists_test_step_without_project(service_account
     )
 
 
-def test_bigquery_check_table_test_step(project_id, bigquery_client, bigquery_dataset, service_account_info):
+async def test_bigquery_check_table_test_step(project_id, bigquery_client, bigquery_dataset, service_account_info):
     table_id = f"destination_test_{uuid.uuid4()}"
     fully_qualified_table_id = f"{project_id}.{bigquery_dataset.dataset_id}.{table_id}"
 
@@ -144,7 +144,7 @@ def test_bigquery_check_table_test_step(project_id, bigquery_client, bigquery_da
         table_id=table_id,
         service_account_info=service_account_info,
     )
-    result = test_step.run()
+    result = await test_step.run()
 
     assert result.status == Status.PASSED
     assert result.message is None
@@ -153,7 +153,7 @@ def test_bigquery_check_table_test_step(project_id, bigquery_client, bigquery_da
         bigquery_client.get_table(fully_qualified_table_id)
 
 
-def test_bigquery_check_table_test_step_with_invalid_identifier(
+async def test_bigquery_check_table_test_step_with_invalid_identifier(
     project_id, bigquery_client, bigquery_dataset, service_account_info
 ):
     table_id = f"$destination_test_{uuid.uuid4()}"
@@ -168,7 +168,7 @@ def test_bigquery_check_table_test_step_with_invalid_identifier(
         table_id=table_id,
         service_account_info=service_account_info,
     )
-    result = test_step.run()
+    result = await test_step.run()
 
     assert result.status == Status.FAILED
     assert result.message is not None
@@ -181,6 +181,6 @@ def test_bigquery_check_table_test_step_with_invalid_identifier(
 @pytest.mark.parametrize(
     "step", [BigQueryCheckTableTestStep(), BigQueryCheckProjectExistsTestStep(), BigQueryCheckDatasetExistsTestStep()]
 )
-def test_test_steps_raise_if_not_configured(step):
+async def test_test_steps_raise_if_not_configured(step):
     with pytest.raises(ValueError):
-        _ = step.run()
+        _ = await step.run()
