@@ -21,7 +21,7 @@ export const displayLogic = kea<displayLogicType>([
     }),
     actions(({ values }) => ({
         addGoalLine: () => ({ yData: values.yData }),
-        updateGoalLine: (goalLineIndex: number, key: string, value: string | number) => ({
+        updateGoalLine: (goalLineIndex: number, key: string, value: string | number | boolean) => ({
             goalLineIndex,
             key,
             value,
@@ -42,6 +42,7 @@ export const displayLogic = kea<displayLogicType>([
                         {
                             label: 'Q4 Goal',
                             value: yDataAvg ?? 0,
+                            displayLabel: true,
                         },
                     ]
                 },

@@ -98,20 +98,12 @@ function MaxChatInterfaceContent(): JSX.Element {
     const { currentMessages, isSearchingThinking, isRateLimited, hasServerError } = useValues(sidePanelMaxAILogic)
     const { submitMessage } = useActions(sidePanelMaxAILogic)
     const [inputMessage, setInputMessage] = useState('')
-    const [isLoading, setIsLoading] = useState(true)
 
     useEffect(() => {
         submitMessage('__GREETING__')
     }, [submitMessage])
 
-    const showInput =
-        !isLoading && currentMessages.length > 0 && currentMessages.some((msg) => msg.role === 'assistant')
-
-    useEffect(() => {
-        if (currentMessages.some((msg) => msg.role === 'assistant')) {
-            setIsLoading(false)
-        }
-    }, [currentMessages])
+    const showInput = currentMessages.length > 0 && currentMessages.some((msg) => msg.role === 'assistant')
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -153,230 +145,215 @@ function MaxChatInterfaceContent(): JSX.Element {
                         <li>Max can make mistakes. Please double-check responses.</li>
                     </ul>
                 </div>
-                {isLoading ? (
+
+                {displayMessages.length === 0 ? (
                     <div className="flex items-center gap-2 text-secondary">
                         <span>Max is crawling out of his burrow and shaking off his quills...</span>
                         <Spinner className="text-lg" />
                     </div>
                 ) : (
-                    <>
-                        {displayMessages.map(
-                            (message: ChatMessage, idx: number): JSX.Element => (
-                                <div
-                                    key={`${message.timestamp}-${idx}`}
-                                    className={`flex w-full ${
-                                        message.role === 'user' ? 'justify-end' : 'justify-start'
-                                    }`}
-                                >
-                                    {message.role === 'user' && (
-                                        <div className="text-sm text-secondary mr-2 mt-2">You</div>
-                                    )}
+                    displayMessages.map(
+                        (message: ChatMessage, idx: number): JSX.Element => (
+                            <div
+                                key={`${message.timestamp}-${idx}`}
+                                className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                            >
+                                {message.role === 'user' && <div className="text-sm text-secondary mr-2 mt-2">You</div>}
 
-                                    <div
-                                        className={`${message.role === 'assistant' ? 'flex flex-col' : ''} max-w-full`}
-                                    >
-                                        {message.role === 'assistant' && (
-                                            <div className="text-sm text-secondary mb-1">Max</div>
-                                        )}
-                                        <div
-                                            className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
-                                                message.role === 'assistant'
-                                                    ? 'bg-surface-primary dark:bg-depth text-default'
-                                                    : 'bg-surface-primary dark:bg-side text-default'
-                                            }`}
-                                        >
-                                            {message.role === 'assistant'
-                                                ? typeof message.content === 'string' &&
-                                                  (message.content.includes('<search_state>started</search_state>') ? (
-                                                      <div className="flex items-center gap-2">
-                                                          <span>Max is searching...</span>
-                                                          <Spinner className="text-lg" />
-                                                      </div>
-                                                  ) : message.content.includes(
-                                                        '<search_state>completed</search_state>'
-                                                    ) ? (
-                                                      <div>Max searched</div>
-                                                  ) : (
-                                                      <>
-                                                          <MemoizedMessageContent content={message.content} />
-
-                                                          {/* Only show analysis for non-greeting messages */}
-                                                          {idx === 0
-                                                              ? null
-                                                              : (extractThinkingBlock(message.content).length > 0 ||
-                                                                    extractSearchReflection(message.content).length >
-                                                                        0 ||
-                                                                    extractSearchQualityScore(message.content)
-                                                                        .hasQualityScore ||
-                                                                    extractInfoValidation(message.content)
-                                                                        .hasQualityScore ||
-                                                                    extractURLValidation(message.content)
-                                                                        .hasQualityScore) && (
-                                                                    <LemonCollapse
-                                                                        key={`analysis-${message.timestamp}`}
-                                                                        className="mt-4 text-sm"
-                                                                        panels={[
-                                                                            {
-                                                                                key: 'analysis',
-                                                                                header: (
-                                                                                    <span className="text-secondary">
-                                                                                        What was Max thinking?
-                                                                                    </span>
-                                                                                ),
-                                                                                content: (
-                                                                                    <div className="space-y-3 p-1">
-                                                                                        {/* Thinking blocks */}
-                                                                                        {extractThinkingBlock(
-                                                                                            message.content
-                                                                                        ).map((content, index) => (
-                                                                                            <LemonCollapse
-                                                                                                key={`thinking-${index}-${message.timestamp}`}
-                                                                                                panels={[
-                                                                                                    {
-                                                                                                        key: 'thinking',
-                                                                                                        header: 'Thinking',
-                                                                                                        content: (
-                                                                                                            <div>
-                                                                                                                {
-                                                                                                                    content
-                                                                                                                }
-                                                                                                            </div>
-                                                                                                        ),
-                                                                                                    },
-                                                                                                ]}
-                                                                                            />
-                                                                                        ))}
-
-                                                                                        {/* Search Reflection blocks */}
-                                                                                        {extractSearchReflection(
-                                                                                            message.content
-                                                                                        ).map((content, index) => (
-                                                                                            <LemonCollapse
-                                                                                                key={`reflection-${index}-${message.timestamp}`}
-                                                                                                panels={[
-                                                                                                    {
-                                                                                                        key: 'reflection',
-                                                                                                        header: 'Search Reflection',
-                                                                                                        content: (
-                                                                                                            <div>
-                                                                                                                {
-                                                                                                                    content
-                                                                                                                }
-                                                                                                            </div>
-                                                                                                        ),
-                                                                                                    },
-                                                                                                ]}
-                                                                                            />
-                                                                                        ))}
-
-                                                                                        {/* Search Quality Score */}
-                                                                                        {extractSearchQualityScore(
-                                                                                            message.content
-                                                                                        ).hasQualityScore && (
-                                                                                            <LemonCollapse
-                                                                                                panels={[
-                                                                                                    {
-                                                                                                        key: 'quality',
-                                                                                                        header: 'Search Quality',
-                                                                                                        content: (
-                                                                                                            <div>
-                                                                                                                {
-                                                                                                                    extractSearchQualityScore(
-                                                                                                                        message.content
-                                                                                                                    )
-                                                                                                                        .content
-                                                                                                                }
-                                                                                                            </div>
-                                                                                                        ),
-                                                                                                    },
-                                                                                                ]}
-                                                                                            />
-                                                                                        )}
-
-                                                                                        {/* Info Validation */}
-                                                                                        {extractInfoValidation(
-                                                                                            message.content
-                                                                                        ).hasQualityScore && (
-                                                                                            <LemonCollapse
-                                                                                                panels={[
-                                                                                                    {
-                                                                                                        key: 'info',
-                                                                                                        header: 'Information Validation',
-                                                                                                        content: (
-                                                                                                            <div>
-                                                                                                                {
-                                                                                                                    extractInfoValidation(
-                                                                                                                        message.content
-                                                                                                                    )
-                                                                                                                        .content
-                                                                                                                }
-                                                                                                            </div>
-                                                                                                        ),
-                                                                                                    },
-                                                                                                ]}
-                                                                                            />
-                                                                                        )}
-
-                                                                                        {/* URL Validation */}
-                                                                                        {extractURLValidation(
-                                                                                            message.content
-                                                                                        ).hasQualityScore && (
-                                                                                            <LemonCollapse
-                                                                                                panels={[
-                                                                                                    {
-                                                                                                        key: 'url',
-                                                                                                        header: 'URL Validation',
-                                                                                                        content: (
-                                                                                                            <div>
-                                                                                                                {
-                                                                                                                    extractURLValidation(
-                                                                                                                        message.content
-                                                                                                                    )
-                                                                                                                        .content
-                                                                                                                }
-                                                                                                            </div>
-                                                                                                        ),
-                                                                                                    },
-                                                                                                ]}
-                                                                                            />
-                                                                                        )}
-                                                                                    </div>
-                                                                                ),
-                                                                            },
-                                                                        ]}
-                                                                    />
-                                                                )}
-                                                      </>
-                                                  ))
-                                                : message.content}
-                                        </div>
-                                    </div>
-                                </div>
-                            )
-                        )}
-                        {isSearchingThinking &&
-                            displayMessages.length > 0 &&
-                            displayMessages[displayMessages.length - 1].role === 'user' && (
-                                <div className="flex justify-start">
-                                    <div className="flex flex-col">
+                                <div className={`${message.role === 'assistant' ? 'flex flex-col' : ''} max-w-full`}>
+                                    {message.role === 'assistant' && (
                                         <div className="text-sm text-secondary mb-1">Max</div>
-                                        <div className="p-2 rounded-lg bg-surface-primary dark:bg-depth text-default">
-                                            <div className="flex items-center gap-2">
-                                                <span>
-                                                    {hasServerError
-                                                        ? "🫣 Uh-oh. I wasn't able to connect to the Anthropic API (my brain!) Please try sending your message again in about 1 minute?"
-                                                        : isRateLimited
-                                                        ? "🫣 Uh-oh, I'm really popular today, we've been rate-limited. I just need to catch my breath. Hang on, I'll resume searching in less than a minute..."
-                                                        : 'Searching and thinking...'}
-                                                </span>
-                                                <Spinner className="text-lg" />
-                                            </div>
-                                        </div>
+                                    )}
+                                    <div
+                                        className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
+                                            message.role === 'assistant'
+                                                ? 'bg-surface-primary dark:bg-depth text-default'
+                                                : 'bg-surface-primary dark:bg-side text-default'
+                                        }`}
+                                    >
+                                        {message.role === 'assistant'
+                                            ? typeof message.content === 'string' &&
+                                              (message.content.includes('<search_state>started</search_state>') ? (
+                                                  <div className="flex items-center gap-2">
+                                                      <span>Max is searching...</span>
+                                                      <Spinner className="text-lg" />
+                                                  </div>
+                                              ) : message.content.includes('<search_state>completed</search_state>') ? (
+                                                  <div>Max searched</div>
+                                              ) : (
+                                                  <>
+                                                      <MemoizedMessageContent content={message.content} />
+
+                                                      {/* Only show analysis for non-greeting messages */}
+                                                      {idx === 0
+                                                          ? null
+                                                          : (extractThinkingBlock(message.content).length > 0 ||
+                                                                extractSearchReflection(message.content).length > 0 ||
+                                                                extractSearchQualityScore(message.content)
+                                                                    .hasQualityScore ||
+                                                                extractInfoValidation(message.content)
+                                                                    .hasQualityScore ||
+                                                                extractURLValidation(message.content)
+                                                                    .hasQualityScore) && (
+                                                                <LemonCollapse
+                                                                    key={`analysis-${message.timestamp}`}
+                                                                    className="mt-4 text-sm"
+                                                                    panels={[
+                                                                        {
+                                                                            key: 'analysis',
+                                                                            header: (
+                                                                                <span className="text-secondary">
+                                                                                    What was Max thinking?
+                                                                                </span>
+                                                                            ),
+                                                                            content: (
+                                                                                <div className="space-y-3 p-1">
+                                                                                    {/* Thinking blocks */}
+                                                                                    {extractThinkingBlock(
+                                                                                        message.content
+                                                                                    ).map((content, index) => (
+                                                                                        <LemonCollapse
+                                                                                            key={`thinking-${index}-${message.timestamp}`}
+                                                                                            panels={[
+                                                                                                {
+                                                                                                    key: 'thinking',
+                                                                                                    header: 'Thinking',
+                                                                                                    content: (
+                                                                                                        <div>
+                                                                                                            {content}
+                                                                                                        </div>
+                                                                                                    ),
+                                                                                                },
+                                                                                            ]}
+                                                                                        />
+                                                                                    ))}
+
+                                                                                    {/* Search Reflection blocks */}
+                                                                                    {extractSearchReflection(
+                                                                                        message.content
+                                                                                    ).map((content, index) => (
+                                                                                        <LemonCollapse
+                                                                                            key={`reflection-${index}-${message.timestamp}`}
+                                                                                            panels={[
+                                                                                                {
+                                                                                                    key: 'reflection',
+                                                                                                    header: 'Search Reflection',
+                                                                                                    content: (
+                                                                                                        <div>
+                                                                                                            {content}
+                                                                                                        </div>
+                                                                                                    ),
+                                                                                                },
+                                                                                            ]}
+                                                                                        />
+                                                                                    ))}
+
+                                                                                    {/* Search Quality Score */}
+                                                                                    {extractSearchQualityScore(
+                                                                                        message.content
+                                                                                    ).hasQualityScore && (
+                                                                                        <LemonCollapse
+                                                                                            panels={[
+                                                                                                {
+                                                                                                    key: 'quality',
+                                                                                                    header: 'Search Quality',
+                                                                                                    content: (
+                                                                                                        <div>
+                                                                                                            {
+                                                                                                                extractSearchQualityScore(
+                                                                                                                    message.content
+                                                                                                                )
+                                                                                                                    .content
+                                                                                                            }
+                                                                                                        </div>
+                                                                                                    ),
+                                                                                                },
+                                                                                            ]}
+                                                                                        />
+                                                                                    )}
+
+                                                                                    {/* Info Validation */}
+                                                                                    {extractInfoValidation(
+                                                                                        message.content
+                                                                                    ).hasQualityScore && (
+                                                                                        <LemonCollapse
+                                                                                            panels={[
+                                                                                                {
+                                                                                                    key: 'info',
+                                                                                                    header: 'Information Validation',
+                                                                                                    content: (
+                                                                                                        <div>
+                                                                                                            {
+                                                                                                                extractInfoValidation(
+                                                                                                                    message.content
+                                                                                                                )
+                                                                                                                    .content
+                                                                                                            }
+                                                                                                        </div>
+                                                                                                    ),
+                                                                                                },
+                                                                                            ]}
+                                                                                        />
+                                                                                    )}
+
+                                                                                    {/* URL Validation */}
+                                                                                    {extractURLValidation(
+                                                                                        message.content
+                                                                                    ).hasQualityScore && (
+                                                                                        <LemonCollapse
+                                                                                            panels={[
+                                                                                                {
+                                                                                                    key: 'url',
+                                                                                                    header: 'URL Validation',
+                                                                                                    content: (
+                                                                                                        <div>
+                                                                                                            {
+                                                                                                                extractURLValidation(
+                                                                                                                    message.content
+                                                                                                                )
+                                                                                                                    .content
+                                                                                                            }
+                                                                                                        </div>
+                                                                                                    ),
+                                                                                                },
+                                                                                            ]}
+                                                                                        />
+                                                                                    )}
+                                                                                </div>
+                                                                            ),
+                                                                        },
+                                                                    ]}
+                                                                />
+                                                            )}
+                                                  </>
+                                              ))
+                                            : message.content}
                                     </div>
                                 </div>
-                            )}
-                    </>
+                            </div>
+                        )
+                    )
                 )}
+                {(hasServerError || isRateLimited) && (
+                    <div className="flex justify-start">
+                        <div className="flex flex-col">
+                            <div className="text-sm text-secondary mb-1">Max</div>
+                            <div className="p-2 rounded-lg bg-surface-primary dark:bg-depth text-default">
+                                <div className="flex items-center gap-2">
+                                    <span>
+                                        {hasServerError
+                                            ? "🫣 Uh-oh. I wasn't able to connect to the Anthropic API (my brain!) Please try sending your message again in about 1 minute?"
+                                            : isRateLimited
+                                            ? "🫣 Uh-oh, I'm really popular today, we've been rate-limited. I just need to catch my breath. Hang on, I'll repeat your question and resume searching in less than a minute. I may repeat it a couple of times, but I will be back with an answer!"
+                                            : 'Searching and thinking...'}
+                                    </span>
+                                    <Spinner className="text-lg" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <div ref={messagesEndRef} />
             </div>
 
@@ -384,6 +361,12 @@ function MaxChatInterfaceContent(): JSX.Element {
 
             {showInput && (
                 <>
+                    {isSearchingThinking && (
+                        <div className="flex items-center gap-2 p-2 text-secondary justify-center">
+                            <span>Max is searching and thinking...</span>
+                            <Spinner className="text-sm" />
+                        </div>
+                    )}
                     <form className="p-4 pb-1">
                         <LemonTextArea
                             value={inputMessage}

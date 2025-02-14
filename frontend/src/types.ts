@@ -2512,15 +2512,12 @@ export interface InsightEditorFilter {
     label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
-    position?: 'left' | 'right'
-    valueSelector?: (insight: Partial<QueryBasedInsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
 export type InsightEditorFilterGroup = {
-    title?: string
-    count?: number
+    title: string
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
 }
@@ -4482,6 +4479,7 @@ export enum SDKKey {
     BUBBLE = 'bubble',
     DJANGO = 'django',
     DOCUSAURUS = 'docusaurus',
+    DOTNET = 'dotnet',
     ELIXIR = 'elixir',
     FRAMER = 'framer',
     FLUTTER = 'flutter',

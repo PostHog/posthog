@@ -54,11 +54,27 @@ export function PropertyGroupFilters({
         <div className="space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <InsightTestAccountFilter
-                        disabledReason={disabledReason}
-                        query={query}
-                        setQuery={setQuery as (node: InsightQueryNode) => void}
-                    />
+                    <div className="flex flex-1 gap-2 flex-row space-between">
+                        <div className="flex-1">
+                            <InsightTestAccountFilter
+                                disabledReason={disabledReason}
+                                query={query}
+                                setQuery={setQuery as (node: InsightQueryNode) => void}
+                            />
+                        </div>
+
+                        <LemonButton
+                            data-attr={`${pageKey}-add-filter-group`}
+                            type="secondary"
+                            onClick={addFilterGroup}
+                            icon={<IconPlusSmall color="var(--accent-primary)" />}
+                            sideIcon={null}
+                            disabledReason={disabledReason}
+                        >
+                            Add filter group
+                        </LemonButton>
+                    </div>
+
                     {showHeader ? (
                         <>
                             <div className="flex items-center justify-between">
@@ -134,16 +150,6 @@ export function PropertyGroupFilters({
                     ) : null}
                 </BindLogic>
             )}
-            <LemonButton
-                data-attr={`${pageKey}-add-filter-group`}
-                type="secondary"
-                onClick={addFilterGroup}
-                icon={<IconPlusSmall color="var(--accent-primary)" />}
-                sideIcon={null}
-                disabledReason={disabledReason}
-            >
-                Add filter group
-            </LemonButton>
         </div>
     )
 }
