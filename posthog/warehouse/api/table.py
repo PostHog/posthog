@@ -158,6 +158,19 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         ]
 
 
+class ExclusionFilter(filters.BaseFilterBackend):
+    """
+    We often wish to exclude patterns 'https://posthog-s3-datawarehouse...' in their URL pattern.
+    This ensures that only externally added tables are returned by this api.
+    """
+
+    def filter_queryset(self, request, queryset, view):
+        exclusion_url_pattern_prefix = request.query_params.get("exclusion_url_pattern_prefix", None)
+        if exclusion_url_pattern_prefix:
+            queryset = queryset.exclude(url_pattern__startswith=exclusion_url_pattern_prefix)
+        return queryset
+
+
 class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -166,7 +179,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = DataWarehouseTable.objects.all()
     serializer_class = TableSerializer
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [filters.SearchFilter, ExclusionFilter]
     search_fields = ["name"]
     ordering = "-created_at"
 
