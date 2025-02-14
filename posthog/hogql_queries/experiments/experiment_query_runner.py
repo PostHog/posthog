@@ -97,6 +97,18 @@ class ExperimentQueryRunner(QueryRunner):
 
         is_data_warehouse_query = isinstance(self.metric.metric_config, ExperimentDataWarehouseMetricConfig)
 
+        # Experiment identifiers
+        experiment_identifiers = [
+            ast.Field(chain=["distinct_id"]),
+            # here we will also add group_id, etc.
+        ]
+
+        if is_data_warehouse_query:
+            metric_config = self.metric.metric_config
+            experiment_identifiers += [
+                parse_expr(metric_config.events_id_field),
+            ]
+
         # Pick the correct value for the aggregation chosen
         match self.metric.metric_type:
             case ExperimentMetricType.CONTINUOUS:
@@ -140,7 +152,7 @@ class ExperimentQueryRunner(QueryRunner):
         # if that is the chosen aggregation
         exposure_query = ast.SelectQuery(
             select=[
-                ast.Field(chain=["distinct_id"]),
+                *experiment_identifiers,
                 parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
                 parse_expr("min(timestamp) as first_exposure_time"),
             ],
@@ -163,7 +175,7 @@ class ExperimentQueryRunner(QueryRunner):
                     *test_accounts_filter,
                 ]
             ),
-            group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["distinct_id"])],
+            group_by=[ast.Field(chain=["variant"]), *experiment_identifiers],
         )
 
         match self.metric.metric_config:
@@ -172,11 +184,11 @@ class ExperimentQueryRunner(QueryRunner):
                     select=[
                         ast.Alias(
                             alias="timestamp",
-                            expr=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                            expr=ast.Field(chain=[metric_config.table_name, metric_config.table_timestamp_field]),
                         ),
                         ast.Alias(
                             alias="distinct_id",
-                            expr=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
+                            expr=ast.Field(chain=["exposure", "distinct_id"]),
                         ),
                         ast.Field(chain=["exposure", "variant"]),
                         parse_expr(f"{metric_value} as value"),
@@ -189,8 +201,9 @@ class ExperimentQueryRunner(QueryRunner):
                             alias="exposure",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
-                                    left=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
-                                    right=ast.Field(chain=["exposure", "distinct_id"]),
+                                    left=ast.Field(chain=[metric_config.table_name, metric_config.table_id_field]),
+                                    # TODO: Figure out how to "extract" ex. customer_id from the chained field, ex. customer.customer_id
+                                    right=ast.Field(chain=["exposure", "customer_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -200,7 +213,7 @@ class ExperimentQueryRunner(QueryRunner):
                     where=ast.And(
                         exprs=[
                             ast.CompareOperation(
-                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.table_timestamp_field]),
                                 right=ast.Field(chain=["exposure", "first_exposure_time"]),
                                 op=ast.CompareOperationOp.GtEq,
                             ),

@@ -1,6 +1,5 @@
 from typing import cast
 from django.test import override_settings
-import pytest
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -175,7 +174,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             joining_table_name="events",
             joining_table_key="properties.$user_id",
             field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
+            # configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
         )
         return table_name
 
@@ -316,21 +315,21 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=subscription_table_name,
-            source_table_key="subscription_customer_id",
-            joining_table_name=customer_table_name,
-            joining_table_key="customer_id",
-            field_name="subscription_customer",
+            source_table_name=customer_table_name,
+            source_table_key="customer_id",
+            joining_table_name=subscription_table_name,
+            joining_table_key="subscription_customer_id",
+            field_name="subscriptions",
         )
 
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=subscription_table_name,
-            source_table_key="subscription_customer.customer_email",
-            joining_table_name="events",
-            joining_table_key="person.properties.email",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "subscription_created_at"},
+            source_table_name="events",
+            source_table_key="person.properties.email",
+            joining_table_name=customer_table_name,
+            joining_table_key="customer_email",
+            field_name="customer",
+            # configuration={"experiments_optimized": True, "experiments_timestamp_key": "subscription_created_at"},
         )
 
         return subscription_table_name
@@ -1289,7 +1288,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 8)
         self.assertEqual(test_result.absolute_exposure, 10)
 
-    @pytest.mark.skip(reason="Doesn't work with the new query runner")
     def test_query_runner_with_data_warehouse_subscriptions_table(self):
         table_name = self.create_data_warehouse_table_with_subscriptions()
 
@@ -1305,10 +1303,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentDataWarehouseMetricConfig(
+                events_id_field="customer.customer_id",  # Need this to be configured as a datawarehouse join
                 table_name=table_name,
-                distinct_id_field="subscription_customer_id",
-                id_field="id",
-                timestamp_field="subscription_created_at",
+                table_id_field="subscription_customer_id",
+                table_timestamp_field="subscription_created_at",
             ),
         )
 
@@ -1361,6 +1359,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         flush_persons_and_events()
+        # breakpoint()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
