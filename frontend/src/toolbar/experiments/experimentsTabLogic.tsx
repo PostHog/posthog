@@ -232,14 +232,12 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
     selectors({
         removeVariantAvailable: [
-            (s) => [s.experimentForm, s.selectedExperimentId],
-            (experimentForm: WebExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+            (s) => [s.experimentForm],
+            (experimentForm: WebExperimentForm): boolean | undefined => {
                 /*Only show the remove button if all of these conditions are met:
-                1. Its a new Experiment
-                2. The experiment is still in draft form
-                3. there's more than one test variant, and the variant is not control*/
+                1. The experiment is still in draft form
+                2. there's more than one test variant, and the variant is not control*/
                 return (
-                    selectedExperimentId === 'new' &&
                     experimentForm.start_date == null &&
                     experimentForm.variants &&
                     Object.keys(experimentForm.variants).length > 2
@@ -247,12 +245,11 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             },
         ],
         addVariantAvailable: [
-            (s) => [s.experimentForm, s.selectedExperimentId],
-            (experimentForm: WebExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+            (s) => [s.experimentForm],
+            (experimentForm: WebExperimentForm): boolean | undefined => {
                 /*Only show the add button if all of these conditions are met:
-                1. Its a new Experiment
-                2. The experiment is still in draft form*/
-                return selectedExperimentId === 'new' || experimentForm.start_date == null
+                1. The experiment is still in draft form*/
+                return experimentForm.start_date == null
             },
         ],
         selectedExperiment: [
