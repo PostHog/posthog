@@ -1,4 +1,4 @@
-import { getAppContext } from './getAppContext';
+import { getAppContext } from './getAppContext'
 
 export function apiHostOrigin(): string {
     const appOrigin = window.location.origin
@@ -23,6 +23,6 @@ export function liveEventsHostOrigin(): string | null {
     } else if (process.env.STORYBOOK) {
         return 'http://localhost:6006'
     }
-  
+
     return appContext?.livestream_host || 'http://localhost:8666'
 }
