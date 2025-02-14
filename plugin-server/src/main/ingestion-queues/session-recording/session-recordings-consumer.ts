@@ -4,8 +4,6 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { buildIntegerMatcher } from '../../../config/config'
 import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -18,6 +16,7 @@ import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatch
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
+import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'

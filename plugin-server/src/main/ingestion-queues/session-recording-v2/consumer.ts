@@ -11,11 +11,11 @@ import {
 
 import { KafkaProducerWrapper } from '~/src/kafka/producer'
 import { PostgresRouter } from '~/src/utils/db/postgres'
-import { captureException } from '~/src/utils/posthog'
 
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
+import { captureException } from '../../../utils/posthog'
 import { status as logger } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { runInstrumentedFunction } from '../../utils'

@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { ClickHouseTimestamp, RRWebEvent, TimestampFormat } from '../../../types'
+import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { activeMilliseconds } from './snapshot-segmenter'

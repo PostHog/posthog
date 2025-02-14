@@ -1,10 +1,9 @@
 import { Redis } from 'ioredis'
 import { TopicPartition } from 'node-rdkafka'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
+import { captureException } from '../../../../utils/posthog'
 import { status } from '../../../../utils/status'
 
 export const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {

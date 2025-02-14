@@ -2,12 +2,11 @@ import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
+import { captureException } from '../../../../utils/posthog'
 import { status } from '../../../../utils/status'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'

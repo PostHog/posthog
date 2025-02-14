@@ -2,11 +2,10 @@ import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { createRedis } from '../../../../utils/db/redis'
 import { timeoutGuard } from '../../../../utils/db/utils'
+import { captureException } from '../../../../utils/posthog'
 import { status } from '../../../../utils/status'
 
 const Keys = {

@@ -1,8 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PreIngestionEvent } from '~/src/types'
-import { captureException } from '~/src/utils/posthog'
 
+import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'

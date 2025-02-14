@@ -1,9 +1,8 @@
 import * as schedule from 'node-schedule'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { captureException } from '../../utils/posthog'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
@@ -156,7 +155,7 @@ export class HogFunctionManagerService {
                   await this.hub.postgres.query<HogFunctionType>(
                       PostgresUse.COMMON_READ,
                       `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE type = ANY($1)
-                       AND updated_at > $2 
+                       AND updated_at > $2
                        ORDER BY updated_at ASC`,
                       [this.hogTypes, this.lastUpdatedAt],
                       'fetchUpdatedHogFunctions'
@@ -165,7 +164,7 @@ export class HogFunctionManagerService {
                   await this.hub.postgres.query<HogFunctionType>(
                       PostgresUse.COMMON_READ,
                       `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE type = ANY($1)
-                        AND deleted = FALSE AND enabled = TRUE 
+                        AND deleted = FALSE AND enabled = TRUE
                         ORDER BY updated_at ASC`,
                       [this.hogTypes],
                       'fetchAllHogFunctions'

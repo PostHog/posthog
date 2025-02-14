@@ -4,8 +4,6 @@ import equal from 'fast-deep-equal'
 import { Summary } from 'prom-client'
 import RE2 from 're2'
 
-import { captureException } from '~/src/utils/posthog'
-
 import {
     Action,
     ActionStep,
@@ -23,6 +21,7 @@ import {
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
+import { captureException } from '../../utils/posthog'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 import { TeamManager } from './team-manager'

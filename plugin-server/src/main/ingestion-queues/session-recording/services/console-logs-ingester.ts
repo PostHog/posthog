@@ -1,11 +1,10 @@
 import { Counter } from 'prom-client'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
+import { captureException } from '../../../../utils/posthog'
 import { status } from '../../../../utils/status'
 import { eventDroppedCounter } from '../../metrics'
 import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
