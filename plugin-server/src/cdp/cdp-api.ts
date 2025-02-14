@@ -246,16 +246,21 @@ export class CdpApi {
                 // NOTE: We override the ID so that the transformer doesn't cache the result
                 // TODO: We could do this with a "special" ID to indicate no caching...
                 compoundConfiguration.id = new UUIDT().toString()
-                const response = await this.hogTransformer.transformEvent(triggerGlobals.event as PluginEvent, [
-                    compoundConfiguration,
-                ])
+                const pluginEvent: PluginEvent = {
+                    ...triggerGlobals.event,
+                    ip: triggerGlobals.event.properties.$ip,
+                    site_url: triggerGlobals.project.url,
+                    team_id: triggerGlobals.project.id,
+                    now: DateTime.now().toISO(),
+                }
+                const response = await this.hogTransformer.transformEvent(pluginEvent, [compoundConfiguration])
 
                 result = response.event
 
-                for (const result of response.invocationResults) {
-                    logs = logs.concat(result.logs)
-                    if (result.error) {
-                        errors.push(result.error)
+                for (const invocationResult of response.invocationResults) {
+                    logs = logs.concat(invocationResult.logs)
+                    if (invocationResult.error) {
+                        errors.push(invocationResult.error)
                     }
                 }
             }
