@@ -54,6 +54,10 @@ class DestinationTestStep:
 
 
 class DestinationTest:
+    @abc.abstractmethod
+    def configure(self, **kwargs):
+        raise NotImplementedError
+
     @property
     @abc.abstractmethod
     def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
@@ -106,9 +110,19 @@ class S3CheckBucketExistsTestStep(DestinationTestStep):
             except ClientError as err:
                 error_code = err.response.get("Error", {}).get("Code")
                 if error_code == "404":
+                    # I think 404 is returned if the bucket doesn't exist **AND** we
+                    # would have permissions to use it, where as 403 is for we wouldn't even
+                    # have permissions, regardless of bucket status. But the message here intends to
+                    # also cover the case when we don't have permissions for a specific bucket.
                     return DestinationTestStepResult(
                         status=Status.FAILED,
                         message=f"Bucket '{self.bucket_name}' does not exist or we don't have permissions to use it",
+                    )
+                elif error_code == "403":
+                    # 403 is also apparently caused by `endpoint_url` problems.
+                    return DestinationTestStepResult(
+                        status=Status.FAILED,
+                        message=f"We couldn't access bucket '{self.bucket_name}'. Check the provided credentials, endpoint, and whether the necessary permissions to access the bucket have been granted",
                     )
                 else:
                     return DestinationTestStepResult(
@@ -127,19 +141,12 @@ class S3DestinationTest(DestinationTest):
         self.aws_secret_access_key = None
         self.endpoint_url = None
 
-    def configure(
-        self,
-        bucket_name: str,
-        region: str,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
-        endpoint_url: str,
-    ):
-        self.bucket_name = bucket_name
-        self.region = region
-        self.aws_access_key_id = aws_access_key_id
-        self.aws_secret_access_key = aws_secret_access_key
-        self.endpoint_url = endpoint_url
+    def configure(self, **kwargs):
+        self.bucket_name = kwargs.get("bucket_name", None)
+        self.region = kwargs.get("region", None)
+        self.aws_access_key_id = kwargs.get("aws_access_key_id", None)
+        self.aws_secret_access_key = kwargs.get("aws_secret_access_key", None)
+        self.endpoint_url = kwargs.get("endpoint_url", None)
 
     @property
     def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
@@ -285,24 +292,15 @@ class BigQueryDestinationTest(DestinationTest):
         self.table_id = None
         self.service_account_info = None
 
-    def configure(
-        self,
-        project_id: str,
-        dataset_id: str,
-        table_id: str,
-        private_key: str,
-        private_key_id: str,
-        token_uri: str,
-        client_email: str,
-    ):
-        self.project_id = project_id
-        self.dataset_id = dataset_id
-        self.table_id = table_id
+    def configure(self, **kwargs):
+        self.project_id = kwargs.get("project_id", None)
+        self.dataset_id = kwargs.get("dataset_id", None)
+        self.table_id = kwargs.get("table_id", None)
         self.service_account_info = {
-            "private_key": private_key,
-            "private_key_id": private_key_id,
-            "token_uri": token_uri,
-            "client_email": client_email,
+            "private_key": kwargs.get("private_key", None),
+            "private_key_id": kwargs.get("private_key_id", None),
+            "token_uri": kwargs.get("token_uri", None),
+            "client_email": kwargs.get("client_email", None),
         }
 
     @property
@@ -335,16 +333,18 @@ class RedshiftDestinationTest(DestinationTest):
     pass
 
 
-def get_destination_test(destination: str, **kwargs) -> DestinationTest:
+def get_destination_test(
+    destination: str,
+) -> DestinationTest:
     if destination == "S3":
-        return S3DestinationTest(**kwargs)
+        return S3DestinationTest()
     elif destination == "Snowflake":
-        return SnowflakeDestinationTest(**kwargs)
+        return SnowflakeDestinationTest()
     elif destination == "BigQuery":
-        return BigQueryDestinationTest(**kwargs)
+        return BigQueryDestinationTest()
     elif destination == "Postgres":
-        return PostgreSQLDestinationTest(**kwargs)
+        return PostgreSQLDestinationTest()
     elif destination == "Redshift":
-        return RedshiftDestinationTest(**kwargs)
+        return RedshiftDestinationTest()
     else:
         raise ValueError(f"Unsupported destination: {destination}")
