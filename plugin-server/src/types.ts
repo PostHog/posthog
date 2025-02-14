@@ -323,10 +323,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
 
-    // HOG Transformations (Alpha feature)
-    HOG_TRANSFORMATIONS_ENABLED: boolean
-    HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: number | undefined
-
     // cookieless
     COOKIELESS_DISABLED: boolean
     COOKIELESS_FORCE_STATELESS_MODE: boolean

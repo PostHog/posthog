@@ -223,10 +223,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
 
-        // Hog Transformations (Alpha)
-        HOG_TRANSFORMATIONS_ENABLED: false,
-        HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: 0,
-
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DISABLED: false,

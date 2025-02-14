@@ -31,6 +31,7 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import { NodeKind, RevenueTrackingConfig } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import type {
@@ -48,7 +49,6 @@ import type {
     RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
-import { NodeKind, RevenueTrackingConfig } from './queries/schema/schema-general'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -520,6 +520,11 @@ export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
 
+export enum ActivationTaskStatus {
+    COMPLETED = 'completed',
+    SKIPPED = 'skipped',
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -566,6 +571,9 @@ export interface TeamType extends TeamBasicType {
     cookieless_server_hash_mode?: CookielessServerHashMode
     human_friendly_comparison_periods: boolean
     revenue_tracking_config: RevenueTrackingConfig
+    onboarding_tasks?: {
+        [key: string]: ActivationTaskStatus
+    }
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -3003,6 +3011,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
+    has_encrypted_payloads: boolean
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
 }
 
@@ -4104,6 +4113,7 @@ export interface DataWarehouseSavedQuery {
     query: HogQLQuery
     columns: DatabaseSchemaField[]
     last_run_at?: string
+    sync_frequency: string
     status?: string
 }
 
@@ -4159,6 +4169,7 @@ export interface ExternalDataSource {
     status: string
     source_type: ExternalDataSourceType
     prefix: string
+    latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
@@ -4196,6 +4207,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | null
     status?: string
+    latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
@@ -4337,6 +4349,7 @@ export type BatchExportService =
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
 export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
+export type OrNever = 'never'
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -4625,17 +4638,15 @@ export type BillingTableTierRow = {
     subrows: ProductPricingTierSubrows
 }
 
-export type AvailableOnboardingProducts = Pick<
-    {
-        [key in ProductKey]: OnboardingProduct
-    },
+export type AvailableOnboardingProducts = Record<
     | ProductKey.PRODUCT_ANALYTICS
     | ProductKey.SESSION_REPLAY
     | ProductKey.FEATURE_FLAGS
     | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
-    | ProductKey.WEB_ANALYTICS
+    | ProductKey.WEB_ANALYTICS,
+    OnboardingProduct
 >
 
 export type OnboardingProduct = {

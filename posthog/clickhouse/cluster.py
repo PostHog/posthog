@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
-import time
 import re
+import time
+from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import (
     ALL_COMPLETED,
@@ -97,6 +98,9 @@ class ClickhouseCluster:
         if logger is None:
             logger = logging.getLogger(__name__)
 
+        self.__shards: dict[int, set[HostInfo]] = defaultdict(set)
+        self.__extra_hosts: set[HostInfo] = set()
+
         cluster_hosts = bootstrap_client.execute(
             """
             SELECT host_address, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
@@ -107,12 +111,13 @@ class ClickhouseCluster:
             {"name": cluster or settings.CLICKHOUSE_CLUSTER},
         )
 
-        self.__hosts = [
-            # We only use the port from system.clusters if we're running in E2E tests or debug mode,
-            # otherwise, we will use the default port.
-            HostInfo(
+        for row in cluster_hosts:
+            (host_address, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
+            host_info = HostInfo(
                 ConnectionInfo(
                     host_address,
+                    # We only use the port from system.clusters if we're running in E2E tests or debug mode,
+                    # otherwise, we will use the default port.
                     port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
                 ),
                 shard_num if host_cluster_role != "coordinator" else None,
@@ -120,18 +125,10 @@ class ClickhouseCluster:
                 host_cluster_type,
                 host_cluster_role,
             )
-            for (
-                host_address,
-                port,
-                shard_num,
-                replica_num,
-                host_cluster_type,
-                host_cluster_role,
-            ) in cluster_hosts
-        ]
+            (self.__shards[shard_num] if host_info.shard_num is not None else self.__extra_hosts).add(host_info)
 
         if extra_hosts is not None and len(extra_hosts) > 0:
-            self.__hosts.extend(
+            self.__extra_hosts.update(
                 [
                     HostInfo(
                         connection_info,
@@ -143,13 +140,10 @@ class ClickhouseCluster:
                     for connection_info in extra_hosts
                 ]
             )
+
         self.__pools: dict[HostInfo, ChPool] = {}
         self.__logger = logger
         self.__client_settings = client_settings
-
-    @property
-    def shards(self) -> list[int]:
-        return list({host.shard_num for host in self.__hosts if host.shard_num is not None})
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
@@ -170,9 +164,17 @@ class ClickhouseCluster:
 
         return task
 
+    @property
+    def __hosts(self) -> set[HostInfo]:
+        """Set containing all hosts in the cluster."""
+        hosts = set(self.__extra_hosts)
+        for shard_hosts in self.__shards.values():
+            hosts.update(shard_hosts)
+        return hosts
+
     def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
         with ThreadPoolExecutor() as executor:
-            host = self.__hosts[0]
+            host = next(iter(self.__hosts))
             return executor.submit(self.__get_task_function(host, fn))
 
     def any_host_by_role(self, fn: Callable[[Client], T], node_role: NodeRole) -> Future[T]:
@@ -227,11 +229,7 @@ class ClickhouseCluster:
         """
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
-                {
-                    host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts
-                    if host.shard_num == shard_num
-                }
+                {host: executor.submit(self.__get_task_function(host, fn)) for host in self.__shards[shard_num]}
             )
 
     def map_all_hosts_in_shards(
@@ -245,18 +243,33 @@ class ClickhouseCluster:
 
         Wait for all to return before returning upon ``.values()``
         """
-
         shard_host_fn = {}
         for shard, fn in shard_fns.items():
-            if shard not in self.shards:
-                raise ValueError(f"Shard {shard} not found in cluster")
-            for host in self.__hosts:
-                if host.shard_num == shard:
-                    shard_host_fn[host] = fn
+            for host in self.__shards[shard]:
+                shard_host_fn[host] = fn
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
                 {host: executor.submit(self.__get_task_function(host, fn)) for host, fn in shard_host_fn.items()}
+            )
+
+    def map_any_host_in_shards(
+        self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable on one host for each of the specified shards.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
+        shard_host_fns = {}
+        for shard, fn in shard_fns.items():
+            host = next(iter(self.__shards[shard]))
+            shard_host_fns[host] = fn
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            return FuturesMap(
+                {host: executor.submit(self.__get_task_function(host, fn)) for host, fn in shard_host_fns.items()}
             )
 
     def map_one_host_per_shard(
@@ -268,15 +281,9 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        shard_hosts: dict[int, HostInfo] = {}
-        for host in self.__hosts:
-            if host.shard_num is not None and host.shard_num not in shard_hosts:
-                shard_hosts[host.shard_num] = host
-
+        hosts = {next(iter(shard_hosts)) for shard_hosts in self.__shards.values()}
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {host: executor.submit(self.__get_task_function(host, fn)) for host in shard_hosts.values()}
-            )
+            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
 
 
 def get_cluster(
@@ -320,6 +327,10 @@ class MutationRunner:
     parameters: Mapping[str, Any]
     settings: Mapping[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if invalid_keys := {key for key in self.parameters.keys() if key.startswith("__")}:
+            raise ValueError(f"invalid parameter names: {invalid_keys!r} (keys cannot start with double underscore)")
+
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
 
@@ -328,26 +339,30 @@ class MutationRunner:
         else:
             command = self.command
 
+        if (command_kind_match := re.match(r"^(\w+) ", command.lstrip())) is None:
+            raise ValueError(f"could not determine command kind from {command!r}")
+
         results = client.execute(
             f"""
             SELECT mutation_id
             FROM system.mutations
             WHERE
-                database = %(_database_{id(self)})s
-                AND table = %(_table_{id(self)})s
+                database = %(__database)s
+                AND table = %(__table)s
                 -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
                 -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
                 AND NOT throwIf(
-                    length(splitByString('UPDATE', replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {command}$_sql_{id(self)}$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
+                    length(splitByString(%(__command_kind)s, replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {command}$__sql$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
                     'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
                 )
-                AND command = 'UPDATE ' || trim(lines[2])
+                AND command = %(__command_kind)s || ' ' || trim(lines[2])
                 AND NOT is_killed  -- ok to restart a killed mutation
             ORDER BY create_time DESC
             """,
             {
-                f"_database_{id(self)}": settings.CLICKHOUSE_DATABASE,
-                f"_table_{id(self)}": self.table,
+                f"__database": settings.CLICKHOUSE_DATABASE,
+                f"__table": self.table,
+                f"__command_kind": command_kind_match.group(1),
                 **self.parameters,
             },
         )

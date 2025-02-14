@@ -96,6 +96,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
             ({ value, editor, decorations } as CodeEditorValidation),
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
+        cancelSampleGlobalsLoading: true,
     }),
     reducers({
         expanded: [
@@ -142,10 +143,32 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 setJsonError: () => [], // Clear decorations when error state changes
             },
         ],
+
+        fetchCancelled: [
+            false as boolean,
+            {
+                loadSampleGlobals: () => false,
+                cancelSampleGlobalsLoading: () => true,
+                // Reset when expanded changes to allow future fetches
+                toggleExpanded: () => false,
+            },
+        ],
+
+        isGlobalLoadingCancelled: [
+            false as boolean,
+            {
+                loadSampleGlobals: () => false,
+                cancelSampleGlobalsLoading: () => true,
+                loadSampleGlobalsSuccess: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
-            actions.receiveExampleGlobals(values.sampleGlobals)
+            // Only process the new globals if we're expanded and the fetch wasn't cancelled
+            if (values.expanded && !values.fetchCancelled) {
+                actions.receiveExampleGlobals(values.sampleGlobals)
+            }
         },
         setSampleGlobals: ({ sampleGlobals }) => {
             actions.receiveExampleGlobals(sampleGlobals)
@@ -246,6 +269,10 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 }, 100)
             }
         },
+
+        cancelSampleGlobalsLoading: () => {
+            // Just mark as cancelled - we'll ignore any results that come back
+        },
     })),
 
     forms(({ props, actions, values }) => ({
@@ -330,8 +357,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        if (values.type === 'transformation') {
-            actions.receiveExampleGlobals(values.exampleInvocationGlobals)
-        }
+        actions.receiveExampleGlobals(values.exampleInvocationGlobals)
     }),
 ])
