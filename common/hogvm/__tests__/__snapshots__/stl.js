@@ -61,7 +61,7 @@ function toIntervalMonth(val) { return __toHogInterval(val, 'month') }
 function toIntervalDay(val) { return __toHogInterval(val, 'day') }
 function toDateTime (input, zone) { return __toDateTime(input, zone) }
 function toDate (input) { return __toDate(input) }
-function substring(s, start, length) {
+function substring(s, start, length = s.length - start + 1) {
     if (typeof s !== 'string') return '';
     const startIdx = start - 1;
     if (startIdx < 0 || length < 0) return '';
@@ -531,6 +531,7 @@ print("-- string/array --");
 print(__x_in("a", tuple("a", "b", "c")), __x_in("z", tuple("a", "b", "c")));
 print(__x_in("a", ["a", "b", "c"]), __x_in("z", ["a", "b", "c"]));
 print(startsWith("hello", "he"), substring("abcdef", 2, 3));
+print(substring("abcdef", 2));
 print(coalesce(null, null, "firstNonNull"), assumeNotNull("notNull"));
 print("");
 print("-- date --");

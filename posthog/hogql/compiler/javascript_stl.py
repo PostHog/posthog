@@ -1214,7 +1214,7 @@ function __setProperty(objectOrArray, key, value) {
         [],
     ],
     "substring": [
-        """function substring(s, start, length) {
+        """function substring(s, start, length = s.length - start + 1) {
     if (typeof s !== 'string') return '';
     const startIdx = start - 1;
     if (startIdx < 0 || length < 0) return '';
