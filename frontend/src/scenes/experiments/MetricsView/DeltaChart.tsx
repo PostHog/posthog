@@ -17,6 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { NodeKind } from '~/queries/schema'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -284,7 +285,7 @@ export function DeltaChart({
                             </div>
                             <div className="space-x-1">
                                 <LemonTag type="muted" size="small">
-                                    {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
+                                    {metric.kind === NodeKind.ExperimentFunnelsQuery ? 'Funnel' : 'Trend'}
                                 </LemonTag>
                                 {metric.isSharedMetric && (
                                     <LemonTag type="option" size="small">
@@ -846,11 +847,13 @@ export function DeltaChart({
                 }
             >
                 {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                {result && (result.kind === 'ExperimentTrendsQuery' || result.kind === 'ExperimentFunnelsQuery') && (
-                    <div className="flex justify-end">
-                        <ExploreButton result={result} />
-                    </div>
-                )}
+                {result &&
+                    (result.kind === NodeKind.ExperimentTrendsQuery ||
+                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
+                        <div className="flex justify-end">
+                            <ExploreButton result={result} />
+                        </div>
+                    )}
                 <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
                         <WinningVariantText result={result} experimentId={experimentId} />
@@ -859,9 +862,11 @@ export function DeltaChart({
                 </LemonBanner>
                 <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
                 {/* TODO: Only show results query if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                {result && (result.kind === 'ExperimentTrendsQuery' || result.kind === 'ExperimentFunnelsQuery') && (
-                    <ResultsQuery result={result} showTable={true} />
-                )}
+                {result &&
+                    (result.kind === NodeKind.ExperimentTrendsQuery ||
+                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
+                        <ResultsQuery result={result} showTable={true} />
+                    )}
             </LemonModal>
         </div>
     )
