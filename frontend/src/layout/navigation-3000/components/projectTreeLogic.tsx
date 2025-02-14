@@ -131,7 +131,7 @@ export const getDefaultTree = (): TreeDataItem[] => [
                 id: 'new/survey',
                 name: 'Survey',
                 icon: iconForType('survey'),
-                onClick: () => router.actions.push(urls.experiment('new')),
+                onClick: () => router.actions.push(urls.survey('new')),
             },
             {
                 id: 'new/sql',
