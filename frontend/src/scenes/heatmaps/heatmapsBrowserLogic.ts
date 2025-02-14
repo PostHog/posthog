@@ -32,6 +32,15 @@ export interface IFrameBanner {
     message: string | JSX.Element
 }
 
+export interface ReplayIframeData {
+    html: string
+    width: number // NB this should be meta width
+    height: number // NB this should be meta height
+    startDateTime: string | undefined
+    url: string | undefined
+    createdAt: string
+}
+
 // team id is always available on window
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
@@ -71,6 +80,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
         startTrackingLoading: true,
         stopTrackingLoading: true,
+        setReplayIframeData: (replayIframeData: ReplayIframeData | null) => ({ replayIframeData }),
     }),
 
     loaders(({ values }) => ({
@@ -128,6 +138,19 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     reducers({
+        hasValidReplayIframeData: [
+            false,
+            {
+                setReplayIframeData: (_, { replayIframeData }) =>
+                    !!replayIframeData?.url?.trim().length && !!replayIframeData?.html.trim().length,
+            },
+        ],
+        replayIframeData: [
+            null as ReplayIframeData | null,
+            {
+                setReplayIframeData: (_, { replayIframeData }) => replayIframeData,
+            },
+        ],
         filterPanelCollapsed: [
             false as boolean,
             { persist: true },
@@ -400,6 +423,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
             if (searchParams.commonFilters && !objectsEqual(searchParams.commonFilters, values.commonFilters)) {
                 actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
+            }
+            if (searchParams.iframeStorage) {
+                const replayFrameData = JSON.parse(
+                    localStorage.getItem(searchParams.iframeStorage) || '{}'
+                ) as ReplayIframeData
+                actions.setReplayIframeData(replayFrameData)
             }
         },
     })),

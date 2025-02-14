@@ -3,7 +3,7 @@ import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems }
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from 'lib/lemon-ui/icons'
+import { IconComment, IconHeatmap } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Fragment, useMemo } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -69,7 +69,7 @@ function PinToPlaylistButton({
 
 export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPause } = useActions(sessionRecordingPlayerLogic)
+    const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
 
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
@@ -99,6 +99,16 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                             {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
                         </div>
                     )}
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconHeatmap />}
+                        {...commonProps}
+                        onClick={() => {
+                            openHeatmap()
+                        }}
+                    >
+                        Heatmaps
+                    </LemonButton>
                     <NotebookSelectButton
                         {...commonProps}
                         icon={<IconComment />}

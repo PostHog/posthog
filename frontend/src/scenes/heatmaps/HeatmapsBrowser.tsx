@@ -218,6 +218,47 @@ function LoadingOverlay(): JSX.Element {
     )
 }
 
+function FixedReplayHeatmapBrowser({
+    iframeRef,
+}: {
+    iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
+}): JSX.Element | null {
+    const logic = heatmapsBrowserLogic()
+
+    const { replayIframeData, hasValidReplayIframeData } = useValues(logic)
+    const { onIframeLoad, setIframeWidth } = useActions(logic)
+
+    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+    useEffect(() => {
+        setIframeWidth(iframeWidth ?? null)
+    }, [iframeWidth])
+
+    return hasValidReplayIframeData ? (
+        <div className="flex flex-row gap-x-2 w-full">
+            <FilterPanel />
+            <div className="relative flex-1 w-full h-full">
+                {/*{loading ? <LoadingOverlay /> : null}*/}
+                {/*{!loading && iframeBanner ? <IframeErrorOverlay /> : null}*/}
+                <iframe
+                    ref={iframeRef}
+                    className="w-full h-full bg-white"
+                    // src={appEditorUrl(browserUrl, {
+                    //     userIntent: 'heatmaps',
+                    // })}
+                    srcDoc={replayIframeData?.html}
+                    onLoad={onIframeLoad}
+                    // these two sandbox values are necessary so that the site and toolbar can run
+                    // this is a very loose sandbox,
+                    // but we specify it so that at least other capabilities are denied
+                    // sandbox="allow-scripts allow-same-origin"
+                    // we don't allow things such as camera access though
+                    allow=""
+                />
+            </div>
+        </div>
+    ) : null
+}
+
 function EmbeddedHeatmapBrowser({
     iframeRef,
 }: {
@@ -287,17 +328,26 @@ export function HeatmapsBrowser(): JSX.Element {
 
     const logic = heatmapsBrowserLogic({ iframeRef })
 
-    const { browserUrl, isBrowserUrlAuthorized } = useValues(logic)
+    const { browserUrl, isBrowserUrlAuthorized, replayIframeData, hasValidReplayIframeData } = useValues(logic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <div className="flex flex-col gap-2">
                 <Warnings />
                 <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
-                    <UrlSearchHeader />
+                    {hasValidReplayIframeData ? (
+                        <div className="bg-surface-primary p-2 border-b flex items-center space-x-2">
+                            <div>Site loaded from replay data for:</div>
+                            <div>{replayIframeData?.url}</div>
+                        </div>
+                    ) : (
+                        <UrlSearchHeader />
+                    )}
 
                     <div className="relative flex flex-1 bg-surface-primary overflow-hidden">
-                        {browserUrl ? (
+                        {hasValidReplayIframeData ? (
+                            <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
+                        ) : browserUrl ? (
                             <>
                                 {!isBrowserUrlAuthorized ? (
                                     <ForbiddenURL />

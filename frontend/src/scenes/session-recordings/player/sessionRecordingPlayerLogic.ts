@@ -21,12 +21,13 @@ import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, downloadFile, objectsEqual } from 'lib/utils'
+import { clamp, downloadFile, objectsEqual, uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
+import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import {
     sessionRecordingDataLogic,
@@ -103,6 +104,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values: [
             sessionRecordingDataLogic(props),
             [
+                'urls',
                 'snapshotsLoaded',
                 'snapshotsLoading',
                 'isRealtimePolling',
@@ -179,6 +181,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         deleteRecording: true,
         openExplorer: true,
         closeExplorer: true,
+        openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
@@ -555,6 +558,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             debugSettings.incrementalSources.includes(s.data.source))
                 )
                 return visualSnapshots.sort((a, b) => a.timestamp - b.timestamp)
+            },
+        ],
+
+        currentURL: [
+            (s) => [s.urls, s.sessionPlayerMetaData, s.currentTimestamp],
+            (urls, sessionPlayerMetaData, currentTimestamp): string | undefined => {
+                if (!urls.length || !currentTimestamp) {
+                    return sessionPlayerMetaData?.start_url ?? undefined
+                }
+
+                // Go through the events in reverse to find the latest pageview
+                for (let i = urls.length - 1; i >= 0; i--) {
+                    const urlTimestamp = urls[i]
+                    if (i === 0 || urlTimestamp.timestamp < currentTimestamp) {
+                        return urlTimestamp.url
+                    }
+                }
             },
         ],
     }),
@@ -1084,6 +1104,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 width: parseFloat(iframe.width),
                 height: parseFloat(iframe.height),
             })
+        },
+        openHeatmap: () => {
+            actions.setPause()
+            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
+            if (!iframeHtml) {
+                return
+            }
+
+            const key = 'ph_replay_fixed_heatmap_' + uuid()
+            const data: ReplayIframeData = {
+                html: iframeHtml,
+                width: parseFloat(iframe.width), // NB this should be meta width
+                height: parseFloat(iframe.height), // NB this should be meta height
+                startDateTime: values.sessionPlayerMetaData?.start_time,
+                url: values.currentURL,
+                createdAt: now().toISOString(),
+            }
+            localStorage.setItem(key, JSON.stringify(data))
+            router.actions.push(urls.heatmaps(`iframeStorage=${key}`))
         },
 
         setIsFullScreen: async ({ isFullScreen }) => {
