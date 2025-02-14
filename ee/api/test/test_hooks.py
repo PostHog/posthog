@@ -10,6 +10,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import ClickhouseTestMixin
+from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 
 
 class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
@@ -113,6 +114,8 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             "target": "https://hooks.zapier.com/hooks/standard/1234/abcd",
             "resource_id": self.action.id,
         }
+
+        assert hog_function.description == template_zapier.description
 
         assert hog_function.filters == {
             "actions": [{"id": str(self.action.id), "name": "", "type": "actions", "order": 0}],
@@ -227,7 +230,7 @@ if (inputs.debug) {
             )
 
             hog_function = create_zapier_hog_function(
-                hook, {"user": hook.user, "get_team": lambda hook=hook: hook.team}
+                hook, {"user": hook.user, "get_team": lambda hook=hook: hook.team}, from_migration=True
             )
             hog_function.save()
             hooks.append(hook)
