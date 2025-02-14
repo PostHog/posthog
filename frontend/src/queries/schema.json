@@ -1263,8 +1263,13 @@
                     "description": "Retention event (event marking the user coming back)."
                 },
                 "showMean": {
-                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "description": "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
                     "type": "boolean"
+                },
+                "showMeanRetention": {
+                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
                 },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity",
@@ -13080,6 +13085,10 @@
                 "showMean": {
                     "type": "boolean"
                 },
+                "showMeanRetention": {
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
+                },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
@@ -13113,6 +13122,10 @@
                 },
                 "show_mean": {
                     "type": "boolean"
+                },
+                "show_mean_retention": {
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
                 },
                 "target_entity": {
                     "$ref": "#/definitions/RetentionEntity"
