@@ -799,7 +799,9 @@ class FeatureFlagViewSet(
     )
     def local_evaluation(self, request: request.Request, **kwargs):
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team__project_id=self.project_id, deleted=False
+            team__project_id=self.project_id,
+            is_remote_configuration=False,
+            deleted=False,
         )
 
         should_send_cohorts = "send_cohorts" in request.GET
@@ -837,11 +839,6 @@ class FeatureFlagViewSet(
                 }
             else:
                 feature_flag.filters = filters
-
-            if feature_flag.has_encrypted_payloads:
-                feature_flag.filters = get_decrypted_flag_payloads(
-                    request, encrypted_payloads=feature_flag.filters.get("payloads", {})
-                )
 
             parsed_flags.append(feature_flag)
 
