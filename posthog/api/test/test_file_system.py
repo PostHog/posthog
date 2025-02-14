@@ -9,7 +9,7 @@ class TestFileSystemAPI(APIBaseTest):
         """
         When no FileSystem objects exist in the DB for the team, the list should be empty.
         """
-        response = self.client.get(f"/api/environments/{self.team.id}/file_system/")
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         response_data = response.json()
         self.assertEqual(response_data["count"], 0)
@@ -20,7 +20,7 @@ class TestFileSystemAPI(APIBaseTest):
         Ensure that we can create a FileSystem object for our team.
         """
         response = self.client.post(
-            f"/api/environments/{self.team.id}/file_system/",
+            f"/api/projects/{self.team.id}/file_system/",
             {"path": "MyFolder/Document.txt", "type": "doc-file", "meta": {"description": "A test file"}},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
@@ -43,7 +43,7 @@ class TestFileSystemAPI(APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/file_system/{file_obj.pk}/")
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         response_data = response.json()
@@ -60,7 +60,7 @@ class TestFileSystemAPI(APIBaseTest):
         )
 
         update_response = self.client.patch(
-            f"/api/environments/{self.team.id}/file_system/{file_obj.pk}/",
+            f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/",
             {"path": "NewPath/file.txt", "type": "new-type"},
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK, update_response.json())
@@ -80,7 +80,7 @@ class TestFileSystemAPI(APIBaseTest):
         file_obj = FileSystem.objects.create(
             team=self.team, path="DeleteMe/file.txt", type="temp", created_by=self.user
         )
-        delete_response = self.client.delete(f"/api/environments/{self.team.id}/file_system/{file_obj.pk}/")
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/")
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
 
         # Confirm it's gone
@@ -91,7 +91,7 @@ class TestFileSystemAPI(APIBaseTest):
         If there are no relevant FeatureFlags, Experiments, etc. for this team,
         'unfiled' should return an empty list.
         """
-        response = self.client.get(f"/api/environments/{self.team.id}/file_system/unfiled/")
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         data = response.json()
         self.assertEqual(data["count"], 0)
@@ -109,7 +109,7 @@ class TestFileSystemAPI(APIBaseTest):
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
 
         # Now call the endpoint
-        response = self.client.get(f"/api/environments/{self.team.id}/file_system/unfiled/")
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         data = response.json()
@@ -134,7 +134,7 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem.objects.create(team=self.team, path="Analytics/Report 2", type="report")
         FileSystem.objects.create(team=self.team, path="Random/Other File", type="misc")
 
-        response = self.client.get(f"/api/environments/{self.team.id}/file_system/?search=Analytics")
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=Analytics")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         data = response.json()
         self.assertEqual(data["count"], 2)
@@ -142,7 +142,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertSetEqual(paths, {"Analytics/Report 1", "Analytics/Report 2"})
 
         # Searching for something else
-        response2 = self.client.get(f"/api/environments/{self.team.id}/file_system/?search=Random")
+        response2 = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=Random")
         self.assertEqual(response2.status_code, status.HTTP_200_OK, response2.json())
         data2 = response2.json()
         self.assertEqual(data2["count"], 1)
