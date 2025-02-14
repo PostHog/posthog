@@ -71,6 +71,7 @@ import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     featureFlagEligibleForExperiment,
     getMinimumDetectableEffect,
+    percentageDistribution,
     transformFiltersForWinningVariant,
 } from './utils'
 
@@ -2021,14 +2022,3 @@ export const experimentLogic = kea<experimentLogicType>([
         },
     })),
 ])
-
-export function percentageDistribution(variantCount: number): number[] {
-    const basePercentage = Math.floor(100 / variantCount)
-    const percentages = new Array(variantCount).fill(basePercentage)
-    let remaining = 100 - basePercentage * variantCount
-    for (let i = 0; remaining > 0; i++, remaining--) {
-        // try to equally distribute `remaining` across variants
-        percentages[i] += 1
-    }
-    return percentages
-}

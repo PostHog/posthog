@@ -1,10 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createHogFunction, insertHogFunction } from '../../../tests/cdp/fixtures'
+import { getProducedKafkaMessages } from '../../../tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
@@ -48,6 +50,9 @@ describe('HogTransformer', () => {
         hub = await createHub()
         await resetTestDatabase()
 
+        const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
         // Create a team first before inserting hog functions
         const team = await getFirstTeam(hub)
         teamId = team.id
@@ -83,7 +88,7 @@ describe('HogTransformer', () => {
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event: PluginEvent = createPluginEvent({}, teamId)
-            const result = await hogTransformer.transformEvent(event)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(result.event?.properties).toMatchInlineSnapshot(`
                 {
@@ -168,7 +173,7 @@ describe('HogTransformer', () => {
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event: PluginEvent = createPluginEvent({}, teamId)
-            const result = await hogTransformer.transformEvent(event)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(result.event).toMatchInlineSnapshot(`
                 {
@@ -192,7 +197,7 @@ describe('HogTransformer', () => {
                 }
             `)
         })
-        it('should execute multiple transformations', async () => {
+        it('should execute multiple transformations and produce messages', async () => {
             const testTemplate: HogFunctionTemplate = {
                 free: true,
                 status: 'beta',
@@ -259,13 +264,24 @@ describe('HogTransformer', () => {
                 timestamp: '2024-01-01T00:00:00Z',
             }
 
-            await hogTransformer.transformEvent(event)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(executeHogFunctionSpy).toHaveBeenCalledTimes(3)
             expect(executeHogFunctionSpy.mock.calls[0][0]).toMatchObject({ execution_order: 1 })
             expect(executeHogFunctionSpy.mock.calls[1][0]).toMatchObject({ execution_order: 2 })
             expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: 3 })
             expect(event.properties?.test_property).toEqual('test_value')
+
+            await Promise.all(result.messagePromises)
+
+            const messages = getProducedKafkaMessages()
+            // Replace certain messages that have changeable values
+            messages.forEach((x) => {
+                if (typeof x.value.message === 'string' && x.value.message.includes('Function completed in')) {
+                    x.value.message = 'Function completed in [REPLACED]'
+                }
+            })
+            expect(forSnapshot(messages)).toMatchSnapshot()
         })
 
         it('should delete a property from previous transformation', async () => {
@@ -340,7 +356,7 @@ describe('HogTransformer', () => {
                 timestamp: '2024-01-01T00:00:00Z',
             }
 
-            const result = await hogTransformer.transformEvent(event)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             /*
              * First call is the adding the test property
@@ -350,6 +366,7 @@ describe('HogTransformer', () => {
             expect(executeHogFunctionSpy).toHaveBeenCalledTimes(2)
             expect(result?.event?.properties?.test_property).toEqual(null)
         })
+
         it('should execute tranformation without execution_order last', async () => {
             const firstTemplate: HogFunctionTemplate = {
                 free: true,
@@ -442,7 +459,7 @@ describe('HogTransformer', () => {
                 timestamp: '2024-01-01T00:00:00Z',
             }
 
-            await hogTransformer.transformEvent(event)
+            await hogTransformer.transformEventAndProduceMessages(event)
             expect(executeHogFunctionSpy).toHaveBeenCalledTimes(3)
             expect(executeHogFunctionSpy.mock.calls[0][0]).toMatchObject({ execution_order: 1 })
             expect(executeHogFunctionSpy.mock.calls[1][0]).toMatchObject({ execution_order: 2 })
@@ -516,7 +533,7 @@ describe('HogTransformer', () => {
                 teamId
             )
 
-            const result = await hogTransformer.transformEvent(event)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             // Verify the event has both success and failure tracking
             expect(result.event?.properties).toEqual({
@@ -535,7 +552,7 @@ describe('HogTransformer', () => {
                 teamId
             )
 
-            const result = await hogTransformer.transformEvent(event)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             // Verify the event properties are unchanged
             expect(result.event?.properties).toEqual({
@@ -586,7 +603,7 @@ describe('HogTransformer', () => {
                 teamId
             )
 
-            const result = await hogTransformer.transformEvent(event)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             // Verify new results are appended to existing ones
             expect(result?.event?.properties?.$transformations_succeeded).toEqual([
@@ -630,14 +647,14 @@ describe('HogTransformer', () => {
 
         it('handles legacy plugin transformation to drop events', async () => {
             const event: PluginEvent = createPluginEvent({ event: 'drop-me', team_id: teamId })
-            const result = await hogTransformer.transformEvent(event)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
             expect(executeSpy).toHaveBeenCalledTimes(1)
             expect(result.event).toMatchInlineSnapshot(`null`)
         })
 
         it('handles legacy plugin transformation to keep events', async () => {
             const event: PluginEvent = createPluginEvent({ event: 'keep-me', team_id: teamId })
-            const result = await hogTransformer.transformEvent(event)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(executeSpy).toHaveBeenCalledTimes(1)
             expect(result.event).toMatchInlineSnapshot(`
@@ -696,7 +713,7 @@ describe('HogTransformer', () => {
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event: PluginEvent = createPluginEvent({ event: 'keep-me', team_id: teamId })
-            const result = await hogTransformer.transformEvent(event)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             expect(forSnapshot(result.event)).toMatchInlineSnapshot(`
                 {
