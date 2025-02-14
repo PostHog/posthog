@@ -4544,6 +4544,7 @@ export enum AppMetricsTab {
 }
 
 export enum SidePanelTab {
+    Max = 'max',
     Notebooks = 'notebook',
     Support = 'support',
     Docs = 'docs',

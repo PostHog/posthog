@@ -1,4 +1,4 @@
-import { IconGear } from '@posthog/icons'
+import { IconArrowLeft, IconGear, IconSidePanel } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -8,6 +8,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { SidePanelTab } from '~/types'
 
 import { Intro } from './Intro'
 import { maxLogic } from './maxLogic'
@@ -21,9 +23,29 @@ export const scene: SceneExport = {
 
 export function Max(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
+    const { closeSidePanel } = useActions(sidePanelLogic)
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
         return <NotFound object="page" caption="You don't have access to AI features yet." />
+    }
+
+    if (sidePanelOpen && selectedTab === SidePanelTab.Max) {
+        return (
+            <div className="flex flex-col items-center justify-center w-full grow">
+                <IconSidePanel className="text-3xl text-muted mb-2" />
+                <h3 className="text-xl font-bold mb-1">Max is currently in the sidebar</h3>
+                <p className="text-sm text-muted mb-3">He can only be in one place at a time.</p>
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    onClick={() => closeSidePanel()}
+                    sideIcon={<IconArrowLeft />}
+                >
+                    Get him in here
+                </LemonButton>
+            </div>
+        )
     }
 
     return (
@@ -55,7 +77,7 @@ export function MaxInstance(): JSX.Element {
         <>
             <PageHeader delimited buttons={headerButtons} />
             {!threadGrouped.length ? (
-                <div className="relative flex flex-col gap-3 px-4 items-center grow justify-center">
+                <div className="@container relative flex flex-col gap-3 px-4 pb-8 items-center grow justify-center">
                     <Intro />
                     <QuestionInput />
                     <QuestionSuggestions />
