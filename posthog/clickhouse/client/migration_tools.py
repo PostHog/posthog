@@ -22,8 +22,10 @@ def run_sql_with_exceptions(sql: str, node_role: NodeRole = NodeRole.DATA):
         if node_role == NodeRole.ALL:
             logger.info("       Running migration on coordinators and data nodes")
             return cluster.map_all_hosts(query).result()
-        else:
+        elif node_role == NodeRole.DATA:
             logger.info(f"       Running migration on {node_role.value.lower()}s")
             return cluster.map_hosts_by_role(query, node_role=node_role).result()
+        else:
+            raise NotImplementedError
 
     return migrations.RunPython(lambda _: run_migration())
