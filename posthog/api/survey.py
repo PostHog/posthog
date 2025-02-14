@@ -214,16 +214,20 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
 
-        actions = value.get("actions")
+        actions = value.get("actions", None)
 
         if actions is None:
             return value
 
-        values = actions.get("values")
+        values = actions.get("values", None)
         if values is None or len(values) == 0:
             return value
 
-        action_ids = (value.get("id") for value in values)
+        action_ids = [value.get("id") for value in values if isinstance(value, dict) and "id" in value]
+
+        if len(action_ids) == 0:
+            return value
+
         project_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
 
         for project_action in project_actions:
