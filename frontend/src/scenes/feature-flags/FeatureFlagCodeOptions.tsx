@@ -171,6 +171,7 @@ export const LOCAL_EVALUATION_LIBRARIES: string[] = [
 ]
 
 export const PAYLOAD_LIBRARIES: string[] = [
+    SDKKey.API,
     SDKKey.JS_WEB,
     SDKKey.NODE_JS,
     SDKKey.PYTHON,
@@ -181,7 +182,10 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.IOS,
     SDKKey.FLUTTER,
     SDKKey.DOTNET,
+    SDKKey.GO,
 ]
+
+export const ENCRYPTED_PAYLOAD_LIBRARIES: string[] = [SDKKey.API, SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.GO, SDKKey.RUBY]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
     {
