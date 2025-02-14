@@ -152,7 +152,7 @@ export const OPTIONS: InstructionOption[] = [
         Icon: IconRuby,
     },
     {
-        value: 'C#',
+        value: 'C#/.NET',
         documentationLink: `${DOC_BASE_URL}libraries/dotnet${UTM_TAGS}`,
         Snippet: CSharpSnippet,
         type: LibraryType.Server,
