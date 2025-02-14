@@ -25,11 +25,12 @@ import { urls } from 'scenes/urls'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema'
-import { FilterType, InsightLogicProps, SavedInsightsTabs, SlowQueryPossibilities } from '~/types'
+import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
+import { insightVizDataLogic } from '../insightVizDataLogic'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -246,18 +247,18 @@ export function StatelessInsightLoadingState({
 }
 
 export function SlowQuerySuggestions({
-    slowQueryPossibilities,
     insightProps,
     suggestedSamplingPercentage,
     samplingPercentage,
     loadingTimeSeconds = 0,
 }: {
-    slowQueryPossibilities: SlowQueryPossibilities[]
     insightProps: InsightLogicProps
     suggestedSamplingPercentage?: number | null
     samplingPercentage?: number | null
     loadingTimeSeconds?: number | null
 }): JSX.Element | null {
+    const { slowQueryPossibilities } = useValues(insightVizDataLogic(insightProps))
+
     const paragraphText = 'Need to speed things up? Steps to optimize this query:'
     const codeClassName = 'border border-1 border-border-bold rounded-sm text-xs px-1 py-0.5'
 
@@ -311,9 +312,7 @@ export function InsightLoadingState({
     insightProps: InsightLogicProps
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse, slowQueryPossibilities, insightLoadingTimeSeconds } = useValues(
-        insightDataLogic(insightProps)
-    )
+    const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
 
     const personsOnEventsMode =
@@ -334,7 +333,6 @@ export function InsightLoadingState({
                         </>
                     ) : (
                         <SlowQuerySuggestions
-                            slowQueryPossibilities={slowQueryPossibilities}
                             insightProps={insightProps}
                             suggestedSamplingPercentage={suggestedSamplingPercentage}
                             samplingPercentage={samplingPercentage}
