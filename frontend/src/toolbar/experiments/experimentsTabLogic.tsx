@@ -271,12 +271,37 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             if (!selectedExperiment) {
                 actions.setExperimentFormValues({ name: '', variants: {} })
             } else {
+                // Build original_html_state from existing selectors
+                const original_html_state: Record<string, { html: string; css?: string }> = {}
+
+                if ((selectedExperiment as WebExperiment).variants) {
+                    Object.values((selectedExperiment as WebExperiment).variants).forEach((variant) => {
+                        variant.transforms?.forEach((transform) => {
+                            if (transform.selector) {
+                                const element = document.querySelector(transform.selector) as HTMLElement
+                                if (element) {
+                                    const style = element.getAttribute('style')
+                                    original_html_state[transform.selector] = {
+                                        html: element.innerHTML,
+                                        ...(style && { css: style }),
+                                    }
+                                }
+                            }
+                        })
+                    })
+                }
+
                 actions.setExperimentFormValues({
                     name: selectedExperiment.name,
                     variants: (selectedExperiment as WebExperiment).variants
                         ? (selectedExperiment as WebExperiment).variants
                         : {},
+                    original_html_state,
                 })
+
+                // TODO: refactor into a single actions to select + apply changes
+                actions.applyVariant('control')
+                actions.selectVariant('control')
             }
         },
     })),
