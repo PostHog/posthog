@@ -3,7 +3,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { WebStatsBreakdown } from '~/queries/schema'
+import { WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, ProductKey, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
 
 /**

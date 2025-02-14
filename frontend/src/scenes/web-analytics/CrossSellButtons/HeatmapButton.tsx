@@ -11,7 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { WebStatsBreakdown } from '~/queries/schema'
+import { WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/types'
 
 interface HeatmapButtonProps {
