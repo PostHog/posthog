@@ -9,9 +9,9 @@ use uuid::Uuid;
 use crate::{
     error::{Error, FrameError, UnhandledError},
     metric_consts::{
-        SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED, SAVE_SYMBOL_SET,
-        SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES, SYMBOL_SET_FETCH_RETRY,
-        SYMBOL_SET_SAVED,
+        FRAME_RESOLUTION_RESULTS_DELETED, SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED,
+        SAVE_SYMBOL_SET, SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES,
+        SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
 };
 
@@ -95,12 +95,21 @@ impl<F> Saving<F> {
         record.save(&self.pool).await?;
         // We just saved new data for this symbol set, which invalidates all our previous stack frame resolution results,
         // so delete them
-        sqlx::query!(
-            r#"DELETE FROM posthog_errortrackingstackframe WHERE symbol_set_id = $1"#,
+        let deleted: u64 = sqlx::query_scalar!(
+            r#"WITH deleted AS (DELETE FROM posthog_errortrackingstackframe WHERE symbol_set_id = $1 RETURNING *) SELECT count(*) from deleted"#,
             record.id // The call to save() above ensures that this id is correct
         )
-        .execute(&self.pool)
-        .await?;
+        .fetch_one(&self.pool)
+        .await?.map_or(0, |v| {
+            v.max(0) as u64
+        });
+
+        info!(
+            "Deleted {} stack frames for symbol set {}",
+            deleted, record.id
+        );
+        metrics::counter!(FRAME_RESOLUTION_RESULTS_DELETED).increment(deleted);
+
         start.label("outcome", "success").fin();
         Ok(key)
     }
