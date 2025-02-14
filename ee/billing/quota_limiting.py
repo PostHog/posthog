@@ -47,7 +47,7 @@ class QuotaResource(Enum):
     EVENTS = "events"
     RECORDINGS = "recordings"
     ROWS_SYNCED = "rows_synced"
-    FEATURE_FLAGS = "feature_flags"
+    FEATURE_FLAGS_EVALUATED = "feature_flags_evaluated"
 
 
 class QuotaLimitingCaches(Enum):
@@ -59,7 +59,7 @@ OVERAGE_BUFFER = {
     QuotaResource.EVENTS: 0,
     QuotaResource.RECORDINGS: 1000,
     QuotaResource.ROWS_SYNCED: 0,
-    QuotaResource.FEATURE_FLAGS: 0,  # TODO: should we have a buffer here?
+    QuotaResource.FEATURE_FLAGS_EVALUATED: 0,
 }
 
 
@@ -376,7 +376,7 @@ def update_org_billing_quotas(organization: Organization):
         QuotaResource.EVENTS,
         QuotaResource.RECORDINGS,
         QuotaResource.ROWS_SYNCED,
-        QuotaResource.FEATURE_FLAGS,
+        QuotaResource.FEATURE_FLAGS_EVALUATED,
     ]:
         previously_quota_limited_team_tokens = list_limited_team_attributes(
             resource,
@@ -431,7 +431,7 @@ def set_org_usage_summary(
 
     new_usage = copy.deepcopy(new_usage)
 
-    for field in ["events", "recordings", "rows_synced", "feature_flags"]:
+    for field in ["events", "recordings", "rows_synced", "feature_flags_evaluated"]:
         resource_usage = new_usage.get(field, {"limit": None, "usage": 0, "todays_usage": 0})
         if not resource_usage:
             continue
@@ -543,7 +543,7 @@ def update_all_orgs_billing_quotas(
 
     # Now we have the usage for all orgs for the current day
     # orgs_by_id is a dict of orgs by id (e.g. {"018e9acf-b488-0000-259c-534bcef40359": <Organization: 018e9acf-b488-0000-259c-534bcef40359>})
-    # todays_usage_report is a dict of orgs by id with their usage for the current day (e.g. {"018e9acf-b488-0000-259c-534bcef40359": {"events": 100, "recordings": 100, "rows_synced": 100, "feature_flags": 100}})
+    # todays_usage_report is a dict of orgs by id with their usage for the current day (e.g. {"018e9acf-b488-0000-259c-534bcef40359": {"events": 100, "recordings": 100, "rows_synced": 100, "feature_flags_evaluated": 100}})
     report_quota_limiting_event(
         "update_all_orgs_billing_quotas",
         {
@@ -566,7 +566,7 @@ def update_all_orgs_billing_quotas(
             QuotaResource(field), QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
     # We have the teams that are currently under quota limits
-    # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flags": ["phc_123", "phc_456"]})
+    # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flags_evaluated": ["phc_123", "phc_456"]})
     report_quota_limiting_event(
         "update_all_orgs_billing_quotas",
         {
@@ -574,7 +574,7 @@ def update_all_orgs_billing_quotas(
             "events_count": len(previously_quota_limited_team_tokens["events"]),
             "recordings_count": len(previously_quota_limited_team_tokens["recordings"]),
             "rows_synced_count": len(previously_quota_limited_team_tokens["rows_synced"]),
-            "feature_flags_count": len(previously_quota_limited_team_tokens["feature_flags"]),
+            "feature_flags_count": len(previously_quota_limited_team_tokens["feature_flags_evaluated"]),
         },
     )
 
@@ -587,7 +587,7 @@ def update_all_orgs_billing_quotas(
             if set_org_usage_summary(org, todays_usage=todays_report):
                 org.save(update_fields=["usage"])
 
-            for field in ["events", "recordings", "rows_synced", "feature_flags"]:
+            for field in ["events", "recordings", "rows_synced", "feature_flags_evaluated"]:
                 # for each organization, we check if the current usage + today's unreported usage is over the limit
                 result = org_quota_limited_until(org, QuotaResource(field), previously_quota_limited_team_tokens[field])
                 if result:
@@ -599,8 +599,8 @@ def update_all_orgs_billing_quotas(
                         quota_limited_orgs[field][org_id] = quota_limited_until
 
     # Now we have the teams that are currently under quota limits
-    # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flags": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
-    # quota_limiting_suspended_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flags": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
+    # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flags_evaluated": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
+    # quota_limiting_suspended_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flags_evaluated": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
     report_quota_limiting_event(
         "update_all_orgs_billing_quotas",
         {
@@ -631,8 +631,8 @@ def update_all_orgs_billing_quotas(
                     orgs_with_changes.add(org_id)
 
     # Now we have the teams that are currently under quota limits
-    # quota_limited_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flags": {"phc_123": 1737867600}})
-    # quota_limiting_suspended_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flags": {"phc_123": 1737867600}})
+    # quota_limited_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flags_evaluated": {"phc_123": 1737867600}})
+    # quota_limiting_suspended_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flags_evaluated": {"phc_123": 1737867600}})
     report_quota_limiting_event(
         "update_all_orgs_billing_quotas",
         {
@@ -648,7 +648,7 @@ def update_all_orgs_billing_quotas(
             "quota_limited_events": quota_limited_orgs["events"].get(org_id, None),
             "quota_limited_recordings": quota_limited_orgs["recordings"].get(org_id, None),
             "quota_limited_rows_synced": quota_limited_orgs["rows_synced"].get(org_id, None),
-            "quota_limited_feature_flags": quota_limited_orgs["feature_flags"].get(org_id, None),
+            "quota_limited_feature_flags": quota_limited_orgs["feature_flags_evaluated"].get(org_id, None),
         }
 
         report_organization_action(

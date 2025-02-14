@@ -3611,7 +3611,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
 
             def fake_limiter(*args, **kwargs):
-                return [self.team.api_token] if args[0] == QuotaResource.FEATURE_FLAGS else []
+                return [self.team.api_token] if args[0] == QuotaResource.FEATURE_FLAGS_EVALUATED else []
 
             _fake_token_limiting.side_effect = fake_limiter
 
@@ -3627,7 +3627,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
 
             def fake_limiter(*args, **kwargs):
-                return [self.team.api_token + "a"] if args[0] == QuotaResource.FEATURE_FLAGS else []
+                return [self.team.api_token + "a"] if args[0] == QuotaResource.FEATURE_FLAGS_EVALUATED else []
 
             _fake_token_limiting.side_effect = fake_limiter
 
