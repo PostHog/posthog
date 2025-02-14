@@ -1,11 +1,10 @@
 import * as Sentry from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
+import { captureException } from '../../../utils/posthog'
 import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'

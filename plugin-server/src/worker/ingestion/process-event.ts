@@ -3,8 +3,6 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import {
     Element,
@@ -24,6 +22,7 @@ import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'

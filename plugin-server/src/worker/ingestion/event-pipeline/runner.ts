@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
-import { captureException } from '~/src/utils/posthog'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
@@ -9,6 +8,7 @@ import { Hub, PipelineEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
+import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'

@@ -2,12 +2,11 @@ import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { Hub } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
 import { EventsProcessor } from '../../worker/ingestion/process-event'

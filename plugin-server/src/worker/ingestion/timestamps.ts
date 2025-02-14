@@ -1,8 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime, Duration } from 'luxon'
 
-import { captureException } from '~/src/utils/posthog'
-
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 
 type IngestionWarningCallback = (type: string, details: Record<string, any>) => void

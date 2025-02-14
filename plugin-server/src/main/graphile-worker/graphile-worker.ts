@@ -10,10 +10,9 @@ import {
 } from 'graphile-worker'
 import { Pool } from 'pg'
 
-import { captureException } from '~/src/utils/posthog'
-
 import { EnqueuedJob, Hub } from '../../types'
 import { instrument } from '../../utils/metrics'
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { createPostgresPool } from '../../utils/utils'
 import { graphileEnqueueJobCounter } from './metrics'
