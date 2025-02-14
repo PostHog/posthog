@@ -10,8 +10,8 @@ export type TreeDataItem = {
     id: string
     /** The name of the item. */
     name: string
-    /** Passthrough data */
-    data?: any
+    /** Passthrough metadata */
+    record?: Record<string, any>
     /** The name of the item. */
     right?: React.ReactNode
     /** The icon to use for the item. */
@@ -131,18 +131,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     >
                                         {renderItem ? renderItem(item, item.name) : item.name}
                                     </span>
-                                    {(() => {
-                                        if (item.right) {
-                                            return <span className="ml-auto pl-1">{item.right}</span>
-                                        }
-                                        if (right) {
-                                            const element = right(item)
-                                            if (element) {
-                                                return <span className="ml-auto pl-1">{element}</span>
-                                            }
-                                        }
-                                        return null
-                                    })()}
+                                    {item.right || right ? (
+                                        <span className="ml-auto pl-1">{item.right || right?.(item)}</span>
+                                    ) : null}
                                 </LemonButton>
                             </AccordionPrimitive.Trigger>
 

@@ -87,16 +87,16 @@ export function TreeView(): JSX.Element {
                                 className="px-0 py-1"
                                 data={treeData}
                                 renderItem={(item, children): JSX.Element => {
-                                    const path = item.data?.path || ''
+                                    const path = item.record?.path || ''
                                     const loading =
-                                        typeof item.data?.path === 'string' || item.data?.type === 'project' ? (
+                                        typeof item.record?.path === 'string' || item.record?.type === 'project' ? (
                                             loadingPaths[path] ? (
                                                 <Spinner className="ml-1" />
                                             ) : unappliedPaths[path] ? (
                                                 <IconUpload className="ml-1 text-warning" />
                                             ) : undefined
                                         ) : undefined
-                                    if (item.data?.type === 'project') {
+                                    if (item.record?.type === 'project') {
                                         return (
                                             <Droppable id="">
                                                 {children}
