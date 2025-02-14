@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)\n            VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW())\n            ON CONFLICT (coalesce(project_id, team_id::bigint), name)\n            DO UPDATE SET last_seen_at = $5\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4",
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7fa314878d358c78204cdc1b6282897bcdd5f798d153e263dae6385be787afe4"
+}

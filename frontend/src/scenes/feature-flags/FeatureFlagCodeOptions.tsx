@@ -185,7 +185,13 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.GO,
 ]
 
-export const ENCRYPTED_PAYLOAD_LIBRARIES: string[] = [SDKKey.API, SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.GO, SDKKey.RUBY]
+export const REMOTE_CONFIGURATION_LIBRARIES: string[] = [
+    SDKKey.API,
+    SDKKey.NODE_JS,
+    SDKKey.PYTHON,
+    SDKKey.GO,
+    SDKKey.RUBY,
+]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
     {
