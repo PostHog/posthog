@@ -105,6 +105,7 @@ const NEW_FLAG: FeatureFlagType = {
     user_access_level: 'editor',
     tags: [],
     is_remote_configuration: false,
+    has_encrypted_payloads: false,
     status: 'ACTIVE',
 }
 const NEW_VARIANT = {
@@ -280,6 +281,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
+        resetEncryptedPayload: () => ({}),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
@@ -377,6 +379,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return {
                         ...state,
                         is_remote_configuration: enabled,
+                    }
+                },
+                resetEncryptedPayload: (state) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            payloads: { true: '' },
+                        },
+                        has_encrypted_payloads: false,
                     }
                 },
                 addVariant: (state) => {
@@ -1012,6 +1028,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     ? 'multivariate'
                     : 'boolean',
         ],
+        flagTypeString: [
+            (s) => [s.featureFlag],
+            (featureFlag) =>
+                featureFlag?.is_remote_configuration
+                    ? 'Remote configuration (single payload)'
+                    : featureFlag?.filters.multivariate
+                    ? 'Multiple variants with rollout percentages (A/B/n test)'
+                    : 'Release toggle (boolean)',
+        ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
@@ -1117,6 +1142,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag) => {
                 return featureFlag?.surveys && featureFlag.surveys.length > 0
+            },
+        ],
+        hasEncryptedPayloadBeenSaved: [
+            (s) => [s.featureFlag, s.props],
+            (featureFlag, props) => {
+                if (!featureFlag.has_encrypted_payloads) {
+                    return false
+                }
+                const savedFlag = featureFlagsLogic
+                    .findMounted()
+                    ?.values.featureFlags.results.find((flag) => flag.id === props.id)
+                return savedFlag?.has_encrypted_payloads
             },
         ],
         hasExperiment: [
