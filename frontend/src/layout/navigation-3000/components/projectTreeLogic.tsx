@@ -318,7 +318,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {
                 applyPendingActions: async () => {
                     for (const action of values.pendingActions) {
-                        if (action.type === 'move') {
+                        if (action.type === 'move' && action.newPath) {
                             if (action.item.created_at === null) {
                                 const response = await api.fileSystem.create({ ...action.item, path: action.newPath })
                                 actions.createSavedItem(response)
