@@ -1922,15 +1922,18 @@ const api = {
         },
     },
     hogFunctions: {
-        async list(
-            filters?: any,
-            type?: HogFunctionTypeType | HogFunctionTypeType[]
-        ): Promise<PaginatedResponse<HogFunctionType>> {
+        async list({
+            filters,
+            types,
+        }: {
+            filters?: any
+            types?: HogFunctionTypeType[]
+        }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
-                    filters: filters,
-                    ...(type ? (Array.isArray(type) ? { types: type.join(',') } : { type }) : {}),
+                    filters,
+                    ...(types ? { types: types.join(',') } : {}),
                 })
                 .get()
         },
