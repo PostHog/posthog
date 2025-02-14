@@ -117,7 +117,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     const [data, labels] =
         sparklineSelectedPeriod === '24h'
             ? [record.aggregations.volumeDay, sparklineLabelsDay]
-            : sparklineSelectedPeriod === '1m'
+            : sparklineSelectedPeriod === '30d'
             ? [record.aggregations.volumeMonth, sparklineLabelsMonth]
             : customSparklineConfig
             ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]

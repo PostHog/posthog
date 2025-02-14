@@ -21,8 +21,8 @@ const lastYear = { value: 'yStart', label: 'Year' }
 export type SparklineOption = LemonSegmentedButtonOption<string>
 
 const customOptions: Record<string, [SparklineOption, SparklineOption]> = {
-    dStart: [lastDay, lastHour], // today
-    '-24h': [lastDay, lastHour],
+    dStart: [lastHour, lastDay], // today
+    '-24h': [lastHour, lastDay],
     mStart: [lastMonth, lastDay],
     yStart: [lastYear, lastMonth],
     all: [lastYear, lastMonth],
@@ -138,9 +138,11 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             },
         ],
         customSparklineConfig: [
-            (s) => [s.sparklineSelectedPeriod],
-            (sparklineSelectedPeriod): ErrorTrackingSparklineConfig | null =>
-                sparklineSelectedPeriod ? constructSparklineConfig(sparklineSelectedPeriod) : null,
+            (s) => [s.sparklineOptions],
+            (sparklineOptions): ErrorTrackingSparklineConfig | null =>
+                // the first of the options should always be the "customVolume"
+                // the second option will always be either lastDay (24h) or lastMonth (30d)
+                sparklineOptions && sparklineOptions.length > 0 ? constructSparklineConfig(sparklineOptions[0]) : null,
         ],
     }),
     subscriptions(({ values, actions }) => ({
