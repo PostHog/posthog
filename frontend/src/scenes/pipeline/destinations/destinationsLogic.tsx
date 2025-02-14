@@ -240,6 +240,16 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     })),
+    reducers({
+        reorderTransformationsModalOpen: [
+            false as boolean,
+            {
+                openReorderTransformationsModal: () => true,
+                closeReorderTransformationsModal: () => false,
+                saveTransformationsOrder: () => false,
+            },
+        ],
+    }),
     selectors({
         paidHogFunctions: [
             (s) => [s.hogFunctions],
@@ -329,16 +339,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (s) => [s.destinations, s.filteredDestinations],
             (destinations, filteredDestinations): (Destination | Transformation | SiteApp)[] => {
                 return destinations.filter((dest) => !filteredDestinations.includes(dest))
-            },
-        ],
-    }),
-    reducers({
-        reorderTransformationsModalOpen: [
-            false as boolean,
-            {
-                openReorderTransformationsModal: () => true,
-                closeReorderTransformationsModal: () => false,
-                saveTransformationsOrder: () => false,
             },
         ],
     }),
