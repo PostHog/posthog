@@ -1,8 +1,18 @@
 import { expect, Page, test as base } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
+import { AppContext } from '~/types'
+
+export const LOGIN_USERNAME = process.env.LOGIN_USERNAME || 'test@posthog.com'
+export const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || '12345678'
+
+export type WindowWithPostHog = typeof globalThis & {
+    POSTHOG_APP_CONTEXT: AppContext
+}
+
 declare module '@playwright/test' {
     interface Page {
+        setAppContext<K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void>
         // resetCapturedEvents(): Promise<void>
         //
         // capturedEvents(): Promise<CaptureResult[]>
@@ -13,15 +23,22 @@ declare module '@playwright/test' {
     }
 }
 
-let authCookies: any[] = [] // Store cookies in memory
-let authStorage: Record<string, string> = {} // Store local/session storage data
-
 /**
  * we override the base playwright test to add things useful to us
  * */
 export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     page: async ({ page }, use) => {
         // // Add custom methods to the page object
+        // you can see that page/window is separate to test context.
+        // e.g. how we have to pass key and value in setAppContext
+        page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
+            await page.evaluate(
+                ([key, value]) => {
+                    ;(window as WindowWithPostHog).POSTHOG_APP_CONTEXT[key as string] = value
+                },
+                [key, value]
+            )
+        }
         // page.resetCapturedEvents = async function () {
         //     await this.evaluate(() => {
         //         ;(window as WindowWithPostHog).capturedEvents = []
@@ -55,55 +72,29 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     },
     // this auto fixture makes sure we log in before every test
     loginBeforeTests: [
-        async ({ page, context }, use) => {
-            // If we already have auth state, reuse it
-            if (authCookies.length > 0) {
-                await context.addCookies(authCookies)
+        async ({ page }, use) => {
+            // Perform authentication steps
+            await page.goto(urls.login())
 
-                // Restore session/local storage from memory
-                await page.goto(urls.login()) // Ensure we're on the right domain
-                await page.evaluate((storage) => {
-                    for (const [key, value] of Object.entries(storage)) {
-                        sessionStorage.setItem(key, value)
-                    }
-                }, authStorage)
-            } else {
-                // Perform authentication steps
-                await page.goto(urls.login())
+            const loginField = page.getByPlaceholder('email@yourcompany.com')
+            const homepageMenuItem = page.locator('[data-attr="menu-item-projecthomepage"]')
 
-                const loginField = page.getByPlaceholder('email@yourcompany.com')
-                const homepageMenuItem = page.locator('[data-attr="menu-item-projecthomepage"]')
+            const firstVisible = await Promise.race([
+                loginField.waitFor({ timeout: 5000 }).then(() => 'login'),
+                homepageMenuItem.waitFor({ timeout: 5000 }).then(() => 'authenticated'),
+            ]).catch(() => 'timeout')
 
-                const firstVisible = await Promise.race([
-                    loginField.waitFor({ timeout: 5000 }).then(() => 'login'),
-                    homepageMenuItem.waitFor({ timeout: 5000 }).then(() => 'authenticated'),
-                ]).catch(() => 'timeout')
+            if (firstVisible === 'login') {
+                await loginField.fill(LOGIN_USERNAME)
 
-                if (firstVisible === 'login') {
-                    await loginField.fill('test@posthog.com')
+                const passwd = page.getByPlaceholder('••••••••••')
+                await expect(passwd).toBeVisible()
+                await passwd.fill(LOGIN_PASSWORD)
 
-                    const passwd = page.getByPlaceholder('••••••••••')
-                    await expect(passwd).toBeVisible()
-                    await passwd.fill('12345678')
-
-                    await page.getByRole('button', { name: 'Log in' }).click()
-                    await homepageMenuItem.waitFor()
-                } else if (firstVisible === 'timeout') {
-                    throw new Error('Neither login page nor authenticated UI loaded')
-                }
-
-                // Store authentication data in memory
-                authCookies = await context.cookies()
-                authStorage = await page.evaluate(() => {
-                    const storage = {}
-                    for (let i = 0; i < sessionStorage.length; i++) {
-                        const key = sessionStorage.key(i)
-                        if (key) {
-                            storage[key] = sessionStorage.getItem(key)
-                        }
-                    }
-                    return storage
-                })
+                await page.getByRole('button', { name: 'Log in' }).click()
+                await homepageMenuItem.waitFor()
+            } else if (firstVisible === 'timeout') {
+                throw new Error('Neither login page nor authenticated UI loaded')
             }
 
             // Continue with tests
