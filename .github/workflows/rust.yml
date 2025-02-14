@@ -168,8 +168,7 @@ jobs:
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true'
               run: |
-                  mkdir -p ../share
-                  curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=../share/GeoLite2-City.mmdb
+                  ../bin/download-mmdb
 
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
