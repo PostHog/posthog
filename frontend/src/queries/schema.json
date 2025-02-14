@@ -7073,7 +7073,7 @@
                     "type": "string"
                 },
                 "response": {
-                    "$ref": "#/definitions/ExperimentTrendsQueryResponse"
+                    "$ref": "#/definitions/ExperimentQueryResponse"
                 }
             },
             "required": ["kind", "metric"],
@@ -10961,6 +10961,81 @@
                     "required": [
                         "kind",
                         "insight",
+                        "variants",
+                        "probability",
+                        "significant",
+                        "significance_code",
+                        "p_value",
+                        "credible_intervals"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "credible_intervals": {
+                            "additionalProperties": {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
+                            },
+                            "type": "object"
+                        },
+                        "insight": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "kind": {
+                            "const": "ExperimentQuery",
+                            "type": "string"
+                        },
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        },
+                        "p_value": {
+                            "type": "number"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "stats_version": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "variants": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                                    },
+                                    "type": "array"
+                                }
+                            ]
+                        }
+                    },
+                    "required": [
+                        "kind",
+                        "insight",
+                        "metric",
                         "variants",
                         "probability",
                         "significant",

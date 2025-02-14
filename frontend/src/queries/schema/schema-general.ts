@@ -1840,7 +1840,7 @@ export interface ExperimentDataWarehouseMetricConfig {
     math_property?: string
 }
 
-export interface ExperimentQuery extends DataNode<ExperimentTrendsQueryResponse> {
+export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
     metric: ExperimentMetric
     experiment_id?: integer
