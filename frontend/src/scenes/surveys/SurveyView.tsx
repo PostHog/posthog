@@ -500,17 +500,12 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
-                        <>
+                        <div key={`survey-q-${i}`}>
                             {question.scale === 10 && (
-                                <div>
-                                    <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                    <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
-                                    <SurveyNPSResults survey={survey as Survey} />
-                                </div>
+                                <SurveyNPSResults survey={survey as Survey} surveyNPSScore={surveyNPSScore} />
                             )}
 
                             <RatingQuestionBarChart
-                                key={`survey-q-${i}`}
                                 surveyRatingResults={surveyRatingResults}
                                 surveyRatingResultsReady={surveyRatingResultsReady}
                                 questionIndex={i}
@@ -531,7 +526,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                         questionIndex={i}
                                     />
                                 )}
-                        </>
+                        </div>
                     )
                 } else if (question.type === SurveyQuestionType.SingleChoice) {
                     return (
@@ -577,9 +572,11 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     )
 }
 
-function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
+function SurveyNPSResults({ survey, surveyNPSScore }: { survey: Survey; surveyNPSScore?: string }): JSX.Element {
     return (
         <>
+            <div className="text-4xl font-bold">{surveyNPSScore}</div>
+            <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
             <Query
                 query={{
                     kind: NodeKind.InsightVizNode,
