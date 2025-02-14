@@ -72,6 +72,7 @@ import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     featureFlagEligibleForExperiment,
     getMinimumDetectableEffect,
+    percentageDistribution,
     transformFiltersForWinningVariant,
 } from './utils'
 
@@ -133,6 +134,8 @@ const loadMetrics = async ({
         | null
     )[] = []
 
+    const currentErrors = new Array(metrics.length).fill(null)
+
     return await Promise.all(
         metrics.map(async (metric, index) => {
             try {
@@ -160,7 +163,6 @@ const loadMetrics = async ({
                 const errorDetailMatch = error.detail?.match(/\{.*\}/)
                 const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail || error.message
 
-                const currentErrors = new Array(metrics.length).fill(null)
                 currentErrors[index] = {
                     detail: errorDetail,
                     statusCode: error.status,
@@ -2091,14 +2093,3 @@ export const experimentLogic = kea<experimentLogicType>([
         },
     })),
 ])
-
-export function percentageDistribution(variantCount: number): number[] {
-    const basePercentage = Math.floor(100 / variantCount)
-    const percentages = new Array(variantCount).fill(basePercentage)
-    let remaining = 100 - basePercentage * variantCount
-    for (let i = 0; remaining > 0; i++, remaining--) {
-        // try to equally distribute `remaining` across variants
-        percentages[i] += 1
-    }
-    return percentages
-}
