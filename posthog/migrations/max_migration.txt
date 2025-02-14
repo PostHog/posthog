@@ -1,1 +1,1 @@
-0666_datawarehousesavedquery_sync_frequency
+0667_encrypt_feature_flag_config
