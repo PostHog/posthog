@@ -18,7 +18,6 @@ import {
     IconRewindPlay,
     IconRocket,
     IconServer,
-    IconSparkles,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -449,16 +448,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: urls.products(),
                           },
                       ]
-
-                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
-                    sectionOne.splice(1, 0, {
-                        identifier: Scene.Max,
-                        label: 'Max AI',
-                        icon: <IconSparkles />,
-                        to: urls.max(),
-                        tag: 'beta' as const,
-                    })
-                }
 
                 if (featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]) {
                     sectionOne.splice(4, 0, {
