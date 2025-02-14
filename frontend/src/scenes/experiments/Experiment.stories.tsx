@@ -1052,7 +1052,7 @@ const METRIC_TREND_CONTINUOUS_RESULT: any = {
         },
         filterTestAccounts: false,
         interval: 'day',
-        kind: 'TrendsQuery',
+        kind: NodeKind.TrendsQuery,
         modifiers: null,
         properties: [
             {
@@ -1131,7 +1131,7 @@ const METRIC_TREND_CONTINUOUS_RESULT: any = {
         },
         filterTestAccounts: false,
         interval: 'day',
-        kind: 'TrendsQuery',
+        kind: NodeKind.TrendsQuery,
         modifiers: null,
         properties: [
             {
@@ -1604,7 +1604,7 @@ const METRIC_TREND_CONTINUOUS_RESULT: any = {
         },
     ],
     is_cached: true,
-    kind: 'ExperimentTrendsQuery',
+    kind: NodeKind.ExperimentTrendsQuery,
     last_refresh: '2025-01-27T14:06:12.792473Z',
     next_allowed_client_refresh: '2025-01-27T14:07:12.792473Z',
     p_value: 0.0,
@@ -2222,16 +2222,16 @@ const meta: Meta = {
                 '/api/environments/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
-                    if (body.query.kind === 'ExperimentFunnelsQuery') {
+                    if (body.query.kind === NodeKind.ExperimentFunnelsQuery) {
                         return res(ctx.json(METRIC_FUNNEL_RESULT))
                     } else if (
-                        body.query.kind === 'ExperimentTrendsQuery' &&
+                        body.query.kind === NodeKind.ExperimentTrendsQuery &&
                         body.query.count_query.series[0].math === 'sum'
                     ) {
                         return res(ctx.json(METRIC_TREND_CONTINUOUS_RESULT))
-                    } else if (body.query.kind === 'ExperimentTrendsQuery') {
+                    } else if (body.query.kind === NodeKind.ExperimentTrendsQuery) {
                         return res(ctx.json(METRIC_TREND_RESULT))
-                    } else if (body.query.kind === 'ExperimentQuery') {
+                    } else if (body.query.kind === NodeKind.ExperimentQuery) {
                         return res(ctx.json(EXPERIMENT_QUERY_COUNT_RESULT))
                     }
                 },
