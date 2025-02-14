@@ -853,7 +853,6 @@ posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type:
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/tests/batch_exports/test_run_updates.py:0: error: Unused "type: ignore" comment  [unused-ignore]
-posthog/temporal/tests/batch_exports/test_batch_exports.py:0: error: TypedDict key must be a string literal; expected one of ("_timestamp", "created_at", "distinct_id", "elements", "elements_chain", ...)  [literal-required]
 posthog/api/test/batch_exports/conftest.py:0: error: Signature of "run" incompatible with supertype "Worker"  [override]
 posthog/api/test/batch_exports/conftest.py:0: note: Superclass:
 posthog/api/test/batch_exports/conftest.py:0: note: def run(self) -> Coroutine[Any, Any, None]
