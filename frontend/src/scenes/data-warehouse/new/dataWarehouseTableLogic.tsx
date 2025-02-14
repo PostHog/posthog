@@ -50,7 +50,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             {
                 loadTables: async () => {
                     return await api.dataWarehouseTables
-                        .list({ exclusion_pattern: 'https://posthog-s3-datawarehouse' })
+                        .list({ exclusion_url_pattern_prefix: 'https://posthog-s3-datawarehouse' })
                         .then((response) => response.results)
                 },
             },
