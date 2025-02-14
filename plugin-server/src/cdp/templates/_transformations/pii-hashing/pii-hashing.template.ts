@@ -11,8 +11,11 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/hedgehog/builder-hog-02.png',
     category: ['Custom'],
     hog: `
-// Get the properties to hash from inputs
-let propertiesToHash := inputs.propertiesToHash
+// Get the properties to hash from inputs and split by comma
+let propertiesToHash := []
+if (notEmpty(inputs.propertiesToHash)) {
+    propertiesToHash := splitByString(',', inputs.propertiesToHash)
+}
 let hashDistinctId := inputs.hashDistinctId
 let salt := inputs.salt
 
@@ -67,14 +70,14 @@ if (hashDistinctId and notEmpty(event.distinct_id)) {
 
 // Hash each property value potentially using a salt
 for (let _, path in propertiesToHash) {
-    let value := getNestedValue(event.properties, path)
+    let value := getNestedValue(event.properties, trim(path))  // Trim to handle spaces after commas
     if (notEmpty(value)) {
         if(notEmpty(salt)) {
             let hashedValue := sha256Hex(concat(toString(value), salt))
-            setNestedValue(returnEvent.properties, path, hashedValue)
+            setNestedValue(returnEvent.properties, trim(path), hashedValue)
         } else {
             let hashedValue := sha256Hex(toString(value))
-            setNestedValue(returnEvent.properties, path, hashedValue)
+            setNestedValue(returnEvent.properties, trim(path), hashedValue)
         }
     }
 }
@@ -84,12 +87,10 @@ return returnEvent
     inputs_schema: [
         {
             key: 'propertiesToHash',
-            type: 'dictionary',
+            type: 'string',
             label: 'Properties to Hash',
-            description: 'Add property paths to hash (use dot notation for nested properties, e.g. "$set.$email")',
-            default: {
-                Ip: '$ip',
-            },
+            description: 'Comma-separated list of property paths to hash (e.g. "$ip,$email,$set.$phone")',
+            default: '$ip',
             secret: false,
             required: true,
         },

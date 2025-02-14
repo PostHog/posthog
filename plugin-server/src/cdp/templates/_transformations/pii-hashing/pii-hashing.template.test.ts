@@ -28,9 +28,7 @@ describe('pii-hashing.template', () => {
 
         const response = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: '$email',
-                },
+                propertiesToHash: '$email',
             },
             mockGlobals
         )
@@ -54,18 +52,15 @@ describe('pii-hashing.template', () => {
 
         const response = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: '$email',
-                    Phone: '$phone',
-                },
+                propertiesToHash: '$email,$phone',
             },
             mockGlobals
         )
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
-        expect((response.execResult as EventResult).properties.$email).toMatch(/^[a-f0-9]{64}/)
-        expect((response.execResult as EventResult).properties.$phone).toMatch(/^[a-f0-9]{64}/)
+        expect((response.execResult as EventResult).properties.$email).toMatch(/^[a-f0-9]{64}$/)
+        expect((response.execResult as EventResult).properties.$phone).toMatch(/^[a-f0-9]{64}$/)
         expect((response.execResult as EventResult).properties.safe_property).toBe('keep-me')
     })
 
@@ -82,10 +77,7 @@ describe('pii-hashing.template', () => {
 
         const response = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: '$email',
-                    Phone: '$phone',
-                },
+                propertiesToHash: '$email,$phone',
             },
             mockGlobals
         )
@@ -97,7 +89,7 @@ describe('pii-hashing.template', () => {
         expect((response.execResult as EventResult).properties.$phone).toBeUndefined()
     })
 
-    it('should handle empty propertiesToHash dictionary', async () => {
+    it('should handle empty propertiesToHash array', async () => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
@@ -108,7 +100,7 @@ describe('pii-hashing.template', () => {
 
         const response = await tester.invoke(
             {
-                propertiesToHash: {},
+                propertiesToHash: '',
             },
             mockGlobals
         )
@@ -129,11 +121,7 @@ describe('pii-hashing.template', () => {
 
         const response = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: 'nonexistent',
-                    Phone: 'user.phone',
-                    Ssn: 'deeply.nested.invalid.path',
-                },
+                propertiesToHash: 'nonexistent,user.phone,deeply.nested.invalid.path',
             },
             mockGlobals
         )
@@ -161,10 +149,7 @@ describe('pii-hashing.template', () => {
 
         const response = await tester.invoke(
             {
-                propertiesToHash: {
-                    ip: '$set.$ip',
-                    email: '$set.$email',
-                },
+                propertiesToHash: '$set.$ip,$set.$email',
             },
             mockGlobals
         )
@@ -196,11 +181,7 @@ describe('pii-hashing.template', () => {
 
         const response = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: 'user.contact.$email',
-                    Phone: 'user.contact.$phone',
-                    SSN: '$set.profile.ssn',
-                },
+                propertiesToHash: 'user.contact.$email,user.contact.$phone,$set.profile.ssn',
             },
             mockGlobals
         )
@@ -232,9 +213,7 @@ describe('pii-hashing.template', () => {
 
         const response = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: 'user.contact.email', // nonexistent nested path
-                },
+                propertiesToHash: 'user.contact.email', // nonexistent nested path
             },
             mockGlobals
         )
@@ -260,9 +239,7 @@ describe('pii-hashing.template', () => {
 
         const response = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: '$email',
-                },
+                propertiesToHash: '$email',
                 hashDistinctId: true,
             },
             mockGlobals
@@ -286,9 +263,7 @@ describe('pii-hashing.template', () => {
 
         const response = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: '$email',
-                },
+                propertiesToHash: '$email',
                 hashDistinctId: false,
             },
             mockGlobals
@@ -310,9 +285,7 @@ describe('pii-hashing.template', () => {
 
         const response1 = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: '$email',
-                },
+                propertiesToHash: '$email',
                 salt: 'mysalt123',
             },
             mockGlobals
@@ -320,9 +293,7 @@ describe('pii-hashing.template', () => {
 
         const response2 = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: '$email',
-                },
+                propertiesToHash: '$email',
                 salt: 'differentSalt',
             },
             mockGlobals
@@ -352,7 +323,7 @@ describe('pii-hashing.template', () => {
 
         const response1 = await tester.invoke(
             {
-                propertiesToHash: {},
+                propertiesToHash: '',
                 hashDistinctId: true,
                 salt: 'salt1',
             },
@@ -361,7 +332,7 @@ describe('pii-hashing.template', () => {
 
         const response2 = await tester.invoke(
             {
-                propertiesToHash: {},
+                propertiesToHash: '',
                 hashDistinctId: true,
                 salt: 'salt2',
             },
@@ -397,9 +368,7 @@ describe('pii-hashing.template', () => {
 
         const response1 = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: '$email',
-                },
+                propertiesToHash: '$email',
                 hashDistinctId: true,
                 salt: 'same-salt',
             },
@@ -408,9 +377,7 @@ describe('pii-hashing.template', () => {
 
         const response2 = await tester.invoke(
             {
-                propertiesToHash: {
-                    Email: '$email',
-                },
+                propertiesToHash: '$email',
                 hashDistinctId: true,
                 salt: 'same-salt',
             },
