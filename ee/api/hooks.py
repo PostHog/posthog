@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from django.http import Http404
 from rest_framework import exceptions, serializers, mixins, viewsets, status
 from rest_framework.response import Response
+from django.core.exceptions import ValidationError
 
 from ee.models.hook import Hook, HOOK_EVENTS
 from django.conf import settings
@@ -157,7 +158,7 @@ class HookViewSet(
             )
             hog_function.delete()
             found = True
-        except HogFunction.DoesNotExist:
+        except (HogFunction.DoesNotExist, ValidationError):
             pass
 
         if found:
