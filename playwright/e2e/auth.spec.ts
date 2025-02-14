@@ -1,4 +1,4 @@
-import { expect, test } from '../utils/playwright-test-base'
+import { expect, LOGIN_PASSWORD, LOGIN_USERNAME, test } from '../utils/playwright-test-base'
 
 test.describe('Auth', () => {
     test.beforeEach(async ({ page }) => {
@@ -13,14 +13,14 @@ test.describe('Auth', () => {
     test('Logout and login', async ({ page }) => {
         await page.locator('[data-attr=top-menu-item-logout]').click()
 
-        await page.locator('[data-attr=login-email]').fill('test@posthog.com')
-        await expect(page.locator('[data-attr=login-email]')).toHaveValue('test@posthog.com')
+        await page.locator('[data-attr=login-email]').fill(LOGIN_USERNAME)
+        await expect(page.locator('[data-attr=login-email]')).toHaveValue(LOGIN_USERNAME)
 
         await page.locator('[data-attr=login-email]').blur()
         await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
 
-        await page.locator('[data-attr=password]').fill('12345678')
-        await expect(page.locator('[data-attr=password]')).toHaveValue('12345678')
+        await page.locator('[data-attr=password]').fill(LOGIN_PASSWORD)
+        await expect(page.locator('[data-attr=password]')).toHaveValue(LOGIN_PASSWORD)
 
         await page.locator('[type=submit]').click()
         await expect(page).toHaveURL(/\/project\/\d+/)
@@ -41,8 +41,8 @@ test.describe('Auth', () => {
     test('Try logging in improperly and then properly', async ({ page }) => {
         await page.locator('[data-attr=top-menu-item-logout]').click()
 
-        await page.locator('[data-attr=login-email]').fill('test@posthog.com')
-        await expect(page.locator('[data-attr=login-email]')).toHaveValue('test@posthog.com')
+        await page.locator('[data-attr=login-email]').fill(LOGIN_USERNAME)
+        await expect(page.locator('[data-attr=login-email]')).toHaveValue(LOGIN_USERNAME)
 
         await page.locator('[data-attr=login-email]').blur()
         await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
@@ -53,7 +53,7 @@ test.describe('Auth', () => {
         await page.locator('[type=submit]').click()
         await expect(page.locator('.LemonBanner')).toContainText('Invalid email or password.')
 
-        await page.locator('[data-attr=password]').fill('12345678')
+        await page.locator('[data-attr=password]').fill(LOGIN_PASSWORD)
         await page.locator('[type=submit]').click()
 
         await expect(page).toHaveURL('/')
@@ -66,11 +66,11 @@ test.describe('Auth', () => {
         await page.goto('/activity/explore')
         await expect(page).toHaveURL(/\/login/)
 
-        await page.locator('[data-attr=login-email]').fill('test@posthog.com')
+        await page.locator('[data-attr=login-email]').fill(LOGIN_USERNAME)
         await page.locator('[data-attr=login-email]').blur()
         await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
 
-        await page.locator('[data-attr=password]').fill('12345678')
+        await page.locator('[data-attr=password]').fill(LOGIN_PASSWORD)
         await page.locator('[type=submit]').click()
 
         await expect(page).toHaveURL(/\/activity\/explore/)
@@ -83,11 +83,11 @@ test.describe('Auth', () => {
         await page.goto('/insights?search=testString')
         await expect(page).toHaveURL(/\/login/)
 
-        await page.locator('[data-attr=login-email]').fill('test@posthog.com')
+        await page.locator('[data-attr=login-email]').fill(LOGIN_USERNAME)
         await page.locator('[data-attr=login-email]').blur()
         await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
 
-        await page.locator('[data-attr=password]').fill('12345678')
+        await page.locator('[data-attr=password]').fill(LOGIN_PASSWORD)
         await page.locator('[type=submit]').click()
 
         await expect(page).toHaveURL(/search%3DtestString/)

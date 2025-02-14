@@ -1,6 +1,9 @@
 import { expect, Page, test as base } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
+export const LOGIN_USERNAME = process.env.LOGIN_USERNAME || 'test@posthog.com'
+export const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || '12345678'
+
 declare module '@playwright/test' {
     interface Page {
         // resetCapturedEvents(): Promise<void>
@@ -80,11 +83,11 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
                 ]).catch(() => 'timeout')
 
                 if (firstVisible === 'login') {
-                    await loginField.fill('test@posthog.com')
+                    await loginField.fill(LOGIN_USERNAME)
 
                     const passwd = page.getByPlaceholder('••••••••••')
                     await expect(passwd).toBeVisible()
-                    await passwd.fill('12345678')
+                    await passwd.fill(LOGIN_PASSWORD)
 
                     await page.getByRole('button', { name: 'Log in' }).click()
                     await homepageMenuItem.waitFor()
