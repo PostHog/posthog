@@ -152,8 +152,19 @@ class ExperimentQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
-                    parse_expr(
-                        f"event = '$feature_flag_called' and replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '') = '{feature_flag_key}' "
+                    ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["event"]),
+                                right=ast.Constant(value="$feature_flag_called"),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"),
+                                right=ast.Constant(value=feature_flag_key),
+                            ),
+                        ]
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
