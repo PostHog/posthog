@@ -10,7 +10,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccountPopoverOverlay } from '~/layout/navigation/TopBar/AccountPopover'
+import { SidePanelTab } from '~/types'
 
+import { SidePanelActivationIcon } from '../sidepanel/panels/activation/SidePanelActivation'
+import { sidePanelLogic } from '../sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '../sidepanel/sidePanelStateLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
 import { NavbarButton } from './NavbarButton'
 
@@ -19,10 +23,20 @@ export function NavbarBottom(): JSX.Element {
     const { isAccountPopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { visibleTabs } = useValues(sidePanelLogic)
     return (
         <div className="Navbar3000__bottom">
             <ul>
                 <DebugNotice />
+                {visibleTabs.includes(SidePanelTab.Activation) && (
+                    <NavbarButton
+                        identifier="activation-button"
+                        icon={<SidePanelActivationIcon />}
+                        title="Quick start"
+                        onClick={() => openSidePanel(SidePanelTab.Activation)}
+                    />
+                )}
                 <NavbarButton
                     identifier="search-button"
                     icon={<IconSearch />}
