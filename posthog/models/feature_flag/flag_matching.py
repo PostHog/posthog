@@ -32,6 +32,7 @@ from posthog.database_healthcheck import (
     DATABASE_FOR_FLAG_MATCHING,
 )
 from posthog.utils import label_for_team_id_to_track
+from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payload
 
 from .feature_flag import (
     FeatureFlag,
@@ -285,7 +286,11 @@ class FeatureFlagMatcher:
                     flag_values[feature_flag.key] = False
 
                 if flag_match.payload:
-                    flag_payloads[feature_flag.key] = flag_match.payload
+                    flag_payloads[feature_flag.key] = (
+                        flag_match.payload
+                        if not feature_flag.has_encrypted_payloads
+                        else get_decrypted_flag_payload(flag_match.payload)
+                    )
 
                 flag_evaluation_reasons[feature_flag.key] = {
                     "reason": flag_match.reason,

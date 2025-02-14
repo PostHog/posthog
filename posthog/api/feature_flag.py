@@ -836,6 +836,11 @@ class FeatureFlagViewSet(
             else:
                 feature_flag.filters = filters
 
+            if feature_flag.has_encrypted_payloads:
+                feature_flag.filters = get_decrypted_flag_payloads(
+                    request, encrypted_payloads=feature_flag.filters.get("payloads", {})
+                )
+
             parsed_flags.append(feature_flag)
 
             # when param set, send cohorts, for libraries that can handle evaluating them locally
