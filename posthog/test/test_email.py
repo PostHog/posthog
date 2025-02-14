@@ -9,6 +9,7 @@ from posthog.email import EmailMessage, _send_email
 from posthog.models import MessagingRecord, Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import BaseTest
+from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP
 
 
 class TestEmail(BaseTest):
@@ -99,7 +100,9 @@ class TestEmail(BaseTest):
             call_kwargs = mock_post.call_args[1]
             self.assertEqual(call_kwargs["headers"]["Authorization"], "Bearer test-key")
             self.assertEqual(call_kwargs["json"]["to"], "test@posthog.com")
-            self.assertEqual(call_kwargs["json"]["transactional_message_id"], "31")
+            self.assertEqual(
+                call_kwargs["json"]["transactional_message_id"], CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"]
+            )
 
     @patch("requests.post")
     def test_send_via_http_handles_decimal_values(self, mock_post) -> None:
