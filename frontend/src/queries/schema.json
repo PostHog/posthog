@@ -7272,6 +7272,10 @@
         "FileSystemEntry": {
             "additionalProperties": false,
             "properties": {
+                "created_at": {
+                    "description": "Timestamp when file was added. Used to check persistence",
+                    "type": "string"
+                },
                 "href": {
                     "description": "Object's URL",
                     "type": "string"

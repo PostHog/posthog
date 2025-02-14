@@ -2267,6 +2267,9 @@ class FileSystemEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    created_at: Optional[str] = Field(
+        default=None, description="Timestamp when file was added. Used to check persistence"
+    )
     href: Optional[str] = Field(default=None, description="Object's URL")
     id: str = Field(..., description="Unique UUID for tree entry")
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
