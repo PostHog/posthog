@@ -25,6 +25,7 @@ import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
+import { GeoIPService } from './utils/geoip'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -377,6 +378,7 @@ export interface Hub extends PluginsServerConfig {
     celery: Celery
     // geoip database, setup in workers
     mmdb?: ReaderModel
+    geoipService: GeoIPService
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features

@@ -1,10 +1,10 @@
-import { Reader, ReaderModel } from '@maxmind/geoip2-node'
+import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
 import fetch from 'node-fetch'
 import prettyBytes from 'pretty-bytes'
 import { brotliDecompress } from 'zlib'
 
-import { Hub } from '../types'
-import { status } from '../utils/status'
+import { PluginsServerConfig } from '../types'
+import { status } from './status'
 
 const MMDB_ENDPOINT = 'https://mmdbcdn.posthog.net/'
 
@@ -13,10 +13,14 @@ const brotliDecompressAsync = (brotliContents: ArrayBuffer): Promise<Buffer> =>
         brotliDecompress(brotliContents, (error, result) => (error ? reject(error) : resolve(result)))
     })
 
+export type GeoIp = {
+    city: (ip: string) => City | null
+}
+
 export class GeoIPService {
     private _mmdbPromise: Promise<ReaderModel> | undefined
 
-    constructor(private hub: Hub) {}
+    constructor(private config: PluginsServerConfig) {}
 
     private getMmdb() {
         // TODO: Add config option to use from disk instead
@@ -45,18 +49,16 @@ export class GeoIPService {
         return this._mmdbPromise
     }
 
-    async locate(ip: string) {
+    async get(): Promise<GeoIp> {
         const mmdb = await this.getMmdb()
-        if (typeof ip !== 'string') {
-            return null
-        }
-        if (!mmdb) {
-            return null
-        }
-        try {
-            return mmdb.city(ip)
-        } catch {
-            return null
+
+        return {
+            city: (ip: string) => {
+                if (typeof ip !== 'string') {
+                    return null
+                }
+                return mmdb?.city(ip) ?? null
+            },
         }
     }
 }
