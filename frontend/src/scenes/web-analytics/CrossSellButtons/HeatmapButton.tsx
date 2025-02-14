@@ -38,7 +38,7 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
     )
 
     // Doesn't make sense to show the button if there's no value
-    if (!value) {
+    if (value === '') {
         return <></>
     }
 
@@ -73,8 +73,8 @@ export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.E
         )
     }
 
-    // Heatmap doesn't support filters (yet), so we're simply passing the page URL in
-    const url = `${domain}${value}`
+    // Replace double slashes with single slashes in case domain has a trailing slash, and value has a leading slash
+    const url = `${domain}${value}`.replace(/\/\//, '/')
 
     // Decide whether to use the new heatmaps UI or launch the user's website with the toolbar + heatmaps
     const to = featureFlags[FEATURE_FLAGS.HEATMAPS_UI]

@@ -73,8 +73,8 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         },
     }
 
-    /** If value is null - just open session replay home page */
-    if (value === null) {
+    /** If value is empty - just open session replay home page */
+    if (value === '') {
         return <LemonButton {...sharedButtonProps} to={urls.replay(ReplayTabs.Home, { date_from, date_to })} />
     }
 
