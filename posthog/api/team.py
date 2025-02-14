@@ -15,12 +15,10 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
-from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import ProductIntent, Team, User
 from posthog.models.activity_logging.activity_log import (
     Detail,
-    dict_changes_between,
     load_activity,
     log_activity,
 )
@@ -50,8 +48,6 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
-    get_ip_address,
-    get_week_start_for_country_code,
 )
 
 
@@ -105,158 +101,74 @@ class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include
             return True
 
 
-class CachingTeamSerializer(serializers.ModelSerializer):
-    """
-    This serializer is used for caching teams.
-    Currently used only in `/decide` endpoint.
-    Has all parameters needed for a successful decide request.
-    """
+class TeamBaseModelSerializer(
+    serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
+):
+    """Base serializer for Team model with common validation and fields."""
 
-    class Meta:
-        model = Team
-        fields = [
-            "id",
-            "project_id",
-            "uuid",
-            "name",
-            "api_token",
-            "autocapture_opt_out",
-            "autocapture_exceptions_opt_in",
-            "autocapture_web_vitals_opt_in",
-            "autocapture_web_vitals_allowed_metrics",
-            "autocapture_exceptions_errors_to_ignore",
-            "capture_performance_opt_in",
-            "capture_console_log_opt_in",
-            "session_recording_opt_in",
-            "session_recording_sample_rate",
-            "session_recording_minimum_duration_milliseconds",
-            "session_recording_linked_flag",
-            "session_recording_network_payload_capture_config",
-            "session_recording_url_trigger_config",
-            "session_recording_url_blocklist_config",
-            "session_recording_event_trigger_config",
-            "session_replay_config",
-            "survey_config",
-            "recording_domains",
-            "inject_web_apps",
-            "surveys_opt_in",
-            "heatmaps_opt_in",
-            "capture_dead_clicks",
-            "flags_persistence_default",
-        ]
-        read_only_fields = fields
-
-
-class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
-
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
 
+    # Define config fields that are common between both serializers
+    CONFIG_FIELDS = (
+        "timezone",
+        "data_attributes",
+        "person_display_name_properties",
+        "anonymize_ips",
+        "autocapture_opt_out",
+        "autocapture_exceptions_opt_in",
+        "autocapture_exceptions_errors_to_ignore",
+        "autocapture_web_vitals_opt_in",
+        "autocapture_web_vitals_allowed_metrics",
+        "capture_console_log_opt_in",
+        "capture_performance_opt_in",
+        "session_recording_opt_in",
+        "session_recording_sample_rate",
+        "session_recording_minimum_duration_milliseconds",
+        "session_recording_linked_flag",
+        "session_recording_network_payload_capture_config",
+        "session_recording_url_trigger_config",
+        "session_recording_url_blocklist_config",
+        "session_recording_event_trigger_config",
+        "session_replay_config",
+        "survey_config",
+        "surveys_opt_in",
+        "heatmaps_opt_in",
+        "capture_dead_clicks",
+        "recording_domains",
+        "test_account_filters",
+        "test_account_filters_default_checked",
+        "path_cleaning_filters",
+        "correlation_config",
+        "week_start_day",
+        "flags_persistence_default",
+        "live_events_columns",
+        "human_friendly_comparison_periods",
+        "default_data_theme",
+        "revenue_tracking_config",
+    )
+
+    # Define computed fields that are read-only
+    COMPUTED_FIELDS = (
+        "effective_membership_level",
+        "has_group_types",
+        "live_events_token",
+        "product_intents",
+        "access_control_version",
+    )
+
     class Meta:
         model = Team
-        fields = (
-            "id",
-            "uuid",
-            "organization",
-            "project_id",
-            "api_token",
-            "app_urls",
-            "name",
-            "slack_incoming_webhook",
-            "created_at",
-            "updated_at",
-            "anonymize_ips",
-            "completed_snippet_onboarding",
-            "ingested_event",
-            "test_account_filters",
-            "test_account_filters_default_checked",
-            "path_cleaning_filters",
-            "is_demo",
-            "timezone",
-            "data_attributes",
-            "person_display_name_properties",
-            "correlation_config",
-            "autocapture_opt_out",
-            "autocapture_exceptions_opt_in",
-            "autocapture_web_vitals_opt_in",
-            "autocapture_web_vitals_allowed_metrics",
-            "autocapture_exceptions_errors_to_ignore",
-            "capture_console_log_opt_in",
-            "capture_performance_opt_in",
-            "session_recording_opt_in",
-            "session_recording_sample_rate",
-            "session_recording_minimum_duration_milliseconds",
-            "session_recording_linked_flag",
-            "session_recording_network_payload_capture_config",
-            "session_recording_url_trigger_config",
-            "session_recording_url_blocklist_config",
-            "session_recording_event_trigger_config",
-            "session_replay_config",
-            "survey_config",
-            "effective_membership_level",
-            "access_control",
-            "week_start_day",
-            "has_group_types",
-            "primary_dashboard",
-            "live_events_columns",
-            "recording_domains",
-            "cookieless_server_hash_mode",
-            "human_friendly_comparison_periods",
-            "person_on_events_querying_enabled",
-            "inject_web_apps",
-            "extra_settings",
-            "modifiers",
-            "default_modifiers",
-            "has_completed_onboarding_for",
-            "surveys_opt_in",
-            "heatmaps_opt_in",
-            "flags_persistence_default",
-            "live_events_token",
-            "product_intents",
-            "capture_dead_clicks",
-            "user_access_level",
-            "default_data_theme",
-            "revenue_tracking_config",
-            "access_control_version",
-            "onboarding_tasks",
-        )
-        read_only_fields = (
-            "id",
-            "uuid",
-            "organization",
-            "project_id",
-            "api_token",
-            "created_at",
-            "updated_at",
-            "ingested_event",
-            "effective_membership_level",
-            "has_group_types",
-            "default_modifiers",
-            "person_on_events_querying_enabled",
-            "live_events_token",
-            "user_access_level",
-            "access_control_version",
-        )
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
-        if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
-            representation["default_data_theme"] = (
-                DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
-            )
-        return representation
+        fields = ()  # Base class defines no fields by default
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
 
     def get_access_control_version(self, team: Team) -> str:
-        # If they have a private project (team/environment) then assume they are using the old access control
         if bool(team.access_control):
             return "v1"
         return "v2"
@@ -326,7 +238,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             )
 
         if "ai_config" in value:
-            TeamSerializer.validate_session_replay_ai_summary_config(value["ai_config"])
+            TeamBaseModelSerializer.validate_session_replay_ai_summary_config(value["ai_config"])
 
         return value
 
@@ -354,128 +266,74 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)
 
-    def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
-        request = self.context["request"]
-        if "project_id" not in self.context:
-            raise exceptions.ValidationError(
-                "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
+
+class TeamConfigSerializer(TeamBaseModelSerializer):
+    """Serializer for updating team configuration settings."""
+
+    class Meta:
+        model = Team
+        fields = TeamBaseModelSerializer.CONFIG_FIELDS
+
+
+class TeamSerializer(TeamBaseModelSerializer):
+    """Full team serializer with all fields and management capabilities."""
+
+    class Meta:
+        model = Team
+        fields = (
+            # Core fields
+            "id",
+            "uuid",
+            "organization",
+            "project_id",
+            "api_token",
+            "app_urls",
+            "name",
+            "slack_incoming_webhook",
+            "created_at",
+            "updated_at",
+            "completed_snippet_onboarding",
+            "ingested_event",
+            "is_demo",
+            "access_control",
+            "primary_dashboard",
+            "cookieless_server_hash_mode",
+            "person_on_events_querying_enabled",
+            "inject_web_apps",
+            "extra_settings",
+            "modifiers",
+            "default_modifiers",
+            "has_completed_onboarding_for",
+            "user_access_level",
+            "onboarding_tasks",
+            # Config fields
+            *TeamBaseModelSerializer.CONFIG_FIELDS,
+            # Computed fields
+            *TeamBaseModelSerializer.COMPUTED_FIELDS,
+        )
+        read_only_fields = (
+            "id",
+            "uuid",
+            "organization",
+            "project_id",
+            "api_token",
+            "created_at",
+            "updated_at",
+            "ingested_event",
+            "default_modifiers",
+            "person_on_events_querying_enabled",
+            "user_access_level",
+            *TeamBaseModelSerializer.COMPUTED_FIELDS,
+        )
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
+        if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+            representation["default_data_theme"] = (
+                DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
             )
-        if self.context["project_id"] not in self.user_permissions.project_ids_visible_for_user:
-            raise exceptions.NotFound("Project not found.")
-        validated_data["project_id"] = self.context["project_id"]
-        serializers.raise_errors_on_nested_writes("create", self, validated_data)
-
-        if "week_start_day" not in validated_data:
-            country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
-            if country_code:
-                week_start_day_for_user_ip_location = get_week_start_for_country_code(country_code)
-                # get_week_start_for_country_code() also returns 6 for countries where the week starts on Saturday,
-                # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
-                validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
-
-        team = Team.objects.create_with_data(
-            initiating_user=request.user,
-            organization=self.context["view"].organization,
-            **validated_data,
-        )
-
-        request.user.current_team = team
-        request.user.team = request.user.current_team  # Update cached property
-        request.user.save()
-
-        log_activity(
-            organization_id=team.organization_id,
-            team_id=team.pk,
-            user=request.user,
-            was_impersonated=is_impersonated_session(request),
-            scope="Team",
-            item_id=team.pk,
-            activity="created",
-            detail=Detail(name=str(team.name)),
-        )
-
-        return team
-
-    def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
-        before_update = instance.__dict__.copy()
-
-        if "survey_config" in validated_data:
-            if instance.survey_config is not None and validated_data.get("survey_config") is not None:
-                validated_data["survey_config"] = {
-                    **instance.survey_config,
-                    **validated_data["survey_config"],
-                }
-
-            if validated_data.get("survey_config") is None:
-                del before_update["survey_config"]
-
-            survey_config_changes_between = dict_changes_between(
-                "Survey",
-                before_update.get("survey_config", {}),
-                validated_data.get("survey_config", {}),
-                use_field_exclusions=True,
-            )
-
-            if survey_config_changes_between:
-                log_activity(
-                    organization_id=cast(UUIDT, instance.organization_id),
-                    team_id=instance.pk,
-                    user=cast(User, self.context["request"].user),
-                    was_impersonated=is_impersonated_session(request),
-                    scope="Survey",
-                    item_id="",
-                    activity="updated",
-                    detail=Detail(
-                        name="global survey appearance",
-                        changes=survey_config_changes_between,
-                    ),
-                )
-
-        if (
-            "session_replay_config" in validated_data
-            and validated_data["session_replay_config"] is not None
-            and instance.session_replay_config is not None
-        ):
-            # for session_replay_config and its top level keys we merge existing settings with new settings
-            # this way we don't always have to receive the entire settings object to change one setting
-            # so for each key in validated_data["session_replay_config"] we merge it with the existing settings
-            # and then merge any top level keys that weren't provided
-
-            for key, value in validated_data["session_replay_config"].items():
-                if key in instance.session_replay_config:
-                    # if they're both dicts then we merge them, otherwise, the new value overwrites the old
-                    if isinstance(instance.session_replay_config[key], dict) and isinstance(
-                        validated_data["session_replay_config"][key], dict
-                    ):
-                        validated_data["session_replay_config"][key] = {
-                            **instance.session_replay_config[key],  # existing values
-                            **value,  # and new values on top
-                        }
-
-            # then also add back in any keys that exist but are not in the provided data
-            validated_data["session_replay_config"] = {
-                **instance.session_replay_config,
-                **validated_data["session_replay_config"],
-            }
-
-        updated_team = super().update(instance, validated_data)
-        changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
-
-        log_activity(
-            organization_id=cast(UUIDT, instance.organization_id),
-            team_id=instance.pk,
-            user=cast(User, self.context["request"].user),
-            was_impersonated=is_impersonated_session(request),
-            scope="Team",
-            item_id=instance.pk,
-            activity="updated",
-            detail=Detail(
-                name=str(instance.name),
-                changes=changes,
-            ),
-        )
-
-        return updated_team
+        return representation
 
 
 class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
@@ -591,6 +449,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         )
         # TRICKY: We pass in `team` here as access to `user.current_team` can fail if it was deleted
         report_user_action(user, f"team deleted", team=team)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["team:read"],
+        serializer_class=TeamConfigSerializer,
+    )
+    def config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
         methods=["PATCH"],
