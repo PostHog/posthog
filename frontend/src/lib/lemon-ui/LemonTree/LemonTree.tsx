@@ -12,7 +12,7 @@ export type TreeDataItem = {
     name: string
     /** Passthrough metadata */
     record?: Record<string, any>
-    /** The name of the item. */
+    /** Content to display to the right of the item. */
     right?: React.ReactNode
     /** The icon to use for the item. */
     icon?: React.ReactNode

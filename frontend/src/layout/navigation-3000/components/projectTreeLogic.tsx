@@ -280,11 +280,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         actions: [notebooksTableLogic, ['loadNotebooks']],
     })),
     actions({
-        loadFiledItems: true,
+        loadSavedItems: true,
         loadUnfiledItems: true,
         addFolder: (folder: string) => ({ folder }),
-        renameItem: (oldName: string, newName: string) => ({ oldName, newName }),
-        createItem: (item: FileSystemEntry) => ({ item }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
         queueAction: (action: ProjectTreeAction) => ({ action }),
@@ -298,7 +296,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         savedItems: [
             [] as FileSystemEntry[],
             {
-                loadFiledItems: async () => {
+                loadSavedItems: async () => {
                     const response = await api.fileSystem.list()
                     return response.results
                 },
@@ -454,12 +452,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     folderName: string,
                     fullPath: string
                 ): TreeDataItem => {
-                    let folderNode = nodes.find((node) => node.data.path === fullPath)
+                    let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
                     if (!folderNode) {
                         folderNode = {
                             id: 'project/' + fullPath,
                             name: folderName,
-                            data: { type: 'folder', id: 'project/' + fullPath, path: fullPath },
+                            record: { type: 'folder', id: 'project/' + fullPath, path: fullPath },
                             children: [],
                         }
                         nodes.push(folderNode)
@@ -490,7 +488,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         currentLevel = folderNode.children!
                     }
 
-                    if (item.type === 'folder' && currentLevel.find((node) => node.data.path === item.path)) {
+                    if (item.type === 'folder' && currentLevel.find((node) => node.record?.path === item.path)) {
                         continue
                     }
 
@@ -499,7 +497,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         id: 'project/' + item.id,
                         name: itemName,
                         icon: iconForType(item.type),
-                        data: item,
+                        record: item,
                         onClick: () => {
                             if (item.href) {
                                 router.actions.push(item.href)
@@ -551,7 +549,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     id: 'project',
                     name: 'Default Project',
                     icon: <IconBook />,
-                    data: { type: 'project', id: 'project' },
+                    record: { type: 'project', id: 'project' },
                     onClick: () => router.actions.push(urls.projectHomepage()),
                 },
             ],
@@ -565,7 +563,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     }),
     listeners(({ actions, values }) => ({
         moveItem: async ({ oldPath, newPath }) => {
-            // rename all filed items
             for (const item of values.viableItems) {
                 if (item.path === oldPath || item.path.startsWith(oldPath + '/')) {
                     actions.queueAction({
@@ -593,7 +590,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadFiledItems()
+        actions.loadSavedItems()
         actions.loadUnfiledItems()
         actions.loadNotebooks()
     }),

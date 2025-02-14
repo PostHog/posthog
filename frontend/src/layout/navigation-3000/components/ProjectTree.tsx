@@ -12,12 +12,14 @@ import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ReactNode, useRef } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { FileSystemEntry } from '~/queries/schema'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { NavbarBottom } from './NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
 
-// TODO: Swap out for something that works better
+// TODO: Swap out for a better DnD approach
+// Currently you can only drag the title text, and must click on the icon or to the right of it to trigger a click
 function Draggable(props: { id: string; children: ReactNode }): JSX.Element {
     const { attributes, listeners, setNodeRef, transform } = useDraggable({
         id: props.id,
@@ -61,7 +63,8 @@ export function TreeView(): JSX.Element {
                             const folder = over?.id
                             if (folder === oldPath) {
                                 // We can't click on draggable items. If we drag to itself, assume it's a click
-                                // TODO: clicking on expandable folders does not work - only files work.
+                                // TODO: clicking on expandable folders does not work as we can't control
+                                // the open/closed state of the tree - only files work.
                                 const item = viableItems.find((i) => i.path === oldPath)
                                 if (item && item.href) {
                                     router.actions.push(item.href)
@@ -120,27 +123,27 @@ export function TreeView(): JSX.Element {
                                         </>
                                     )
                                 }}
-                                right={({ data, id }) =>
-                                    id === 'applyPendingChanges' ? (
-                                        <IconUpload className="text-warning" />
-                                    ) : data?.created_at || data?.type ? (
+                                right={({ record }) =>
+                                    record?.created_at || record?.type ? (
                                         <More
                                             size="xsmall"
                                             onClick={(e) => e.stopPropagation()}
                                             overlay={
                                                 <>
-                                                    {data?.type === 'folder' || data?.type === 'project' ? (
+                                                    {record?.type === 'folder' || record?.type === 'project' ? (
                                                         <LemonButton
                                                             onClick={() => {
                                                                 const folder = prompt(
-                                                                    data.path
-                                                                        ? `Create a folder under "${data.path}":`
+                                                                    record.path
+                                                                        ? `Create a folder under "${record.path}":`
                                                                         : 'Create a new folder:',
                                                                     ''
                                                                 )
                                                                 if (folder) {
                                                                     addFolder(
-                                                                        data.path ? data.path + '/' + folder : folder
+                                                                        record.path
+                                                                            ? record.path + '/' + folder
+                                                                            : folder
                                                                     )
                                                                 }
                                                             }}
@@ -149,10 +152,10 @@ export function TreeView(): JSX.Element {
                                                             New Folder
                                                         </LemonButton>
                                                     ) : null}
-                                                    {data.path ? (
+                                                    {record.path ? (
                                                         <LemonButton
                                                             onClick={() => {
-                                                                const oldPath = data.path
+                                                                const oldPath = record.path
                                                                 const folder = prompt('New name?', oldPath)
                                                                 if (folder) {
                                                                     moveItem(oldPath, folder)
@@ -163,18 +166,21 @@ export function TreeView(): JSX.Element {
                                                             Rename
                                                         </LemonButton>
                                                     ) : null}
-                                                    {data.path ? (
+                                                    {record.path ? (
                                                         <LemonButton
                                                             onClick={() => {
-                                                                void navigator.clipboard.writeText(data.path)
+                                                                void navigator.clipboard.writeText(record.path)
                                                             }}
                                                             fullWidth
                                                         >
                                                             Copy Path
                                                         </LemonButton>
                                                     ) : null}
-                                                    {data?.created_at ? (
-                                                        <LemonButton onClick={() => deleteItem(data)} fullWidth>
+                                                    {record?.created_at ? (
+                                                        <LemonButton
+                                                            onClick={() => deleteItem(record as FileSystemEntry)}
+                                                            fullWidth
+                                                        >
                                                             Delete
                                                         </LemonButton>
                                                     ) : null}
