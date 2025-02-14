@@ -6,8 +6,7 @@ export const template: HogFunctionTemplate = {
     type: 'transformation',
     id: 'template-property-filter',
     name: 'Property Filter',
-    description:
-        'This transformation removes properties from event object and nested properties from event.properties.',
+    description: 'Remove properties from events, with optional filtering in $set and $set_once properties.',
     icon_url: '/static/hedgehog/builder-hog-02.png',
     category: ['Custom'],
     hog: `
@@ -17,51 +16,21 @@ if (notEmpty(inputs.propertiesToFilter)) {
     propertiesToFilter := splitByString(',', inputs.propertiesToFilter)
 }
 
+let includeSetProperties := inputs.includeSetProperties
+let includeSetOnceProperties := inputs.includeSetOnceProperties
+
 if (empty(propertiesToFilter)) {
     return event
 }
 
-// Helper function to split path into parts
-fun splitPath(path) {
-    return splitByString('.', trim(path))
-}
-
-// Helper function to check if a path matches the start of another path
-fun pathStartsWith(path, prefix) {
-    let pathParts := splitPath(path)
-    let prefixParts := splitPath(prefix)
-    
-    if (length(prefixParts) > length(pathParts)) {
-        return false
-    }
-    
-    for (let i := 1; i <= length(prefixParts); i := i + 1) {
-        if (trim(pathParts[i]) != trim(prefixParts[i])) {
-            return false
-        }
-    }
-    
-    return true
-}
-
-// Helper function to get remaining path
-fun getRemainingPath(path, prefix) {
-    let pathParts := splitPath(path)
-    let prefixParts := splitPath(prefix)
-    let result := ''
-    
-    for (let i := length(prefixParts) + 1; i <= length(pathParts); i := i + 1) {
-        if (notEmpty(result)) {
-            result := concat(result, '.')
-        }
-        result := concat(result, pathParts[i])
-    }
-    
-    return result
+// Helper function to check if property names match
+fun propertyNamesMatch(a, b) {
+    // Always do exact matches
+    return trim(a) = trim(b)
 }
 
 // Helper function to filter properties from an object
-fun filterObject(obj, propertiesToRemove, currentPath) {
+fun filterObject(obj) {
     if (obj = null) {
         return null
     }
@@ -75,18 +44,65 @@ fun filterObject(obj, propertiesToRemove, currentPath) {
     
     for (let key in objKeys) {
         let shouldKeep := true
-        let fullPath := if(notEmpty(currentPath), concat(currentPath, '.', key), key)
         
-        for (let propToFilter in propertiesToRemove) {
-            if (lower(trim(fullPath)) = lower(trim(propToFilter))) {
+        for (let propToFilter in propertiesToFilter) {
+            if (propertyNamesMatch(key, propToFilter)) {
                 shouldKeep := false
             }
         }
         
         if (shouldKeep) {
             let value := obj[key]
+            // Recursively filter nested objects
             if (typeof(value) = 'object' and value != null) {
-                result[key] := filterObject(value, propertiesToRemove, fullPath)
+                result[key] := filterObject(value)
+            } else {
+                result[key] := value
+            }
+        }
+    }
+    
+    return result
+}
+
+// Helper function to filter properties recursively, but only in regular properties
+fun filterProperties(obj) {
+    if (obj = null) {
+        return null
+    }
+    
+    if (typeof(obj) != 'object') {
+        return obj
+    }
+    
+    let result := {}
+    let objKeys := keys(obj)
+    
+    for (let key in objKeys) {
+        let shouldKeep := true
+        
+        for (let propToFilter in propertiesToFilter) {
+            if (propertyNamesMatch(key, propToFilter)) {
+                shouldKeep := false
+            }
+        }
+        
+        if (shouldKeep) {
+            let value := obj[key]
+            if (key = '$set') {
+                if (includeSetProperties) {
+                    result[key] := filterObject(value)  // Use filterObject for $set
+                } else {
+                    result[key] := value
+                }
+            } else if (key = '$set_once') {
+                if (includeSetOnceProperties) {
+                    result[key] := filterObject(value)  // Use filterObject for $set_once
+                } else {
+                    result[key] := value
+                }
+            } else if (typeof(value) = 'object' and value != null) {
+                result[key] := filterProperties(value)
             } else {
                 result[key] := value
             }
@@ -104,14 +120,14 @@ let eventKeys := keys(event)
 for (let key in eventKeys) {
     let shouldKeep := true
     for (let propToFilter in propertiesToFilter) {
-        if (position(propToFilter, '.') = 0 and trim(key) = trim(propToFilter)) {
+        if (propertyNamesMatch(key, propToFilter)) {
             shouldKeep := false
         }
     }
     
     if (shouldKeep) {
-        if (key = 'properties' and notEmpty(event.properties)) {
-            returnEvent.properties := filterObject(event.properties, propertiesToFilter, '')
+        if (key = 'properties') {
+            returnEvent.properties := filterProperties(event.properties)
         } else {
             returnEvent[key] := event[key]
         }
@@ -125,11 +141,26 @@ return returnEvent
             key: 'propertiesToFilter',
             type: 'string',
             label: 'Properties to Filter',
-            description:
-                'Comma-separated list of properties to filter. For top-level properties use the property name (e.g. "distinct_id"), for nested properties use the full path (e.g. "user.profile.settings.api_key")',
+            description: 'Comma-separated list of properties to filter (e.g. "ip,distinct_id,$ip")',
             default: '$ip',
             secret: false,
             required: true,
+        },
+        {
+            key: 'includeSetProperties',
+            type: 'boolean',
+            label: 'Include $set properties',
+            description: 'If enabled, will also remove matching properties from $set object',
+            default: false,
+            required: false,
+        },
+        {
+            key: 'includeSetOnceProperties',
+            type: 'boolean',
+            label: 'Include $set_once properties',
+            description: 'If enabled, will also remove matching properties from $set_once object',
+            default: false,
+            required: false,
         },
     ],
 }
