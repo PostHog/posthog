@@ -258,7 +258,7 @@ export function RubySnippet({
     const propertyName = samplePropertyName || 'is_authorized'
 
     if (remoteConfiguration) {
-        const reminder = REMOTE_CONFIG_REMINDER + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+        const reminder = `# ` + REMOTE_CONFIG_REMINDER + (encryptedPayload ? `\n# ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
 
         return (
             <>
