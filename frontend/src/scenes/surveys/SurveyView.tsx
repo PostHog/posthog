@@ -16,6 +16,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -608,10 +609,7 @@ function SurveyNPSResults({
                                 properties: [
                                     {
                                         type: PropertyFilterType.Event,
-                                        key:
-                                            questionIndex === 0
-                                                ? '$survey_response'
-                                                : `$survey_response_${questionIndex}`,
+                                        key: getSurveyResponseKey(questionIndex),
                                         operator: PropertyOperator.Exact,
                                         value: ['9', '10'],
                                     },
@@ -624,10 +622,7 @@ function SurveyNPSResults({
                                 properties: [
                                     {
                                         type: PropertyFilterType.Event,
-                                        key:
-                                            questionIndex === 0
-                                                ? '$survey_response'
-                                                : `$survey_response_${questionIndex}`,
+                                        key: getSurveyResponseKey(questionIndex),
                                         operator: PropertyOperator.Exact,
                                         value: ['7', '8'],
                                     },
@@ -640,10 +635,7 @@ function SurveyNPSResults({
                                 properties: [
                                     {
                                         type: PropertyFilterType.Event,
-                                        key:
-                                            questionIndex === 0
-                                                ? '$survey_response'
-                                                : `$survey_response_${questionIndex}`,
+                                        key: getSurveyResponseKey(questionIndex),
                                         operator: PropertyOperator.Exact,
                                         value: ['0', '1', '2', '3', '4', '5', '6'],
                                     },
