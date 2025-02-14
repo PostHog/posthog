@@ -13,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { CompareFilter } from '~/queries/schema'
 import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
@@ -20,6 +21,7 @@ import {
     BaseMathType,
     Breadcrumb,
     FeatureFlagFilters,
+    IntervalType,
     MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
@@ -110,6 +112,11 @@ export interface QuestionResultsReady {
 export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
 export type ScheduleType = 'once' | 'recurring'
 
+export interface SurveyDateRange {
+    date_from: string | null
+    date_to: string | null
+}
+
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
 
 function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
@@ -187,6 +194,9 @@ export const surveyLogic = kea<surveyLogicType>([
         resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
+        setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
+        setInterval: (interval: IntervalType) => ({ interval }),
+        setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -642,6 +652,17 @@ export const surveyLogic = kea<surveyLogicType>([
             if (values.survey.start_date) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
             }
+
+            // Initialize date range based on survey dates when survey is loaded
+            if ('created_at' in values.survey) {
+                const dateRange = {
+                    date_from: dayjs(values.survey.created_at).format('YYYY-MM-DD'),
+                    date_to: values.survey.end_date
+                        ? dayjs(values.survey.end_date).format('YYYY-MM-DD')
+                        : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+                }
+                actions.setDateRange(dateRange)
+            }
         },
         resetSurveyResponseLimits: () => {
             actions.setSurveyValue('responses_limit', null)
@@ -945,6 +966,24 @@ export const surveyLogic = kea<surveyLogicType>([
             null as any,
             {
                 setFlagPropertyErrors: (_, { errors }) => errors,
+            },
+        ],
+        dateRange: [
+            null as SurveyDateRange | null,
+            {
+                setDateRange: (_, { dateRange }) => dateRange,
+            },
+        ],
+        interval: [
+            'day' as IntervalType,
+            {
+                setInterval: (_, { interval }) => interval,
+            },
+        ],
+        compareFilter: [
+            null as CompareFilter | null,
+            {
+                setCompareFilter: (_, { compareFilter }) => compareFilter,
             },
         ],
     }),
@@ -1266,6 +1305,36 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 return urls.insightNew({ query })
+            },
+        ],
+        defaultInterval: [
+            (s) => [s.survey],
+            (survey: Survey): IntervalType => {
+                if (!survey.created_at) {
+                    return 'day'
+                }
+
+                const startDate = dayjs(survey.created_at)
+                const endDate = survey.end_date ? dayjs(survey.end_date) : dayjs()
+                const daysDifference = endDate.diff(startDate, 'days')
+
+                if (daysDifference <= 7) {
+                    return 'day'
+                } else if (daysDifference <= 60) {
+                    return 'week'
+                }
+                return 'month'
+            },
+        ],
+        defaultDateRange: [
+            (s) => [s.survey],
+            (survey: Survey): SurveyDateRange => {
+                return {
+                    date_from: survey.created_at ? dayjs(survey.created_at).format('YYYY-MM-DD') : null,
+                    date_to: survey.end_date
+                        ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                        : dayjs().format('YYYY-MM-DD'),
+                }
             },
         ],
     }),
