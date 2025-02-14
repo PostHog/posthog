@@ -7,7 +7,7 @@ export const posthog = new PostHog('sTMFPsFhdP1Ssg', {
 })
 
 if (process.env.NODE_ENV === 'test') {
-    posthog.disable()
+    void posthog.disable()
 }
 
 export const captureTeamEvent = (team: Team, event: string, properties: Record<string, any> = {}): void => {

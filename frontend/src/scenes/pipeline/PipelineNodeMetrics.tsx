@@ -75,7 +75,7 @@ function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX
         <div className="space-y-4">
             <div className="flex items-start gap-8 flex-wrap">
                 <div>
-                    <div className="text-muted font-semibold mb-2">
+                    <div className="text-secondary font-semibold mb-2">
                         Events Processed successfully
                         <Tooltip title="Total number of events processed successfully">
                             <IconInfo />
@@ -84,7 +84,7 @@ function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX
                     <div className="text-4xl">{renderNumber(metrics?.totals?.successes)}</div>
                 </div>
                 <div>
-                    <div className="text-muted font-semibold mb-2">
+                    <div className="text-secondary font-semibold mb-2">
                         Events Failed
                         <Tooltip title="Total number of events that threw an error during processing">
                             <IconInfo />
@@ -352,17 +352,17 @@ function CollapsibleSection(props: {
     const [isExpanded, setIsExpanded] = useState(props.defaultIsExpanded)
 
     return (
-        <div className="bg-bg-3000 border rounded">
+        <div className="bg-primary border rounded">
             <LemonButton
                 fullWidth
                 onClick={() => setIsExpanded(!isExpanded)}
                 sideIcon={isExpanded ? <IconCollapse /> : <IconExpand />}
                 title={isExpanded ? 'Show less' : 'Show more'}
-                className="bg-bg-3000"
+                className="bg-primary"
             >
                 {props.title}
             </LemonButton>
-            {isExpanded && <div className="bg-bg-light p-2">{props.children}</div>}
+            {isExpanded && <div className="bg-surface-primary p-2">{props.children}</div>}
         </div>
     )
 }

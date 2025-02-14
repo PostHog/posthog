@@ -58,6 +58,8 @@ class PipelineNonDLT:
         self._internal_schema = HogQLSchema()
 
     def run(self):
+        pa_memory_pool = pa.default_memory_pool()
+
         try:
             # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
             if self._job.rows_synced is not None and self._job.rows_synced != 0:
@@ -112,6 +114,12 @@ class PipelineNonDLT:
                 row_count += py_table.num_rows
                 chunk_index += 1
 
+                # Cleanup
+                if "py_table" in locals() and py_table is not None:
+                    del py_table
+                pa_memory_pool.release_unused()
+                gc.collect()
+
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
                 self._process_pa_table(pa_table=py_table, index=chunk_index)
@@ -132,6 +140,8 @@ class PipelineNonDLT:
                 del buffer
             if "py_table" in locals() and py_table is not None:
                 del py_table
+
+            pa_memory_pool.release_unused()
             gc.collect()
 
     def _process_pa_table(self, pa_table: pa.Table, index: int):

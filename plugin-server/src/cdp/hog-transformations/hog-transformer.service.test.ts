@@ -4,14 +4,17 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
-import { template as filterOutPluginTemplate } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createHogFunction, insertHogFunction } from '../../../tests/cdp/fixtures'
+import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
+import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogFunctionTemplate } from '../templates/types'
 import { HogTransformerService } from './hog-transformer.service'
 
@@ -21,6 +24,7 @@ jest.mock('../../utils/status', () => ({
         info: jest.fn(),
         debug: jest.fn(),
         updatePrompt: jest.fn(),
+        error: jest.fn(),
     },
 }))
 
@@ -77,6 +81,7 @@ describe('HogTransformer', () => {
                 enabled: true,
                 bytecode: hogByteCode,
                 execution_order: 1,
+                id: 'd77e792e-0f35-431b-a983-097534aa4767',
             })
             await insertHogFunction(hub.db.postgres, teamId, geoIpFunction)
 
@@ -136,6 +141,60 @@ describe('HogTransformer', () => {
                     "$initial_geoip_subdivision_2_name": null,
                     "$initial_geoip_time_zone": "Europe/Stockholm",
                   },
+                  "$transformations_failed": [],
+                  "$transformations_succeeded": [
+                    "GeoIP (d77e792e-0f35-431b-a983-097534aa4767)",
+                  ],
+                }
+            `)
+        })
+
+        it('only allow modifying certain properties', async () => {
+            // Setup the hog function
+            const fn = createHogFunction({
+                type: 'transformation',
+                name: 'Modifier',
+                team_id: teamId,
+                enabled: true,
+                bytecode: [],
+                execution_order: 1,
+                id: 'd77e792e-0f35-431b-a983-097534aa4767',
+                hog: `
+                    let returnEvent := event
+                    returnEvent.distinct_id := 'modified-distinct-id'
+                    returnEvent.event := 'modified-event'
+                    returnEvent.properties.test_property := 'modified-test-value'
+                    returnEvent.something_else := 'should not be allowed'
+                    returnEvent.timestamp := 'should not be allowed'
+                    return returnEvent
+                `,
+            })
+            fn.bytecode = await compileHog(fn.hog)
+            await insertHogFunction(hub.db.postgres, teamId, fn)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event: PluginEvent = createPluginEvent({}, teamId)
+            const result = await hogTransformer.transformEvent(event)
+
+            expect(result.event).toMatchInlineSnapshot(`
+                {
+                  "distinct_id": "modified-distinct-id",
+                  "event": "modified-event",
+                  "ip": "89.160.20.129",
+                  "now": "2024-06-07T12:00:00.000Z",
+                  "properties": {
+                    "$current_url": "https://example.com",
+                    "$ip": "89.160.20.129",
+                    "$transformations_failed": [],
+                    "$transformations_succeeded": [
+                      "Modifier (d77e792e-0f35-431b-a983-097534aa4767)",
+                    ],
+                    "test_property": "modified-test-value",
+                  },
+                  "site_url": "http://localhost",
+                  "team_id": 2,
+                  "timestamp": "2024-01-01T00:00:00Z",
+                  "uuid": "event-id",
                 }
             `)
         })
@@ -395,6 +454,153 @@ describe('HogTransformer', () => {
             expect(executeHogFunctionSpy.mock.calls[1][0]).toMatchObject({ execution_order: 2 })
             expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: null })
         })
+
+        it('should track successful and failed transformations', async () => {
+            // Create a successful transformation
+            const successTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-success',
+                name: 'Success Template',
+                description: 'A template that should succeed',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.success := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            // Create a failing transformation
+            const failingTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-fail',
+                name: 'Failing Template',
+                description: 'A template that should fail',
+                category: ['Custom'],
+                hog: `
+                    // Return invalid result (not an object with properties)
+                    return "invalid"
+                `,
+                inputs_schema: [],
+            }
+
+            const successByteCode = await compileHog(successTemplate.hog)
+            const successFunction = createHogFunction({
+                type: 'transformation',
+                name: successTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: successByteCode,
+                execution_order: 1,
+            })
+
+            const failByteCode = await compileHog(failingTemplate.hog)
+            const failFunction = createHogFunction({
+                type: 'transformation',
+                name: failingTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: failByteCode,
+                execution_order: 2,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, successFunction)
+            await insertHogFunction(hub.db.postgres, teamId, failFunction)
+
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event = createPluginEvent(
+                {
+                    event: 'test',
+                    properties: {},
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEvent(event)
+
+            // Verify the event has both success and failure tracking
+            expect(result.event?.properties).toEqual({
+                success: true, // From successful transformation
+                $transformations_succeeded: [`Success Template (${successFunction.id})`],
+                $transformations_failed: [`Failing Template (${failFunction.id})`],
+            })
+        })
+
+        it('should not add transformation tracking properties if no transformations run', async () => {
+            const event = createPluginEvent(
+                {
+                    event: 'test',
+                    properties: { original: true },
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEvent(event)
+
+            // Verify the event properties are unchanged
+            expect(result.event?.properties).toEqual({
+                original: true,
+            })
+            expect(result.event?.properties).not.toHaveProperty('$transformations_succeeded')
+            expect(result.event?.properties).not.toHaveProperty('$transformations_failed')
+        })
+
+        it('should preserve existing transformation results when adding new ones', async () => {
+            const successTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-success',
+                name: 'Success Template',
+                description: 'A template that should succeed',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.success := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const successByteCode = await compileHog(successTemplate.hog)
+            const successFunction = createHogFunction({
+                type: 'transformation',
+                name: successTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: successByteCode,
+                execution_order: 1,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, successFunction)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event = createPluginEvent(
+                {
+                    event: 'test',
+                    properties: {
+                        $transformations_succeeded: ['Previous Success (prev-id)'],
+                        $transformations_failed: ['Previous Failure (prev-id)'],
+                    },
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEvent(event)
+
+            // Verify new results are appended to existing ones
+            expect(result?.event?.properties?.$transformations_succeeded).toEqual([
+                'Previous Success (prev-id)',
+                `Success Template (${successFunction.id})`,
+            ])
+            expect(result?.event?.properties?.$transformations_failed).toEqual(['Previous Failure (prev-id)'])
+        })
     })
 
     describe('legacy plugins', () => {
@@ -403,7 +609,7 @@ describe('HogTransformer', () => {
         beforeEach(async () => {
             const filterOutPlugin = createHogFunction({
                 type: 'transformation',
-                name: filterOutPluginTemplate.name,
+                name: posthogFilterOutPlugin.template.name,
                 template_id: 'plugin-posthog-filter-out-plugin',
                 inputs: {
                     eventsToDrop: {
@@ -412,8 +618,9 @@ describe('HogTransformer', () => {
                 },
                 team_id: teamId,
                 enabled: true,
-                hog: filterOutPluginTemplate.hog,
-                inputs_schema: filterOutPluginTemplate.inputs_schema,
+                hog: posthogFilterOutPlugin.template.hog,
+                inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
+                id: 'c342e9ae-9f76-4379-a465-d33b4826bc05',
             })
 
             await insertHogFunction(hub.db.postgres, teamId, filterOutPlugin)
@@ -448,6 +655,110 @@ describe('HogTransformer', () => {
                   "properties": {
                     "$current_url": "https://example.com",
                     "$ip": "89.160.20.129",
+                    "$transformations_failed": [],
+                    "$transformations_succeeded": [
+                      "Filter Out Plugin (c342e9ae-9f76-4379-a465-d33b4826bc05)",
+                    ],
+                  },
+                  "site_url": "http://localhost",
+                  "team_id": 2,
+                  "timestamp": "2024-01-01T00:00:00Z",
+                  "uuid": "event-id",
+                }
+            `)
+        })
+    })
+
+    describe('long event chain', () => {
+        it('should handle a long chain of transformations', async () => {
+            const geoIp = createHogFunction({
+                type: 'transformation',
+                name: posthogPluginGeoip.template.name,
+                template_id: posthogPluginGeoip.template.id,
+                inputs: {},
+                team_id: teamId,
+                enabled: true,
+                hog: posthogPluginGeoip.template.hog,
+                inputs_schema: posthogPluginGeoip.template.inputs_schema,
+            })
+
+            const filterPlugin = createHogFunction({
+                type: 'transformation',
+                name: propertyFilterPlugin.template.name,
+                template_id: propertyFilterPlugin.template.id,
+                inputs: {
+                    properties: {
+                        value: '$ip,$geoip_country_code,$geoip_latitude,$geoip_longitude',
+                    },
+                },
+                team_id: teamId,
+                enabled: true,
+                hog: propertyFilterPlugin.template.hog,
+                inputs_schema: propertyFilterPlugin.template.inputs_schema,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, geoIp)
+            await insertHogFunction(hub.db.postgres, teamId, filterPlugin)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event: PluginEvent = createPluginEvent({ event: 'keep-me', team_id: teamId })
+            const result = await hogTransformer.transformEvent(event)
+
+            expect(forSnapshot(result.event)).toMatchInlineSnapshot(`
+                {
+                  "distinct_id": "distinct-id",
+                  "event": "keep-me",
+                  "ip": null,
+                  "now": "2024-06-07T12:00:00.000Z",
+                  "properties": {
+                    "$current_url": "https://example.com",
+                    "$geoip_accuracy_radius": 76,
+                    "$geoip_city_name": "Linköping",
+                    "$geoip_continent_code": "EU",
+                    "$geoip_continent_name": "Europe",
+                    "$geoip_country_name": "Sweden",
+                    "$geoip_subdivision_1_code": "E",
+                    "$geoip_subdivision_1_name": "Östergötland County",
+                    "$geoip_time_zone": "Europe/Stockholm",
+                    "$set": {
+                      "$geoip_accuracy_radius": 76,
+                      "$geoip_city_confidence": null,
+                      "$geoip_city_name": "Linköping",
+                      "$geoip_continent_code": "EU",
+                      "$geoip_continent_name": "Europe",
+                      "$geoip_country_code": "SE",
+                      "$geoip_country_name": "Sweden",
+                      "$geoip_latitude": 58.4167,
+                      "$geoip_longitude": 15.6167,
+                      "$geoip_postal_code": null,
+                      "$geoip_subdivision_1_code": "E",
+                      "$geoip_subdivision_1_name": "Östergötland County",
+                      "$geoip_subdivision_2_code": null,
+                      "$geoip_subdivision_2_name": null,
+                      "$geoip_time_zone": "Europe/Stockholm",
+                    },
+                    "$set_once": {
+                      "$initial_geoip_accuracy_radius": 76,
+                      "$initial_geoip_city_confidence": null,
+                      "$initial_geoip_city_name": "Linköping",
+                      "$initial_geoip_continent_code": "EU",
+                      "$initial_geoip_continent_name": "Europe",
+                      "$initial_geoip_country_code": "SE",
+                      "$initial_geoip_country_name": "Sweden",
+                      "$initial_geoip_latitude": 58.4167,
+                      "$initial_geoip_longitude": 15.6167,
+                      "$initial_geoip_postal_code": null,
+                      "$initial_geoip_subdivision_1_code": "E",
+                      "$initial_geoip_subdivision_1_name": "Östergötland County",
+                      "$initial_geoip_subdivision_2_code": null,
+                      "$initial_geoip_subdivision_2_name": null,
+                      "$initial_geoip_time_zone": "Europe/Stockholm",
+                    },
+                    "$transformations_failed": [],
+                    "$transformations_succeeded": [
+                      "GeoIP (<REPLACED-UUID-0>)",
+                      "Property Filter (<REPLACED-UUID-1>)",
+                    ],
                   },
                   "site_url": "http://localhost",
                   "team_id": 2,

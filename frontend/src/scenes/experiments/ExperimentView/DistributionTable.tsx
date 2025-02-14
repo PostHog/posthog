@@ -14,6 +14,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -134,6 +135,7 @@ export function DistributionTable(): JSX.Element {
     const { openDistributionModal } = useActions(experimentLogic)
     const { experimentId, experiment, metricResults } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const result = metricResults?.[0]
 
@@ -270,7 +272,13 @@ export function DistributionTable(): JSX.Element {
                 loading={false}
                 columns={columns}
                 dataSource={tableData}
-                rowClassName={(item) => (item.key === `holdout-${experiment.holdout?.id}` ? 'bg-mid' : '')}
+                rowClassName={(item) =>
+                    item.key === `holdout-${experiment.holdout?.id}`
+                        ? isDarkModeOn
+                            ? 'bg-fill-primary'
+                            : 'bg-mid'
+                        : ''
+                }
             />
         </div>
     )

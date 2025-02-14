@@ -25,8 +25,8 @@ export const costs: ModelRow[] = [
     {
         model: 'o1-mini-2024-09-12',
         cost: {
-            prompt_token: 0.000003,
-            completion_token: 0.000012,
+            prompt_token: 0.0000011,
+            completion_token: 0.0000044,
         },
     },
     {
@@ -46,8 +46,8 @@ export const costs: ModelRow[] = [
     {
         model: 'o1-mini',
         cost: {
-            prompt_token: 0.000003,
-            completion_token: 0.000012,
+            prompt_token: 0.0000011,
+            completion_token: 0.0000044,
         },
     },
     {
@@ -67,15 +67,15 @@ export const costs: ModelRow[] = [
     {
         model: 'gpt-4o-mini',
         cost: {
-            prompt_token: 1.5e-7,
-            completion_token: 6e-7,
+            prompt_token: 0.00000015,
+            completion_token: 0.0000006,
         },
     },
     {
         model: 'gpt-4o-mini-2024-07-18',
         cost: {
-            prompt_token: 1.5e-7,
-            completion_token: 6e-7,
+            prompt_token: 0.00000015,
+            completion_token: 0.0000006,
         },
     },
     {
@@ -165,14 +165,14 @@ export const costs: ModelRow[] = [
     {
         model: 'gpt-3.5-turbo',
         cost: {
-            prompt_token: 5e-7,
+            prompt_token: 0.0000005,
             completion_token: 0.0000015,
         },
     },
     {
         model: 'gpt-3.5-turbo-0125',
         cost: {
-            prompt_token: 5e-7,
+            prompt_token: 0.0000005,
             completion_token: 0.0000015,
         },
     },

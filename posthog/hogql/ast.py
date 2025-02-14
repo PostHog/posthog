@@ -1,3 +1,4 @@
+import dataclasses
 import inspect
 import sys
 from enum import StrEnum
@@ -569,7 +570,8 @@ class PropertyType(Type):
         if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
             return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
 
-        return self.field_type.resolve_constant_type(context)
+        # PropertyTypes are always nullable
+        return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
 
 
 @dataclass(kw_only=True)

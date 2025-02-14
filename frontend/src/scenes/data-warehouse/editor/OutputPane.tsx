@@ -1,13 +1,13 @@
 import 'react-data-grid/lib/styles.css'
+import './DataGrid.scss'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMemo } from 'react'
 import DataGrid from 'react-data-grid'
@@ -37,6 +37,7 @@ import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { InfoTab } from './OutputPaneTabs/InfoTab'
 import { LineageTab } from './OutputPaneTabs/lineageTab'
 import { lineageTabLogic } from './OutputPaneTabs/lineageTabLogic'
+import TabScroller from './OutputPaneTabs/TabScroller'
 
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
@@ -105,7 +106,7 @@ export function OutputPane(): JSX.Element {
     }, [response])
 
     return (
-        <div className="flex flex-col w-full flex-1 bg-bg-3000">
+        <div className="flex flex-col w-full flex-1 bg-primary">
             {variablesForInsight.length > 0 && (
                 <div className="py-2 px-4">
                     <VariablesForInsight />
@@ -227,7 +228,7 @@ export function OutputPane(): JSX.Element {
                     />
                 </BindLogic>
             </div>
-            <div className="flex justify-between pr-2 border-t">
+            <div className="flex justify-between px-2 border-t">
                 <div>{response ? <LoadPreviewText /> : <></>}</div>
                 <ElapsedTime />
             </div>
@@ -237,7 +238,7 @@ export function OutputPane(): JSX.Element {
 
 function InternalDataTableVisualization(
     props: DataTableVisualizationProps & { onSaveInsight: () => void }
-): JSX.Element {
+): JSX.Element | null {
     const {
         query,
         visualizationType,
@@ -255,8 +256,8 @@ function InternalDataTableVisualization(
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
-                <Animation type={AnimationType.LaptopHog} />
+            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-surface-primary">
+                <LoadingBar />
             </div>
         )
     } else if (visualizationType === ChartDisplayType.ActionsTable) {
@@ -367,19 +368,21 @@ const Content = ({
         }
 
         return responseLoading ? (
-            <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+            <div className="flex flex-1 p-2 w-full justify-center items-center">
+                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+            </div>
         ) : !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-muted mt-3">Query results will appear here</span>
+                <span className="text-secondary mt-3">Query results will appear here</span>
             </div>
         ) : (
-            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
+            <TabScroller>
                 <DataGrid
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}
                     rows={rows}
                 />
-            </div>
+            </TabScroller>
         )
     }
 
@@ -397,7 +400,7 @@ const Content = ({
 
         return !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-muted mt-3">Query results will be visualized here</span>
+                <span className="text-secondary mt-3">Query results will be visualized here</span>
             </div>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
@@ -415,11 +418,7 @@ const Content = ({
     }
 
     if (activeTab === OutputTab.Info) {
-        return (
-            <div className="flex flex-1 relative bg-dark">
-                <InfoTab codeEditorKey={editorKey} />
-            </div>
-        )
+        return <InfoTab codeEditorKey={editorKey} />
     }
 
     if (activeTab === OutputTab.Lineage) {

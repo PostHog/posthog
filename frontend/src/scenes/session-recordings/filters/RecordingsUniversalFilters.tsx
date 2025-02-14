@@ -1,3 +1,4 @@
+import { IconRevert } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -5,7 +6,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
@@ -20,12 +21,16 @@ import { DurationFilter } from './DurationFilter'
 export const RecordingsUniversalFilters = ({
     filters,
     setFilters,
+    resetFilters,
+    totalFiltersCount,
     className,
     allowReplayHogQLFilters = false,
     allowReplayFlagsFilters = false,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    resetFilters?: () => void
+    totalFiltersCount?: number
     className?: string
     allowReplayFlagsFilters?: boolean
     allowReplayHogQLFilters?: boolean
@@ -54,7 +59,7 @@ export const RecordingsUniversalFilters = ({
     }
 
     return (
-        <div className={clsx('divide-y bg-bg-light rounded-t', className)}>
+        <div className={clsx('divide-y bg-surface-primary rounded-t', className)}>
             <div className="flex items-center justify-between px-2 py-1.5">
                 <h3 className="truncate mb-0" title="Filters">
                     Filters
@@ -138,6 +143,11 @@ export const RecordingsUniversalFilters = ({
                 >
                     <RecordingsUniversalFilterGroup size="xsmall" />
                 </UniversalFilters>
+                {resetFilters && (totalFiltersCount ?? 0) > 0 && (
+                    <LemonButton type="tertiary" size="xsmall" onClick={resetFilters} icon={<IconRevert />}>
+                        Reset
+                    </LemonButton>
+                )}
             </div>
         </div>
     )

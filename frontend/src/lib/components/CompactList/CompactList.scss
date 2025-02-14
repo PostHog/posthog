@@ -4,8 +4,8 @@
     flex: 1;
     flex-direction: column;
     overflow: hidden;
-    background: var(--bg-light);
-    border: 1px solid var(--border);
+    background: var(--bg-surface-primary);
+    border: 1px solid var(--border-primary);
     border-radius: var(--radius);
 
     .CompactList__header {

@@ -1,13 +1,16 @@
 use std::sync::Arc;
 
 use app_context::AppContext;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
 use issue_resolution::resolve_issue;
 use metric_consts::FRAME_RESOLUTION;
-use tracing::warn;
+use serde_json::Value;
+use tracing::{error, warn};
 use types::{Exception, RawErrProps, Stacktrace};
+use uuid::Uuid;
 
 pub mod app_context;
 pub mod config;
@@ -29,7 +32,16 @@ pub async fn handle_event(
         Ok(r) => r,
         Err(e) => {
             warn!("Failed to get props: {}", e);
-            add_error_to_event(&mut event, e)?;
+
+            if let Err(e) = add_error_to_event(&mut event, e) {
+                // If we fail to add an error to an event, we just log it.
+                // This can happen if we failed to read the properties
+                // of the event in /any/ way, e.g. due to a serde recursion limit.
+                // If that's the case, we will fail to add a new element to the
+                // event properties storing the error message, so there's not much
+                // we can do. We should consider whether we want to drop these events.
+                error!("Failed to add error to event: {}", e);
+            }
             return Ok(event);
         }
     };
@@ -54,7 +66,13 @@ pub async fn handle_event(
     props.exception_list = results;
     let fingerprinted = props.to_fingerprinted(fingerprint.clone());
 
-    let mut output = resolve_issue(&context.pool, event.team_id, fingerprinted).await?;
+    let event_timestamp = get_event_timestamp(&event).unwrap_or_else(|| {
+        warn!("Failed to get event timestamp, using current time");
+        Utc::now()
+    });
+
+    let mut output =
+        resolve_issue(&context.pool, event.team_id, fingerprinted, event_timestamp).await?;
 
     // TODO - I'm not sure we actually want to do this? Maybe junk drawer stuff should end up in clickhouse, and
     // be directly queryable by users? Stripping it for now, so it only ends up in postgres
@@ -74,14 +92,73 @@ pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
         return Err(EventError::NoProperties(event.uuid));
     };
 
-    let properties: RawErrProps = match serde_json::from_str(properties) {
+    let mut properties: Value = match serde_json::from_str(properties) {
         Ok(r) => r,
         Err(e) => {
             return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
         }
     };
 
-    Ok(properties)
+    if let Some(v) = properties
+        .as_object_mut()
+        .and_then(|o| o.get_mut("$exception_list"))
+    {
+        // We PG sanitize the exception list, because the strings in it can end up in PG kind of arbitrarily.
+        recursively_sanitize_properties(event.uuid, v, 0)?;
+    }
+
+    let props: RawErrProps = match serde_json::from_value(properties) {
+        Ok(r) => r,
+        Err(e) => {
+            return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
+        }
+    };
+
+    Ok(props)
+}
+
+// Remove null bytes from all strings found in an arbitrary JSON structure.
+fn recursively_sanitize_properties(
+    id: Uuid,
+    value: &mut Value,
+    depth: usize,
+) -> Result<(), EventError> {
+    if depth > 64 {
+        // We don't want to recurse too deeply, in case we have a circular reference or something.
+        return Err(EventError::InvalidProperties(
+            id,
+            "Recursion limit exceeded".to_string(),
+        ));
+    }
+    match value {
+        Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                recursively_sanitize_properties(id, v, depth + 1)?;
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                recursively_sanitize_properties(id, v, depth + 1)?;
+            }
+        }
+        Value::String(s) => {
+            if needs_sanitization(s) {
+                warn!("Sanitizing null bytes from string in event {}", id);
+                *s = sanitize_string(s.clone());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+// Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD.
+pub fn sanitize_string(s: String) -> String {
+    s.replace('\u{0000}', "\u{FFFD}")
+}
+
+pub fn needs_sanitization(s: &str) -> bool {
+    s.contains('\u{0000}')
 }
 
 async fn process_exception(
@@ -160,4 +237,58 @@ pub fn add_error_to_event(
     );
     event.set_raw_properties(props)?;
     Ok(())
+}
+
+// "Clickhouse format" timestamps are in UTC, with no timezone information, e.g. "2021-08-02 12:34:56.789"
+// TODO - we could make use of common_kafka::kafka_messages::de/serialise_datetime here, but that drops
+// the fractional seconds, which we might want to keep? For now, go with this, we can consolidate later.
+pub fn get_event_timestamp(event: &ClickHouseEvent) -> Option<DateTime<Utc>> {
+    NaiveDateTime::parse_from_str(&event.timestamp, "%Y-%m-%d %H:%M:%S%.f")
+        .map(|ndt| ndt.and_utc())
+        .ok()
+}
+
+#[cfg(test)]
+mod test {
+    use common_types::{ClickHouseEvent, PersonMode};
+    use uuid::Uuid;
+
+    use crate::get_event_timestamp;
+
+    #[test]
+    pub fn test_timestamp_parsing() {
+        let mut event = ClickHouseEvent {
+            uuid: Uuid::now_v7(),
+            team_id: 1,
+            project_id: 1,
+            event: "test".to_string(),
+            distinct_id: "test".to_string(),
+            properties: None,
+            person_id: None,
+            timestamp: "2021-08-02 12:34:56.789".to_string(),
+            created_at: "2021-08-02 12:34:56.789".to_string(),
+            elements_chain: "".to_string(),
+            person_created_at: None,
+            person_properties: None,
+            group0_properties: None,
+            group1_properties: None,
+            group2_properties: None,
+            group3_properties: None,
+            group4_properties: None,
+            group0_created_at: None,
+            group1_created_at: None,
+            group2_created_at: None,
+            group3_created_at: None,
+            group4_created_at: None,
+            person_mode: PersonMode::Propertyless,
+        };
+
+        let ts = get_event_timestamp(&event).unwrap();
+        assert_eq!(ts.to_rfc3339(), "2021-08-02T12:34:56.789+00:00");
+
+        event.timestamp = "invalid".to_string();
+
+        let ts = get_event_timestamp(&event);
+        assert!(ts.is_none());
+    }
 }

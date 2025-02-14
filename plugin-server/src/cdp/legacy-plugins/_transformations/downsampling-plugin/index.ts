@@ -1,8 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { createHash } from 'crypto'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 export function setupPlugin({ config, global }: LegacyTransformationPluginMeta) {
     const percentage = parseFloat(config.percentage)
@@ -11,6 +10,10 @@ export function setupPlugin({ config, global }: LegacyTransformationPluginMeta) 
     }
     global.percentage = percentage
     global.randomSampling = config.samplingMethod === 'Random sampling'
+    global.triggeringEvents =
+        (config.triggeringEvents ?? '').trim() === ''
+            ? []
+            : config.triggeringEvents.split(',').map((event: string) => event.trim())
 }
 
 // /* Runs on every event */
@@ -22,24 +25,19 @@ export function processEvent(event: PluginEvent, { global }: LegacyTransformatio
     // even if the percentage increases
 
     let shouldIngestEvent = true
-    if (global.randomSampling) {
-        shouldIngestEvent = Math.round(Math.random() * 100) <= global.percentage
-    } else {
-        const hash = createHash('sha256').update(event.distinct_id).digest('hex')
-        // eslint-disable-next-line @typescript-eslint/no-loss-of-precision
-        const decisionValue = parseInt(hash.substring(0, 15), 16) / 0xfffffffffffffff
-        shouldIngestEvent = decisionValue <= global.percentage / 100
+    if (global.triggeringEvents.length === 0 || global.triggeringEvents.includes(event.event)) {
+        if (global.randomSampling) {
+            shouldIngestEvent = Math.round(Math.random() * 100) <= global.percentage
+        } else {
+            const hash = createHash('sha256').update(event.distinct_id).digest('hex')
+            // eslint-disable-next-line @typescript-eslint/no-loss-of-precision
+            const decisionValue = parseInt(hash.substring(0, 15), 16) / 0xfffffffffffffff
+            shouldIngestEvent = decisionValue <= global.percentage / 100
+        }
     }
 
     if (shouldIngestEvent) {
         return event
     }
     return null
-}
-
-export const downsamplingPlugin: LegacyTransformationPlugin = {
-    id: 'downsampling-plugin',
-    metadata,
-    processEvent,
-    setupPlugin,
 }

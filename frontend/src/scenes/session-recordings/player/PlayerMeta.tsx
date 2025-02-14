@@ -58,7 +58,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
                     <CopyToClipboardInline
                         description={lastUrl}
                         explicitValue={lastUrl}
-                        iconStyle={{ color: 'var(--muted-alt)' }}
+                        iconStyle={{ color: 'var(--text-secondary)' }}
                         selectable={true}
                     />
                 </span>
@@ -85,7 +85,7 @@ export function ResolutionView(): JSX.Element {
                 </>
             }
         >
-            <span className="text-muted-alt text-xs">
+            <span className="text-secondary text-xs">
                 <span className="hidden @[30rem]:inline-block">{resolutionDisplay} </span>
                 <span>({scaleDisplay})</span>
             </span>
@@ -134,17 +134,17 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
 
     const windowOptions: LemonSelectOption<string | null>[] = [
         {
-            label: <IconWindow value={currentWindowIndex} className="text-muted-alt" />,
+            label: <IconWindow value={currentWindowIndex} className="text-secondary" />,
             value: null,
             labelInMenu: <>Follow the user</>,
         },
     ]
     windowIds.forEach((windowId, index) => {
         windowOptions.push({
-            label: <IconWindow value={index + 1} className="text-muted-alt" />,
+            label: <IconWindow value={index + 1} className="text-secondary" />,
             labelInMenu: (
                 <div className="flex flex-row gap-2 space-between items-center">
-                    Follow window: <IconWindow value={index + 1} className="text-muted-alt" />
+                    Follow window: <IconWindow value={index + 1} className="text-secondary" />
                 </div>
             ),
             value: windowId,

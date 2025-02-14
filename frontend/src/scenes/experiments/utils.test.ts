@@ -1,12 +1,25 @@
+import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
 import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
 import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
-import { EntityType, FeatureFlagFilters, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ExperimentFunnelsQuery, ExperimentQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import {
+    EntityType,
+    FeatureFlagFilters,
+    FeatureFlagType,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { getNiceTickValues } from './MetricsView/MetricsView'
-import { getMinimumDetectableEffect, getViewRecordingFilters, transformFiltersForWinningVariant } from './utils'
+import {
+    featureFlagEligibleForExperiment,
+    getMinimumDetectableEffect,
+    getViewRecordingFilters,
+    transformFiltersForWinningVariant,
+} from './utils'
 
 describe('utils', () => {
     it('Funnel experiment returns correct MDE', async () => {
@@ -244,6 +257,29 @@ describe('getNiceTickValues', () => {
 describe('getViewRecordingFilters', () => {
     const featureFlagKey = 'jan-16-running'
 
+    it('returns the correct filters for an experiment query', () => {
+        const filters = getViewRecordingFilters(
+            EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.metrics[0] as ExperimentQuery,
+            featureFlagKey,
+            'control'
+        )
+        expect(filters).toEqual([
+            {
+                id: 'storybook-click',
+                name: 'storybook-click',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature/${featureFlagKey}`,
+                        type: PropertyFilterType.Event,
+                        value: ['control'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+    })
+
     it('returns the correct filters for a funnel metric', () => {
         const filters = getViewRecordingFilters(
             metricFunnelEventsJson as ExperimentFunnelsQuery,
@@ -383,5 +419,95 @@ describe('getViewRecordingFilters', () => {
                 type: 'actions',
             },
         ])
+    })
+})
+
+describe('checkFeatureFlagEligibility', () => {
+    const baseFeatureFlag: FeatureFlagType = {
+        id: 1,
+        key: 'test',
+        name: 'Test',
+        created_at: '2021-01-01',
+        created_by: null,
+        is_simple_flag: false,
+        is_remote_configuration: false,
+        filters: {
+            groups: [],
+            payloads: {},
+            multivariate: null,
+        },
+        deleted: false,
+        active: true,
+        rollout_percentage: null,
+        experiment_set: null,
+        features: null,
+        surveys: null,
+        rollback_conditions: [],
+        performed_rollback: false,
+        can_edit: true,
+        tags: [],
+        ensure_experience_continuity: null,
+        user_access_level: 'admin',
+        status: 'ACTIVE',
+        has_encrypted_payloads: false,
+    }
+    it('throws an error for a remote configuration feature flag', () => {
+        const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }
+        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
+            'Feature flag must use multiple variants with control as the first variant.'
+        )
+    })
+    it('throws an error for a feature flag without control as the first variant', () => {
+        const featureFlag = {
+            ...baseFeatureFlag,
+            filters: {
+                ...baseFeatureFlag.filters,
+                multivariate: {
+                    variants: [
+                        { key: 'foobar', rollout_percentage: 50 },
+                        { key: 'control', rollout_percentage: 50 },
+                    ],
+                },
+            },
+        }
+        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
+            'Feature flag must have control as the first variant.'
+        )
+    })
+    it('throws an error for a feature flag with only one variant', () => {
+        const featureFlag = {
+            ...baseFeatureFlag,
+            filters: {
+                ...baseFeatureFlag.filters,
+                multivariate: { variants: [{ key: 'test', rollout_percentage: 50 }] },
+            },
+        }
+        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
+            'Feature flag must use multiple variants with control as the first variant.'
+        )
+    })
+    it('throws an error for a feature flag that already has an experiment set', () => {
+        const featureFlag = {
+            ...baseFeatureFlag,
+            experiment_set: [2],
+        }
+        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
+            'Feature flag is already associated with an experiment.'
+        )
+    })
+    it('returns true for a feature flag with control and test variants', () => {
+        const featureFlag = {
+            ...baseFeatureFlag,
+            filters: {
+                ...baseFeatureFlag.filters,
+                multivariate: {
+                    variants: [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                },
+            },
+        }
+        expect(featureFlagEligibleForExperiment(featureFlag)).toEqual(true)
     })
 })

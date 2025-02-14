@@ -3,7 +3,7 @@
         margin-top: 0.5rem;
         margin-right: 0.5rem;
         font-size: 0.875rem;
-        color: var(--muted);
+        color: var(--text-secondary);
         white-space: nowrap;
     }
 
@@ -29,7 +29,7 @@
         border-radius: 0.5rem;
 
         &--assistant {
-            color: var(--default);
+            color: var(--text-primary);
             background: var(--bg-light);
 
             .dark & {
@@ -38,7 +38,7 @@
         }
 
         &--user {
-            color: var(--default);
+            color: var(--text-primary);
             background: var(--bg-light);
 
             .dark & {

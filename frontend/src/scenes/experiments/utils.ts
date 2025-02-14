@@ -4,12 +4,19 @@ import { dayjs } from 'lib/dayjs'
 import merge from 'lodash.merge'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
-import { AnyEntityNode, type FunnelsQuery, NodeKind, type TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    AnyEntityNode,
+    ExperimentQuery,
+    type FunnelsQuery,
+    NodeKind,
+    type TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
 import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ChartDisplayType,
     FeatureFlagFilters,
+    FeatureFlagType,
     FunnelConversionWindowTimeUnit,
     FunnelTimeConversionMetrics,
     FunnelVizType,
@@ -140,12 +147,31 @@ function seriesToFilter(
 }
 
 export function getViewRecordingFilters(
-    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery,
+    metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
-    if (metric.kind === NodeKind.ExperimentTrendsQuery) {
+    if (metric.kind === NodeKind.ExperimentQuery) {
+        if (metric.metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+            return [
+                {
+                    id: metric.metric.metric_config.event,
+                    name: metric.metric.metric_config.event,
+                    type: 'events',
+                    properties: [
+                        {
+                            key: `$feature/${featureFlagKey}`,
+                            type: PropertyFilterType.Event,
+                            value: [variantKey],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ]
+        }
+        return []
+    } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
             const exposure_filter = seriesToFilter(metric.exposure_query.series[0], featureFlagKey, variantKey)
             if (exposure_filter) {
@@ -185,6 +211,21 @@ export function getViewRecordingFilters(
         }
     })
     return filters
+}
+
+export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
+    if (featureFlag.experiment_set && featureFlag.experiment_set.length > 0) {
+        throw new Error('Feature flag is already associated with an experiment.')
+    }
+
+    if (featureFlag.filters.multivariate?.variants?.length && featureFlag.filters.multivariate.variants.length > 1) {
+        if (featureFlag.filters.multivariate.variants[0].key !== 'control') {
+            throw new Error('Feature flag must have control as the first variant.')
+        }
+        return true
+    }
+
+    throw new Error('Feature flag must use multiple variants with control as the first variant.')
 }
 
 export function getDefaultTrendsMetric(): ExperimentTrendsQuery {

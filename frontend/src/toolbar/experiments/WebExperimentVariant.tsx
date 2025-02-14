@@ -17,12 +17,12 @@ interface WebExperimentVariantProps {
 export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JSX.Element {
     const { experimentForm, selectedExperimentId } = useValues(experimentsTabLogic)
     const [localTentativeValue, setLocalTentativeValue] = useState(variant)
-    const { addNewElement, setExperimentFormValue } = useActions(experimentsTabLogic)
+    const { addNewTransformation, setExperimentFormValue } = useActions(experimentsTabLogic)
     return (
         <div className="space-y-4">
             {selectedExperimentId === 'new' && experimentForm.variants && experimentForm.variants[variant].is_new && (
                 <div>
-                    <LemonLabel>Variant name</LemonLabel>
+                    <LemonLabel>Variant key</LemonLabel>
                     <LemonInput
                         key="variant-name-small"
                         className="mb-2"
@@ -58,7 +58,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                             icon={<IconPlus />}
                             onClick={(e) => {
                                 e.stopPropagation()
-                                addNewElement(variant)
+                                addNewTransformation(variant)
                             }}
                         >
                             Add transformation
@@ -67,19 +67,19 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                     <LemonCollapse
                         size="small"
                         activeKey={experimentForm?.variants[variant].transforms.length === 1 ? 0 : undefined}
-                        panels={experimentForm?.variants[variant].transforms.map((transform, tIndex) => {
+                        panels={experimentForm?.variants[variant].transforms.map((transform, transformIndex) => {
                             return {
-                                key: tIndex,
+                                key: transformIndex,
                                 header: (
                                     <WebExperimentTransformHeader
                                         variant={variant}
-                                        transformIndex={tIndex}
+                                        transformIndex={transformIndex}
                                         transform={transform}
                                     />
                                 ),
                                 content: (
                                     <WebExperimentTransformField
-                                        tIndex={tIndex}
+                                        transformIndex={transformIndex}
                                         variant={variant}
                                         transform={transform}
                                     />

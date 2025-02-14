@@ -15,6 +15,7 @@ __pycache__/
 .eslintcache
 .idea
 .mypy_cache
+.parcel-cache
 # pyenv local config
 .python-version
 .temp-deepeval-cache.json
@@ -84,3 +85,5 @@ tmp*/
 upgrade/
 venv
 yalc.lock
+# Flox.dev lockfile (will differ slightly per local dev env, even with consistent pinning in TOML file)
+.flox/env/manifest.lock

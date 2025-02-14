@@ -76,7 +76,7 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
         <LemonButton
             active
             sideAction={{
-                icon: <IconGear className="text-muted-alt" />,
+                icon: <IconGear className="text-secondary" />,
                 tooltip: `Go to ${currentTeam.name} settings`,
                 onClick: () => {
                     onClickInside?.()
@@ -119,7 +119,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () 
         <LemonButton
             to={relativeOtherProjectPath}
             sideAction={{
-                icon: <IconGear className="text-muted-alt" />,
+                icon: <IconGear className="text-secondary" />,
                 tooltip: `Go to ${team.name} settings`,
                 to: urls.project(team.id, urls.settings()),
             }}
