@@ -102,9 +102,12 @@ class PropertyGroupManager:
             prefix += f" ON CLUSTER {cluster}"
 
         group_definition = self.__groups[table][source_column][group_name]
-        yield f"{prefix} ADD COLUMN IF NOT EXISTS {group_definition.get_column_definition(source_column, group_name)}"
+
+        commands = [f"ADD COLUMN IF NOT EXISTS {group_definition.get_column_definition(source_column, group_name)}"]
         for index_definition in group_definition.get_index_definitions(source_column, group_name):
-            yield f"{prefix} ADD INDEX IF NOT EXISTS {index_definition}"
+            commands.append(f"ADD INDEX IF NOT EXISTS {index_definition}")
+
+        yield f"{prefix} " + ", ".join(commands)
 
 
 ignore_custom_properties = [
