@@ -81,7 +81,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const isLineGraph =
         isTrends &&
         display &&
-        [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
+        [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
+            display || ChartDisplayType.ActionsLineGraph
+        )
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
