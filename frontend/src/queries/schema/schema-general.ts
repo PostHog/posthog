@@ -102,6 +102,7 @@ export enum NodeKind {
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
+    ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
@@ -165,6 +166,7 @@ export type QuerySchema =
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
+    | ExperimentQuery
 
     // Web Analytics + Web Vitals
     | WebOverviewQuery
@@ -1802,15 +1804,29 @@ export interface ExperimentMetric {
     metric_type: ExperimentMetricType
     filterTestAccounts?: boolean
     inverse?: boolean
-    metric_config: ExperimentEventMetricConfig | ExperimentDataWarehouseMetricConfig
+    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
 }
 
 export interface ExperimentEventMetricConfig {
     kind: NodeKind.ExperimentEventMetricConfig
     event: string
+    name?: string
     math?: ExperimentMetricMath
     math_hogql?: string
     math_property?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
+export interface ExperimentActionMetricConfig {
+    kind: NodeKind.ExperimentActionMetricConfig
+    action: number
+    name?: string
+    math?: ExperimentMetricMath
+    math_hogql?: string
+    math_property?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
 }
 
 export interface ExperimentDataWarehouseMetricConfig {
@@ -1824,7 +1840,7 @@ export interface ExperimentDataWarehouseMetricConfig {
     math_property?: string
 }
 
-export interface ExperimentQuery extends DataNode<ExperimentTrendsQueryResponse> {
+export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
     metric: ExperimentMetric
     experiment_id?: integer
@@ -1832,11 +1848,10 @@ export interface ExperimentQuery extends DataNode<ExperimentTrendsQueryResponse>
 }
 
 export interface ExperimentQueryResponse {
-    kind: NodeKind.ExperimentTrendsQuery
+    kind: NodeKind.ExperimentQuery
     insight: Record<string, any>[]
-    count_query?: TrendsQuery
-    exposure_query?: TrendsQuery
-    variants: ExperimentVariantTrendsBaseStats[]
+    metric: ExperimentMetric
+    variants: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
     probability: Record<string, number>
     significant: boolean
     significance_code: ExperimentSignificanceCode

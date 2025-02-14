@@ -112,12 +112,21 @@ pub struct EventProperty {
     pub property: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub struct HostDefinition {
+    pub team_id: i32,
+    pub project_id: i64,
+    pub host: String,
+    pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen
+}
+
 // Represents a generic update, but comparable, allowing us to dedupe and cache updates
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Update {
     Event(EventDefinition),
     Property(PropertyDefinition),
     EventProperty(EventProperty),
+    Host(HostDefinition),
 }
 
 impl Update {
@@ -129,6 +138,7 @@ impl Update {
             Update::Event(e) => e.issue(executor).await,
             Update::Property(p) => p.issue(executor).await,
             Update::EventProperty(ep) => ep.issue(executor).await,
+            Update::Host(h) => h.issue(executor).await,
         }
     }
 }
@@ -147,11 +157,7 @@ impl From<&Event> for EventDefinition {
             name: sanitize_event_name(&event.event),
             team_id: event.team_id,
             project_id: event.project_id,
-            // We round last seen to the nearest hour. Unwrap is safe here because we
-            // the duration is positive, non-zero, and smaller than time since epoch. We use this
-            // in the hash value, so updates which would modify this in the DB are issued even
-            // if another otherwise-identical event definition is in the cache
-            last_seen_at: floor_datetime(Utc::now(), Duration::hours(1)).unwrap(),
+            last_seen_at: get_floored_last_seen(),
         }
     }
 }
@@ -223,6 +229,9 @@ impl Event {
             return updates;
         }
 
+        // Check for $host property and add HostDefinition if present
+        self.get_host_from_props(&mut updates, &props);
+
         // Grab the "ordinary" (non-person) event properties
         self.get_props_from_object(&mut updates, &props, PropertyParentType::Event, None);
 
@@ -240,6 +249,22 @@ impl Event {
         }
 
         updates
+    }
+
+    fn get_host_from_props(&self, updates: &mut Vec<Update>, props: &Map<String, Value>) {
+        if let Some(Value::String(host)) = props.get("$host") {
+            if will_fit_in_postgres_column(host) {
+                updates.push(Update::Host(HostDefinition {
+                    team_id: self.team_id,
+                    project_id: self.project_id,
+                    host: host.to_string(),
+                    last_seen_at: get_floored_last_seen(),
+                }));
+            } else {
+                metrics::counter!(UPDATES_SKIPPED, &[("reason", "host_wont_fit_in_postgres")])
+                    .increment(1);
+            }
+        }
     }
 
     fn get_props_from_object(
@@ -274,7 +299,7 @@ impl Event {
             let property_type = detect_property_type(key, value);
             let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));
 
-            let def = PropertyDefinition {
+            updates.push(Update::Property(PropertyDefinition {
                 team_id: self.team_id,
                 project_id: self.project_id,
                 name: key.clone(),
@@ -285,8 +310,7 @@ impl Event {
                 property_type_format: None,
                 volume_30_day: None,
                 query_usage_30_day: None,
-            };
-            updates.push(Update::Property(def));
+            }));
         }
     }
 }
@@ -359,7 +383,6 @@ fn sanitize_event_name(event_name: &str) -> String {
 }
 
 // These hash impls correspond to DB uniqueness constraints, pulled from the TS
-
 impl Hash for PropertyDefinition {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.team_id.hash(state);
@@ -377,6 +400,14 @@ impl Hash for EventDefinition {
     }
 }
 
+impl Hash for HostDefinition {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.team_id.hash(state);
+        self.host.hash(state);
+        self.last_seen_at.hash(state);
+    }
+}
+
 // Ensure group type hashes identically regardless of whether it's resolved or not. Note that if
 // someone changes the name associated with a group type, all subsequent events will hash differently
 // because of this, but that seems fine - it just means a few extra DB ops issued, we index on the i32
@@ -390,10 +421,13 @@ impl Hash for GroupType {
     }
 }
 
-pub fn floor_datetime(
-    dt: DateTime<Utc>,
-    duration: Duration,
-) -> Result<DateTime<Utc>, RoundingError> {
+// We round last seen to the nearest hour. Unwrap is safe here because
+// the duration is positive, non-zero, and smaller than time since epoch
+pub fn get_floored_last_seen() -> DateTime<Utc> {
+    floor_datetime(Utc::now(), Duration::hours(1)).unwrap()
+}
+
+fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
     let rounded = dt.duration_round(duration)?;
 
     // If we rounded up
@@ -413,7 +447,7 @@ fn will_fit_in_postgres_column(str: &str) -> bool {
 // Postgres doesn't like nulls in strings, so we replace them with uFFFD.
 // This allocates, so only do it right when hitting the DB. We handle nulls
 // in strings just fine.
-pub fn sanitize_string(s: &str) -> String {
+pub fn sanitize_string(s: String) -> String {
     s.replace('\u{0000}', "\u{FFFD}")
 }
 
@@ -517,20 +551,49 @@ impl EventProperty {
     }
 }
 
+impl HostDefinition {
+    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'c, Database = Postgres>,
+    {
+        let res = sqlx::query!(
+            r#"
+            INSERT INTO posthog_hostdefinition (id, host, team_id, project_id, last_seen_at, created_at)
+            VALUES ($1, $2, $3, $4, $5, NOW())
+            ON CONFLICT (coalesce(project_id, team_id::bigint), host)
+            DO UPDATE SET last_seen_at = $5
+            "#,
+            Uuid::now_v7(),
+            sanitize_string(self.host.clone()),
+            self.team_id,
+            self.project_id,
+            Utc::now() // We floor the update datetime for cache purposes, but can insert the exact time we see the event
+        ).execute(executor).await.map(|_| ());
+
+        metrics::counter!(UPDATES_ISSUED, &[("type", "host_definition")]).increment(1);
+
+        res
+    }
+}
+
 #[cfg(test)]
 mod test {
     use chrono::{Timelike, Utc};
 
-    use crate::types::floor_datetime;
+    use crate::types::get_floored_last_seen;
 
     #[test]
     fn test_date_flooring() {
-        let timestamp = Utc::now();
-        let rounded = floor_datetime(timestamp, chrono::Duration::days(1)).unwrap();
-        assert_eq!(rounded.hour(), 0);
+        let now = Utc::now();
+        let rounded = get_floored_last_seen();
+
+        // Time should be rounded to the nearest hour
         assert_eq!(rounded.minute(), 0);
         assert_eq!(rounded.second(), 0);
         assert_eq!(rounded.nanosecond(), 0);
-        assert!(rounded <= timestamp);
+        assert!(rounded <= now);
+
+        // The difference between now and rounded should be less than 1 hour
+        assert!(now - rounded < chrono::Duration::hours(1));
     }
 }

@@ -130,7 +130,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 const issue = values.issue
                 if (!issue) {
                     actions.loadRelationalIssue()
-                } else if (!issue.last_seen) {
+                } else {
                     actions.loadClickHouseIssue(issue.first_seen)
                 }
             }
