@@ -11,5 +11,5 @@ posthog/tasks/update_survey_adaptive_sampling @PostHog/team-surveys
 posthog/tasks/update_survey_iteration @PostHog/team-surveys
 posthog/tasks/test/test_stop_surveys_reached_target.py @PostHog/team-surveys
 plugin-server/src/ @PostHog/team-cdp
-posthog/clickhouse/migrations/ @PostHog/clickhouse
-posthog/clickhouse/migrations2/ @PostHog/clickhouse
+posthog/clickhouse/migrations/** @PostHog/clickhouse
+posthog/clickhouse/migrations2/** @PostHog/clickhouse
