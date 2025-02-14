@@ -167,8 +167,9 @@ jobs:
 
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true'
+              working-directory: ./
               run: |
-                  ../bin/download-mmdb
+                  ./bin/download-mmdb
 
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
