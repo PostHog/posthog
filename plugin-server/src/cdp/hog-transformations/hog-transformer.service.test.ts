@@ -9,9 +9,12 @@ import { template as defaultTemplate } from '../../../src/cdp/templates/_transfo
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createHogFunction, insertHogFunction } from '../../../tests/cdp/fixtures'
+import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
+import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogFunctionTemplate } from '../templates/types'
 import { HogTransformerService } from './hog-transformer.service'
 
@@ -655,6 +658,106 @@ describe('HogTransformer', () => {
                     "$transformations_failed": [],
                     "$transformations_succeeded": [
                       "Filter Out Plugin (c342e9ae-9f76-4379-a465-d33b4826bc05)",
+                    ],
+                  },
+                  "site_url": "http://localhost",
+                  "team_id": 2,
+                  "timestamp": "2024-01-01T00:00:00Z",
+                  "uuid": "event-id",
+                }
+            `)
+        })
+    })
+
+    describe('long event chain', () => {
+        it('should handle a long chain of transformations', async () => {
+            const geoIp = createHogFunction({
+                type: 'transformation',
+                name: posthogPluginGeoip.template.name,
+                template_id: posthogPluginGeoip.template.id,
+                inputs: {},
+                team_id: teamId,
+                enabled: true,
+                hog: posthogPluginGeoip.template.hog,
+                inputs_schema: posthogPluginGeoip.template.inputs_schema,
+            })
+
+            const filterPlugin = createHogFunction({
+                type: 'transformation',
+                name: propertyFilterPlugin.template.name,
+                template_id: propertyFilterPlugin.template.id,
+                inputs: {
+                    properties: {
+                        value: '$ip,$geoip_country_code,$geoip_latitude,$geoip_longitude',
+                    },
+                },
+                team_id: teamId,
+                enabled: true,
+                hog: propertyFilterPlugin.template.hog,
+                inputs_schema: propertyFilterPlugin.template.inputs_schema,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, geoIp)
+            await insertHogFunction(hub.db.postgres, teamId, filterPlugin)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event: PluginEvent = createPluginEvent({ event: 'keep-me', team_id: teamId })
+            const result = await hogTransformer.transformEvent(event)
+
+            expect(forSnapshot(result.event)).toMatchInlineSnapshot(`
+                {
+                  "distinct_id": "distinct-id",
+                  "event": "keep-me",
+                  "ip": null,
+                  "now": "2024-06-07T12:00:00.000Z",
+                  "properties": {
+                    "$current_url": "https://example.com",
+                    "$geoip_accuracy_radius": 76,
+                    "$geoip_city_name": "Linköping",
+                    "$geoip_continent_code": "EU",
+                    "$geoip_continent_name": "Europe",
+                    "$geoip_country_name": "Sweden",
+                    "$geoip_subdivision_1_code": "E",
+                    "$geoip_subdivision_1_name": "Östergötland County",
+                    "$geoip_time_zone": "Europe/Stockholm",
+                    "$set": {
+                      "$geoip_accuracy_radius": 76,
+                      "$geoip_city_confidence": null,
+                      "$geoip_city_name": "Linköping",
+                      "$geoip_continent_code": "EU",
+                      "$geoip_continent_name": "Europe",
+                      "$geoip_country_code": "SE",
+                      "$geoip_country_name": "Sweden",
+                      "$geoip_latitude": 58.4167,
+                      "$geoip_longitude": 15.6167,
+                      "$geoip_postal_code": null,
+                      "$geoip_subdivision_1_code": "E",
+                      "$geoip_subdivision_1_name": "Östergötland County",
+                      "$geoip_subdivision_2_code": null,
+                      "$geoip_subdivision_2_name": null,
+                      "$geoip_time_zone": "Europe/Stockholm",
+                    },
+                    "$set_once": {
+                      "$initial_geoip_accuracy_radius": 76,
+                      "$initial_geoip_city_confidence": null,
+                      "$initial_geoip_city_name": "Linköping",
+                      "$initial_geoip_continent_code": "EU",
+                      "$initial_geoip_continent_name": "Europe",
+                      "$initial_geoip_country_code": "SE",
+                      "$initial_geoip_country_name": "Sweden",
+                      "$initial_geoip_latitude": 58.4167,
+                      "$initial_geoip_longitude": 15.6167,
+                      "$initial_geoip_postal_code": null,
+                      "$initial_geoip_subdivision_1_code": "E",
+                      "$initial_geoip_subdivision_1_name": "Östergötland County",
+                      "$initial_geoip_subdivision_2_code": null,
+                      "$initial_geoip_subdivision_2_name": null,
+                      "$initial_geoip_time_zone": "Europe/Stockholm",
+                    },
+                    "$transformations_failed": [],
+                    "$transformations_succeeded": [
+                      "GeoIP (<REPLACED-UUID-0>)",
+                      "Property Filter (<REPLACED-UUID-1>)",
                     ],
                   },
                   "site_url": "http://localhost",

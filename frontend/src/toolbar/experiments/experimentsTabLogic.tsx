@@ -78,10 +78,16 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             index,
         }),
         editSelectorWithIndex: (variant: string, index: number | null) => ({ variant, index }),
-        inspectElementSelected: (element: HTMLElement, variant: string, index: number | null) => ({
+        inspectElementSelected: (
+            element: HTMLElement,
+            variant: string,
+            index: number | null,
+            selector?: string | null
+        ) => ({
             element,
             variant,
             index,
+            selector,
         }),
         saveExperiment: (formValues: WebExperimentForm) => ({ formValues }),
         showButtonExperiments: true,
@@ -265,12 +271,37 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             if (!selectedExperiment) {
                 actions.setExperimentFormValues({ name: '', variants: {} })
             } else {
+                // Build original_html_state from existing selectors
+                const original_html_state: Record<string, { html: string; css?: string }> = {}
+
+                if ((selectedExperiment as WebExperiment).variants) {
+                    Object.values((selectedExperiment as WebExperiment).variants).forEach((variant) => {
+                        variant.transforms?.forEach((transform) => {
+                            if (transform.selector) {
+                                const element = document.querySelector(transform.selector) as HTMLElement
+                                if (element) {
+                                    const style = element.getAttribute('style')
+                                    original_html_state[transform.selector] = {
+                                        html: element.innerHTML,
+                                        ...(style && { css: style }),
+                                    }
+                                }
+                            }
+                        })
+                    })
+                }
+
                 actions.setExperimentFormValues({
                     name: selectedExperiment.name,
                     variants: (selectedExperiment as WebExperiment).variants
                         ? (selectedExperiment as WebExperiment).variants
                         : {},
+                    original_html_state,
                 })
+
+                // TODO: refactor into a single actions to select + apply changes
+                actions.applyVariant('control')
+                actions.selectVariant('control')
             }
         },
     })),
@@ -293,11 +324,13 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             actions.showButtonExperiments()
             toolbarLogic.actions.setVisibleMenu('experiments')
         },
-        inspectElementSelected: ({ element, variant, index }) => {
+        inspectElementSelected: ({ element, variant, index, selector }) => {
             if (values.experimentForm?.variants) {
                 const currentVariant = values.experimentForm.variants[variant]
                 if (currentVariant && index !== null && currentVariant.transforms.length > index) {
-                    const selector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                    if (!selector) {
+                        selector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                    }
                     if (!selector) {
                         return
                     }
@@ -307,10 +340,10 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     if (previousSelector) {
                         const originalHtmlState = values.experimentForm.original_html_state?.[previousSelector]
                         if (originalHtmlState) {
-                            const element = document.querySelector(previousSelector) as HTMLElement
-                            element.innerHTML = originalHtmlState.html
+                            const previousElement = document.querySelector(previousSelector) as HTMLElement
+                            previousElement.innerHTML = originalHtmlState.html
                             if (originalHtmlState.css) {
-                                element.setAttribute('style', originalHtmlState.css)
+                                previousElement.setAttribute('style', originalHtmlState.css)
                             }
                         }
                     }

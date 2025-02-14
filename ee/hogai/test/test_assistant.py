@@ -2,6 +2,7 @@ import json
 from itertools import cycle
 from typing import Any, Optional, cast
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 from langchain_core import messages
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 from ee.hogai.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.memory import prompts as memory_prompts
 from ee.hogai.trends.nodes import TrendsSchemaGeneratorOutput
+from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.schema import (
     AssistantFunnelsEventsNode,
@@ -23,7 +25,6 @@ from posthog.schema import (
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
-    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
@@ -98,11 +99,17 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch(
         "ee.hogai.trends.nodes.TrendsPlannerNode.run",
-        return_value={"intermediate_steps": [(AgentAction(tool="final_answer", tool_input="Plan", log=""), None)]},
+        return_value=PartialAssistantState(
+            intermediate_steps=[
+                (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
+            ],
+        ),
     )
     @patch(
         "ee.hogai.query_executor.nodes.QueryExecutorNode.run",
-        return_value={"messages": [AssistantMessage(content="Foobar")]},
+        return_value=PartialAssistantState(
+            messages=[AssistantMessage(content="Foobar")],
+        ),
     )
     def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_funnel_planner_run):
         output = self._run_assistant_graph(
@@ -141,8 +148,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch(
         "ee.hogai.trends.nodes.TrendsPlannerNode.run",
-        return_value={
-            "intermediate_steps": [
+        return_value=PartialAssistantState(
+            intermediate_steps=[
                 # Compare with toolkit.py to see supported AgentAction shapes. The list below is supposed to include ALL
                 (AgentAction(tool="retrieve_entity_properties", tool_input="session", log=""), None),
                 (AgentAction(tool="retrieve_event_properties", tool_input="$pageview", log=""), None),
@@ -165,7 +172,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 (AgentAction(tool="handle_incorrect_response", tool_input="", log=""), None),
                 (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
             ]
-        },
+        ),
     )
     def test_reasoning_messages_with_substeps_added(self, _mock_funnel_planner_run):
         output = self._run_assistant_graph(
@@ -438,7 +445,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
-    @patch("ee.hogai.root.nodes.RootNode._model")
+    @patch("ee.hogai.root.nodes.RootNode._get_model")
     @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_trends_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
         root_mock.side_effect = cycle(
@@ -449,7 +456,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_calls=[
                             {
                                 "id": "xyz",
-                                "name": "retrieve_data_for_question",
+                                "name": "create_and_query_insight",
                                 "args": {"query_description": "Foobar", "query_kind": "trends"},
                             }
                         ],
@@ -480,7 +487,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="Hello")),
-            ("message", RouterMessage(content="trends")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating trends query")),
@@ -488,21 +494,21 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])
+        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
 
         # Second run
         actual_output = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
         # Third run
         actual_output = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
     @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
-    @patch("ee.hogai.root.nodes.RootNode._model")
+    @patch("ee.hogai.root.nodes.RootNode._get_model")
     @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_funnel_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
         root_mock.side_effect = cycle(
@@ -513,7 +519,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         tool_calls=[
                             {
                                 "id": "xyz",
-                                "name": "retrieve_data_for_question",
+                                "name": "create_and_query_insight",
                                 "args": {"query_description": "Foobar", "query_kind": "funnel"},
                             }
                         ],
@@ -549,7 +555,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="Hello")),
-            ("message", RouterMessage(content="funnel")),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating funnel query")),
@@ -557,17 +562,17 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(actual_output[1][1]["id"], actual_output[6][1]["initiator"])
+        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
 
         # Second run
         actual_output = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
         # Third run
         actual_output = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
+        self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
 
     @patch("ee.hogai.memory.nodes.MemoryInitializerInterruptNode._model")
     @patch("ee.hogai.memory.nodes.MemoryInitializerNode._model")
@@ -706,3 +711,65 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # Verify memory was appended
         self.core_memory.refresh_from_db()
         self.assertIn("The product uses a subscription model.", self.core_memory.text)
+
+    @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    def test_exits_infinite_loop_after_fourth_attempt(
+        self, memory_collector_mock, get_model_mock, planner_mock, generator_mock
+    ):
+        """Test that the assistant exits an infinite loop of tool calls after the 4th attempt."""
+
+        # Track number of attempts
+        attempts = 0
+
+        # Mock the root node to keep making tool calls until 4th attempt
+        def make_tool_call(_):
+            nonlocal attempts
+            attempts += 1
+            if attempts <= 4:
+                return messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": str(uuid4()),
+                            "name": "create_and_query_insight",
+                            "args": {"query_description": "Foobar", "query_kind": "trends"},
+                        }
+                    ],
+                )
+            return messages.AIMessage(content="No more tool calls after 4th attempt")
+
+        get_model_mock.return_value = RunnableLambda(make_tool_call)
+        planner_mock.return_value = RunnableLambda(
+            lambda _: messages.AIMessage(
+                content="""
+                Thought: Done.
+                Action:
+                ```
+                {
+                    "action": "final_answer",
+                    "action_input": "Plan"
+                }
+                ```
+                """
+            )
+        )
+        query = AssistantTrendsQuery(series=[])
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+
+        # Create a graph that only uses the root node
+        graph = AssistantGraph(self.team).compile_full_graph()
+
+        # Run the assistant and capture output
+        output = self._run_assistant_graph(graph)
+
+        # Verify the last message doesn't contain any tool calls and has our expected content
+        last_message = output[-1][1]
+        self.assertNotIn("tool_calls", last_message, "The final message should not contain any tool calls")
+        self.assertEqual(
+            last_message["content"],
+            "No more tool calls after 4th attempt",
+            "Final message should indicate no more tool calls",
+        )

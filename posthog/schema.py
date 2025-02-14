@@ -137,11 +137,11 @@ class AssistantGenericPropertyFilter3(BaseModel):
 
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
+    TOOL = "tool"
     AI = "ai"
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
-    AI_ROUTER = "ai/router"
 
 
 class RetentionReference(StrEnum):
@@ -161,6 +161,25 @@ class AssistantSingleValuePropertyFilterOperator(StrEnum):
     NOT_ICONTAINS = "not_icontains"
     REGEX = "regex"
     NOT_REGEX = "not_regex"
+
+
+class AssistantToolCall(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    args: dict[str, Any]
+    id: str
+    name: str
+
+
+class AssistantToolCallMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    tool_call_id: str
+    type: Literal["tool"] = "tool"
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -1336,15 +1355,6 @@ class RevenueTrackingEventItem(BaseModel):
     )
     eventName: str
     revenueProperty: str
-
-
-class RouterMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["ai/router"] = "ai/router"
 
 
 class SamplingRate(BaseModel):
@@ -3252,6 +3262,7 @@ class AssistantMessage(BaseModel):
     content: str
     id: Optional[str] = None
     meta: Optional[AssistantMessageMetadata] = None
+    tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
 
 
@@ -7319,11 +7330,9 @@ class RetentionQuery(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[
-        Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
-    ]
+    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
 ):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
