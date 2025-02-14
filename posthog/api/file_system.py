@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import QuerySet
 from rest_framework import filters, serializers, viewsets, pagination, status
@@ -9,6 +9,7 @@ from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.file_system import FileSystem, get_unfiled_files
+from posthog.models.user import User
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -69,7 +70,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def unfiled(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        files = get_unfiled_files(self.team, request.user)
+        files = get_unfiled_files(self.team, cast(User, request.user))
         return Response(
             {
                 "results": FileSystemSerializer(files, many=True).data,

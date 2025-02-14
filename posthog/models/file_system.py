@@ -17,7 +17,7 @@ class FileSystem(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
 
     def __str__(self):
-        return self.name
+        return self.path
 
 
 class UnfiledFileFinder:
@@ -32,7 +32,7 @@ class UnfiledFileFinder:
         flags = FeatureFlag.objects.filter(team=self.team, deleted=False)
         return [
             FileSystem(
-                id=str(uuid7()),
+                id=uuid7(),
                 path=f"Unfiled/Feature Flags/{flag.name}",
                 type=FileSystemType.FEATURE_FLAG,
                 ref=str(flag.id),
@@ -52,7 +52,7 @@ class UnfiledFileFinder:
         experiments = Experiment.objects.filter(team=self.team)
         return [
             FileSystem(
-                id=str(uuid7()),
+                id=uuid7(),
                 path=f"Unfiled/Experiments/{experiment.name}",
                 type=FileSystemType.EXPERIMENT,
                 ref=str(experiment.id),
@@ -74,14 +74,14 @@ class UnfiledFileFinder:
         insights = Insight.objects.filter(team=self.team, deleted=False)
         return [
             FileSystem(
-                id=str(uuid7()),
+                id=uuid7(),
                 path=f"Unfiled/Insights/{insight.name}",
                 type=FileSystemType.INSIGHT,
                 ref=str(insight.short_id),
                 href="/insights/" + str(insight.short_id),
                 meta={
                     "created_at": str(insight.created_at),
-                    "created_by": UserBasicSerializer(instance=insight.created_by).dat if insight.created_by else None,
+                    "created_by": UserBasicSerializer(instance=insight.created_by).data if insight.created_by else None,
                 },
             )
             for insight in insights
@@ -94,7 +94,7 @@ class UnfiledFileFinder:
         dashboards = Dashboard.objects.filter(team=self.team, deleted=False)
         return [
             FileSystem(
-                id=str(uuid7()),
+                id=uuid7(),
                 path=f"Unfiled/Dashboards/{dashboard.name}",
                 type=FileSystemType.DASHBOARD,
                 ref=str(dashboard.id),
@@ -116,7 +116,7 @@ class UnfiledFileFinder:
         notebooks = Notebook.objects.filter(team=self.team, deleted=False)
         return [
             FileSystem(
-                id=str(uuid7()),
+                id=uuid7(),
                 path=f"Unfiled/Notebooks/{notebook.title or 'Untitled'}",
                 type=FileSystemType.NOTEBOOK,
                 ref=str(notebook.id),
@@ -143,7 +143,3 @@ class UnfiledFileFinder:
 
 def get_unfiled_files(team: Team, user: User) -> list[FileSystem]:
     return UnfiledFileFinder(team, user).collect()
-
-
-def get_filed_files(team: Team, user: User) -> list[FileSystem]:
-    return FileSystem.objects.filter(team=team).order_by("path").all()
