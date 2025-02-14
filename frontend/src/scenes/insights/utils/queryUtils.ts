@@ -148,6 +148,7 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             hiddenLegendBreakdowns: undefined,
             resultCustomizations: undefined,
             resultCustomizationBy: undefined,
+            goalLines: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined
