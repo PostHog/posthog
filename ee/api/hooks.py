@@ -137,36 +137,35 @@ class HookViewSet(
             instance = self.get_object()
             found = True
 
-            # If we have the instance then we need to delete it as well as any matching hog functions
-            if instance:
-                # We do this by finding one where the description contains the hook id
-                fns = HogFunction.objects.filter(
-                    team_id=self.team_id,
-                    template_id=template_zapier.id,
-                    description__icontains=f"{instance.id}",
-                )
+            # We do this by finding one where the description contains the hook id
+            fns = HogFunction.objects.filter(
+                team_id=self.team_id,
+                template_id=template_zapier.id,
+                description__icontains=f"{instance.id}",
+            )
 
-                for fn in fns:
-                    fn.enabled = False
-                    fn.deleted = True
-                    fn.save()
+            for fn in fns:
+                fn.enabled = False
+                fn.deleted = True
+                fn.save()
 
             self.perform_destroy(instance)
 
         except (Hook.DoesNotExist, Http404):
             pass
 
-        # Otherwise we try and delete the hog function by id
-        try:
-            hog_function = HogFunction.objects.get(
-                team_id=self.team_id, template_id=template_zapier.id, id=kwargs["pk"]
-            )
-            hog_function.enabled = False
-            hog_function.deleted = True
-            hog_function.save()
-            found = True
-        except (HogFunction.DoesNotExist, ValidationError):
-            pass
+        if not found:
+            # Otherwise we try and delete the hog function by id
+            try:
+                hog_function = HogFunction.objects.get(
+                    team_id=self.team_id, template_id=template_zapier.id, id=kwargs["pk"]
+                )
+                hog_function.enabled = False
+                hog_function.deleted = True
+                hog_function.save()
+                found = True
+            except (HogFunction.DoesNotExist, ValidationError):
+                pass
 
         if found:
             return Response(status=status.HTTP_204_NO_CONTENT)
