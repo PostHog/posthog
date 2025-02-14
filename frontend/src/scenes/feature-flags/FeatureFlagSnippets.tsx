@@ -323,6 +323,86 @@ if ${conditional}:
     )
 }
 
+export function CSharpSnippet({
+    flagKey,
+    groupType,
+    multivariant,
+    localEvaluation,
+    payload,
+    samplePropertyName,
+}: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'posthog.'
+    const flagFunction = payload
+        ? 'GetFeatureFlagAsync'
+        : multivariant
+        ? 'GetFeatureFlagAsync'
+        : 'IsFeatureEnabledAsync'
+
+    const propertyName = samplePropertyName || 'isAuthorized'
+
+    const localEvalCommentAddition = localEvaluation
+        ? groupType
+            ? `// add group properties used in the flag to ensure the flag
+        // is evaluated locally, vs. going to our servers
+        `
+            : `// add person properties used in the flag to ensure the flag
+        // is evaluated locally, vs. going to our servers
+        `
+        : ''
+
+    const localEvalCodeAddition = localEvaluation
+        ? groupType
+            ? `{ ["${propertyName}"] = "value", ["name"] = "xyz" }`
+            : `
+    personProperties: new() { ["${propertyName}"] = "value" }`
+        : ''
+
+    const flagSnippet = groupType
+        ? `await ${clientSuffix}${flagFunction}(
+    "${flagKey}",
+    "user distinct id",
+    new FeatureFlagOptions
+    {
+        ${localEvalCommentAddition}Groups = [new Group("${groupType.group_type}", "<${
+              groupType.name_singular || 'group'
+          } ID>")${localEvalCodeAddition}]
+    }
+);`
+        : localEvalCodeAddition
+        ? `await ${clientSuffix}${flagFunction}(
+    "${flagKey}",
+    "user distinct id",${localEvalCodeAddition}
+);`
+        : `await ${clientSuffix}${flagFunction}("${flagKey}", "user distinct id");`
+    const variableName = payload ? 'matchedFlagPayload' : multivariant ? 'enabledVariant' : 'isMyFlagEnabled'
+
+    const conditional = multivariant ? `${variableName} == 'example-variant'` : `${variableName}`
+
+    const followUpCode = payload
+        ? `
+if (matchedFlagPayload is { Payload: {} payload })
+{
+    // The payload is a JsonDocument.
+    Console.WriteLine(payload.RootElement.GetRawText());
+}`
+        : `
+
+if (${conditional} is true) {
+    // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
+}
+`
+
+    return (
+        <>
+            <CodeSnippet language={Language.CSharp} wrap>
+                {`${
+                    localEvaluation ? '// ' + LOCAL_EVAL_REMINDER : ''
+                }var ${variableName} = ${flagSnippet}${followUpCode}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
 export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'PostHog.'
 
