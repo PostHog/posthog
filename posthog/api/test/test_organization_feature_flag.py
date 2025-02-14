@@ -131,6 +131,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "tags": [],
             "user_access_level": "editor",
             "is_remote_configuration": False,
+            "has_encrypted_payloads": False,
             "status": "ACTIVE",
         }
 
@@ -210,6 +211,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "analytics_dashboards": ANY,
             "user_access_level": "editor",
             "is_remote_configuration": False,
+            "has_encrypted_payloads": False,
             "status": "ACTIVE",
         }
 
@@ -333,6 +335,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "analytics_dashboards": ANY,
             "user_access_level": "editor",
             "is_remote_configuration": False,
+            "has_encrypted_payloads": False,
             "status": "ACTIVE",
         }
         flag_response = response.json()["success"][0]
