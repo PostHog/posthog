@@ -395,18 +395,28 @@
     --bg-fill-primary: var(--color-white);
     --bg-fill-secondary: var(--primitive-3000-25);
     --bg-fill-tertiary: var(--primitive-3000-50);
+
+    // Highlights
+    --bg-fill-primary-highlight: color-mix(
+        in oklab,
+        var(--color-primary-500) 10%,
+        transparent
+    ); /* highlight bg for primary blocks */
+
+    // Info fills
     --bg-fill-info-secondary: var(--color-blue-100); /* promonent bg for info blocks */
-    --bg-fill-input: var(--color-white);
-    --bg-fill-switch: var(--primitive-neutral-cool-250);
     --bg-fill-info-tertiary: var(--color-blue-50); /* subtle bg for info blocks */
+
+    // Warning fills
     --bg-fill-warning-secondary: var(--color-yellow-100); /* prominent bg for warning blocks */
     --bg-fill-warning-tertiary: var(--color-yellow-50); /* subtle bg for warning blocks */
     --bg-fill-warning-highlight: color-mix(
         in oklab,
-        var(--color-yellow-500) 10%,
+        var(--color-yellow-500) 15%,
         transparent
     ); /* highlight bg for warning blocks */
 
+    // Error fills
     --bg-fill-error-secondary: var(--color-red-100); /* prominent bg for error blocks */
     --bg-fill-error-tertiary: var(--color-red-50); /* subtle bg for error blocks */
     --bg-fill-error-highlight: color-mix(
@@ -415,6 +425,7 @@
         transparent
     ); /* highlight bg for error blocks */
 
+    // Success fills
     --bg-fill-success-secondary: var(--color-green-100); /* promonent bg for success blocks */
     --bg-fill-success-tertiary: var(--color-green-50); /* subtle bg for success blocks */
     --bg-fill-success-highlight: color-mix(
@@ -423,11 +434,10 @@
         transparent
     ); /* highlight bg for success blocks */
 
-    --bg-fill-primary-highlight: color-mix(
-        in oklab,
-        var(--color-primary-500) 10%,
-        transparent
-    ); /* highlight bg for primary blocks */
+    // Inputs
+    --bg-fill-input: var(--color-white);
+    --bg-fill-switch: var(--primitive-neutral-cool-250);
+    --bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
@@ -800,8 +810,6 @@
     --bg-fill-secondary: var(--primitive-neutral-cool-850);
     --bg-fill-tertiary: var(--primitive-neutral-cool-800);
     --bg-fill-info-secondary: var(--color-blue-950);
-    --bg-fill-input: var(--primitive-neutral-cool-850);
-    --bg-fill-switch: var(--primitive-neutral-cool-900);
     --bg-fill-info-tertiary: var(--color-blue-950);
     --bg-fill-warning-secondary: var(--color-yellow-950);
     --bg-fill-warning-tertiary: color-mix(in oklab, var(--color-yellow-950) 10%, transparent);
@@ -813,6 +821,9 @@
     --bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
+    --bg-fill-input: var(--primitive-neutral-cool-850);
+    --bg-fill-switch: var(--primitive-neutral-cool-900);
+    --bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
 
     // Content (text, icons) (dark mode)
     // //////////////////////////////////////////////////////////
