@@ -666,14 +666,21 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         v2_metadata = SessionReplayEventsV2Test().get_metadata(str(recording.session_id), self.team)
         if v2_metadata:
-            # Add a source for each block
-            for i, _ in enumerate(v2_metadata["block_urls"]):
+            blocks = sorted(
+                zip(
+                    v2_metadata["block_first_timestamps"],
+                    v2_metadata["block_last_timestamps"],
+                    v2_metadata["block_urls"],
+                ),
+                key=lambda x: x[0],
+            )
+            for i, (start_timestamp, end_timestamp, _) in enumerate(blocks):
                 sources.append(
                     {
                         "source": "blob_v2",
-                        "start_timestamp": v2_metadata["block_first_timestamps"][i],
-                        "end_timestamp": v2_metadata["block_last_timestamps"][i],
-                        "blob_key": str(i),  # Use block index as the blob key
+                        "start_timestamp": start_timestamp,
+                        "end_timestamp": end_timestamp,
+                        "blob_key": str(i),
                     }
                 )
             might_have_realtime = False
@@ -884,12 +891,18 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             if not metadata:
                 raise exceptions.NotFound("Session recording not found")
 
+            # Sort blocks by first timestamp
+            blocks = sorted(
+                zip(metadata["block_first_timestamps"], metadata["block_last_timestamps"], metadata["block_urls"]),
+                key=lambda x: x[0],
+            )
+
             # Validate block index
-            if block_index >= len(metadata["block_urls"]):
+            if block_index >= len(blocks):
                 raise exceptions.NotFound("Block index out of range")
 
             # Get the block URL
-            block_url = metadata["block_urls"][block_index]
+            block_url = blocks[block_index][2]
             if not block_url:
                 raise exceptions.NotFound("Block URL not found")
 
