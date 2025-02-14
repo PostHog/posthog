@@ -58,7 +58,7 @@ test.describe('Auth', () => {
         await page.locator('[data-attr=password]').fill(LOGIN_PASSWORD)
         await page.locator('[type=submit]').click()
 
-        await expect(page).toHaveURL('/')
+        await expect(page).toHaveURL(/\/project\/\d+/)
     })
 
     test('Redirect to appropriate place after login', async ({ page }) => {
@@ -98,7 +98,7 @@ test.describe('Auth', () => {
 
     test('Cannot access signup page if authenticated', async ({ page }) => {
         await page.goto('/signup')
-        await expect(page).toHaveURL('/project/1')
+        await expect(page).toHaveURL(/\/project\/\d+/)
     })
 
     test('Logout in another tab results in logout in the current tab too', async ({ page, browser }) => {
