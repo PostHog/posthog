@@ -251,7 +251,7 @@ export class CdpApi {
                     ip: triggerGlobals.event.properties.$ip,
                     site_url: triggerGlobals.project.url,
                     team_id: triggerGlobals.project.id,
-                    now: DateTime.now().toISO(),
+                    now: '',
                 }
                 const response = await this.hogTransformer.transformEvent(pluginEvent, [compoundConfiguration])
 

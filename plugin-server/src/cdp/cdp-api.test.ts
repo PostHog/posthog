@@ -486,7 +486,7 @@ describe('CDP API', () => {
                   "elements_chain": "",
                   "event": "$pageview",
                   "ip": null,
-                  "now": "2025-02-14T13:37:49.509+01:00",
+                  "now": "",
                   "properties": {
                     "$lib_version": "1.0.0",
                     "$transformations_failed": [],
