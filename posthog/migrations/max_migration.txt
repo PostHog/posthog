@@ -1,1 +1,1 @@
-0663_alter_insightvariable_type
+0667_encrypt_feature_flag_config

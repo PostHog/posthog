@@ -371,7 +371,7 @@ def get_feature_flags_response(
 
     # Compute feature flags
     feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-        team.pk,
+        team,
         distinct_id,
         data.get("groups") or {},
         hash_key_override=data.get("$anon_distinct_id"),
@@ -411,7 +411,7 @@ def _record_feature_flag_metrics(
     if not feature_flags:
         return
 
-    team_id_label = label_for_team_id_to_track(team.pk)
+    team_id_label = label_for_team_id_to_track(team.id)
     FLAG_EVALUATION_COUNTER.labels(
         team_id=team_id_label,
         errors_computing=errors,
@@ -431,7 +431,7 @@ def _record_feature_flag_metrics(
     if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
         if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
             count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
-            increment_request_count(team.pk, count)
+            increment_request_count(team.id, count)
 
 
 def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> bool:

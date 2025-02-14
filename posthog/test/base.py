@@ -10,6 +10,7 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import freezegun
@@ -30,6 +31,7 @@ from rest_framework.test import APITestCase as DRFTestCase
 from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
+from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
@@ -610,6 +612,8 @@ def cleanup_materialized_columns():
         )
         if drops:
             sync_execute(f"ALTER TABLE {table} {drops} SETTINGS mutations_sync = 2")
+            if table == "events":
+                sync_execute(f"ALTER TABLE sharded_events {drops} SETTINGS mutations_sync = 2")
 
     default_column_names = {
         get_materialized_columns("events")[(prop, "properties")].name
@@ -619,6 +623,20 @@ def cleanup_materialized_columns():
     optionally_drop("events", lambda name: name not in default_column_names)
     optionally_drop("person")
     optionally_drop("groups")
+
+
+@contextmanager
+def materialized(table, property) -> Iterator[MaterializedColumn]:
+    """Materialize a property within the managed block, removing it on exit."""
+    try:
+        from ee.clickhouse.materialized_columns.analyze import materialize
+    except ModuleNotFoundError as e:
+        pytest.xfail(str(e))
+
+    try:
+        yield materialize(table, property)
+    finally:
+        cleanup_materialized_columns()
 
 
 def also_test_with_materialized_columns(

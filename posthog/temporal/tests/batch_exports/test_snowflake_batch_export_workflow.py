@@ -1633,7 +1633,7 @@ async def test_snowflake_export_workflow_backfill_earliest_persons(
         interval=interval,
         batch_export_model=model,
         backfill_details=BackfillDetails(
-            backfill_id=str(uuid.uuid4()),
+            backfill_id=None,
             is_earliest_backfill=True,
             start_at=None,
             end_at=data_interval_end.isoformat(),

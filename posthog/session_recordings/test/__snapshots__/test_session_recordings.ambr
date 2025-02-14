@@ -14,6 +14,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -90,6 +91,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -166,6 +168,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -242,6 +245,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -318,6 +322,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -503,6 +508,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -607,6 +613,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -801,6 +808,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -929,6 +937,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -1025,6 +1034,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1181,6 +1191,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1257,6 +1268,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1333,6 +1345,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1409,6 +1422,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1485,6 +1499,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1561,6 +1576,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1670,6 +1686,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1905,6 +1922,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -2033,6 +2051,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -2054,6 +2073,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -2236,6 +2256,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -2383,6 +2404,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -2679,6 +2701,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -2807,6 +2830,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -3011,6 +3035,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -3158,6 +3183,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -3388,6 +3414,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -3516,6 +3543,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -3538,6 +3566,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -3778,6 +3807,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -3925,6 +3955,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -4166,6 +4197,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -4294,6 +4326,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -4501,6 +4534,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -4648,6 +4682,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -4903,6 +4938,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -5031,6 +5067,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -5053,6 +5090,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -5290,6 +5328,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -5437,6 +5476,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -5729,6 +5769,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -5857,6 +5898,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -6167,6 +6209,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -6295,6 +6338,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -6515,6 +6559,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -6662,6 +6707,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -6917,6 +6963,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -7045,6 +7092,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -7248,6 +7296,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -7395,6 +7444,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -7630,6 +7680,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -7758,6 +7809,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -7779,6 +7831,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -7957,6 +8010,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -8104,6 +8158,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -8400,6 +8455,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -8528,6 +8584,7 @@
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id"
   FROM "posthog_datawarehousesavedquery"
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
@@ -8728,6 +8785,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -8875,6 +8933,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
