@@ -95,7 +95,7 @@ FROM (
         pd.version AS person_distinct_id_version,
         p.version AS person_version,
         p.created_at AS created_at,
-        p.is_deleted AS is_deleted,
+        toBool(p.is_deleted) AS is_deleted,
         multiIf(
             (
                 pd._timestamp >= {interval_start}::DateTime64
@@ -160,7 +160,7 @@ SELECT
     pd.version AS person_distinct_id_version,
     p.version AS person_version,
     p.created_at AS created_at,
-    p.is_deleted AS is_deleted,
+    toBool(p.is_deleted) AS is_deleted,
     multiIf(
         pd._timestamp < {interval_end}::DateTime64
             AND NOT p._timestamp < {interval_end}::DateTime64,
