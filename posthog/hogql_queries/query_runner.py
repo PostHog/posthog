@@ -392,6 +392,18 @@ def get_query_runner(
             modifiers=modifiers,
             limit_context=limit_context,
         )
+
+    if kind == "ExperimentQuery":
+        from .experiments.experiment_query_runner import ExperimentQueryRunner
+
+        return ExperimentQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "SuggestedQuestionsQuery":
         from posthog.hogql_queries.ai.suggested_questions_query_runner import SuggestedQuestionsQueryRunner
 
