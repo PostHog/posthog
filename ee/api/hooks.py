@@ -24,7 +24,7 @@ def hog_functions_enabled(team: Team) -> bool:
 def create_zapier_hog_function(hook: Hook, serializer_context: dict, from_migration: bool = False) -> HogFunction:
     description = template_zapier.description
     if from_migration:
-        description = f"Migrated zapier webhook for hook {hook.id}."
+        description = f"{description} Migrated from legacy hook {hook.id}."
 
     serializer = HogFunctionSerializer(
         data={
