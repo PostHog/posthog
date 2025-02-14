@@ -626,7 +626,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         elif source == "blob":
             return self._stream_blob_to_client(recording, request, event_properties)
         elif source == "blob_v2":
-            return self._stream_blob_v2_to_client(recording, request, event_properties)
+            blob_key = request.GET.get("blob_key")
+            if blob_key:
+                return self._stream_blob_v2_to_client(recording, request, event_properties)
+            else:
+                return self._gather_session_recording_sources(recording)
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob, blob_v2]")
 
