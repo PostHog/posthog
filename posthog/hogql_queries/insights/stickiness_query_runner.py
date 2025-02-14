@@ -230,11 +230,23 @@ class StickinessQueryRunner(QueryRunner):
 
             # Scope down to the individual day
             if interval_num is not None:
-                events_query.where = ast.CompareOperation(
-                    left=ast.Field(chain=["num_intervals"]),
-                    op=ast.CompareOperationOp.Eq if operator is None else get_count_operator_ast(operator),
-                    right=ast.Constant(value=interval_num),
-                )
+                # For cumulative mode, we want actors who were active for X or more days
+                if (
+                    self.query.stickinessFilter
+                    and self.query.stickinessFilter.computedAs == StickinessComputationMode.CUMULATIVE
+                ):
+                    events_query.where = ast.CompareOperation(
+                        left=ast.Field(chain=["num_intervals"]),
+                        op=ast.CompareOperationOp.GtEq,
+                        right=ast.Constant(value=interval_num),
+                    )
+                else:
+                    # For normal mode, use the provided operator or exact match
+                    events_query.where = ast.CompareOperation(
+                        left=ast.Field(chain=["num_intervals"]),
+                        op=ast.CompareOperationOp.Eq if operator is None else get_count_operator_ast(operator),
+                        right=ast.Constant(value=interval_num),
+                    )
 
             queries.append(events_query)
 
