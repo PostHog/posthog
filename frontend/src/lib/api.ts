@@ -16,6 +16,7 @@ import {
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
+    FileSystemEntry,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -366,6 +367,17 @@ class ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
+    // # File System
+    public fileSystem(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('file_system')
+    }
+    public fileSystemUnfiled(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
+    }
+    public fileSystemDetail(id: FileSystemEntry['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent(id)
+    }
+
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
         return this.organizationsDetail(orgId).addPathComponent('plugins')
@@ -388,7 +400,7 @@ class ApiRequest {
     }
 
     public hogFunctions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('hog_functions')
+        return this.environmentsDetail(teamId).addPathComponent('hog_functions')
     }
 
     public hogFunction(id: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1160,6 +1172,24 @@ const api = {
             featureFlagId: FeatureFlagType['id']
         ): Promise<FeatureFlagStatusResponse> {
             return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
+        },
+    },
+
+    fileSystem: {
+        async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystem().get()
+        },
+        async unfiled(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystemUnfiled().get()
+        },
+        async create(data: FileSystemEntry): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystem().create({ data })
+        },
+        async update(id: FileSystemEntry['id'], data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemDetail(id).update({ data })
+        },
+        async delete(id: FileSystemEntry['id']): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemDetail(id).delete()
         },
     },
 

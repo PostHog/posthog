@@ -12,6 +12,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
@@ -316,10 +317,8 @@ export const surveyLogic = kea<surveyLogicType>([
         surveyRatingResults: {
             loadSurveyRatingResults: async ({
                 questionIndex,
-                iteration,
             }: {
                 questionIndex: number
-                iteration?: number | null | undefined
             }): Promise<SurveyRatingResults> => {
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Rating) {
@@ -341,7 +340,6 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = 'survey sent'
                             AND properties.$survey_id = '${props.id}'
-                            ${iteration && iteration > 0 ? ` AND properties.$survey_iteration='${iteration}' ` : ''}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             AND {filters}
@@ -640,6 +638,10 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         loadSurveySuccess: () => {
             actions.loadSurveyUserStats()
+
+            if (values.survey.start_date) {
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+            }
         },
         resetSurveyResponseLimits: () => {
             actions.setSurveyValue('responses_limit', null)

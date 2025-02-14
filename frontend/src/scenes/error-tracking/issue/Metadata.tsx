@@ -2,6 +2,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
+import { ClampedText } from 'lib/lemon-ui/ClampedText'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
@@ -32,7 +33,7 @@ export const Metadata = (): JSX.Element => {
 
     return (
         <div className="space-y-1">
-            {issue ? <div className="italic line-clamp-3">{issue.description}</div> : <LemonSkeleton />}
+            {issue && issue.description ? <ClampedText text={issue.description} lines={2} /> : <LemonSkeleton />}
             <div className="flex flex-1 justify-between">
                 <div className="flex items-end space-x-6">
                     <div>

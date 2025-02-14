@@ -19,8 +19,8 @@ import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/util
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
-import { ExperimentFunnelsQuery, ExperimentQuery, ExperimentTrendsQuery, Node } from '~/queries/schema'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, Node } from '~/queries/schema'
+import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import {
     getBreakdown,
     getCompareFilter,
@@ -123,12 +123,12 @@ interface RecordingViewedProps {
 }
 
 export function getEventPropertiesForMetric(
-    metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
 ): object {
-    if (metric.kind === NodeKind.ExperimentQuery) {
+    if (metric.kind === NodeKind.ExperimentMetric) {
         return {
-            kind: NodeKind.ExperimentQuery,
-            metric_type: metric.metric.metric_type,
+            kind: NodeKind.ExperimentMetric,
+            metric_type: metric.metric_type,
         }
     } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
         return {
