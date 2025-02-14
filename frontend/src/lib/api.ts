@@ -369,10 +369,10 @@ class ApiRequest {
 
     // # File System
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('file_system')
+        return this.projectsDetail(teamId).addPathComponent('file_system')
     }
     public fileSystemUnfiled(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
+        return this.projectsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
     }
     public fileSystemDetail(id: FileSystemEntry['id'], teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id)

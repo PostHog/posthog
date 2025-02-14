@@ -76,11 +76,14 @@ export function TreeView(): JSX.Element {
                                     moveItem(oldPath, oldFile)
                                 }
                             } else if (folder) {
-                                const oldSplit = oldPath.split('/')
-                                const oldFile = oldSplit.pop()
-                                const newFile = folder + '/' + oldFile
-                                if (newFile !== oldPath) {
-                                    moveItem(oldPath, newFile)
+                                const item = viableItems.find((i) => i.path === folder)
+                                if (!item || item.type === 'folder') {
+                                    const oldSplit = oldPath.split('/')
+                                    const oldFile = oldSplit.pop()
+                                    const newFile = folder + '/' + oldFile
+                                    if (newFile !== oldPath) {
+                                        moveItem(oldPath, newFile)
+                                    }
                                 }
                             }
                         }}

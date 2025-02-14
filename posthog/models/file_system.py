@@ -138,6 +138,11 @@ class UnfiledFileFinder:
             *self.collect_insights(),
             *self.collect_dashboards(),
             *self.collect_notebooks(),
+            # annotations
+            # sources
+            # destinations
+            # transformations
+            # site_apps
         ]
 
 

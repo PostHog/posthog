@@ -183,7 +183,6 @@ projects_router.register(
 environment_dashboards_router, legacy_project_dashboards_router = register_grandfathered_environment_nested_viewset(
     r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
 )
-environments_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_systen", ["project_id"])
 
 register_grandfathered_environment_nested_viewset(
     r"exports", exports.ExportedAssetViewSet, "environment_exports", ["team_id"]
@@ -211,6 +210,8 @@ projects_router.register(
     "project_scheduled_changes",
     ["project_id"],
 )
+
+projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_systen", ["project_id"])
 
 environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
     r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]
