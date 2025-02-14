@@ -436,7 +436,7 @@ if (matchedFlagPayload is { Payload: {} payload })
 }`
         : `
 
-if (${conditional} is true) {
+if (${conditional}) {
     // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
 }
 `
