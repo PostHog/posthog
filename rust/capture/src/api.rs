@@ -69,6 +69,12 @@ impl From<serde_json::Error> for CaptureError {
     }
 }
 
+impl From<sqlx::Error> for CaptureError {
+    fn from(e: sqlx::Error) -> Self {
+        CaptureError::RetryableSinkError
+    }
+}
+
 impl IntoResponse for CaptureError {
     fn into_response(self) -> Response {
         match self {

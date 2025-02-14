@@ -71,6 +71,10 @@ pub struct Config {
     #[envconfig(default = "")]
     pub s3_fallback_prefix: String,
 
+    #[envconfig(default = "false")]
+    pub sqlite_buffer_enabled: bool,
+    pub sqlite_path: String,
+
     #[envconfig(default = "ALL")]
     pub healthcheck_strategy: HealthStrategy,
 }

@@ -71,6 +71,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_bucket: None,
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
+    sqlite_buffer_enabled: false,
+    sqlite_path: String::new(),
     healthcheck_strategy: HealthStrategy::All,
 });
 

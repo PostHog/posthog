@@ -23,6 +23,7 @@ use crate::sinks::kafka::KafkaSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
+use crate::sinks::sqlite::SqliteSink;
 
 async fn create_sink(
     config: &Config,
@@ -91,6 +92,8 @@ async fn create_sink(
         .await
         .expect("failed to start Kafka sink");
 
+        let mut sink: Box<dyn Event + Send + Sync> = Box::new(kafka_sink);
+
         if config.s3_fallback_enabled {
             let sink_liveness = liveness
                 .register("s3".to_string(), Duration::seconds(30))
@@ -108,15 +111,29 @@ async fn create_sink(
             .await
             .expect("failed to create S3 sink");
 
-            Ok(Box::new(FallbackSink::new_with_health(
-                kafka_sink,
+            sink = Box::new(FallbackSink::new_with_health(
+                sink,
                 s3_sink,
                 liveness.clone(),
                 "rdkafka".to_string(),
-            )))
-        } else {
-            Ok(Box::new(kafka_sink))
+            ))
         }
+        if config.sqlite_buffer_enabled {
+            let sqlite_liveness = liveness
+                .register("sqlite".to_string(), Duration::seconds(30))
+                .await;
+
+            let sqlite_sink = SqliteSink::new(
+                config.sqlite_path.clone(),
+                Box::new(sink),
+                sqlite_liveness,
+            )
+            .await?;
+
+            sink = Box::new(sqlite_sink);
+        }
+
+        Ok(sink)
     }
 }
 
