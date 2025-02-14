@@ -70,6 +70,7 @@ export function PropertyGroupFilters({
                             icon={<IconPlusSmall color="var(--accent-primary)" />}
                             sideIcon={null}
                             disabledReason={disabledReason}
+                            className="PropertyGroupFilters__add-filter-group-inline"
                         >
                             Add filter group
                         </LemonButton>
@@ -148,6 +149,18 @@ export function PropertyGroupFilters({
                             )}
                         </div>
                     ) : null}
+
+                    <LemonButton
+                        data-attr={`${pageKey}-add-filter-group`}
+                        type="secondary"
+                        onClick={addFilterGroup}
+                        icon={<IconPlusSmall color="var(--accent-primary)" />}
+                        sideIcon={null}
+                        disabledReason={disabledReason}
+                        className="PropertyGroupFilters__add-filter-group-after"
+                    >
+                        Add filter group
+                    </LemonButton>
                 </BindLogic>
             )}
         </div>
