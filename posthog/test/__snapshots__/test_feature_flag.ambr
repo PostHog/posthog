@@ -138,6 +138,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -216,11 +217,13 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.10
@@ -238,6 +241,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -319,6 +323,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -436,6 +441,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -452,6 +458,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -467,7 +474,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -529,6 +537,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -611,11 +620,13 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.18
@@ -633,6 +644,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -714,6 +726,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -783,6 +796,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -900,6 +914,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -916,6 +931,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -931,7 +947,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -993,6 +1010,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1095,31 +1113,6 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.28
-  '''
-  SELECT ((("posthog_person"."properties" -> 'Distinct Id') IN ('"307"'::jsonb)
-           OR ("posthog_person"."properties" -> 'Distinct Id') IN ('307'::jsonb))
-          AND "posthog_person"."properties" ? 'Distinct Id'
-          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.29
-  '''
-  SELECT (("posthog_person"."properties" -> 'Distinct Id') IN ('307'::jsonb)
-          AND "posthog_person"."properties" ? 'Distinct Id'
-          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.3
   '''
   SELECT "posthog_remoteconfig"."id",
@@ -1130,18 +1123,6 @@
   FROM "posthog_remoteconfig"
   WHERE "posthog_remoteconfig"."team_id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.30
-  '''
-  SELECT (("posthog_person"."properties" -> 'Distinct Id') = '307'::jsonb
-          AND "posthog_person"."properties" ? 'Distinct Id'
-          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type.4
@@ -1159,6 +1140,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1276,6 +1258,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -1292,6 +1275,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -1307,7 +1291,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -1369,6 +1354,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1451,11 +1437,13 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_invalid_regex_match_flag
@@ -1473,6 +1461,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1551,26 +1540,16 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.10
-  '''
-  SELECT (("posthog_person"."properties" ->> 'email')::text ~ '["neil@x.com"]'
-          AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
-# name: TestFeatureFlagMatcher.test_invalid_regex_match_flag.11
   '''
   SELECT (("posthog_person"."properties" ->> 'email')::text ~ '["neil@x.com"]'
           AND "posthog_person"."properties" ? 'email'
@@ -1597,6 +1576,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1678,6 +1658,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1795,6 +1776,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -1811,6 +1793,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -1826,7 +1809,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -1888,6 +1872,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -1975,7 +1960,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.1
@@ -2028,7 +2013,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.5
@@ -2082,8 +2067,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 521)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_cohorts_and_nested_cohorts.1
@@ -2129,7 +2115,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."team_id" = 99999
+  WHERE "posthog_grouptypemapping"."project_id" = 521
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags.1
@@ -2207,6 +2193,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -2285,51 +2272,16 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.10
-  '''
-  SELECT (((("posthog_person"."properties" -> 'number space') > '"100"'::jsonb
-            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('string'))
-           OR (("posthog_person"."properties" -> 'number space') > '100.0'::jsonb
-               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('number')))
-          AND "posthog_person"."properties" ? 'number space'
-          AND NOT (("posthog_person"."properties" -> 'number space') = 'null'::jsonb)
-          AND ((JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('string')
-                AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '"100"'::jsonb)
-               OR (JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('number')
-                   AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '100.0'::jsonb))
-          AND "posthog_person"."properties" ? ';''" SELECT 1; DROP TABLE posthog_featureflag;'
-          AND NOT (("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') = 'null'::jsonb)) AS "flag_X_condition_0",
-         (((JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('string')
-            AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '"100"'::jsonb)
-           OR (JSONB_TYPEOF(("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;')) = ('number')
-               AND ("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') > '100.0'::jsonb))
-          AND "posthog_person"."properties" ? ';''" SELECT 1; DROP TABLE posthog_featureflag;'
-          AND NOT (("posthog_person"."properties" -> ';''" SELECT 1; DROP TABLE posthog_featureflag;') = 'null'::jsonb)) AS "flag_X_condition_1",
-         (((("posthog_person"."properties" -> 'version!!!') > '"1.05"'::jsonb
-            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version!!!')) = ('string'))
-           OR (("posthog_person"."properties" -> 'version!!!') > '1.05'::jsonb
-               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version!!!')) = ('number')))
-          AND "posthog_person"."properties" ? 'version!!!'
-          AND NOT (("posthog_person"."properties" -> 'version!!!') = 'null'::jsonb)) AS "flag_X_condition_2",
-         ((("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '"21"'::jsonb
-           OR ("posthog_person"."properties" -> 'nested_prop --random #comment //test') = '21'::jsonb)
-          AND "posthog_person"."properties" ? 'nested_prop --random #comment //test'
-          AND NOT (("posthog_person"."properties" -> 'nested_prop --random #comment //test') = 'null'::jsonb)) AS "flag_X_condition_3"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
-# name: TestFeatureFlagMatcher.test_with_sql_injection_properties_and_other_aliases.11
   '''
   SELECT (((("posthog_person"."properties" -> 'number space') > '"100"'::jsonb
             AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number space')) = ('string'))
@@ -2381,6 +2333,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -2462,6 +2415,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -2579,6 +2533,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -2595,6 +2550,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -2610,7 +2566,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -2672,6 +2629,7 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_web_vitals_opt_in",
@@ -2758,8 +2716,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestHashKeyOverridesRaceConditions.test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging
@@ -2791,12 +2750,13 @@
           FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 99999
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
+     FROM posthog_featureflag flag
+     JOIN posthog_team team ON flag.team_id = team.id
+     WHERE team.project_id = 99999
+       AND flag.ensure_experience_continuity = TRUE
+       AND flag.active = TRUE
+       AND flag.deleted = FALSE
+       AND flag.key NOT IN
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
@@ -2871,11 +2831,12 @@
          (SELECT person_id
           FROM target_person_ids) )
   SELECT key
-  FROM posthog_featureflag
-  WHERE team_id = 99999
-    AND ensure_experience_continuity = TRUE
-    AND active = TRUE
-    AND deleted = FALSE
+  FROM posthog_featureflag flag
+  JOIN posthog_team team ON flag.team_id = team.id
+  WHERE team.project_id = 99999
+    AND flag.ensure_experience_continuity = TRUE
+    AND flag.active = TRUE
+    AND flag.deleted = FALSE
     AND key NOT IN
       (SELECT feature_flag_key
        FROM existing_overrides)
@@ -2913,12 +2874,13 @@
           FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 99999
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
+     FROM posthog_featureflag flag
+     JOIN posthog_team team ON flag.team_id = team.id
+     WHERE team.project_id = 99999
+       AND flag.ensure_experience_continuity = TRUE
+       AND flag.active = TRUE
+       AND flag.deleted = FALSE
+       AND flag.key NOT IN
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
@@ -2976,12 +2938,13 @@
           FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 99999
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
+     FROM posthog_featureflag flag
+     JOIN posthog_team team ON flag.team_id = team.id
+     WHERE team.project_id = 99999
+       AND flag.ensure_experience_continuity = TRUE
+       AND flag.active = TRUE
+       AND flag.deleted = FALSE
+       AND flag.key NOT IN
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
@@ -3056,11 +3019,12 @@
          (SELECT person_id
           FROM target_person_ids) )
   SELECT key
-  FROM posthog_featureflag
-  WHERE team_id = 99999
-    AND ensure_experience_continuity = TRUE
-    AND active = TRUE
-    AND deleted = FALSE
+  FROM posthog_featureflag flag
+  JOIN posthog_team team ON flag.team_id = team.id
+  WHERE team.project_id = 99999
+    AND flag.ensure_experience_continuity = TRUE
+    AND flag.active = TRUE
+    AND flag.deleted = FALSE
     AND key NOT IN
       (SELECT feature_flag_key
        FROM existing_overrides)
@@ -3098,12 +3062,13 @@
           FROM target_person_ids) ),
        flags_to_override AS
     (SELECT key
-     FROM posthog_featureflag
-     WHERE team_id = 99999
-       AND ensure_experience_continuity = TRUE
-       AND active = TRUE
-       AND deleted = FALSE
-       AND key NOT IN
+     FROM posthog_featureflag flag
+     JOIN posthog_team team ON flag.team_id = team.id
+     WHERE team.project_id = 99999
+       AND flag.ensure_experience_continuity = TRUE
+       AND flag.active = TRUE
+       AND flag.deleted = FALSE
+       AND flag.key NOT IN
          (SELECT feature_flag_key
           FROM existing_overrides) )
   INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)

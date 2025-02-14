@@ -1,11 +1,18 @@
-import { mkdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-
 import { expect, Page, test as base } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
+import { AppContext } from '~/types'
+
+export const LOGIN_USERNAME = process.env.LOGIN_USERNAME || 'test@posthog.com'
+export const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || '12345678'
+
+export type WindowWithPostHog = typeof globalThis & {
+    POSTHOG_APP_CONTEXT: AppContext
+}
+
 declare module '@playwright/test' {
     interface Page {
+        setAppContext<K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void>
         // resetCapturedEvents(): Promise<void>
         //
         // capturedEvents(): Promise<CaptureResult[]>
@@ -22,6 +29,16 @@ declare module '@playwright/test' {
 export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     page: async ({ page }, use) => {
         // // Add custom methods to the page object
+        // you can see that page/window is separate to test context.
+        // e.g. how we have to pass key and value in setAppContext
+        page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
+            await page.evaluate(
+                ([key, value]) => {
+                    ;(window as WindowWithPostHog).POSTHOG_APP_CONTEXT[key as string] = value
+                },
+                [key, value]
+            )
+        }
         // page.resetCapturedEvents = async function () {
         //     await this.evaluate(() => {
         //         ;(window as WindowWithPostHog).capturedEvents = []
@@ -56,14 +73,9 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     // this auto fixture makes sure we log in before every test
     loginBeforeTests: [
         async ({ page }, use) => {
-            const authFile = resolve('playwright/.auth/user.json')
-
-            mkdirSync(dirname(authFile), { recursive: true }) // Ensure directory exists
-
-            // perform authentication steps
+            // Perform authentication steps
             await page.goto(urls.login())
 
-            // Wait for either login input OR the authenticated UI element
             const loginField = page.getByPlaceholder('email@yourcompany.com')
             const homepageMenuItem = page.locator('[data-attr="menu-item-projecthomepage"]')
 
@@ -73,23 +85,17 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
             ]).catch(() => 'timeout')
 
             if (firstVisible === 'login') {
-                // Not logged in, proceed with login
-                await loginField.fill('test@posthog.com')
+                await loginField.fill(LOGIN_USERNAME)
 
                 const passwd = page.getByPlaceholder('••••••••••')
                 await expect(passwd).toBeVisible()
-                await passwd.fill('12345678')
+                await passwd.fill(LOGIN_PASSWORD)
 
                 await page.getByRole('button', { name: 'Log in' }).click()
-
-                // Wait for login confirmation
                 await homepageMenuItem.waitFor()
             } else if (firstVisible === 'timeout') {
                 throw new Error('Neither login page nor authenticated UI loaded')
             }
-
-            // Save auth state
-            await page.context().storageState({ path: authFile })
 
             // Continue with tests
             await use()

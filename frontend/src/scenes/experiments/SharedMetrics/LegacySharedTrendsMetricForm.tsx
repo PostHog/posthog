@@ -19,7 +19,7 @@ import { EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { sharedMetricLogic } from './sharedMetricLogic'
 
-export function SharedTrendsMetricForm(): JSX.Element {
+export function LegacySharedTrendsMetricForm(): JSX.Element {
     const { sharedMetric } = useValues(sharedMetricLogic)
     const { setSharedMetric } = useActions(sharedMetricLogic)
     const { currentTeam } = useValues(teamLogic)

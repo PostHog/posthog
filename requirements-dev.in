@@ -27,6 +27,7 @@ multidict==6.0.5 # Not used by us directly, but code won't run on Ubuntu 24.04 u
 packaging==24.1
 black~=23.9.1
 boto3-stubs[s3]
+orjson==3.10.15
 types-markdown==3.3.9
 types-PyMySQL==1.1.0.20240524
 types-PyYAML==6.0.1
@@ -52,6 +53,7 @@ pytest-watch==4.2.0
 pytest-xdist==3.6.1
 python-dateutil>=2.8.2
 responses==0.23.1
+sqlalchemy==2.0.38
 syrupy~=4.6.0
 watchdog==5.0.3
 flaky==3.7.0

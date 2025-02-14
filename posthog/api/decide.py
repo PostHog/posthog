@@ -307,7 +307,7 @@ def get_decide(request: HttpRequest):
             }
 
             feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-                team.pk,
+                team,
                 distinct_id,
                 data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),
