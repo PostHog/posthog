@@ -249,7 +249,11 @@ class ExperimentQueryRunner(QueryRunner):
                                 right=ast.Field(chain=["exposure", "first_exposure_time"]),
                                 op=ast.CompareOperationOp.GtEq,
                             ),
-                            parse_expr(f"event = '{metric_config.event}'"),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["event"]),
+                                right=ast.Constant(value=metric_config.event),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
                             *metric_property_filters,
                         ],
                     ),
