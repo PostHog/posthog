@@ -207,12 +207,12 @@ if (inputs.debug) {
 
         hook_id = res.json()["id"]
 
-        assert HogFunction.objects.count() == 1
+        assert HogFunction.objects.filter(enabled=True, deleted=False).count() == 1
 
         res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
         assert res.status_code == 204
 
-        assert not HogFunction.objects.exists()
+        assert HogFunction.objects.filter(enabled=True, deleted=False).count() == 0
 
     def test_delete_migrated_hog_function_via_hook(self):
         hooks = []
@@ -240,7 +240,7 @@ if (inputs.debug) {
         loaded_hooks = Hook.objects.all()
         assert len(loaded_hooks) == 1
         assert str(loaded_hooks[0].id) == str(hooks[1].id)
-        loaded_hog_functions = HogFunction.objects.all()
+        loaded_hog_functions = HogFunction.objects.filter(enabled=True, deleted=False)
         assert len(loaded_hog_functions) == 1
         assert str(loaded_hog_functions[0].id) == str(hog_functions[1].id)
 
