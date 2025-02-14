@@ -103,13 +103,18 @@ class ExperimentQueryRunner(QueryRunner):
                 # If the metric type is continuous, we need to extract the value from the event property
                 metric_property = self.metric.metric_config.math_property
                 if is_data_warehouse_query:
-                    metric_value = f"toFloat('{metric_property}')"
+                    metric_value = parse_expr(
+                        "toFloat({property})", placeholders={"property": ast.Constant(value=metric_property)}
+                    )
                 else:
-                    metric_value = f"toFloat(JSONExtractRaw(properties, '{metric_property}'))"
+                    metric_value = parse_expr(
+                        "toFloat(JSONExtractRaw(properties, {property}))",
+                        placeholders={"property": ast.Constant(value=metric_property)},
+                    )
             case _:
                 # Else, we default to count
                 # We then just emit 1 so we can easily sum it up
-                metric_value = "1"
+                metric_value = parse_expr("1")
 
         # Filter Test Accounts
         test_accounts_filter: list[ast.Expr] = []
@@ -179,7 +184,7 @@ class ExperimentQueryRunner(QueryRunner):
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
                         ),
                         ast.Field(chain=["exposure", "variant"]),
-                        parse_expr(f"{metric_value} as value"),
+                        ast.Alias(alias="value", expr=metric_value),
                     ],
                     select_from=ast.JoinExpr(
                         table=ast.Field(chain=[metric_config.table_name]),
@@ -219,7 +224,7 @@ class ExperimentQueryRunner(QueryRunner):
                         ast.Field(chain=["events", "distinct_id"]),
                         ast.Field(chain=["exposure", "variant"]),
                         ast.Field(chain=["events", "event"]),
-                        parse_expr(f"{metric_value} as value"),
+                        ast.Alias(alias="value", expr=metric_value),
                     ],
                     select_from=ast.JoinExpr(
                         table=ast.Field(chain=["events"]),
