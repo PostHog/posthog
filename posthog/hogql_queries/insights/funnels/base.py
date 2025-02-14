@@ -704,6 +704,7 @@ class FunnelBase(ABC):
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
             # data warehouse
+            pass
             # todo - figure out how to get the event from the data warehouse table
         elif entity.event is None:
             # all events

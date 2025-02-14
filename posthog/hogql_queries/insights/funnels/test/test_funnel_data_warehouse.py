@@ -60,17 +60,10 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
     def get_response(self, funnels_query: FunnelsQuery):
-        query_date_range = QueryDateRange(
-            date_range=funnels_query.dateRange,
-            team=self.team,
-            interval=trends_query.interval,
-            now=datetime.now(),
-        )
-
         timings = HogQLTimings()
         modifiers = create_default_modifiers_for_team(self.team)
 
-        if isinstance(funnel_query.series[0], DataWarehouseNode):
+        if isinstance(funnels_query.series[0], DataWarehouseNode):
             series = funnels_query.series[0]
             modifiers.dataWarehouseEventsModifiers = [
                 DataWarehouseEventsModifier(
@@ -146,7 +139,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         return table_name
 
     @snapshot_clickhouse_queries
-    def test_trends_data_warehouse(self):
+    def test_funnels_data_warehouse(self):
         table_name = self.create_parquet_file()
 
         funnels_query = FunnelsQuery(
@@ -170,7 +163,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         )
 
         with freeze_time("2023-01-07"):
-            response = self.get_response(trends_query=trends_query)
+            response = self.get_response(funnels_query=funnels_query)
 
         assert response.columns is not None
         assert set(response.columns).issubset({"date", "total"})
