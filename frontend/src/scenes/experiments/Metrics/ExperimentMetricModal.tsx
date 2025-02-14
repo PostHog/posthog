@@ -87,18 +87,18 @@ export function ExperimentMetricModal({
                         Delete
                     </LemonButton>
                     <div className="flex items-center gap-2 ml-auto">
-                        <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={onClose}>
+                        <LemonButton form="edit-experiment-metric-form" type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>
                         <LemonButton
-                            form="edit-experiment-goal-form"
+                            form="edit-experiment-metric-form"
                             onClick={() => {
                                 updateExperimentGoal()
                                 isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                             }}
                             type="primary"
                             loading={experimentLoading}
-                            data-attr="create-annotation-submit"
+                            data-attr="save-experiment-metric"
                         >
                             Save
                         </LemonButton>
