@@ -1,13 +1,10 @@
 import { City } from '@maxmind/geoip2-node'
 import { createPageview, resetMeta } from '@posthog/plugin-scaffold/test/utils'
 
-import { loadTestMMDB } from '../../../templates/test/test-helpers'
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 
 describe('posthog-plugin-geoip', () => {
-    const mmdb = loadTestMMDB()
-
     function resetMetaWithMmdb(
         transformResult = (res: City) => res as Record<string, any>
     ): LegacyTransformationPluginMeta {

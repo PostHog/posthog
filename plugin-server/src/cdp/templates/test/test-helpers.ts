@@ -1,10 +1,5 @@
-import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
-import { readFileSync } from 'fs'
-import { join } from 'path'
-import { brotliDecompressSync } from 'zlib'
-
 import { Hub } from '../../../types'
-import { cleanNullValues, createGeoipLookup } from '../../hog-transformations/transformation-functions'
+import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
 import {
     HogFunctionInputType,
@@ -22,18 +17,6 @@ export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
     person?: Partial<HogFunctionInvocationGlobals['person']>
     source?: Partial<HogFunctionInvocationGlobals['source']>
-}
-
-export function loadTestMMDB() {
-    try {
-        const mmdbBrotliContents = readFileSync(join(__dirname, '../../../../tests/assets/GeoLite2-City-Test.mmdb.br'))
-        const mmdbBuffer = brotliDecompressSync(mmdbBrotliContents)
-        const mmdb = Reader.openBuffer(mmdbBuffer)
-
-        return mmdb
-    } catch (error) {
-        throw new Error(`Failed to load MMDB file: ${error}`)
-    }
 }
 
 export class TemplateTester {
@@ -59,26 +42,13 @@ export class TemplateTester {
     we need transformResult to be able to test the geoip template
     the same way we did it here https://github.com/PostHog/posthog-plugin-geoip/blob/a5e9370422752eb7ea486f16c5cc8acf916b67b0/index.test.ts#L79
     */
-    async beforeEach(transformResult?: (res: City) => any, skipMMDB?: boolean) {
+    async beforeEach() {
         this.template = {
             ...this._template,
             bytecode: await compileHog(this._template.hog),
         }
 
         this.mockHub = { mmdb: undefined } as any
-
-        if (!skipMMDB) {
-            const mmdb = loadTestMMDB()
-
-            this.mockHub.mmdb = transformResult
-                ? ({
-                      city: (ipAddress: string) => {
-                          const res = mmdb.city(ipAddress)
-                          return transformResult(res)
-                      },
-                  } as unknown as ReaderModel)
-                : mmdb
-        }
 
         const mockHogFunctionManager = {} as any
         this.executor = new HogExecutorService(this.mockHub, mockHogFunctionManager)
