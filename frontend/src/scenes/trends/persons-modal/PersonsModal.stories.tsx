@@ -26,6 +26,7 @@ export const WithResults: StoryFn = () => {
                                 email: 'mortgage2056@yandex.com',
                                 $geoip_country_code: 'US',
                             },
+                            matched_recordings: ['1234567890'],
                             relevant_event_count: 2,
                         },
                         {

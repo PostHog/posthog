@@ -163,6 +163,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),
         setLocalCache: (response: Record<string, any>) => response,
+        setLoadingTime: (seconds: number) => ({ seconds }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -303,7 +304,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
-                    if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
+                    if (isEventsQuery(props.query) || isActorsQuery(props.query) || isErrorTrackingQuery(props.query)) {
                         const newResponse =
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
@@ -311,7 +312,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 props.alwaysRefresh
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
-                        const queryResponse = values.response as EventsQueryResponse | ActorsQueryResponse
+                        const queryResponse = values.response as
+                            | EventsQueryResponse
+                            | ActorsQueryResponse
+                            | ErrorTrackingQueryResponse
                         return {
                             ...queryResponse,
                             results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
@@ -475,6 +479,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {} as Record<string, any>,
             {
                 setLocalCache: (state, response) => ({ ...state, ...response }),
+            },
+        ],
+        loadingTimeSeconds: [
+            0,
+            {
+                loadData: () => 0,
+                loadDataSuccess: () => 0,
+                loadDataFailure: () => 0,
+                setLoadingTime: (_, { seconds }) => seconds,
             },
         ],
     })),
@@ -741,6 +754,20 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }, AUTOLOAD_INTERVAL)
             }
         },
+        dataLoading: (dataLoading) => {
+            if (cache.loadingTimer) {
+                window.clearInterval(cache.loadingTimer)
+                cache.loadingTimer = null
+            }
+
+            if (dataLoading) {
+                const startTime = Date.now()
+                cache.loadingTimer = window.setInterval(() => {
+                    const seconds = Math.floor((Date.now() - startTime) / 1000)
+                    actions.setLoadingTime(seconds)
+                }, 1000)
+            }
+        },
     })),
     afterMount(({ actions, props, cache }) => {
         cache.localResults = {}
@@ -759,7 +786,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             cancelQuery: actions.cancelQuery,
         })
     }),
-    beforeUnmount(({ actions, props, values }) => {
+    beforeUnmount(({ actions, props, values, cache }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
@@ -768,5 +795,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
 
         actions.unmountDataNode(props.key)
+        if (cache.loadingTimer) {
+            window.clearInterval(cache.loadingTimer)
+            cache.loadingTimer = null
+        }
     }),
 ])

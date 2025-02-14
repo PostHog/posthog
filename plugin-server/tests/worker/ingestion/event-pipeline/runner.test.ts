@@ -14,7 +14,6 @@ import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipelin
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { processOnEventStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
-import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep')
@@ -129,7 +128,8 @@ describe('EventPipelineRunner', () => {
             },
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
-        runner = new TestEventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
+
+        runner = new TestEventPipelineRunner(hub, pluginEvent)
 
         jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
         jest.mocked(cookielessServerHashStep).mockResolvedValue([pluginEvent])
@@ -340,7 +340,7 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                runner = new TestEventPipelineRunner(hub, heatmapEvent, new EventsProcessor(hub))
+                runner = new TestEventPipelineRunner(hub, heatmapEvent)
 
                 jest.mocked(populateTeamDataStep).mockResolvedValue(heatmapEvent as any)
 
@@ -383,7 +383,7 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                runner = new TestEventPipelineRunner(hub, exceptionEvent, new EventsProcessor(hub))
+                runner = new TestEventPipelineRunner(hub, exceptionEvent)
 
                 jest.mocked(populateTeamDataStep).mockResolvedValue(exceptionEvent as any)
 
@@ -397,7 +397,7 @@ describe('EventPipelineRunner', () => {
                 jest.mocked(prepareEventStep).mockResolvedValue(heatmapPreIngestionEvent)
             })
 
-            it('runs the expected steps for heatmap_data', async () => {
+            it('runs the expected steps for exceptions', async () => {
                 await runner.runEventPipeline(exceptionEvent)
 
                 expect(runner.steps).toEqual([
