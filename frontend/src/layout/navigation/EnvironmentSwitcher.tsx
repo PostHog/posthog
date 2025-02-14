@@ -11,6 +11,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { AvailableFeature } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
@@ -157,8 +158,9 @@ function determineProjectSwitchUrl(pathname: string, newTeamId: number): string 
     // List of routes that should redirect to project home
     const redirectToHomeRoutes = ['/products', '/onboarding']
 
-    // Check if we're on an insights page
-    const isInsightsPage = route.includes('/insights/')
+    const { currentTeam } = teamLogic.values
+    const { breadcrumbs } = breadcrumbsLogic.values
+    const { sortedProjectsMap } = environmentSwitcherLogic.values
 
     const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
 
@@ -166,8 +168,25 @@ function determineProjectSwitchUrl(pathname: string, newTeamId: number): string 
         return urls.project(newTeamId) // Go to project home
     }
 
-    if (isInsightsPage) {
-        return urls.project(newTeamId, '/insights') // Go to insights list instead of specific insight
+    // Find the target team's project ID
+    let targetTeamProjectId: number | null = null
+    for (const [_, [, teams]] of sortedProjectsMap.entries()) {
+        const targetTeam = teams.find((team) => team.id === newTeamId)
+        if (targetTeam) {
+            targetTeamProjectId = targetTeam.project_id
+            break
+        }
+    }
+
+    // If switching between projects (not just environments), redirect to parent path
+    if (currentTeam && targetTeamProjectId && currentTeam.project_id !== targetTeamProjectId) {
+        // Get the parent breadcrumb's path if it exists
+        const parentBreadcrumb = breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 2] : null
+        if (parentBreadcrumb?.path) {
+            return urls.project(newTeamId, parentBreadcrumb.path)
+        }
+        // If no parent path found, go to project home
+        return urls.project(newTeamId)
     }
 
     return urls.project(newTeamId, route)

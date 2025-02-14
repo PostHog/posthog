@@ -13,6 +13,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
@@ -93,6 +94,8 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
 
 function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () => void }): JSX.Element {
     const { location } = useValues(router)
+    const { currentTeam } = useValues(teamLogic)
+    const { breadcrumbs } = useValues(breadcrumbsLogic)
 
     const relativeOtherProjectPath = useMemo(() => {
         let route = removeProjectIdIfPresent(location.pathname)
@@ -101,21 +104,25 @@ function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () 
         // List of routes that should redirect to project home
         const redirectToHomeRoutes = ['/products', '/onboarding']
 
-        // Check if we're on an insights page
-        const isInsightsPage = route.includes('/insights/')
-
         const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
 
         if (shouldRedirectToHome) {
             return urls.project(team.id) // Go to project home
         }
 
-        if (isInsightsPage) {
-            return urls.project(team.id, '/insights') // Go to insights list instead of specific insight
+        // If switching between projects (not just environments), redirect to parent path
+        if (currentTeam && currentTeam.project_id !== team.project_id) {
+            // Get the parent breadcrumb's path if it exists
+            const parentBreadcrumb = breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 2] : null
+            if (parentBreadcrumb?.path) {
+                return urls.project(team.id, parentBreadcrumb.path)
+            }
+            // If no parent path found, go to project home
+            return urls.project(team.id)
         }
 
         return urls.project(team.id, route)
-    }, [location.pathname])
+    }, [location.pathname, team.id, team.project_id, breadcrumbs, currentTeam])
 
     return (
         <LemonButton
