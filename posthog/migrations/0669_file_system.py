@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0667_encrypt_feature_flag_config"),
+        ("posthog", "0668_hostdefinition_and_more"),
     ]
 
     operations = [
