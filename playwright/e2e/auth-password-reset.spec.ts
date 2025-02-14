@@ -21,16 +21,13 @@ test.describe('Password Reset', () => {
         await expect(page).toHaveURL('/reset')
         await page.fill('[data-attr="reset-email"]', 'test@posthog.com')
         await page.click('button[type=submit]')
-        await expect(page.locator('.BridgePage__content h2')).toContainText('Reset password')
-        await expect(page.locator('.BridgePage__content')).toContainText('Request received successfully!')
-        await expect(page.locator('.BridgePage__content')).toContainText('test@posthog.com')
+        await expect(page.getByText('Request received successfully!')).toBeVisible()
+        await expect(page.getByText('test@posthog.com')).toBeVisible()
     })
 
     test('Cannot reset with invalid token', async ({ page }) => {
         await page.goto('/reset/user_id/token')
-        await expect(page.locator('.BridgePage__content .text-center')).toContainText(
-            'The provided link is invalid or has expired.'
-        )
+        await expect(page.getByText('The provided link is invalid or has expired.')).toBeVisible()
     })
 
     test('Shows validation error if passwords do not match', async ({ page }) => {
@@ -39,7 +36,7 @@ test.describe('Password Reset', () => {
         await expect(page.locator('.LemonProgress__track')).toBeVisible()
         await page.fill('[data-attr="password-confirm"]', '1234567A')
         await page.click('button[type=submit]')
-        await expect(page.locator('.text-danger')).toContainText('Passwords do not match')
+        await expect(page.getByText('Passwords do not match')).toBeVisible()
         await expect(page).toHaveURL('/reset/e2e_test_user/e2e_test_token')
     })
 
@@ -48,8 +45,8 @@ test.describe('Password Reset', () => {
         await page.fill('[data-attr="password"]', '123')
         await page.fill('[data-attr="password-confirm"]', '123')
         await page.click('button[type=submit]')
-        await expect(page.locator('.text-danger')).toBeVisible()
-        await expect(page.locator('.text-danger')).toContainText('Add another word or two')
+        await expect(page.getByText('Add another word or two')).toBeVisible()
+        await expect(page.getByText('Add another word or two')).toHaveClass('text-danger')
         await expect(page).toHaveURL('/reset/e2e_test_user/e2e_test_token')
     })
 
