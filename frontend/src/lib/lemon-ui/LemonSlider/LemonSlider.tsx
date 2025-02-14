@@ -99,7 +99,7 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
     return (
         <div className={clsx('flex items-center relative my-2.5 min-w-16 select-none', className)}>
             <div
-                className="w-full h-3 flex items-center cursor-pointer focus:ring-bg-green-500"
+                className="w-full h-3 flex items-center cursor-pointer"
                 ref={trackRef}
                 onMouseDown={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect()
