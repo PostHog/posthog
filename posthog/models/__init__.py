@@ -49,6 +49,7 @@ from .feedback.survey import Survey
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
+from .host_definition import HostDefinition
 from .hog_functions import HogFunction
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
@@ -129,6 +130,7 @@ __all__ = [
     "Group",
     "GroupTypeMapping",
     "HogFunction",
+    "HostDefinition",
     "Insight",
     "InsightCachingState",
     "InsightVariable",
