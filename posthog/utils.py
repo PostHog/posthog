@@ -345,7 +345,6 @@ def render_template(
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
-    context["livestream_host"] = os.environ.get("LIVESTREAM_HOST")
 
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = sentry_dsn
@@ -413,7 +412,7 @@ def render_template(
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "commit_sha": context["git_rev"],
-            "livestream_host": context.get("livestream_host", None),
+            "livestream_host": settings.LIVESTREAM_HOST,
             **posthog_app_context,
         }
 
