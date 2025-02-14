@@ -275,7 +275,6 @@ describe('LegacyPluginExecutorService', () => {
                   "true",
                   "Fetch called but mocked due to test function",
                   "Fetch called but mocked due to test function",
-                  "Execution successful",
                 ]
             `)
         })
