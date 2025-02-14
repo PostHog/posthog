@@ -43,12 +43,14 @@ function SurveyResultsFilters(): JSX.Element {
     return (
         <div className="space-y-2">
             <h4 className="text-base font-semibold mb-2">Filter results</h4>
-            <PropertyFilters
-                propertyFilters={propertyFilters}
-                onChange={setPropertyFilters}
-                pageKey="survey-results"
-                buttonText="Add filter to survey results"
-            />
+            <div className="w-fit">
+                <PropertyFilters
+                    propertyFilters={propertyFilters}
+                    onChange={setPropertyFilters}
+                    pageKey="survey-results"
+                    buttonText="Add filter to survey results"
+                />
+            </div>
         </div>
     )
 }
