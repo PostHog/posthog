@@ -1,5 +1,4 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
@@ -15,6 +14,7 @@ import {
     PluginsServerConfig,
     TimestampFormat,
 } from '../types'
+import { captureException } from './posthog'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
@@ -400,7 +400,7 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         const response = await Promise.race([timeout, callback()])
         return response as T
     } catch (error) {
-        Sentry.captureMessage(`Had to run twice: ${errorMessage}`)
+        captureException(`Had to run twice: ${errorMessage}`)
         // try one more time
         return await callback()
     }
@@ -442,7 +442,7 @@ export function createPostgresPool(
     const handleError =
         onError ||
         ((error) => {
-            Sentry.captureException(error)
+            captureException(error)
             status.error('🔴', 'PostgreSQL error encountered!\n', error)
         })
 
@@ -474,7 +474,7 @@ export function pluginConfigIdFromStack(
 }
 
 export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
-    Sentry.captureException(error)
+    captureException(error)
     if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
         status.error('🔴', message)
         throw error

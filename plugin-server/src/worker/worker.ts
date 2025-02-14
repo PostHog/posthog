@@ -4,6 +4,7 @@ import { initApp } from '../init'
 import { runInTransaction } from '../sentry'
 import { Hub, PluginConfig, PluginsServerConfig } from '../types'
 import { processError } from '../utils/db/error'
+import { captureException } from '../utils/posthog'
 import { status } from '../utils/status'
 import { cloneObject, pluginConfigIdFromStack } from '../utils/utils'
 import { setupMmdb } from './plugins/mmdb'
@@ -76,7 +77,7 @@ export const createTaskRunner =
                         response = cloneObject(await workerTasks[task](hub, args))
                     } catch (e) {
                         status.warn('🔔', e)
-                        Sentry.captureException(e)
+                        captureException(e)
                         throw e
                     }
                 } else {
@@ -105,7 +106,7 @@ export function processUnhandledException(error: Error, server: Hub, kind: strin
         return
     }
 
-    Sentry.captureException(error, {
+    captureException(error, {
         extra: {
             type: `${kind} in worker`,
         },
