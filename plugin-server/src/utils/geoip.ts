@@ -28,7 +28,12 @@ export class GeoIPService {
                 if (typeof ip !== 'string') {
                     return null
                 }
-                return mmdb?.city(ip) ?? null
+                try {
+                    const res = mmdb.city(ip)
+                    return res
+                } catch (e) {
+                    return null
+                }
             },
         }
     }
