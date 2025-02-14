@@ -213,4 +213,32 @@ describe('S3SessionBatchFileStorage', () => {
             await expect(finishPromise).rejects.toThrow('S3 upload timed out after 2000ms')
         })
     })
+
+    describe('checkHealth', () => {
+        it('should return true when bucket is accessible', async () => {
+            mockS3Client.send = jest.fn().mockResolvedValue({})
+
+            const result = await storage.checkHealth()
+
+            expect(result).toBe(true)
+            expect(mockS3Client.send).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    input: { Bucket: 'test-bucket' },
+                })
+            )
+        })
+
+        it('should return false when bucket is not accessible', async () => {
+            mockS3Client.send = jest.fn().mockRejectedValue(new Error('Bucket not found'))
+
+            const result = await storage.checkHealth()
+
+            expect(result).toBe(false)
+            expect(mockS3Client.send).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    input: { Bucket: 'test-bucket' },
+                })
+            )
+        })
+    })
 })

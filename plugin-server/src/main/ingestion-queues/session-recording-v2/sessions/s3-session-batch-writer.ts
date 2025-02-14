@@ -1,4 +1,4 @@
-import { CompleteMultipartUploadCommandOutput, S3Client } from '@aws-sdk/client-s3'
+import { CompleteMultipartUploadCommandOutput, HeadBucketCommand, S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
@@ -139,5 +139,19 @@ export class S3SessionBatchFileStorage implements SessionBatchFileStorage {
 
     public newBatch(): SessionBatchFileWriter {
         return new S3SessionBatchFileWriter(this.s3, this.bucket, this.prefix, this.timeout)
+    }
+
+    public async checkHealth(): Promise<boolean> {
+        try {
+            const command = new HeadBucketCommand({ Bucket: this.bucket })
+            await this.s3.send(command)
+            return true
+        } catch (error) {
+            status.error('🔁', 's3_session_batch_writer_healthcheck_error', {
+                bucket: this.bucket,
+                error,
+            })
+            return false
+        }
     }
 }
