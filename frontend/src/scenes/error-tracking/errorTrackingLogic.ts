@@ -20,12 +20,16 @@ const lastYear = { value: 'yStart', label: 'Year' }
 
 export type SparklineOption = LemonSegmentedButtonOption<string>
 
-const customOptions: Record<string, [SparklineOption, SparklineOption]> = {
-    dStart: [lastHour, lastDay], // today
-    '-24h': [lastHour, lastDay],
-    mStart: [lastMonth, lastDay],
-    yStart: [lastYear, lastMonth],
-    all: [lastYear, lastMonth],
+const customOptions: Record<string, { custom: SparklineOption; default: SparklineOption }> = {
+    // ordering of the keys is important here
+    // the shorter period should always be on the rhs
+    // this will maintain the order when we call Object.values()
+    // to render the options in the sparkline header
+    dStart: { default: lastDay, custom: lastHour }, // today
+    '-24h': { default: lastDay, custom: lastHour },
+    mStart: { custom: lastMonth, default: lastDay },
+    yStart: { custom: lastYear, default: lastMonth },
+    all: { custom: lastYear, default: lastMonth },
 }
 
 export const DEFAULT_ERROR_TRACKING_DATE_RANGE = { date_from: '-7d', date_to: null }
@@ -118,23 +122,19 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
     selectors({
         sparklineOptions: [
             (s) => [s.dateRange],
-            ({ date_from }): SparklineOption[] => {
+            ({ date_from }): { custom: SparklineOption; default: SparklineOption } | null => {
                 if (!date_from) {
-                    return []
+                    return null
                 }
 
                 const isRelative = date_from.match(/-\d+[hdmy]/)
-                let options: [SparklineOption, SparklineOption] | null = null
                 if (date_from in customOptions) {
-                    options = customOptions[date_from]
+                    return customOptions[date_from]
                 } else if (isRelative) {
                     const value = date_from?.replace('-', '')
-                    options = [{ value: value, label: value }, lastDay]
-                } else {
-                    return []
+                    return { custom: { value: value, label: value }, default: lastDay }
                 }
-
-                return options
+                return null
             },
         ],
         customSparklineConfig: [
@@ -142,18 +142,18 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             (sparklineOptions): ErrorTrackingSparklineConfig | null =>
                 // the first of the options should always be the "customVolume"
                 // the second option will always be either lastDay (24h) or lastMonth (30d)
-                sparklineOptions && sparklineOptions.length > 0 ? constructSparklineConfig(sparklineOptions[0]) : null,
+                sparklineOptions ? constructSparklineConfig(sparklineOptions.custom.value) : null,
         ],
     }),
     subscriptions(({ values, actions }) => ({
-        sparklineOptions: (sparklineOptions: SparklineOption[]) => {
-            const options = sparklineOptions.map((o) => o.value)
+        sparklineOptions: (sparklineOptions: { custom: SparklineOption; default: SparklineOption }) => {
+            const options = Object.values(sparklineOptions).map((o) => o.value)
             const validOption = values.sparklineSelectedPeriod && options.includes(values.sparklineSelectedPeriod)
 
             if (options.length === 0) {
                 actions.setSparklineSelectedPeriod(null)
             } else if (!validOption) {
-                actions.setSparklineSelectedPeriod(options[0])
+                actions.setSparklineSelectedPeriod(sparklineOptions.custom.value)
             }
         },
     })),
