@@ -195,9 +195,13 @@ export function RatingQuestionBarChart({
     surveyRatingResultsReady: QuestionResultsReady
     iteration?: number | null | undefined
 }): JSX.Element {
+    const { loadSurveyRatingResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
     const question = survey.questions[questionIndex]
+    useEffect(() => {
+        loadSurveyRatingResults({ questionIndex })
+    }, [questionIndex, loadSurveyRatingResults])
     if (question.type !== SurveyQuestionType.Rating) {
         throw new Error(`Question type must be ${SurveyQuestionType.Rating}`)
     }
