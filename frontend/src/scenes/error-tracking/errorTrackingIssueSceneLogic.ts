@@ -6,7 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
@@ -40,6 +40,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         setIssue: (issue: ErrorTrackingIssue) => ({ issue }),
         setEventsMode: (mode: EventsMode) => ({ mode }),
         updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>) => ({ issue }),
+        assignIssue: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
     }),
 
     reducers({
@@ -82,6 +83,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 updateIssue: async ({ issue }) => {
                     const response = await api.errorTracking.updateIssue(props.id, issue)
                     return { ...values.issue, ...response }
+                },
+                assignIssue: async ({ assignee }) => {
+                    await api.errorTracking.assignIssue(props.id, assignee)
+                    return { ...values.issue, assignee }
                 },
                 setIssue: ({ issue }) => issue,
             },
