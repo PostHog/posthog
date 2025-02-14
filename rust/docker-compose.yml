@@ -38,7 +38,7 @@ services:
             retries: 10
 
     objectstorage:
-        image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+        image: minio/minio:RELEASE.2025-02-07T23-21-09Z
         restart: on-failure
         ports:
             - '19000:19000'
