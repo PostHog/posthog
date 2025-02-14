@@ -1,3 +1,6 @@
+import { defaultConfig } from '~/src/config/config'
+import { GeoIp, GeoIPService } from '~/src/utils/geoip'
+
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
@@ -24,6 +27,9 @@ export class TemplateTester {
     private executor: HogExecutorService
     private mockHub: Hub
 
+    private geoipService?: GeoIPService
+    private geoIp?: GeoIp
+
     public mockFetch = jest.fn()
     public mockPrint = jest.fn()
     constructor(private _template: HogFunctionTemplate) {
@@ -43,6 +49,14 @@ export class TemplateTester {
     the same way we did it here https://github.com/PostHog/posthog-plugin-geoip/blob/a5e9370422752eb7ea486f16c5cc8acf916b67b0/index.test.ts#L79
     */
     async beforeEach() {
+        if (!this.geoipService) {
+            this.geoipService = new GeoIPService(defaultConfig)
+        }
+
+        if (!this.geoIp) {
+            this.geoIp = await this.geoipService.get()
+        }
+
         this.template = {
             ...this._template,
             bytecode: await compileHog(this._template.hog),
@@ -141,7 +155,9 @@ export class TemplateTester {
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {
-            geoipLookup: createGeoipLookup(this.mockHub.mmdb),
+            geoipLookup: (val: unknown): any => {
+                return typeof val === 'string' ? this.geoIp?.city(val) : null
+            },
             cleanNullValues,
         }
 
