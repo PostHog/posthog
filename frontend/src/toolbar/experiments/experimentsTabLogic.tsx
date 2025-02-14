@@ -6,6 +6,7 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { percentageDistribution } from '~/scenes/experiments/utils'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -421,10 +422,13 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             }
         },
         rebalanceRolloutPercentage: () => {
-            const perVariantRollout = Math.round(100 / Object.keys(values.experimentForm.variants || {}).length)
+            const perVariantRollout = percentageDistribution(Object.keys(values.experimentForm.variants || {}).length)
+
+            let i = 0
             for (const existingVariant in values.experimentForm.variants) {
                 if (values.experimentForm.variants[existingVariant]) {
-                    values.experimentForm.variants[existingVariant].rollout_percentage = Number(perVariantRollout)
+                    values.experimentForm.variants[existingVariant].rollout_percentage = Number(perVariantRollout[i])
+                    i++
                 }
             }
             actions.setExperimentFormValue('variants', values.experimentForm.variants)
