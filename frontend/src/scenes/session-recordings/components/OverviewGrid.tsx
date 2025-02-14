@@ -55,7 +55,7 @@ export function OverviewGridItem({
                 </Tooltip>
             </div>
             <Tooltip title={description}>
-                <div>{children}</div>
+                <div className="overflow-x-scroll">{children}</div>
             </Tooltip>
         </div>
     )

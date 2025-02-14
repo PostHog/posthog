@@ -24,15 +24,6 @@ import { SimpleTimeLabel } from '../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 
-const browserPropertyKeys = [
-    '$geoip_country_code',
-    '$browser',
-    '$device_type',
-    '$os',
-    '$entry_referring_domain',
-    '$entry_current_url',
-]
-const mobilePropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
 export interface SessionSummaryResponse {
@@ -277,49 +268,53 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     : {}
                 const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
 
-                const deviceType =
-                    recordingProperties['$device_type'] ||
-                    personProperties['$device_type'] ||
-                    personProperties['$initial_device_type']
-                const deviceTypePropertyKeys = deviceType === 'Mobile' ? mobilePropertyKeys : browserPropertyKeys
-
-                deviceTypePropertyKeys.forEach((property) => {
-                    if (recordingProperties[property] || personProperties[property]) {
-                        const propertyType = recordingProperties[property]
-                            ? // HogQL query can return multiple types, so we need to check
-                              // but if it doesn't match a core definition it must be an event property
-                              getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
-                            : TaxonomicFilterGroupType.PersonProperties
-                        const value = recordingProperties[property] || personProperties[property]
-
-                        items.push({
-                            icon: (
-                                <PropertyFilterIcon
-                                    type={
-                                        propertyType === TaxonomicFilterGroupType.EventProperties
-                                            ? PropertyFilterType.Event
-                                            : TaxonomicFilterGroupType.SessionProperties
-                                            ? PropertyFilterType.Session
-                                            : PropertyFilterType.Person
-                                    }
-                                />
-                            ),
-                            label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
-                            value,
-                            keyTooltip:
-                                propertyType === TaxonomicFilterGroupType.EventProperties
-                                    ? 'Event property'
-                                    : TaxonomicFilterGroupType.SessionProperties
-                                    ? 'Session property'
-                                    : 'Person property',
-                            valueTooltip:
-                                property === '$geoip_country_code' && value in countryCodeToName
-                                    ? countryTitleFrom(recordingProperties, personProperties)
-                                    : value,
-                            type: 'property',
-                            property,
-                        })
+                const propertiesToUse = Object.keys(recordingProperties).length ? recordingProperties : personProperties
+                if (propertiesToUse['$os_name'] && propertiesToUse['$os']) {
+                    // we don't need both, prefer $os_name in case mobile sends better value in that field
+                    delete propertiesToUse['$os']
+                }
+                Object.entries(propertiesToUse).forEach(([property, value]) => {
+                    if (value == null) {
+                        return
                     }
+                    if (property === '$geoip_subdivision_1_name' || property === '$geoip_city_name') {
+                        // they're just shown in the title for Country
+                        return
+                    }
+
+                    const propertyType = recordingProperties[property]
+                        ? // HogQL query can return multiple types, so we need to check
+                          // but if it doesn't match a core definition it must be an event property
+                          getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
+                        : TaxonomicFilterGroupType.PersonProperties
+
+                    items.push({
+                        icon: (
+                            <PropertyFilterIcon
+                                type={
+                                    propertyType === TaxonomicFilterGroupType.EventProperties
+                                        ? PropertyFilterType.Event
+                                        : TaxonomicFilterGroupType.SessionProperties
+                                        ? PropertyFilterType.Session
+                                        : PropertyFilterType.Person
+                                }
+                            />
+                        ),
+                        label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
+                        value,
+                        keyTooltip:
+                            propertyType === TaxonomicFilterGroupType.EventProperties
+                                ? 'Event property'
+                                : TaxonomicFilterGroupType.SessionProperties
+                                ? 'Session property'
+                                : 'Person property',
+                        valueTooltip:
+                            property === '$geoip_country_code' && value in countryCodeToName
+                                ? countryTitleFrom(recordingProperties, personProperties)
+                                : value,
+                        type: 'property',
+                        property,
+                    })
                 })
 
                 return items
