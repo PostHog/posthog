@@ -279,7 +279,7 @@ export class HogFunctionManagerService {
             })
         })
 
-        if (!items.length) {
+        if (!integrationIds.length) {
             return
         }
 
