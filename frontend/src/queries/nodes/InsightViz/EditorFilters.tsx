@@ -80,7 +80,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
     const isLineGraph =
         isTrends &&
-        display &&
         [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
             display || ChartDisplayType.ActionsLineGraph
         )
