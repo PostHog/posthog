@@ -37,7 +37,6 @@ from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payload
 from .feature_flag import (
     FeatureFlag,
     FeatureFlagHashKeyOverride,
-    get_feature_flags_for_team_in_cache,
     set_feature_flags_for_team_in_cache,
 )
 
@@ -286,11 +285,7 @@ class FeatureFlagMatcher:
                     flag_values[feature_flag.key] = False
 
                 if flag_match.payload:
-                    flag_payloads[feature_flag.key] = (
-                        flag_match.payload
-                        if not feature_flag.has_encrypted_payloads
-                        else get_decrypted_flag_payload(flag_match.payload)
-                    )
+                    flag_payloads[feature_flag.key] = flag_match.payload
 
                 flag_evaluation_reasons[feature_flag.key] = {
                     "reason": flag_match.reason,
@@ -323,7 +318,11 @@ class FeatureFlagMatcher:
             if match_variant:
                 return feature_flag.get_payload(match_variant)
             else:
-                return feature_flag.get_payload("true")
+                return (
+                    feature_flag.get_payload("true")
+                    if not feature_flag.has_encrypted_payloads
+                    else get_decrypted_flag_payload(feature_flag.get_payload("true"), should_decrypt=False)
+                )
         else:
             return None
 
@@ -841,7 +840,8 @@ def get_all_feature_flags(
     property_value_overrides, group_property_value_overrides = add_local_person_and_group_properties(
         distinct_id, groups, property_value_overrides, group_property_value_overrides
     )
-    all_feature_flags = get_feature_flags_for_team_in_cache(team.project_id)
+
+    all_feature_flags = None
     cache_hit = True
 
     if all_feature_flags is None:
