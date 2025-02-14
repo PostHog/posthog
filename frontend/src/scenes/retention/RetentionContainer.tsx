@@ -1,6 +1,6 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 
-import { VizSpecificOptions } from '~/queries/schema'
+import { VizSpecificOptions } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { InsightType } from '~/types'
 
