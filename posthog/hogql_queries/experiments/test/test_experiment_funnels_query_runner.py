@@ -478,22 +478,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
             [
-                "person_id_override_properties_on_events_filter_laterevent",
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                {
-                    "key": "email",
-                    "value": "@laterevent.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 0,
-                    "test_failure": 1,
-                },
-            ],
-            [
                 "person_id_override_properties_on_events_filter_earlierevent",
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
                 {
@@ -509,6 +493,22 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "test_failure": 0,
                 },
             ],
+            [
+                "person_id_override_properties_on_events_filter_laterevent",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {
+                    "key": "email",
+                    "value": "@laterevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 0,
+                    "test_failure": 1,
+                },
+            ],
             ###
             # PERSON_ID_OVERRIDE_PROPERTIES_JOINED
             ###
@@ -516,6 +516,22 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "person_id_override_properties_joined_no_filter",
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 None,
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 1,
+                    "test_failure": 0,
+                },
+            ],
+            [
+                "person_id_override_properties_joined_filter_earlierevent",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                {
+                    "key": "email",
+                    "value": "@earlierevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
                 {
                     "control_success": 1,
                     "control_failure": 0,
@@ -534,22 +550,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
                 None,
             ],
-            [
-                "person_id_override_properties_joined_filter_earlierevent",
-                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                {
-                    "key": "email",
-                    "value": "@earlierevent.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 1,
-                    "test_failure": 0,
-                },
-            ],
             ###
             # PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
             ###
@@ -561,22 +561,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "control_success": 1,
                     "control_failure": 0,
                     "test_success": 1,
-                    "test_failure": 1,
-                },
-            ],
-            [
-                "person_id_no_override_properties_on_events_filter_laterevent",
-                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-                {
-                    "key": "email",
-                    "value": "@laterevent.com",
-                    "operator": "not_icontains",
-                    "type": "person",
-                },
-                {
-                    "control_success": 1,
-                    "control_failure": 0,
-                    "test_success": 0,
                     "test_failure": 1,
                 },
             ],
@@ -594,6 +578,22 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "control_failure": 0,
                     "test_success": 1,
                     "test_failure": 0,
+                },
+            ],
+            [
+                "person_id_no_override_properties_on_events_filter_laterevent",
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {
+                    "key": "email",
+                    "value": "@laterevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 0,
+                    "test_failure": 1,
                 },
             ],
         ]
