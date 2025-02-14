@@ -28,7 +28,7 @@ export class TemplateTester {
     private mockHub: Hub
 
     private geoipService?: GeoIPService
-    private geoIp?: GeoIp
+    public geoIp?: GeoIp
 
     public mockFetch = jest.fn()
     public mockPrint = jest.fn()

@@ -143,9 +143,12 @@ describe('geoip.template', () => {
 
     it('should set properties to null if no values present', async () => {
         // First call beforeEach with a transform function to remove city data
-        await tester.beforeEach((res) => {
-            const { city, ...remainingResult } = res
-            return remainingResult
+        await tester.beforeEach()
+
+        const actualResult = tester.geoIp?.city('12.87.118.0')
+        jest.spyOn(tester.geoIp, 'city').mockReturnValue({
+            ...actualResult,
+            city: null,
         })
 
         // Then create the mock globals and run the test
@@ -166,7 +169,7 @@ describe('geoip.template', () => {
             {
               "$geoip_accuracy_radius": 20,
               "$geoip_city_confidence": null,
-              "$geoip_city_name": "Cleveland",
+              "$geoip_city_name": null,
               "$geoip_continent_code": "NA",
               "$geoip_continent_name": "North America",
               "$geoip_country_code": "US",
@@ -186,7 +189,7 @@ describe('geoip.template', () => {
             {
               "$initial_geoip_accuracy_radius": 20,
               "$initial_geoip_city_confidence": null,
-              "$initial_geoip_city_name": "Cleveland",
+              "$initial_geoip_city_name": null,
               "$initial_geoip_continent_code": "NA",
               "$initial_geoip_continent_name": "North America",
               "$initial_geoip_country_code": "US",
