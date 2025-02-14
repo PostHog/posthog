@@ -1,5 +1,6 @@
 import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
 import fetch from 'node-fetch'
+import { join } from 'path'
 import prettyBytes from 'pretty-bytes'
 import { brotliDecompress } from 'zlib'
 
@@ -27,7 +28,12 @@ export type GeoIp = {
 export class GeoIPService {
     private _mmdbPromise: Promise<ReaderModel> | undefined
 
-    constructor(private config: PluginsServerConfig) {}
+    constructor(private config: PluginsServerConfig) {
+        if (config.MMDB_FILE_LOCATION) {
+            console.log('Using local MMDB file', join(config.BASE_DIR, config.MMDB_FILE_LOCATION))
+            this._mmdbPromise = Reader.open(join(config.BASE_DIR, config.MMDB_FILE_LOCATION))
+        }
+    }
 
     private getMmdb() {
         // TODO: Add config option to use from disk instead
@@ -39,6 +45,7 @@ export class GeoIPService {
             // TODO: use local GeoLite2 on container at share/GeoLite2-City.mmdb instead of downloading it each time
             status.info('⏳', 'Downloading GeoLite2 database from PostHog servers...')
             const response = await fetch(MMDB_ENDPOINT, { compress: false })
+            console.log(MMDB_ENDPOINT, response.status, response.statusText)
             const brotliContents = await response.arrayBuffer()
             const decompressed = await brotliDecompressAsync(brotliContents)
 
@@ -63,6 +70,7 @@ export class GeoIPService {
                 if (typeof ip !== 'string') {
                     return null
                 }
+                console.log('IP', ip, 'MMDB', mmdb)
                 return mmdb?.city(ip) ?? null
             },
         }
