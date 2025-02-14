@@ -303,7 +303,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
-                    if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
+                    if (isEventsQuery(props.query) || isActorsQuery(props.query) || isErrorTrackingQuery(props.query)) {
                         const newResponse =
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
@@ -311,7 +311,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 props.alwaysRefresh
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
-                        const queryResponse = values.response as EventsQueryResponse | ActorsQueryResponse
+                        const queryResponse = values.response as
+                            | EventsQueryResponse
+                            | ActorsQueryResponse
+                            | ErrorTrackingQueryResponse
                         return {
                             ...queryResponse,
                             results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
