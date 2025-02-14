@@ -9,11 +9,18 @@ import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } f
 class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private stream: PassThrough
     private uploadPromise: Promise<CompleteMultipartUploadCommandOutput>
-    private writeError: Promise<never>
     private key: string
     private currentOffset = 0
+    private timeoutId: NodeJS.Timeout | null = null
+    private error: Error | null = null
+    private rejectCallbacks: ((error: Error) => void)[] = []
 
-    constructor(private readonly s3: S3Client, private readonly bucket: string, private readonly prefix: string) {
+    constructor(
+        private readonly s3: S3Client,
+        private readonly bucket: string,
+        private readonly prefix: string,
+        private readonly timeout: number = 5000 // Default 5 second timeout
+    ) {
         this.stream = new PassThrough()
         this.key = this.generateKey()
 
@@ -29,48 +36,88 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
             },
         })
 
-        this.writeError = new Promise((_, reject) => {
-            this.stream.on('error', reject)
+        // Handle stream errors
+        this.stream.on('error', (error) => {
+            this.handleError(error)
         })
 
-        // This doesn't mean the upload is done 🙃
-        // We need to call `done` to allow the stream to be drained.
-        // Once the stream is ended, the upload will complete and the promise will resolve.
-        this.uploadPromise = upload.done()
+        // Add timeout
+        this.timeoutId = setTimeout(() => {
+            this.handleError(new Error(`S3 upload timed out after ${this.timeout}ms`))
+            this.stream.destroy()
+        }, this.timeout)
+
+        // Handle upload errors
+        this.uploadPromise = upload.done().catch((error) => {
+            status.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
+            this.handleError(error)
+            throw error
+        })
+    }
+
+    private handleError(error: Error): void {
+        if (!this.error) {
+            this.error = error
+            // Call all rejection callbacks
+            this.rejectCallbacks.forEach((reject) => reject(error))
+            this.rejectCallbacks = [] // Clear the list
+        }
+    }
+
+    private async withErrorHandling<T>(operation: () => Promise<T>): Promise<T> {
+        // If we already have an error, reject immediately
+        if (this.error) {
+            throw this.error
+        }
+
+        // Create a promise that will reject if an error occurs
+        const errorPromise = new Promise<T>((_, reject) => {
+            this.rejectCallbacks.push(reject)
+        })
+
+        try {
+            // Race between the operation and potential errors
+            return await Promise.race([operation(), errorPromise])
+        } finally {
+            // Remove the rejection callback
+            this.rejectCallbacks = this.rejectCallbacks.filter((cb) => !this.rejectCallbacks.includes(cb))
+        }
     }
 
     public async writeSession(buffer: Buffer): Promise<WriteSessionResult> {
-        const startOffset = this.currentOffset
+        return await this.withErrorHandling(async () => {
+            const startOffset = this.currentOffset
 
-        // Write and handle backpressure, but also watch for errors
-        const canWriteMore = this.stream.write(buffer)
-        if (!canWriteMore) {
-            await Promise.race([
-                new Promise<void>((resolve) => {
+            // Write and handle backpressure
+            const canWriteMore = this.stream.write(buffer)
+            if (!canWriteMore) {
+                await new Promise<void>((resolve) => {
                     this.stream.once('drain', resolve)
-                }),
-                this.writeError,
-            ])
-        }
+                })
+            }
 
-        this.currentOffset += buffer.length
+            this.currentOffset += buffer.length
 
-        return {
-            bytesWritten: buffer.length,
-            url: `s3://${this.bucket}/${this.key}?range=bytes=${startOffset}-${this.currentOffset - 1}`,
-        }
+            return {
+                bytesWritten: buffer.length,
+                url: `s3://${this.bucket}/${this.key}?range=bytes=${startOffset}-${this.currentOffset - 1}`,
+            }
+        })
     }
 
     public async finish(): Promise<void> {
-        status.debug('🔄', 's3_session_batch_writer_finishing_stream', { key: this.key })
-        try {
-            this.stream.end()
-            await this.uploadPromise
-            status.info('🔄', 's3_session_batch_writer_upload_complete', { key: this.key })
-        } catch (error) {
-            status.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
-            throw error
-        }
+        return await this.withErrorHandling(async () => {
+            try {
+                this.stream.end()
+                await this.uploadPromise
+                if (this.timeoutId) {
+                    clearTimeout(this.timeoutId)
+                }
+            } catch (error) {
+                status.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
+                throw error
+            }
+        })
     }
 
     private generateKey(): string {
@@ -81,11 +128,16 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
 }
 
 export class S3SessionBatchFileStorage implements SessionBatchFileStorage {
-    constructor(private readonly s3: S3Client, private readonly bucket: string, private readonly prefix: string) {
+    constructor(
+        private readonly s3: S3Client,
+        private readonly bucket: string,
+        private readonly prefix: string,
+        private readonly timeout: number = 5000
+    ) {
         status.debug('🔁', 's3_session_batch_writer_created', { bucket, prefix })
     }
 
     public newBatch(): SessionBatchFileWriter {
-        return new S3SessionBatchFileWriter(this.s3, this.bucket, this.prefix)
+        return new S3SessionBatchFileWriter(this.s3, this.bucket, this.prefix, this.timeout)
     }
 }
