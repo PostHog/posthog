@@ -3405,7 +3405,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", True)
     def test_local_evaluation_quota_limited(self):
-        """Test that local evaluation returns empty response with quotaLimited when over quota."""
+        """Test that local evaluation returns 402 Payment Required when over quota."""
         from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource
 
         # Set up a feature flag
@@ -3430,14 +3430,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
             response_data = response.json()
 
-            # Verify the response structure when quota limited
-            self.assertEqual(response_data["flags"], [])
-            self.assertEqual(response_data["group_type_mapping"], {})
-            self.assertEqual(response_data["cohorts"], {})
-            self.assertEqual(response_data["quotaLimited"], ["feature_flags"])
+            # Verify the error response structure
+            self.assertEqual(
+                response_data,
+                {
+                    "type": "quota_limited",
+                    "detail": "You have exceeded your feature flag quota",
+                    "code": "payment_required",
+                },
+            )
 
     @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", True)
     def test_local_evaluation_not_quota_limited(self):

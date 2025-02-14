@@ -3605,7 +3605,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertTrue(response.json()["defaultIdentifiedOnly"])
 
     @patch("ee.billing.quota_limiting.list_limited_team_attributes")
-    def test_quota_limited_feature_flags_disabled(self, _fake_token_limiting, *args):
+    def test_decide_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
+        self, _fake_token_limiting, *args
+    ):
         from ee.billing.quota_limiting import QuotaResource
 
         with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
@@ -3617,11 +3619,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide().json()
             assert response["featureFlags"] == {}
+            assert response["featureFlagPayloads"] == {}
             assert response["errorsWhileComputingFlags"] is False
             assert "feature_flags" in response["quotaLimited"]
 
     @patch("ee.billing.quota_limiting.list_limited_team_attributes")
-    def test_quota_limited_feature_flags_other_token(self, _fake_token_limiting, *args):
+    def test_feature_flags_are_empty_list_when_not_quota_limited(self, _fake_token_limiting, *args):
         from ee.billing.quota_limiting import QuotaResource
 
         with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):

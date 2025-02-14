@@ -769,11 +769,11 @@ class FeatureFlagViewSet(
             if self.team.api_token in limited_tokens_flags:
                 return Response(
                     {
-                        "flags": [],
-                        "group_type_mapping": {},
-                        "cohorts": {},
-                        "quotaLimited": ["feature_flags"],
-                    }
+                        "type": "quota_limited",
+                        "detail": "You have exceeded your feature flag quota",
+                        "code": "payment_required",
+                    },
+                    status=status.HTTP_402_PAYMENT_REQUIRED,
                 )
 
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(

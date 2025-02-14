@@ -76,9 +76,9 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         response["config"] = {"enable_collect_everything": True}
         response["surveys"] = True if len(response["surveys"]) > 0 else False
 
-        # Ensure featureFlags is always present
-        if "featureFlags" not in response:
-            response["featureFlags"] = {}
+        # # Ensure featureFlags is always present
+        # if "featureFlags" not in response:
+        #     response["featureFlags"] = {}
 
         # Remove some stuff that is specific to the new RemoteConfig
         del response["hasFeatureFlags"]
@@ -92,7 +92,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         "isAuthenticated": False,
         # gzip and gzip-js are aliases for the same compression algorithm
         "supportedCompression": ["gzip", "gzip-js"],
-        "featureFlags": {},
+        "featureFlags": [],
         "sessionRecording": False,
     }
 
@@ -188,7 +188,7 @@ def get_decide(request: HttpRequest):
                     "toolbarParams": {},
                     "isAuthenticated": False,
                     "supportedCompression": ["gzip", "gzip-js"],
-                    "featureFlags": {},
+                    "featureFlags": [],
                     "sessionRecording": False,
                 }
             ),
