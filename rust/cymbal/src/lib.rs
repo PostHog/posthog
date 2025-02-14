@@ -31,7 +31,7 @@ pub async fn handle_event(
     let mut props = match get_props(&event) {
         Ok(r) => r,
         Err(e) => {
-            warn!("Failed to get props: {}", e);
+            warn!(team = event.team_id, "Failed to get props: {}", e);
 
             if let Err(e) = add_error_to_event(&mut event, e) {
                 // If we fail to add an error to an event, we just log it.
@@ -40,7 +40,7 @@ pub async fn handle_event(
                 // If that's the case, we will fail to add a new element to the
                 // event properties storing the error message, so there's not much
                 // we can do. We should consider whether we want to drop these events.
-                error!("Failed to add error to event: {}", e);
+                error!(team = event.team_id, "Failed to add error to event: {}", e);
             }
             return Ok(event);
         }
@@ -67,7 +67,10 @@ pub async fn handle_event(
     let fingerprinted = props.to_fingerprinted(fingerprint.clone());
 
     let event_timestamp = get_event_timestamp(&event).unwrap_or_else(|| {
-        warn!("Failed to get event timestamp, using current time");
+        warn!(
+            event = event.uuid.to_string(),
+            "Failed to get event timestamp, using current time"
+        );
         Utc::now()
     });
 

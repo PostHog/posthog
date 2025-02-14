@@ -419,8 +419,3 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DO
 # Teams allowed to modify transformation code (comma-separated list of team IDs),
 # keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
 HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
-
-# Whether to use HOG transformations instead of plugins for GeoIP
-USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION: bool = get_from_env(
-    "USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION", False, type_cast=str_to_bool
-)

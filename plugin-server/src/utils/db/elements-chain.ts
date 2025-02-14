@@ -1,7 +1,7 @@
-import * as Sentry from '@sentry/node'
 import RE2 from 're2'
 
 import { Element } from '../../types'
+import { captureException } from '../posthog'
 import { escapeQuotes } from './utils'
 
 // Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
@@ -95,7 +95,7 @@ export function chainToElements(chain: string, teamId: number, options: { throwO
                 elements.push(element)
             })
     } catch (error) {
-        Sentry.captureException(error, { tags: { team_id: teamId }, extra: { chain } })
+        captureException(error, { tags: { team_id: teamId }, extra: { chain } })
         if (options.throwOnError) {
             throw error
         }
