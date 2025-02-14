@@ -438,7 +438,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.querySource],
             (querySource) => {
                 return (
-                    querySource?.kind === NodeKind.TrendsQuery &&
+                    (querySource?.kind === NodeKind.TrendsQuery || querySource?.kind === NodeKind.FunnelsQuery) &&
                     querySource?.series?.some((s) => s.name === 'All events')
                 )
             },
