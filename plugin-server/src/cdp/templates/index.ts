@@ -6,6 +6,7 @@ import { template as geoipTemplate } from './_transformations/geoip/geoip.templa
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
+import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { HogFunctionTemplate } from './types'
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [webhookTemplate]
 
@@ -14,6 +15,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     geoipTemplate,
     ipAnonymizationTemplate,
     removeNullPropertiesTemplate,
+    urlMaskingTemplate,
     piiHashingTemplate,
     botDetectionTemplate,
 ]
