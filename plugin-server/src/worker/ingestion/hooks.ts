@@ -1,6 +1,7 @@
-import { captureException } from '@sentry/node'
 import { Histogram } from 'prom-client'
 import { RustyHook } from 'worker/rusty-hook'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { Action, Hook, HookPayload, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'

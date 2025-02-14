@@ -1,5 +1,6 @@
-import { captureException } from '@sentry/node'
 import { KafkaConsumer, PartitionMetadata } from 'node-rdkafka'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { status } from '../../../utils/status'
 

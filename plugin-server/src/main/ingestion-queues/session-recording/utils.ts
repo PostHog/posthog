@@ -1,8 +1,9 @@
-import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata } from 'node-rdkafka'
 import path from 'path'
 import { Counter } from 'prom-client'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'

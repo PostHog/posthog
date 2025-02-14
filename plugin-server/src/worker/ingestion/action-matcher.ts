@@ -1,9 +1,10 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { Summary } from 'prom-client'
 import RE2 from 're2'
+
+import { captureException } from '~/src/utils/posthog'
 
 import {
     Action,

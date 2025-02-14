@@ -1,5 +1,6 @@
-import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { ClickHouseTimestamp, RRWebEvent, TimestampFormat } from '../../../types'
 import { status } from '../../../utils/status'

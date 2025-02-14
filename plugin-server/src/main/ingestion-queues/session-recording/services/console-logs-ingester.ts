@@ -1,5 +1,6 @@
-import { captureException } from '@sentry/node'
 import { Counter } from 'prom-client'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'

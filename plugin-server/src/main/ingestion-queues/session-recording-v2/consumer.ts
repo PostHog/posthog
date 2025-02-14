@@ -1,5 +1,4 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
-import { captureException } from '@sentry/node'
 import {
     CODES,
     features,
@@ -12,6 +11,7 @@ import {
 
 import { KafkaProducerWrapper } from '~/src/kafka/producer'
 import { PostgresRouter } from '~/src/utils/db/postgres'
+import { captureException } from '~/src/utils/posthog'
 
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'

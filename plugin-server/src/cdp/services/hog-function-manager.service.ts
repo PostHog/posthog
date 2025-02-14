@@ -1,5 +1,6 @@
-import { captureException } from '@sentry/node'
 import * as schedule from 'node-schedule'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'

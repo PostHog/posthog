@@ -1,7 +1,8 @@
-import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
