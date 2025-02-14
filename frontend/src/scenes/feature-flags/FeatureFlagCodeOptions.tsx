@@ -154,6 +154,7 @@ export const OPTIONS: InstructionOption[] = [
 export const LOCAL_EVALUATION_LIBRARIES: string[] = [SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.RUBY, SDKKey.PHP, SDKKey.GO]
 
 export const PAYLOAD_LIBRARIES: string[] = [
+    SDKKey.API,
     SDKKey.JS_WEB,
     SDKKey.NODE_JS,
     SDKKey.PYTHON,
@@ -163,7 +164,10 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.REACT_NATIVE,
     SDKKey.IOS,
     SDKKey.FLUTTER,
+    SDKKey.GO,
 ]
+
+export const ENCRYPTED_PAYLOAD_LIBRARIES: string[] = [SDKKey.API, SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.GO, SDKKey.RUBY]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
     {

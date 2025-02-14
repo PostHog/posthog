@@ -133,7 +133,7 @@ export async function startPluginsServer(
             pubSub?.stop(),
             graphileWorker?.stop(),
             ...services.map((service) => service.onShutdown()),
-            posthog.shutdownAsync(),
+            posthog.shutdown(),
         ])
 
         if (serverInstance.hub) {
@@ -547,6 +547,8 @@ export async function startPluginsServer(
 
         if (capabilities.cdpApi) {
             const hub = await setupHub()
+            // NOTE: For silly reasons piscina is where the mmdb server is loaded which we need...
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const api = new CdpApi(hub)
             await api.start()
             services.push(api.service)
@@ -609,6 +611,7 @@ export async function startPluginsServer(
         Sentry.captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
+        void posthog.flush().catch(() => null)
         status.error('💥', 'Exception while starting server, shutting down!', { error })
         await closeJobs()
         process.exit(1)

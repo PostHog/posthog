@@ -159,11 +159,25 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url
         if line.starts_with("//# sourceMappingURL=") {
             metrics::counter!(SOURCEMAP_BODY_REF_FOUND).increment(1);
             let found = line.trim_start_matches("//# sourceMappingURL=");
-            // These URLs can be relative, so we have to check if they are, and if they are, append the base URLs domain to them
+            // If the found url has a scheme, we can just parse it
             let url = if found.starts_with("http") {
                 found
                     .parse()
                     .map_err(|_| JsResolveErr::InvalidSourceMapUrl(found.to_string()))?
+            } else if !found.contains('/') {
+                // If it doesn't contain a slash, assume it only replaces the final part of the path
+                let Some(segments) = final_url.path_segments() else {
+                    // We should never hit this - path_segments() should always return Some for a URL
+                    // that "can be base" - basically a url with a domain name and scheme - and we know
+                    // final_url has that because it's the url we got the body we just parsed from.
+                    return Err(JsResolveErr::InvalidSourceMapUrl(found.to_string()).into());
+                };
+
+                let mut segments = segments.collect::<Vec<_>>();
+                segments.pop();
+                segments.push(found);
+                final_url.set_path(&segments.join("/"));
+                final_url
             } else {
                 final_url.set_path(found);
                 final_url
