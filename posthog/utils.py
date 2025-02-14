@@ -345,6 +345,7 @@ def render_template(
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
+    context["livestream_host"] = os.environ.get("LIVESTREAM_HOST")
 
     if sentry_dsn := os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = sentry_dsn
@@ -352,8 +353,6 @@ def render_template(
         context["sentry_environment"] = sentry_environment
     if stripe_public_key := os.environ.get("STRIPE_PUBLIC_KEY"):
         context["stripe_public_key"] = stripe_public_key
-    if livestream_host := os.environ.get("LIVESTREAM_HOST"):
-        context["livestream_host"] = livestream_host
 
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
@@ -414,7 +413,7 @@ def render_template(
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "commit_sha": context["git_rev"],
-            "livestream_host": context["livestream_host"],
+            "livestream_host": context.get("livestream_host", None),
             **posthog_app_context,
         }
 
