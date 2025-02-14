@@ -2435,9 +2435,6 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
-                "count_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -2449,9 +2446,6 @@
                     },
                     "type": "object"
                 },
-                "exposure_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
                 "insight": {
                     "items": {
                         "type": "object"
@@ -2462,12 +2456,15 @@
                     "type": "boolean"
                 },
                 "kind": {
-                    "const": "ExperimentTrendsQuery",
+                    "const": "ExperimentQuery",
                     "type": "string"
                 },
                 "last_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/ExperimentMetric"
                 },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
@@ -2499,10 +2496,20 @@
                     "type": "string"
                 },
                 "variants": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 }
             },
             "required": [
@@ -2512,6 +2519,7 @@
                 "is_cached",
                 "kind",
                 "last_refresh",
+                "metric",
                 "next_allowed_client_refresh",
                 "p_value",
                 "probability",
@@ -6808,6 +6816,39 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
+        "ExperimentActionMetricConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "type": "number"
+                },
+                "kind": {
+                    "const": "ExperimentActionMetricConfig",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/ExperimentMetricMath"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "action"],
+            "type": "object"
+        },
         "ExperimentDataWarehouseMetricConfig": {
             "additionalProperties": false,
             "properties": {
@@ -6858,6 +6899,16 @@
                 },
                 "math_property": {
                     "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["kind", "event"],
@@ -6976,6 +7027,9 @@
                             "$ref": "#/definitions/ExperimentEventMetricConfig"
                         },
                         {
+                            "$ref": "#/definitions/ExperimentActionMetricConfig"
+                        },
+                        {
                             "$ref": "#/definitions/ExperimentDataWarehouseMetricConfig"
                         }
                     ]
@@ -7019,7 +7073,7 @@
                     "type": "string"
                 },
                 "response": {
-                    "$ref": "#/definitions/ExperimentTrendsQueryResponse"
+                    "$ref": "#/definitions/ExperimentQueryResponse"
                 }
             },
             "required": ["kind", "metric"],
@@ -7028,9 +7082,6 @@
         "ExperimentQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "count_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -7042,9 +7093,6 @@
                     },
                     "type": "object"
                 },
-                "exposure_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
                 "insight": {
                     "items": {
                         "type": "object"
@@ -7052,8 +7100,11 @@
                     "type": "array"
                 },
                 "kind": {
-                    "const": "ExperimentTrendsQuery",
+                    "const": "ExperimentQuery",
                     "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/ExperimentMetric"
                 },
                 "p_value": {
                     "type": "number"
@@ -7074,15 +7125,26 @@
                     "$ref": "#/definitions/integer"
                 },
                 "variants": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 }
             },
             "required": [
                 "kind",
                 "insight",
+                "metric",
                 "variants",
                 "probability",
                 "significant",
@@ -9761,6 +9823,7 @@
                 "ExperimentMetric",
                 "ExperimentQuery",
                 "ExperimentEventMetricConfig",
+                "ExperimentActionMetricConfig",
                 "ExperimentDataWarehouseMetricConfig",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
@@ -10951,6 +11014,81 @@
                     "required": [
                         "kind",
                         "insight",
+                        "variants",
+                        "probability",
+                        "significant",
+                        "significance_code",
+                        "p_value",
+                        "credible_intervals"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "credible_intervals": {
+                            "additionalProperties": {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "maxItems": 2,
+                                "minItems": 2,
+                                "type": "array"
+                            },
+                            "type": "object"
+                        },
+                        "insight": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "kind": {
+                            "const": "ExperimentQuery",
+                            "type": "string"
+                        },
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        },
+                        "p_value": {
+                            "type": "number"
+                        },
+                        "probability": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        },
+                        "significance_code": {
+                            "$ref": "#/definitions/ExperimentSignificanceCode"
+                        },
+                        "significant": {
+                            "type": "boolean"
+                        },
+                        "stats_version": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "variants": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
+                                    },
+                                    "type": "array"
+                                }
+                            ]
+                        }
+                    },
+                    "required": [
+                        "kind",
+                        "insight",
+                        "metric",
                         "variants",
                         "probability",
                         "significant",
@@ -12444,6 +12582,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentTrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentQuery"
                 },
                 {
                     "$ref": "#/definitions/WebOverviewQuery"

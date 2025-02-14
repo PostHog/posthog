@@ -22,7 +22,7 @@ import {
 } from '../Metrics/Selectors'
 import { sharedMetricLogic } from './sharedMetricLogic'
 
-export function SharedFunnelsMetricForm(): JSX.Element {
+export function LegacySharedFunnelsMetricForm(): JSX.Element {
     const { sharedMetric } = useValues(sharedMetricLogic)
     const { setSharedMetric } = useActions(sharedMetricLogic)
 
