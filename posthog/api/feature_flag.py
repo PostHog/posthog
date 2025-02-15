@@ -805,8 +805,8 @@ class FeatureFlagViewSet(
     )
     def local_evaluation(self, request: request.Request, **kwargs):
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
+            ~Q(is_remote_configuration=True),
             team__project_id=self.project_id,
-            is_remote_configuration=False,
             deleted=False,
         )
 
