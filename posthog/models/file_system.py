@@ -3,6 +3,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema import FileSystemType
 from posthog.models.utils import uuid7
+from typing import Optional
 
 
 class FileSystem(models.Model):
@@ -71,7 +72,7 @@ class UnfiledFileFinder:
         from posthog.api.shared import UserBasicSerializer
         from posthog.models import Insight
 
-        insights = Insight.objects.filter(team=self.team, deleted=False)
+        insights = Insight.objects.filter(team=self.team, deleted=False, saved=True)
         return [
             FileSystem(
                 id=uuid7(),
@@ -131,13 +132,14 @@ class UnfiledFileFinder:
             for notebook in notebooks
         ]
 
-    def collect(self) -> list[FileSystem]:
+    def collect_all(self) -> list[FileSystem]:
         return [
             *self.collect_feature_flags(),
             *self.collect_experiments(),
             *self.collect_insights(),
             *self.collect_dashboards(),
             *self.collect_notebooks(),
+            # TODO:
             # annotations
             # sources
             # destinations
@@ -145,6 +147,23 @@ class UnfiledFileFinder:
             # site_apps
         ]
 
+    def collect(self, file_type: FileSystemType) -> list[FileSystem]:
+        if file_type == FileSystemType.FEATURE_FLAG:
+            return self.collect_feature_flags()
+        elif file_type == FileSystemType.EXPERIMENT:
+            return self.collect_experiments()
+        elif file_type == FileSystemType.INSIGHT:
+            return self.collect_insights()
+        elif file_type == FileSystemType.DASHBOARD:
+            return self.collect_dashboards()
+        elif file_type == FileSystemType.NOTEBOOK:
+            return self.collect_notebooks()
+        return []
 
-def get_unfiled_files(team: Team, user: User) -> list[FileSystem]:
-    return UnfiledFileFinder(team, user).collect()
+
+def get_unfiled_files(team: Team, user: User, file_type: Optional[FileSystemType] = None) -> list[FileSystem]:
+    finder = UnfiledFileFinder(team, user)
+    if file_type:
+        return finder.collect(file_type)
+    else:
+        return finder.collect_all()

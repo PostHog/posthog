@@ -105,7 +105,7 @@ class TestFileSystemAPI(APIBaseTest):
         feature_flag = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=feature_flag)
         Dashboard.objects.create(team=self.team, name="User Dashboard", created_by=self.user)
-        Insight.objects.create(team=self.team, name="Marketing Insight", created_by=self.user)
+        Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
 
         # Now call the endpoint
@@ -124,7 +124,17 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertIn(FileSystemType.INSIGHT, types)
         self.assertIn(FileSystemType.NOTEBOOK, types)
 
-        # (Optional) You can do more detailed checks here, e.g. matching names, etc.
+    def test_unfiled_endpoint_with_type_filtering(self):
+        """
+        Ensure that the 'type' query parameter works as expected.
+        """
+        feature_flag = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=feature_flag)
+
+        # Check that the type filtering works
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/?type=feature_flag")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["count"], 1)
 
     def test_search_files_by_path(self):
         """

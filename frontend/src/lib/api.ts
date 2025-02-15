@@ -17,6 +17,7 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
     FileSystemEntry,
+    FileSystemType,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -371,8 +372,12 @@ class ApiRequest {
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('file_system')
     }
-    public fileSystemUnfiled(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
+    public fileSystemUnfiled(type?: FileSystemType, teamId?: TeamType['id']): ApiRequest {
+        const path = this.projectsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
+        if (type) {
+            path.withQueryString({ type })
+        }
+        return path
     }
     public fileSystemDetail(id: FileSystemEntry['id'], teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id)
@@ -1179,8 +1184,8 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystem().get()
         },
-        async unfiled(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystemUnfiled().get()
+        async unfiled(type?: FileSystemType): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystemUnfiled(type).get()
         },
         async create(data: FileSystemEntry): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystem().create({ data })
