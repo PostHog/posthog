@@ -1113,6 +1113,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
+            // TODO how to clean these up!
             const key = 'ph_replay_fixed_heatmap_' + uuid()
             const data: ReplayIframeData = {
                 html: iframeHtml,
