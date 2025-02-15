@@ -1,8 +1,8 @@
 import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { PromiseQueue } from './promise-queue'
-import { SessionBatchFileWriter } from './session-batch-file-writer'
+import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionMetadataStore } from './session-metadata-store'
 
 export interface SessionBatchManagerConfig {
     /** Maximum raw size (before compression) of a batch in bytes before it should be flushed */
@@ -12,7 +12,9 @@ export interface SessionBatchManagerConfig {
     /** Manages Kafka offset tracking and commits */
     offsetManager: KafkaOffsetManager
     /** Handles writing session batch files to storage */
-    writer: SessionBatchFileWriter
+    fileStorage: SessionBatchFileStorage
+    /** Manages storing session metadata */
+    metadataStore: SessionMetadataStore
 }
 
 /**
@@ -51,29 +53,28 @@ export interface SessionBatchManagerConfig {
  */
 export class SessionBatchManager {
     private currentBatch: SessionBatchRecorder
-    private queue: PromiseQueue<void>
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
     private readonly offsetManager: KafkaOffsetManager
-    private readonly writer: SessionBatchFileWriter
+    private readonly fileStorage: SessionBatchFileStorage
+    private readonly metadataStore: SessionMetadataStore
     private lastFlushTime: number
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
         this.maxBatchAgeMs = config.maxBatchAgeMs
         this.offsetManager = config.offsetManager
-        this.writer = config.writer
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
-        this.queue = new PromiseQueue()
+        this.fileStorage = config.fileStorage
+        this.metadataStore = config.metadataStore
+        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.fileStorage, this.metadataStore)
         this.lastFlushTime = Date.now()
     }
 
     /**
-     * Provides the current batch through a callback
+     * Returns the current batch
      */
-    public async withBatch(callback: (batch: SessionBatchRecorder) => Promise<void>): Promise<void> {
-        status.debug('🔁', 'session_batch_manager_processing_batch')
-        return this.queue.add(() => callback(this.currentBatch))
+    public getCurrentBatch(): SessionBatchRecorder {
+        return this.currentBatch
     }
 
     /**
@@ -81,9 +82,9 @@ export class SessionBatchManager {
      */
     public async flush(): Promise<void> {
         status.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
-        return this.queue.add(async () => {
-            await this.rotateBatch()
-        })
+        await this.currentBatch.flush()
+        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.fileStorage, this.metadataStore)
+        this.lastFlushTime = Date.now()
     }
 
     /**
@@ -97,23 +98,10 @@ export class SessionBatchManager {
         return batchSize >= this.maxBatchSizeBytes || batchAge >= this.maxBatchAgeMs
     }
 
-    /**
-     * Discards sessions from specified partitions in the current batch
-     * Used when Kafka partitions are revoked during consumer group rebalancing
-     */
-    public async discardPartitions(partitions: number[]): Promise<void> {
+    public discardPartitions(partitions: number[]): void {
         status.info('🔁', 'session_batch_manager_discarding_partitions', { partitions })
-        return this.queue.add(async () => {
-            for (const partition of partitions) {
-                this.currentBatch.discardPartition(partition)
-            }
-            return Promise.resolve()
-        })
-    }
-
-    private async rotateBatch(): Promise<void> {
-        await this.currentBatch.flush()
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
-        this.lastFlushTime = Date.now()
+        for (const partition of partitions) {
+            this.currentBatch.discardPartition(partition)
+        }
     }
 }

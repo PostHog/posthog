@@ -3,7 +3,7 @@ import * as crypto from 'crypto'
 import { RE2JS } from 're2js'
 
 import { performQuery } from '~/queries/query'
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLASTQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 const external = {
     crypto, // TODO: switch to webcrypto and polyfill on the node side
@@ -34,9 +34,15 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
             sleep: (seconds: number) => {
                 return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
             },
-            run: async (queryString: string) => {
-                const hogQLQuery: HogQLQuery = { kind: NodeKind.HogQLQuery, query: queryString }
-                const response = await performQuery(hogQLQuery)
+            run: async (queryInput: string | Record<string, any>) => {
+                const queryNode: HogQLQuery | HogQLASTQuery =
+                    typeof queryInput === 'object'
+                        ? {
+                              kind: NodeKind.HogQLASTQuery,
+                              query: queryInput,
+                          }
+                        : { kind: NodeKind.HogQLQuery, query: queryInput }
+                const response = await performQuery(queryNode)
                 return { results: response.results, columns: response.columns }
             },
             fetch: () => {

@@ -52,6 +52,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         setDashboardDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
+        setGenerationsQuery: (query: DataTableNode) => ({ query }),
     }),
 
     reducers({
@@ -86,6 +87,13 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             [] as AnyPropertyFilter[],
             {
                 setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
+            },
+        ],
+
+        generationsQueryOverride: [
+            null as DataTableNode | null,
+            {
+                setGenerationsQuery: (_, { query }) => query,
             },
         ],
     }),
@@ -338,7 +346,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             breakdown: '$ai_model',
                         },
                         trendsFilter: {
-                            aggregationAxisPostfix: ' s',
+                            aggregationAxisPostfix: ' s',
                             decimalPlaces: 2,
                         },
                         dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
@@ -448,7 +456,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             }),
         ],
 
-        generationsQuery: [
+        defaultGenerationsQuery: [
             (s) => [
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
@@ -461,16 +469,16 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     kind: NodeKind.EventsQuery,
                     select: [
                         '*',
-                        `<strong><a href=f'/llm-observability/traces/{properties.$ai_trace_id}?event={uuid}'>
+                        `<strong><a href='/llm-observability/traces/{properties.$ai_trace_id}?event={uuid}'>
                             {f'{left(toString(uuid), 4)}...{right(toString(uuid), 4)}'}
-                        </a></strong> -- ID`,
-                        `<a href=f'/llm-observability/traces/{properties.$ai_trace_id}'>
+                         </a></strong> -- ID`,
+                        `<a href='/llm-observability/traces/{properties.$ai_trace_id}'>
                             {f'{left(properties.$ai_trace_id, 4)}...{right(properties.$ai_trace_id, 4)}'}
-                        </a> -- Trace ID`,
+                         </a> -- Trace ID`,
                         'person',
                         "f'{properties.$ai_model}' -- Model",
-                        "f'{round(properties.$ai_latency, 2)} s' -- Latency",
-                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
+                        "f'{round(properties.$ai_latency, 2)} s' -- Latency",
+                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
                         "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
                         'timestamp',
                     ],
@@ -496,6 +504,11 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 showExport: true,
                 showActions: false,
             }),
+        ],
+
+        generationsQuery: [
+            (s) => [s.generationsQueryOverride, s.defaultGenerationsQuery],
+            (override, defQuery) => override || defQuery,
         ],
     }),
 
@@ -526,21 +539,13 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     }),
 
     actionToUrl(() => ({
-        setPropertyFilters: ({ propertyFilters }) => {
-            const searchParams = router.values.searchParams
-            // The `objectsEqual` check is necessary, because kea-router as of 3.2.0 uses a `===` check on search params
-            // internally, meaning that every time the filters array is constructed, it will be considered a new object
-            // (even if actually it's identical)
-            if (!objectsEqual(propertyFilters, searchParams.filters)) {
-                return [
-                    router.values.location.pathname,
-                    {
-                        ...searchParams,
-                        filters: propertyFilters.length > 0 ? propertyFilters : undefined,
-                    },
-                ]
-            }
-        },
+        setPropertyFilters: ({ propertyFilters }) => [
+            router.values.location.pathname,
+            {
+                ...router.values.searchParams,
+                filters: propertyFilters.length > 0 ? propertyFilters : undefined,
+            },
+        ],
         setDates: ({ dateFrom, dateTo }) => [
             router.values.location.pathname,
             {

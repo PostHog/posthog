@@ -70,7 +70,11 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
+              run: |
+                  npm install -g husky@7 # until we make <root>/package.json a build package
+                  pnpm --filter=@posthog/cyclotron install --frozen-lockfile
+                  pnpm --filter=@posthog/cyclotron build
+                  pnpm --filter=@posthog/plugin-server install --frozen-lockfile
 
             - name: Check formatting with prettier
               run: pnpm prettier:check
@@ -161,11 +165,15 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: pnpm
-                  cache-dependency-path: plugin-server/pnpm-lock.yaml
+                  cache-dependency-path: pnpm-lock.yaml
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
-              run: cd plugin-server && pnpm i
+              run: |
+                  cd plugin-server
+                  npm install -g husky@7 # until we make <root>/package.json a build package
+                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile 
+                  pnpm --filter=@posthog/cyclotron build
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'
@@ -253,13 +261,15 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: pnpm
-                  cache-dependency-path: plugin-server/pnpm-lock.yaml
+                  cache-dependency-path: pnpm-lock.yaml
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   cd plugin-server
-                  pnpm install --frozen-lockfile
+                  npm install -g husky@7 # until we make <root>/package.json a build package
+                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile 
+                  pnpm --filter=@posthog/cyclotron build
                   pnpm build
 
             - name: Wait for Clickhouse, Redis & Kafka

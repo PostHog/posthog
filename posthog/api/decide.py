@@ -7,7 +7,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from prometheus_client import Counter
 from rest_framework import status
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
@@ -307,7 +307,7 @@ def get_decide(request: HttpRequest):
             }
 
             feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-                team.pk,
+                team,
                 distinct_id,
                 data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),

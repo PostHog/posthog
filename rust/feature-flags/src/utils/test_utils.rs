@@ -391,7 +391,7 @@ pub async fn insert_cohort_for_team_in_pg(
         description: Some("Description for cohort".to_string()),
         team_id,
         deleted: false,
-        filters,
+        filters: Some(filters),
         query: None,
         version: Some(1),
         pending_version: None,

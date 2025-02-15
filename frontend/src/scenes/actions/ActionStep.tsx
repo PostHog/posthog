@@ -15,7 +15,7 @@ import { ActionStepStringMatching, ActionStepType } from '~/types'
 
 import { LemonEventName } from './EventName'
 
-const learnMoreLink = 'https://posthog.com/docs/user-guides/actions?utm_medium=in-product&utm_campaign=action-page'
+const learnMoreLink = 'https://posthog.com/docs/data/actions?utm_medium=in-product&utm_campaign=action-page'
 
 interface Props {
     step: ActionStepType
@@ -33,7 +33,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     }
 
     return (
-        <div className="bg-bg-light rounded border p-3 relative">
+        <div className="bg-surface-primary rounded border p-3 relative">
             {index > 0 && !(index % 2 === 0) && (
                 <div className="absolute top-1/2 -left-5">
                     <OperandTag operand="or" />
@@ -223,7 +223,7 @@ function AutocaptureFields({
                 <LemonButton size="small" type="secondary" onClick={onSelectElement} sideIcon={<IconOpenInApp />}>
                     Select element on site
                 </LemonButton>
-                <Link to={`${learnMoreLink}#autocapture-based-actions`} target="_blank">
+                <Link to={`${learnMoreLink}#1-autocapture`} target="_blank">
                     See documentation.
                 </Link>
             </div>

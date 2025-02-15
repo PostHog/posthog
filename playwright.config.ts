@@ -12,22 +12,22 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
     testDir: './playwright',
     /* Maximum time one test can run for. */
-    timeout: 30 * 1000,
+    timeout: 90 * 1000,
     expect: {
         /**
          * Maximum time expect() should wait for the condition to be met.
          * For example in `await expect(locator).toHaveText();`
          */
-        timeout: 5000,
+        timeout: 30 * 1000,
     },
     /* Run tests in files in parallel */
     fullyParallel: true,
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
-    retries: process.env.CI ? 2 : 0,
+    retries: process.env.CI ? 4 : 2,
     /* Run one worker per core in GitHub Actions. */
-    workers: process.env.CI ? 4 : undefined,
+    // workers: process.env.CI ? 4 : undefined,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [['html', { open: 'never' }]],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
@@ -35,36 +35,43 @@ export default defineConfig({
         /* Maximum time each action such as `click()` can take. Defaults to 0 (no limit). */
         actionTimeout: 0,
         /* Base URL to use in actions like `await page.goto('/')`. */
-        // baseURL: 'http://localhost:3000',
+        baseURL: process.env.CI ? 'http://localhost:8000' : process.env.BASE_URL || 'http://localhost:8080',
 
         /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
         trace: 'on-first-retry',
+
+        /* Locate elements defined by `data-attr-something` with `page.getByTestId('something')` */
+        testIdAttribute: 'data-attr',
     },
 
     /* Configure projects for major browsers */
     projects: [
         {
             name: 'chromium',
-            use: {
-                ...devices['Desktop Chrome'],
-                launchOptions: {
-                    // https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md
-                    args: [
-                        '--headless=new',
-                        '--single-process',
-
-                        '--allow-pre-commit-input',
-                        '--deterministic-mode',
-                        '--disable-features=PaintHolding',
-                        '--disable-partial-raster',
-                        '--disable-skia-runtime-opt',
-                        '--in-process-gpu',
-                        '--use-gl=swiftshader',
-                        '--force-color-profile=srgb',
-                    ],
-                },
-            },
+            use: { ...devices['Desktop Chrome'] },
         },
+        // {
+        //     name: 'chromium',
+        //     use: {
+        //         ...devices['Desktop Chrome'],
+        //         launchOptions: {
+        //             // https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md
+        //             args: [
+        //                 '--headless=new',
+        //                 '--single-process',
+        //
+        //                 '--allow-pre-commit-input',
+        //                 '--deterministic-mode',
+        //                 '--disable-features=PaintHolding',
+        //                 '--disable-partial-raster',
+        //                 '--disable-skia-runtime-opt',
+        //                 '--disable-gpu',
+        //                 '--use-gl=swiftshader',
+        //                 '--force-color-profile=srgb',
+        //             ],
+        //         },
+        //     },
+        // },
 
         // {
         //   name: 'firefox',

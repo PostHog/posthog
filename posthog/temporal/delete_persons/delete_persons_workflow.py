@@ -10,7 +10,7 @@ import temporalio.common
 import temporalio.workflow
 from django.conf import settings
 
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 
@@ -52,7 +52,7 @@ class MogrifyDeleteQueriesActivityInputs:
     """Inputs for the `mogrify_delete_queries_activity`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batch_size: int = 1000
 
 
@@ -103,7 +103,7 @@ class DeletePersonsActivityInputs:
     """Inputs for the `delete_persons_activity`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batch_number: int = 1
     batches: int = 1
     batch_size: int = 1000
@@ -126,7 +126,9 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
         conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
         async with conn:
             async with conn.cursor() as cursor:
-                await logger.ainfo("Deleting batch %d of {batches} (%d rows)", inputs.batch_number, inputs.batch_size)
+                await logger.ainfo(
+                    "Deleting batch %d of %d (%d rows)", inputs.batch_number, inputs.batches, inputs.batch_size
+                )
 
                 await cursor.execute(
                     delete_query_person_distinct_ids,
@@ -150,7 +152,7 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
                     delete_query_person,
                     {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
                 )
-                await logger.info("Deleted %d persons", cursor.rowcount)
+                await logger.ainfo("Deleted %d persons", cursor.rowcount)
 
                 should_continue = True
                 if cursor.rowcount < inputs.batch_size:
@@ -165,7 +167,7 @@ class DeletePersonsWorkflowInputs:
     """Inputs for the `DeletePersonsWorkflow`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batches: int = 1
     batch_size: int = 1000
 

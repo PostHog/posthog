@@ -1,7 +1,6 @@
-import * as Sentry from '@sentry/node'
-
 import { Hub, PluginsServerConfig } from '~/src/types'
 
+import { captureException } from '../utils/posthog'
 import { createWorker } from './worker'
 
 export const makePiscina = async (serverConfig: PluginsServerConfig, hub: Hub) => {
@@ -11,7 +10,7 @@ export const makePiscina = async (serverConfig: PluginsServerConfig, hub: Hub) =
             try {
                 return await worker({ task, args: args ?? undefined })
             } catch (err) {
-                Sentry.captureException(err)
+                captureException(err)
                 throw err
             }
         },
@@ -19,7 +18,7 @@ export const makePiscina = async (serverConfig: PluginsServerConfig, hub: Hub) =
             try {
                 return [await worker({ task, args: args ?? undefined })]
             } catch (err) {
-                Sentry.captureException(err)
+                captureException(err)
                 throw err
             }
         },

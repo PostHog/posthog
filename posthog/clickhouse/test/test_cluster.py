@@ -1,16 +1,24 @@
+from collections import defaultdict
+from unittest.mock import Mock, patch
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import pytest
 from clickhouse_driver import Client
 
-from posthog.clickhouse.cluster import ClickhouseCluster, MutationRunner, get_cluster
+from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.cluster import T, ClickhouseCluster, HostInfo, MutationRunner, get_cluster
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
 
 @pytest.fixture
 def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
     yield get_cluster()
+
+
+def test_mutation_runner_rejects_invalid_parameters() -> None:
+    with pytest.raises(ValueError):
+        MutationRunner("table", "command", {"__invalid_key": True})
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:
@@ -71,6 +79,43 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     assert shard_mutations == duplicate_mutations
 
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
+
+
+def test_map_hosts_by_role() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock()
+    bootstrap_client_mock.execute.return_value = [
+        ("host1", "9000", "1", "1", "online", "data"),
+        ("host2", "9000", "1", "2", "online", "data"),
+        ("host3", "9000", "1", "3", "online", "data"),
+        ("host4", "9000", "1", "4", "online", "coordinator"),
+    ]
+
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+
+    times_called: defaultdict[NodeRole, int] = defaultdict(int)
+
+    def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
+        if host.host_cluster_role == NodeRole.DATA.value.lower():
+            times_called[NodeRole.DATA] += 1
+        elif host.host_cluster_role == NodeRole.COORDINATOR.value.lower():
+            times_called[NodeRole.COORDINATOR] += 1
+        return lambda: fn(Mock())
+
+    with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.DATA).result()
+        assert times_called[NodeRole.DATA] == 3
+        assert times_called[NodeRole.COORDINATOR] == 0
+        times_called.clear()
+
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.COORDINATOR).result()
+        assert times_called[NodeRole.DATA] == 0
+        assert times_called[NodeRole.COORDINATOR] == 1
+        times_called.clear()
+
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
+        assert times_called[NodeRole.DATA] == 3
+        assert times_called[NodeRole.COORDINATOR] == 1
 
 
 def test_lightweight_delete(cluster: ClickhouseCluster) -> None:

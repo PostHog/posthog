@@ -15,7 +15,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
 
     constructor(hub: Hub) {
         super(hub)
-        this.pluginExecutor = new LegacyPluginExecutorService()
+        this.pluginExecutor = new LegacyPluginExecutorService(hub)
     }
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {

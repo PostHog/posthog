@@ -26,6 +26,14 @@ export type LemonPureFieldProps = {
     htmlFor?: string
 }
 
+const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
+    return (
+        <div className="text-danger flex items-center gap-1 text-sm">
+            <IconErrorOutline className="text-xl shrink-0" /> {error}
+        </div>
+    )
+}
+
 const LemonPureField = ({
     label,
     info,
@@ -65,16 +73,8 @@ const LemonPureField = ({
                 </LemonLabel>
             ) : null}
             {children}
-            {help ? <div className="text-muted text-xs">{help}</div> : null}
-            {typeof error === 'string' ? (
-                renderError ? (
-                    renderError(error)
-                ) : (
-                    <div className="text-danger flex items-center gap-1 text-sm">
-                        <IconErrorOutline className="text-xl shrink-0" /> {error}
-                    </div>
-                )
-            ) : null}
+            {help ? <div className="text-secondary text-xs">{help}</div> : null}
+            {typeof error === 'string' ? renderError ? renderError(error) : <LemonFieldError error={error} /> : null}
         </div>
     )
 }
@@ -113,3 +113,4 @@ export const LemonField = ({
 
 /** A field without Kea form functionality. Within a form use `LemonField`. */
 LemonField.Pure = LemonPureField
+LemonField.Error = LemonFieldError

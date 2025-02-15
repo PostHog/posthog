@@ -21,6 +21,7 @@ import {
 import { BindLogic, useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -29,6 +30,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { getPropertyKey } from 'lib/taxonomy'
 import { formatDate } from 'lib/utils'
 import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -37,14 +39,16 @@ import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagRe
 import {
     ActionType,
     LinkSurveyQuestion,
+    PropertyFilterType,
+    PropertyOperator,
     RatingSurveyQuestion,
+    SurveyMatchType,
     SurveyQuestion,
     SurveyQuestionType,
     SurveyType,
-    SurveyUrlMatchType,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
+import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
@@ -69,17 +73,11 @@ function SurveyRepeatSchedule(): JSX.Element {
         <div className="mt-4">
             <h3> How often should we show this survey? </h3>
             {canSurveyBeRepeated ? (
-                <div className="flex flex-col font-medium text-muted">
-                    <span>
-                        <IconInfo className="mr-2" /> This survey is triggered by events:{' '}
-                    </span>
-                    <div>
-                        <LemonSnack className="mx-2">
-                            {survey.conditions?.events?.values.map((v) => v.name).join(', ')}
-                        </LemonSnack>
-                    </div>
-                    These settings don't apply since the survey will be shown each time these events occur.
-                </div>
+                <span className="font-medium">
+                    <IconInfo className="mr-0.5" /> This survey is displayed whenever the event{' '}
+                    <LemonSnack>{survey.conditions?.events?.values.map((v) => v.name).join(', ')}</LemonSnack> is
+                    triggered. So these settings are not applicable.
+                </span>
             ) : (
                 <>
                     <LemonField.Pure>
@@ -342,6 +340,7 @@ export default function SurveyEdit(): JSX.Element {
         targetingFlagFilters,
         hasBranchingLogic,
         surveyRepeatedActivationAvailable,
+        surveyErrors,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -396,7 +395,7 @@ export default function SurveyEdit(): JSX.Element {
                     onChange={(section) => {
                         setSelectedSection(section)
                     }}
-                    className="bg-bg-light"
+                    className="bg-surface-primary"
                     panels={[
                         {
                             key: SurveyEditSection.Presentation,
@@ -688,7 +687,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 icon={<IconPlus />}
                                                 sideIcon={
                                                     surveysMultipleQuestionsAvailable ? null : (
-                                                        <IconLock className="ml-1 text-base text-muted" />
+                                                        <IconLock className="ml-1 text-base text-secondary" />
                                                     )
                                                 }
                                                 disabledReason={
@@ -782,6 +781,7 @@ export default function SurveyEdit(): JSX.Element {
                                                           isCustomFontsEnabled={
                                                               !!featureFlags[FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS]
                                                           }
+                                                          validationErrors={surveyErrors?.appearance}
                                                       />
                                                   </>
                                               )}
@@ -819,7 +819,7 @@ export default function SurveyEdit(): JSX.Element {
                                         data-attr="survey-display-conditions-select"
                                     />
                                     {!hasTargetingSet ? (
-                                        <span className="text-muted">
+                                        <span className="text-secondary">
                                             Survey <b>will be released to everyone</b>
                                         </span>
                                     ) : (
@@ -864,8 +864,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 URL
                                                                 <LemonSelect
                                                                     value={
-                                                                        value?.urlMatchType ||
-                                                                        SurveyUrlMatchType.Contains
+                                                                        value?.urlMatchType || SurveyMatchType.Contains
                                                                     }
                                                                     onChange={(matchTypeVal) => {
                                                                         onChange({
@@ -874,9 +873,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                         })
                                                                     }}
                                                                     data-attr="survey-url-matching-type"
-                                                                    options={Object.keys(SurveyUrlMatchTypeLabels).map(
+                                                                    options={Object.keys(SurveyMatchTypeLabels).map(
                                                                         (key) => ({
-                                                                            label: SurveyUrlMatchTypeLabels[key],
+                                                                            label: SurveyMatchTypeLabels[key],
                                                                             value: key,
                                                                         })
                                                                     )}
@@ -888,6 +887,59 @@ export default function SurveyEdit(): JSX.Element {
                                                                     }
                                                                     placeholder="ex: https://app.posthog.com"
                                                                     fullWidth
+                                                                />
+                                                            </div>
+                                                        </LemonField.Pure>
+                                                        <LemonField.Pure
+                                                            label="Device Types"
+                                                            info={
+                                                                <>
+                                                                    Add the device types to show the survey on. Possible
+                                                                    values: 'Desktop', 'Mobile', 'Tablet'. For the full
+                                                                    list and caveats,{' '}
+                                                                    <Link to="https://posthog.com/docs/surveys/creating-surveys#display-conditions">
+                                                                        check the documentation here
+                                                                    </Link>
+                                                                    . Requires at least version 1.214 of posthog-js
+                                                                </>
+                                                            }
+                                                        >
+                                                            <div className="flex flex-row gap-2 items-center">
+                                                                Device Types
+                                                                <LemonSelect
+                                                                    value={
+                                                                        value?.deviceTypesMatchType ||
+                                                                        SurveyMatchType.Contains
+                                                                    }
+                                                                    onChange={(matchTypeVal) => {
+                                                                        onChange({
+                                                                            ...value,
+                                                                            deviceTypesMatchType: matchTypeVal,
+                                                                        })
+                                                                    }}
+                                                                    data-attr="survey-device-types-matching-type"
+                                                                    options={Object.keys(SurveyMatchTypeLabels).map(
+                                                                        (key) => ({
+                                                                            label: SurveyMatchTypeLabels[key],
+                                                                            value: key,
+                                                                        })
+                                                                    )}
+                                                                />
+                                                                <PropertyValue
+                                                                    propertyKey={getPropertyKey(
+                                                                        'Device Type',
+                                                                        TaxonomicFilterGroupType.EventProperties
+                                                                    )}
+                                                                    type={PropertyFilterType.Event}
+                                                                    onSet={(deviceTypes: string[]) =>
+                                                                        onChange({
+                                                                            ...value,
+                                                                            deviceTypes: deviceTypes,
+                                                                        })
+                                                                    }
+                                                                    operator={PropertyOperator.Exact}
+                                                                    value={value?.deviceTypes}
+                                                                    inputClassName="flex-1"
                                                                 />
                                                             </div>
                                                         </LemonField.Pure>

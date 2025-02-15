@@ -88,7 +88,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             if (!hogFunction) {
                 // Here we need to mark the job as failed
 
-                status.error('Error finding hog function', {
+                status.error('⚠️', 'Error finding hog function', {
                     id: job.functionId,
                 })
                 this.cyclotronWorker.updateJob(job.id, 'failed')

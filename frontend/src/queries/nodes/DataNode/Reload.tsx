@@ -34,11 +34,10 @@ export function ReloadAll(): JSX.Element {
 
     return (
         <LemonButton
+            className="w-full"
             type="secondary"
             size="small"
-            onClick={() => {
-                reloadAll()
-            }}
+            onClick={reloadAll}
             // Setting the loading icon manually to capture clicks while spinning.
             icon={areAnyLoading ? <Spinner textColored /> : <IconRefresh />}
             disabledReason={areAnyLoading ? 'Loading' : undefined}

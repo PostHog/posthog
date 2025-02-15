@@ -1,7 +1,8 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
 
 blank_site_destination: HogFunctionTemplate = HogFunctionTemplate(
-    status="client-side",
+    status="beta",
+    free=True,
     type="site_destination",
     id="template-blank-site-destination",
     name="New client-side destination",
@@ -135,7 +136,8 @@ export function onEvent({ inputs, posthog }) {
 )
 
 blank_site_app: HogFunctionTemplate = HogFunctionTemplate(
-    status="client-side",
+    status="beta",
+    free=True,
     type="site_app",
     id="template-blank-site-app",
     name="New site app",

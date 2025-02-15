@@ -1,3 +1,5 @@
+import { DateTime, DurationLike } from 'luxon'
+
 import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
 import { Hub } from '~/src/types'
 import { closeHub, createHub } from '~/src/utils/db/hub'
@@ -89,8 +91,6 @@ describe('HogFunctionManager', () => {
                 },
             })
         )
-
-        await manager.start(['destination'])
     })
 
     afterEach(async () => {
@@ -99,10 +99,11 @@ describe('HogFunctionManager', () => {
     })
 
     it('returns the hog functions', async () => {
+        await manager.start(['destination'])
         let items = manager.getTeamHogFunctions(teamId1)
 
         expect(items).toEqual([
-            {
+            expect.objectContaining({
                 id: hogFunctions[0].id,
                 team_id: teamId1,
                 name: 'Test Hog Function team 1',
@@ -134,18 +135,18 @@ describe('HogFunctionManager', () => {
                 mappings: null,
                 template_id: null,
                 depends_on_integration_ids: new Set([integrations[0].id]),
-            },
+            }),
         ])
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET name='Test Hog Function team 1 updated' WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET name='Test Hog Function team 1 updated', updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
 
         // This is normally dispatched by django
-        await manager.reloadHogFunctions(teamId1, [hogFunctions[0].id])
+        await manager.reloadAllHogFunctions()
 
         items = manager.getTeamHogFunctions(teamId1)
 
@@ -157,20 +158,29 @@ describe('HogFunctionManager', () => {
         ])
     })
 
-    it('filters hog functions by type', async () => {
-        manager['hogTypes'] = ['transformation']
-        await manager.reloadAllHogFunctions()
-        expect(manager.getTeamHogFunctions(teamId1).length).toEqual(1)
-        expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('transformation')
+    describe('filters hog functions by type', () => {
+        it('for just transformations', async () => {
+            await manager.start(['transformation'])
+            expect(manager.getTeamHogFunctions(teamId1).length).toEqual(1)
+            expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('transformation')
+        })
 
-        manager['hogTypes'] = ['transformation', 'destination']
-        await manager.reloadAllHogFunctions()
-        expect(manager.getTeamHogFunctions(teamId1).length).toEqual(2)
-        expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('destination')
-        expect(manager.getTeamHogFunctions(teamId1)[1].type).toEqual('transformation')
+        it('for just destinations', async () => {
+            await manager.start(['destination'])
+            expect(manager.getTeamHogFunctions(teamId1).length).toEqual(1)
+            expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('destination')
+        })
+
+        it('for both', async () => {
+            await manager.start(['destination', 'transformation'])
+            expect(manager.getTeamHogFunctions(teamId1).length).toEqual(2)
+            expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('destination')
+            expect(manager.getTeamHogFunctions(teamId1)[1].type).toEqual('transformation')
+        })
     })
 
     it('removes disabled functions', async () => {
+        await manager.start(['destination'])
         let items = manager.getTeamHogFunctions(teamId1)
 
         expect(items).toMatchObject([
@@ -181,20 +191,21 @@ describe('HogFunctionManager', () => {
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET enabled=false WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET enabled=false, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
 
         // This is normally dispatched by django
-        await manager.reloadHogFunctions(teamId1, [hogFunctions[0].id])
+        await manager.reloadAllHogFunctions()
 
         items = manager.getTeamHogFunctions(teamId1)
 
         expect(items).toEqual([])
     })
 
-    it('enriches integration inputs if found and belonging to the team', () => {
+    it('enriches integration inputs if found and belonging to the team', async () => {
+        await manager.start(['destination'])
         const function1Inputs = manager.getTeamHogFunctions(teamId1)[0].inputs
         const function2Inputs = manager.getTeamHogFunctions(teamId2)[0].inputs
 
@@ -228,14 +239,29 @@ describe('Hogfunction Manager - Execution Order', () => {
     let manager: HogFunctionManagerService
     let hogFunctions: HogFunctionType[]
     let teamId: number
+    let teamId2: number
+
+    let time: DateTime
+
+    const advanceTime = (duration: DurationLike) => {
+        time = time.plus(duration)
+        jest.setSystemTime(time.toJSDate())
+    }
 
     beforeEach(async () => {
+        // Setup fake timers but exclude nextTick and setImmediate
+        // faking them can cause tests to hang or timeout
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
+        time = DateTime.now()
+        jest.setSystemTime(time.toJSDate())
+
         hub = await createHub()
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
         const team = await hub.db.fetchTeam(2)
         teamId = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
 
         hogFunctions = []
 
@@ -267,6 +293,7 @@ describe('Hogfunction Manager - Execution Order', () => {
     })
 
     afterEach(async () => {
+        jest.useRealTimers()
         await manager.stop()
         await closeHub(hub)
     })
@@ -286,7 +313,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         // Update fn2's to be last
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 3, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[1].id],
             'testKey'
         )
@@ -294,12 +321,12 @@ describe('Hogfunction Manager - Execution Order', () => {
         // therefore fn3's execution order should be 2
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 2, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[2].id],
             'testKey'
         )
 
-        await manager.reloadHogFunctions(teamId, [hogFunctions[1].id, hogFunctions[2].id])
+        await manager.reloadAllHogFunctions()
         teamFunctions = manager.getTeamHogFunctions(teamId)
         expect(teamFunctions).toHaveLength(3)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
@@ -311,32 +338,105 @@ describe('Hogfunction Manager - Execution Order', () => {
         // change fn1 to be last
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 3, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
         // change fn3 to be first
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 1 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 1, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[2].id],
             'testKey'
         )
         // change fn2 to be second
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 2, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[1].id],
             'testKey'
         )
 
-        await manager.reloadHogFunctions(teamId, [hogFunctions[0].id, hogFunctions[1].id, hogFunctions[2].id])
+        await manager.reloadAllHogFunctions()
         teamFunctions = manager.getTeamHogFunctions(teamId)
         expect(teamFunctions).toHaveLength(3)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
             { name: 'fn3', order: 1 },
             { name: 'fn2', order: 2 },
             { name: 'fn1', order: 3 },
+        ])
+    })
+
+    it('should handle null/undefined execution orders and created_at ordering', async () => {
+        advanceTime({ days: 1 })
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn1',
+            execution_order: null,
+            type: 'transformation',
+        })
+
+        advanceTime({ days: 1 })
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn2',
+            execution_order: 1,
+            type: 'transformation',
+        })
+
+        advanceTime({ days: 1 })
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn3',
+            execution_order: 1,
+            type: 'transformation',
+        })
+
+        await manager.reloadAllHogFunctions()
+        const teamFunctions = manager.getTeamHogFunctions(teamId2)
+
+        expect(teamFunctions).toHaveLength(3)
+        expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
+            { name: 'fn2', order: 1 }, // First because execution_order=1 and earlier created_at
+            { name: 'fn3', order: 1 }, // Second because execution_order=1 but later created_at
+            { name: 'fn1', order: null }, // Last because null execution_order
+        ])
+    })
+
+    it('should maintain order with mixed execution orders and timestamps', async () => {
+        // Create functions with different timestamps and execution orders
+        advanceTime({ days: 1 })
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn1',
+            execution_order: 2,
+            type: 'transformation',
+        })
+
+        advanceTime({ days: 1 })
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn2',
+            execution_order: null,
+            type: 'transformation',
+        })
+
+        advanceTime({ days: 1 })
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn3',
+            execution_order: 1,
+            type: 'transformation',
+        })
+
+        await insertHogFunction(hub.postgres, teamId2, {
+            name: 'fn4',
+            execution_order: 1,
+            type: 'transformation',
+        })
+        await manager.reloadAllHogFunctions()
+        const teamFunctions = manager.getTeamHogFunctions(teamId2)
+
+        expect(teamFunctions).toHaveLength(4)
+        expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
+            { name: 'fn3', order: 1 }, // First because execution_order=1 and earlier created_at
+            { name: 'fn4', order: 1 }, // Second because execution_order=1 but later created_at
+            { name: 'fn1', order: 2 }, // Third because execution_order=2
+            { name: 'fn2', order: null }, // Last because null execution_order
         ])
     })
 })

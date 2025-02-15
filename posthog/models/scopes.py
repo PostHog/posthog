@@ -1,9 +1,3 @@
-## API Scopes
-# These are the scopes that are used to define the permissions of the API tokens.
-# Not every model needs a scope - it should more be for top-level things
-# Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
-
-# WARNING: Make sure to keep in sync with the frontend!
 from typing import Literal, get_args
 
 
@@ -26,6 +20,7 @@ APIScopeObject = Literal[
     "experiment",
     "export",
     "feature_flag",
+    "file_system",
     "group",
     "insight",
     "query",  # Covers query and events endpoints

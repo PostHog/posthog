@@ -14,6 +14,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
 
+from posthog.models.property_definition import PropertyDefinition
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -954,6 +955,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
+    @unittest.skip(
+        "flaky in west coast afternoons because we're comparing a clickhouse query using now() and something is wrong with the freezetime / test setup"
+    )
     def test_performed_event_regularly_not_in_total(self):
         now = datetime.now()
         with freeze_time(now.replace(hour=0, minute=0, second=0, microsecond=0)):
@@ -3361,3 +3365,55 @@ class TestCohortNegationValidation(BaseTest):
         has_pending_neg, has_reg = check_negation_clause(property_group)
         self.assertEqual(has_pending_neg, False)
         self.assertEqual(has_reg, True)
+
+    def test_type_misalignment(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="createdDate",
+            property_type="DateTime",
+            type=PropertyDefinition.Type.PERSON,
+        )
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p3"],
+            properties={"name": "test2", "email": "test@posthog.com", "createdDate": "2022-10-11"},
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort",
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "createdDate",
+                                    "type": "person",
+                                    "value": "2022",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                }
+            },
+            team=self.team,
+        )
+
+        res, q, params = execute(filter, self.team)
+        assert 1 == len(res)

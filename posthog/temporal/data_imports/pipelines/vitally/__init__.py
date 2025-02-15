@@ -271,16 +271,17 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
 
 
 class VitallyPaginator(BasePaginator):
-    def __init__(self) -> None:
+    _incremental_start_value: Any
+    _is_incremental: bool = False
+
+    def __init__(self, incremental_start_value: Any, is_incremental: bool) -> None:
+        self._incremental_start_value = incremental_start_value
+        self._is_incremental = is_incremental
+
         super().__init__()
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
-
-        current_source = dlt.current.get_source()
-        resources = current_source.resources
-        current_resource = next(iter(resources.values()))
-        incremental = current_resource.incremental.incremental
 
         self._cursor = None
 
@@ -288,10 +289,15 @@ class VitallyPaginator(BasePaginator):
             self._has_next_page = False
             return
 
-        if incremental:
+        if self._is_incremental and self._incremental_start_value is not None:
             updated_at_str = res["results"][0]["updatedAt"]
             updated_at = parser.parse(updated_at_str).timestamp()
-            start_value = parser.parse(incremental.start_value).timestamp()
+            if isinstance(self._incremental_start_value, str):
+                start_value = parser.parse(self._incremental_start_value).timestamp()
+            elif isinstance(self._incremental_start_value, datetime):
+                start_value = self._incremental_start_value.timestamp()
+            else:
+                raise TypeError("_incremental_start_value type is not supported for Vitally paginator")
 
             if start_value >= updated_at:
                 self._has_next_page = False
@@ -336,7 +342,9 @@ def vitally_source(
                 "username": secret_token,
                 "password": "",
             },
-            "paginator": VitallyPaginator(),
+            "paginator": VitallyPaginator(
+                incremental_start_value=db_incremental_field_last_value, is_incremental=is_incremental
+            ),
         },
         "resource_defaults": {
             **({"primary_key": "id"} if is_incremental else {}),

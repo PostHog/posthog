@@ -125,15 +125,14 @@ jobs:
 
             - name: Run HogVM TypeScript tests
               run: |
-                  cd common/hogvm/typescript
-                  pnpm install --frozen-lockfile
-                  pnpm run test
+                  pnpm --filter=@posthog/hogvm install --frozen-lockfile
+                  pnpm --filter=@posthog/hogvm test
 
             - name: Run Hog tests
               run: |
-                  cd common/hogvm/typescript
-                  pnpm run build 
-                  cd ../
+                  pnpm --filter=@posthog/hogvm install --frozen-lockfile
+                  pnpm --filter=@posthog/hogvm build
+                  cd common/hogvm
                   ./test.sh && git diff --exit-code
 
     check-package-version:
@@ -191,7 +190,7 @@ jobs:
                   node-version: 18
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
-              run: cd common/hogvm/typescript && pnpm install
+              run: pnpm --filter=@posthog/hogvm install --frozen-lockfile
             - name: Publish the package in the npm registry
               run: cd common/hogvm/typescript && npm publish --access public
               env:
@@ -270,13 +269,13 @@ jobs:
                   mv package.json package.old.json
                   jq --indent 4 '.dependencies."@posthog/hogvm" = "^'$VERSION'"' package.old.json > package.json
                   rm package.old.json
-                  retry_pnpm_install
 
                   # Update plugin-server/package.json
                   cd plugin-server
                   mv package.json package.old.json
                   jq --indent 4 '.dependencies."@posthog/hogvm" = "^'$VERSION'"' package.old.json > package.json
                   rm package.old.json
+
                   retry_pnpm_install
 
             - name: Commit updated package.json files

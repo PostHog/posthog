@@ -1,0 +1,16 @@
+{
+    "name": "UTM Referrer",
+    "config": [
+        {
+            "markdown": "Specify your config here"
+        },
+        {
+            "key": "internal_domains",
+            "name": "Internal domains (comma delimited)",
+            "type": "string",
+            "hint": "Consider these domains as direct referrers. Example: `example.com,blog.example.com`",
+            "default": "",
+            "required": false
+        }
+    ]
+}

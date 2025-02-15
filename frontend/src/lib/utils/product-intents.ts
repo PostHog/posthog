@@ -6,6 +6,7 @@ export enum ProductIntentContext {
     // Onboarding
     ONBOARDING_PRODUCT_SELECTED_PRIMARY = 'onboarding product selected - primary',
     ONBOARDING_PRODUCT_SELECTED_SECONDARY = 'onboarding product selected - secondary',
+    QUICK_START_PRODUCT_SELECTED = 'quick start product selected',
 
     // Data Warehouse
     SELECTED_CONNECTOR = 'selected connector',
@@ -19,6 +20,7 @@ export enum ProductIntentContext {
     // Cross Sells
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
     WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',
+    WEB_VITALS_INSIGHT = 'web_vitals_insight',
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create experiment from funnel button',
 }
 

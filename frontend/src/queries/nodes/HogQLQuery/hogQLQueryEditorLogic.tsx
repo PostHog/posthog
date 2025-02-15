@@ -47,7 +47,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             return
         }
 
-        if (props.query.query !== oldProps.query.query || props.editor !== oldProps.editor) {
+        if (
+            typeof props.query.query === 'string' &&
+            (props.query.query !== oldProps.query.query || props.editor !== oldProps.editor)
+        ) {
             actions.setQueryInput(props.query.query)
         }
     }),
@@ -67,7 +70,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         onUpdateView: true,
     }),
     reducers(({ props }) => ({
-        queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
+        queryInput: [
+            typeof props.query.query === 'string' ? props.query.query : '',
+            { setQueryInput: (_, { queryInput }) => queryInput },
+        ],
         prompt: ['', { setPrompt: (_, { prompt }) => prompt }],
         promptError: [
             null as string | null,

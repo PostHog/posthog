@@ -97,7 +97,7 @@ describe('Surveys', () => {
         // select the first property
         cy.get('[data-attr="property-select-toggle-0"]').click()
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
-        cy.get('[data-attr=prop-val]').focus().type('true').type('{enter}')
+        cy.get('[data-attr=prop-val]').eq(1).focus().type('true').type('{enter}')
         cy.get('[data-attr="rollout-percentage"]').click().clear().type('50')
 
         // save
@@ -198,7 +198,7 @@ describe('Surveys', () => {
         cy.contains('Add property targeting').click()
         cy.get('[data-attr="property-select-toggle-0"]').click()
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
-        cy.get('[data-attr=prop-val]').focus().type('true').type('{enter}')
+        cy.get('[data-attr=prop-val]').eq(1).focus().type('true').type('{enter}')
         cy.get('[data-attr="rollout-percentage"]').click().clear().type('50')
 
         cy.get('[data-attr=save-survey]').first().click()

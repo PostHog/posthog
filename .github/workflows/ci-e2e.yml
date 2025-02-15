@@ -32,7 +32,7 @@ jobs:
                         # the dependencies more clear if we separated the backend/frontend
                         # code completely
                         - 'ee/**'
-                        - 'posthog/**'
+                        - 'posthog/!(temporal/**)/**'
                         - 'bin/*'
                         - frontend/**/*
                         - requirements.txt
@@ -143,7 +143,7 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
@@ -285,7 +285,7 @@ jobs:
         steps:
             - name: Calculate running time
               run: |
-                  echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+                  gh auth login --with-token < <(echo ${{ secrets.GITHUB_TOKEN }})
                   run_id=${GITHUB_RUN_ID}
                   repo=${GITHUB_REPOSITORY}
                   run_info=$(gh api repos/${repo}/actions/runs/${run_id})

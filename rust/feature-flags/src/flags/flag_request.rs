@@ -40,20 +40,15 @@ impl FlagRequest {
     /// Only supports base64 encoded payloads or uncompressed utf-8 as json.
     #[instrument(skip_all)]
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
-        tracing::debug!(len = bytes.len(), "decoding new request");
-
         let payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
-            tracing::error!("failed to decode body: {}", e);
+            tracing::debug!("failed to decode body: {}", e);
             FlagError::RequestDecodingError(String::from("invalid body encoding"))
         })?;
 
-        tracing::debug!(json = payload, "decoded event data");
-
-        // Attempt to parse as JSON, rejecting invalid JSON
         match serde_json::from_str::<FlagRequest>(&payload) {
             Ok(request) => Ok(request),
             Err(e) => {
-                tracing::error!("failed to parse JSON: {}", e);
+                tracing::debug!("failed to parse JSON: {}", e);
                 Err(FlagError::RequestDecodingError(String::from(
                     "invalid JSON",
                 )))

@@ -104,7 +104,6 @@ function SidebarSearchBar({
     return (
         <div className="h-10">
             <LemonInput
-                className="h-full"
                 inputRef={inputElementRef}
                 type="search"
                 value={localSearchTerm}
@@ -165,7 +164,7 @@ function SidebarOverlay({
 
     return (
         <div
-            className={clsx('absolute top-0 left-0 h-full bg-bg-3000 z-10', className)}
+            className={clsx('absolute top-0 left-0 h-full bg-primary z-10', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: `${width}px` }}
         >

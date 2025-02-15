@@ -11,7 +11,7 @@ export function FeedbackTag({ properties }: FeedbackTagProps): JSX.Element {
     const text = feedbackText ? feedbackText : 'No feedback provided'
 
     return (
-        <LemonTag className="bg-bg-light cursor-default">
+        <LemonTag className="bg-surface-primary cursor-default">
             <CopyToClipboardInline
                 iconSize="xsmall"
                 description="user feedback"

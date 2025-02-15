@@ -21,7 +21,7 @@ export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Ele
     return (
         <>
             <PathCleanFilters
-                filters={localPathCleaningFilters}
+                filters={localPathCleaningFilters || []}
                 setFilters={(filters) => updateInsightFilter({ localPathCleaningFilters: filters })}
             />
             <Tooltip

@@ -102,8 +102,9 @@ class TableLoader:
             if self.end_value is not None:
                 query = query.where(filter_op_end(self.cursor_column, self.end_value))
 
-        # generate order by from declared row order
-        order_by = None
+        # generate order by from declared row order - default to asc
+        order_by = self.cursor_column.asc()
+
         if (self.row_order == "asc" and last_value_func is max) or (
             self.row_order == "desc" and last_value_func is min
         ):
@@ -136,7 +137,9 @@ class TableLoader:
             if self.connect_args:
                 for stmt in self.connect_args:
                     conn.execute(text(stmt))
-            result = conn.execution_options(yield_per=self.chunk_size).execute(query)
+            result = conn.execution_options(
+                yield_per=self.chunk_size, max_row_buffer=DEFAULT_CHUNK_SIZE * 2, stream_results=True
+            ).execute(query)
             # NOTE: cursor returns not normalized column names! may be quite useful in case of Oracle dialect
             # that normalizes columns
             # columns = [c[0] for c in result.cursor.description]

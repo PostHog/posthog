@@ -1184,6 +1184,105 @@ def team_api_test_factory():
                 team=self.team,
             )
 
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        def test_can_complete_product_onboarding_as_member(
+            self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
+        ) -> None:
+            from ee.models import ExplicitTeamMembership
+
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            self.team.access_control = True
+            self.team.save()
+            ExplicitTeamMembership.objects.create(
+                team=self.team,
+                parent_membership=self.organization_membership,
+                level=ExplicitTeamMembership.Level.MEMBER,
+            )
+
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            with freeze_time("2024-01-01T00:00:00Z"):
+                product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
+            assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            assert product_intent.onboarding_completed_at is None
+            with freeze_time("2024-01-05T00:00:00Z"):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/complete_product_onboarding/",
+                    {"product_type": "product_analytics"},
+                    headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+                )
+            assert response.status_code == status.HTTP_200_OK
+            product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+            assert product_intent.onboarding_completed_at == datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC)
+            mock_report_user_action.assert_called_once_with(
+                self.user,
+                "product onboarding completed",
+                {
+                    "product_key": "product_analytics",
+                    "$current_url": "https://posthogtest.com/my-url",
+                    "$session_id": "test_session_id",
+                    "intent_context": None,
+                    "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
+                    "realm": get_instance_realm(),
+                },
+                team=self.team,
+            )
+
+        def _create_other_org_and_team(
+            self, membership_level: OrganizationMembership.Level = OrganizationMembership.Level.ADMIN
+        ):
+            other_org, other_org_membership, _ = Organization.objects.bootstrap(self.user)
+            if not other_org_membership:
+                raise Exception("Failed to create other org and team")
+            other_org_membership.level = membership_level
+            other_org_membership.save()
+            return other_org, other_org_membership
+
+        def test_cant_change_organization_if_not_admin_of_target_org(self):
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.MEMBER)
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+
+            assert res.status_code == status.HTTP_400_BAD_REQUEST
+            assert (
+                res.json()["detail"]
+                == "You must be an admin of both the source and target organizations to move a project."
+            )
+
+        def test_cant_change_organization_if_not_admin_of_source_org(self):
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.OWNER)
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+
+            assert res.status_code == status.HTTP_400_BAD_REQUEST
+            assert (
+                res.json()["detail"]
+                == "You must be an admin of both the source and target organizations to move a project."
+            )
+
+        def test_can_change_organization(self):
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+
+            assert res.status_code == status.HTTP_200_OK, res.json()
+            assert res.json()["id"] == self.team.id
+            assert res.json()["organization"] == str(other_org.id)
+            self.project.refresh_from_db()
+            self.team.refresh_from_db()
+            assert self.project.organization == other_org
+            assert self.team.organization == other_org
+
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             return self._assert_config_is("session_replay_config", expected)
 

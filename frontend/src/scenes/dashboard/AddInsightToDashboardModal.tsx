@@ -31,7 +31,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                         <LemonButton
                             type="primary"
                             data-attr="dashboard-add-new-insight"
-                            to={urls.insightNew(undefined, dashboard?.id)}
+                            to={urls.insightNew({ dashboardId: dashboard?.id })}
                         >
                             New insight
                         </LemonButton>

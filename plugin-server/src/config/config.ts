@@ -1,11 +1,4 @@
-import {
-    CookielessConfig,
-    LogLevel,
-    PluginLogLevel,
-    PluginsServerConfig,
-    stringToPluginServerMode,
-    ValueMatcher,
-} from '../types'
+import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -222,9 +215,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
-
-        // Hog Transformations (Alpha)
-        HOG_TRANSFORMATIONS_ENABLED: false,
+        SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
+        SESSION_RECORDING_V2_S3_PREFIX: 'session_recording_batches',
+        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:19000',
+        SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
+        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
+        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
@@ -328,17 +324,5 @@ export function buildStringMatcher(config: string | undefined, allowStar: boolea
         return (v: string) => {
             return values.has(v)
         }
-    }
-}
-
-export const createCookielessConfig = (config: PluginsServerConfig): CookielessConfig => {
-    return {
-        disabled: config.COOKIELESS_DISABLED,
-        forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
-        deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
-        sessionTtlSeconds: config.COOKIELESS_SESSION_TTL_SECONDS,
-        saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
-        sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
-        identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
     }
 }

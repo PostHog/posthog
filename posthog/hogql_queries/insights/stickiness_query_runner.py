@@ -35,14 +35,17 @@ from posthog.schema import (
 
 class SeriesWithExtras:
     series: EventsNode | ActionsNode | DataWarehouseNode
+    series_order: int
     is_previous_period_series: Optional[bool]
 
     def __init__(
         self,
         series: EventsNode | ActionsNode | DataWarehouseNode,
+        series_order: int,
         is_previous_period_series: Optional[bool],
     ):
         self.series = series
+        self.series_order = series_order
         self.is_previous_period_series = is_previous_period_series
 
 
@@ -276,6 +279,14 @@ class StickinessQueryRunner(QueryRunner):
                     ],
                 }
 
+                # Add minimal action data for color consistency with trends
+                series_object["action"] = {
+                    "order": series_with_extra.series_order,
+                    "type": "events",
+                    "name": series_label or "All events",
+                    "id": series_label,
+                }
+
                 # Modifications for when comparing to previous period
                 if self.query.compareFilter is not None and self.query.compareFilter.compare:
                     series_object["compare"] = True
@@ -385,9 +396,10 @@ class StickinessQueryRunner(QueryRunner):
         series_with_extras = [
             SeriesWithExtras(
                 series,
+                index,
                 None,
             )
-            for series in self.query.series
+            for index, series in enumerate(self.query.series)
         ]
 
         if self.query.compareFilter is not None and self.query.compareFilter.compare:
@@ -396,12 +408,14 @@ class StickinessQueryRunner(QueryRunner):
                 updated_series.append(
                     SeriesWithExtras(
                         series=series.series,
+                        series_order=series.series_order,
                         is_previous_period_series=False,
                     )
                 )
                 updated_series.append(
                     SeriesWithExtras(
                         series=series.series,
+                        series_order=series.series_order,
                         is_previous_period_series=True,
                     )
                 )

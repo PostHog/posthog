@@ -1,7 +1,8 @@
 import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
-    status: 'beta',
+    free: true,
+    status: 'alpha',
     type: 'transformation',
     id: 'template-geoip',
     name: 'GeoIP',

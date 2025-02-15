@@ -36,6 +36,7 @@ from .google_ads.template_google_ads import template as google_ads
 from .attio.template_attio import template as attio
 from .mailchimp.template_mailchimp import template as mailchimp
 from .microsoft_teams.template_microsoft_teams import template as microsoft_teams
+from .linkedin_ads.template_linkedin_ads import template as linkedin_ads
 from .klaviyo.template_klaviyo import template_user as klaviyo_user, template_event as klaviyo_event
 from .google_cloud_storage.template_google_cloud_storage import (
     template as google_cloud_storage,
@@ -52,6 +53,7 @@ from ._internal.template_broadcast import template_new_broadcast as _broadcast
 from ._internal.template_blank import blank_site_destination, blank_site_app
 from .snapchat_ads.template_snapchat_ads import template as snapchat_ads
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
+from .reddit.template_reddit_pixel import template_reddit_pixel as reddit_pixel
 
 
 HOG_FUNCTION_TEMPLATES = [
@@ -84,6 +86,7 @@ HOG_FUNCTION_TEMPLATES = [
     klaviyo_event,
     klaviyo_user,
     knock,
+    linkedin_ads,
     loops,
     loops_send_event,
     mailchimp,
@@ -95,6 +98,7 @@ HOG_FUNCTION_TEMPLATES = [
     meta_ads,
     microsoft_teams,
     posthog,
+    reddit_pixel,
     rudderstack,
     salesforce_create,
     salesforce_update,
