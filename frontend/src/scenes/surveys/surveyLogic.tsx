@@ -1282,10 +1282,30 @@ export const surveyLogic = kea<surveyLogicType>([
                         }
 
                         if (question.type === SurveyQuestionType.Link) {
-                            if (!question.link?.startsWith('https://') && !question.link?.startsWith('mailto:')) {
-                                return {
-                                    ...questionErrors,
-                                    link: 'Please enter a valid link.',
+                            if (question.link) {
+                                if (question.link.startsWith('mailto:')) {
+                                    const emailRegex = /^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+                                    if (!emailRegex.test(question.link)) {
+                                        return {
+                                            ...questionErrors,
+                                            link: 'Please enter a valid mailto link (e.g., mailto:example@domain.com).',
+                                        }
+                                    }
+                                } else {
+                                    try {
+                                        const url = new URL(question.link)
+                                        if (url.protocol !== 'https:') {
+                                            return {
+                                                ...questionErrors,
+                                                link: 'Only HTTPS links are supported for security reasons.',
+                                            }
+                                        }
+                                    } catch {
+                                        return {
+                                            ...questionErrors,
+                                            link: 'Please enter a valid HTTPS URL.',
+                                        }
+                                    }
                                 }
                             }
                         }
