@@ -7,9 +7,7 @@ REDACTED_PAYLOAD_VALUE = '"********* (encrypted)"'
 
 def get_decrypted_flag_payloads(request, encrypted_payloads: dict) -> dict:
     # We only decode encrypted flag payloads if the request is made with a personal API key
-    is_personal_api_request = False
-    if request:
-        is_personal_api_request = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+    is_personal_api_request = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
 
     decrypted_payloads = {}
     for key, value in (encrypted_payloads or {}).items():
@@ -18,7 +16,7 @@ def get_decrypted_flag_payloads(request, encrypted_payloads: dict) -> dict:
     return decrypted_payloads
 
 
-def get_decrypted_flag_payload(encrypted_payload: str, should_decrypt: bool) -> str:
+def get_decrypted_flag_payload(encrypted_payload: str | object, should_decrypt: bool) -> str:
     codec = EncryptionCodec(settings)
     return (
         codec.decrypt(encrypted_payload.encode("utf-8")).decode("utf-8") if should_decrypt else REDACTED_PAYLOAD_VALUE
