@@ -16,6 +16,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -500,9 +501,13 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
-                        <div key={`survey-q-${i}`}>
+                        <div key={`survey-q-${i}`} className="space-y-2">
                             {question.scale === 10 && (
-                                <SurveyNPSResults survey={survey as Survey} surveyNPSScore={surveyNPSScore} />
+                                <SurveyNPSResults
+                                    survey={survey as Survey}
+                                    surveyNPSScore={surveyNPSScore}
+                                    questionIndex={i}
+                                />
                             )}
 
                             <RatingQuestionBarChart
@@ -572,9 +577,17 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     )
 }
 
-function SurveyNPSResults({ survey, surveyNPSScore }: { survey: Survey; surveyNPSScore?: string }): JSX.Element {
+function SurveyNPSResults({
+    survey,
+    surveyNPSScore,
+    questionIndex,
+}: {
+    survey: Survey
+    surveyNPSScore?: string
+    questionIndex: number
+}): JSX.Element {
     return (
-        <>
+        <div>
             <div className="text-4xl font-bold">{surveyNPSScore}</div>
             <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
             <Query
@@ -596,7 +609,7 @@ function SurveyNPSResults({ survey, surveyNPSScore }: { survey: Survey; surveyNP
                                 properties: [
                                     {
                                         type: PropertyFilterType.Event,
-                                        key: '$survey_response',
+                                        key: getSurveyResponseKey(questionIndex),
                                         operator: PropertyOperator.Exact,
                                         value: ['9', '10'],
                                     },
@@ -609,7 +622,7 @@ function SurveyNPSResults({ survey, surveyNPSScore }: { survey: Survey; surveyNP
                                 properties: [
                                     {
                                         type: PropertyFilterType.Event,
-                                        key: '$survey_response',
+                                        key: getSurveyResponseKey(questionIndex),
                                         operator: PropertyOperator.Exact,
                                         value: ['7', '8'],
                                     },
@@ -622,7 +635,7 @@ function SurveyNPSResults({ survey, surveyNPSScore }: { survey: Survey; surveyNP
                                 properties: [
                                     {
                                         type: PropertyFilterType.Event,
-                                        key: '$survey_response',
+                                        key: getSurveyResponseKey(questionIndex),
                                         operator: PropertyOperator.Exact,
                                         value: ['0', '1', '2', '3', '4', '5', '6'],
                                     },
@@ -651,6 +664,6 @@ function SurveyNPSResults({ survey, surveyNPSScore }: { survey: Survey; surveyNP
                 }}
                 readOnly={true}
             />
-        </>
+        </div>
     )
 }
