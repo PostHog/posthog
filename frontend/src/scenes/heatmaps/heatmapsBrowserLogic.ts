@@ -7,6 +7,7 @@ import {
     AuthorizedUrlListType,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     calculateViewportRange,
@@ -56,6 +57,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
         ],
+        actions: [heatmapDataLogic, ['loadHeatmap']],
     }),
 
     actions({
@@ -288,6 +290,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         onIframeLoad: () => {
+            // if we've got valid replay iframe data we don't want to init and communicate with the embedded toolbar
+            // TODO this seems not fire with srcdoc
+            if (values.hasValidReplayIframeData) {
+                actions.loadHeatmap()
+                return
+            }
             // we get this callback whether the iframe loaded successfully or not
             // and don't get a signal if the load was successful, so we have to check
             // but there's no slam dunk way to do that

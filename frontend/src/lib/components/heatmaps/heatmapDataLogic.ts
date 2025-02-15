@@ -24,7 +24,7 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
 ]
 
 export const heatmapDataLogic = kea([
-    path(['toolbar', 'elements', 'heatmapDataLogic']),
+    path(['lib', 'components', 'heatmap', 'heatmapDataLogic']),
     actions({
         setCommonFilters: (filters: CommonFilters) => ({ filters }),
         setHeatmapFilters: (filters: HeatmapFilters) => ({ filters }),

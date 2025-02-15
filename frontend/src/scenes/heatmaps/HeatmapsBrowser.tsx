@@ -10,6 +10,7 @@ import { DetectiveHog } from 'lib/components/hedgehogs'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import React, { useEffect, useRef } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -143,6 +144,7 @@ function FilterPanel(): JSX.Element {
         viewportRange,
         commonFilters,
         filterPanelCollapsed,
+        loading,
     } = useValues(logic)
     const {
         patchHeatmapFilters,
@@ -174,6 +176,7 @@ function FilterPanel(): JSX.Element {
                         </Tooltip>
                         <h2 className="flex-1 mb-0 px-2">Heatmap settings</h2>
                     </div>
+                    {loading && <LoadingBar />}
                     <DateFilter
                         dateFrom={commonFilters.date_from}
                         dateTo={commonFilters.date_to}
