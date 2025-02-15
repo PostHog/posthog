@@ -40,6 +40,8 @@ def encrypt_flag_payloads(validated_data: dict):
     codec = EncryptionCodec(settings)
 
     for key, value in payloads.items():
+        if value == REDACTED_PAYLOAD_VALUE:
+            continue
         try:
             payloads[key] = codec.encrypt(value.encode("utf-8")).decode("utf-8")
         except Exception as e:
