@@ -6,7 +6,7 @@ import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
+import { DatabaseSchemaBatchExportTable } from '~/queries/schema/schema-general'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { humanizeBatchExportName } from './batch-exports/utils'

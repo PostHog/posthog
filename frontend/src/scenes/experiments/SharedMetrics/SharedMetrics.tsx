@@ -11,7 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
 import { SharedMetric } from './sharedMetricLogic'

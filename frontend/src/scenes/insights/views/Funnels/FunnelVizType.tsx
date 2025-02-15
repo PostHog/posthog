@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import { FunnelsFilter } from '~/queries/schema'
+import { FunnelsFilter } from '~/queries/schema/schema-general'
 import { EditorFilterProps, FunnelVizType as VizType } from '~/types'
 
 type LabelProps = {

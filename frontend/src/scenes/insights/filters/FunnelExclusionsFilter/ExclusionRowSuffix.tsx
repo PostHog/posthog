@@ -6,7 +6,7 @@ import { getClampedExclusionStepRange } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery } from '~/queries/schema/schema-general'
 
 type ExclusionRowSuffixComponentBaseProps = {
     index: number

@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import {
     AnthropicInputMessage,

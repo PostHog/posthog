@@ -23,7 +23,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
-import { InsightQueryNode } from '~/queries/schema'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 import {
     AvailableFeature,
     ChartDisplayType,
