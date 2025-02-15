@@ -1,14 +1,14 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
 import { useMousePosition } from './useMousePosition'
 
 function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
-    const { heatmapElements, rawHeatmapLoading, shiftPressed } = useValues(heatmapLogic)
+    const { heatmapElements, rawHeatmapLoading, shiftPressed } = useValues(heatmapToolbarMenuLogic)
 
     const { y: mouseY } = useMousePosition()
 
@@ -60,7 +60,7 @@ export function ScrollDepth(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
 
     const { heatmapEnabled, heatmapFilters, heatmapElements, scrollDepthPosthogJsError, heatmapColorPalette } =
-        useValues(heatmapLogic)
+        useValues(heatmapToolbarMenuLogic)
 
     if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type !== 'scrolldepth') {
         return null

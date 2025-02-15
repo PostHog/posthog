@@ -2,7 +2,7 @@ import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
 import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
 import { useMousePosition } from './useMousePosition'
 
@@ -11,7 +11,7 @@ function HeatmapMouseInfo({
 }: {
     heatmapJsRef: MutableRefObject<HeatmapJS<'value', 'x', 'y'> | undefined>
 }): JSX.Element | null {
-    const { shiftPressed, heatmapTooltipLabel } = useValues(heatmapLogic)
+    const { shiftPressed, heatmapTooltipLabel } = useValues(heatmapToolbarMenuLogic)
 
     const mousePosition = useMousePosition()
     const value = heatmapJsRef.current?.getValueAt(mousePosition)
@@ -49,7 +49,7 @@ function HeatmapMouseInfo({
 
 export function Heatmap(): JSX.Element | null {
     const { heatmapJsData, heatmapEnabled, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } =
-        useValues(heatmapLogic)
+        useValues(heatmapToolbarMenuLogic)
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
 

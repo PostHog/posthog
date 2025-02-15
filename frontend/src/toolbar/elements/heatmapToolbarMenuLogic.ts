@@ -1,4 +1,3 @@
-import { LemonSelectOption } from '@posthog/lemon-ui'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
@@ -6,28 +5,20 @@ import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
-import {
-    CommonFilters,
-    HeatmapFilters,
-    HeatmapFixedPositionMode,
-    HeatmapJsData,
-    HeatmapJsDataPoint,
-    HeatmapRequestType,
-} from 'lib/components/heatmaps/types'
-import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
-import { dateFilterToText } from 'lib/utils'
+import { HeatmapJsData, HeatmapJsDataPoint } from 'lib/components/heatmaps/types'
 import { createVersionChecker } from 'lib/utils/semver'
 import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
+import { heatmapDataLogic } from '~/toolbar/elements/heatmapDataLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { CountedHTMLElement, ElementsEventType, HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
+import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { elementToActionStep, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { heatmapLogicType } from './heatmapLogicType'
+import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 
 export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
 
@@ -37,18 +28,43 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     results: [],
 }
 
-export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
-    { value: 'default', label: 'Default (multicolor)' },
-    { value: 'red', label: 'Red (monocolor)' },
-    { value: 'green', label: 'Green (monocolor)' },
-    { value: 'blue', label: 'Blue (monocolor)' },
-]
-
-export const heatmapLogic = kea<heatmapLogicType>([
-    path(['toolbar', 'elements', 'heatmapLogic']),
+export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
+    path(['toolbar', 'elements', 'heatmapToolbarMenuLogic']),
     connect({
-        values: [currentPageLogic, ['href', 'wildcardHref'], toolbarConfigLogic, ['posthog']],
-        actions: [currentPageLogic, ['setHref', 'setWildcardHref']],
+        values: [
+            currentPageLogic,
+            ['href', 'wildcardHref'],
+            toolbarConfigLogic,
+            ['posthog'],
+            heatmapDataLogic,
+            [
+                'commonFilters',
+                'heatmapColorPalette',
+                'heatmapFixedPositionMode',
+                'rawHeatmapLoading',
+                'viewportRange',
+                'heatmapFilters',
+                'heatmapElements',
+                'heatmapTooltipLabel',
+            ],
+        ],
+        actions: [
+            currentPageLogic,
+            ['setHref', 'setWildcardHref'],
+            heatmapDataLogic,
+            [
+                'setHeatmapColorPalette',
+                'setCommonFilters',
+                'setHeatmapFixedPositionMode',
+                'setHref as setDataHref',
+                'setUrlMatch',
+                'resetHeatmapData',
+                'patchHeatmapFilters',
+                'loadHeatmap',
+                'loadHeatmapSuccess',
+                'loadHeatmapFailure',
+            ],
+        ],
     }),
     actions({
         getElementStats: (url?: string | null) => ({
@@ -57,23 +73,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
         enableHeatmap: true,
         disableHeatmap: true,
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
-        setCommonFilters: (filters: CommonFilters) => ({ filters }),
-        setHeatmapFilters: (filters: HeatmapFilters) => ({ filters }),
-        patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
         toggleClickmapsEnabled: (enabled?: boolean) => ({ enabled }),
 
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
-        loadHeatmap: (type: string) => ({
-            type,
-        }),
         loadAllEnabled: (delayMs: number = 0) => ({ delayMs }),
         maybeLoadClickmap: (delayMs: number = 0) => ({ delayMs }),
         maybeLoadHeatmap: (delayMs: number = 0) => ({ delayMs }),
-        fetchHeatmapApi: (params: HeatmapRequestType) => ({ params }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
-        setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
-        setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -102,20 +109,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 setShiftPressed: (_, { shiftPressed }) => shiftPressed,
             },
         ],
-        commonFilters: [
-            { date_from: '-7d' } as CommonFilters,
-            {
-                setCommonFilters: (_, { filters }) => filters,
-            },
-        ],
-        heatmapFilters: [
-            DEFAULT_HEATMAP_FILTERS,
-            { persist: true },
-            {
-                setHeatmapFilters: (_, { filters }) => filters,
-                patchHeatmapFilters: (state, { filters }) => ({ ...state, ...filters }),
-            },
-        ],
         clickmapsEnabled: [
             false,
             { persist: true },
@@ -129,23 +122,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 setHeatmapScrollY: (_, { scrollY }) => scrollY,
             },
         ],
-
-        heatmapFixedPositionMode: [
-            'fixed' as HeatmapFixedPositionMode,
-            {
-                setHeatmapFixedPositionMode: (_, { mode }) => mode,
-            },
-        ],
-
-        heatmapColorPalette: [
-            'default' as string | null,
-            { persist: true },
-            {
-                setHeatmapColorPalette: (_, { Palette }) => Palette,
-            },
-        ],
     }),
-
     loaders(({ values }) => ({
         elementStats: [
             null as PaginatedResponse<ElementsEventType> | null,
@@ -210,56 +187,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 },
             },
         ],
-
-        rawHeatmap: [
-            null as HeatmapResponseType | null,
-            {
-                loadHeatmap: async () => {
-                    const { href, wildcardHref } = values
-                    const { date_from, date_to } = values.commonFilters
-                    const { type, aggregation } = values.heatmapFilters
-                    const urlExact = wildcardHref === href ? href : undefined
-                    const urlRegex = wildcardHref !== href ? wildcardHref : undefined
-
-                    // toolbar fetch collapses queryparams but this URL has multiple with the same name
-                    const response = await toolbarFetch(
-                        `/api/heatmap/${encodeParams(
-                            {
-                                type,
-                                date_from,
-                                date_to,
-                                url_exact: urlExact,
-                                url_pattern: urlRegex,
-                                viewport_width_min: values.viewportRange.min,
-                                viewport_width_max: values.viewportRange.max,
-                                aggregation,
-                            },
-                            '?'
-                        )}`,
-                        'GET'
-                    )
-
-                    if (response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
-                    }
-
-                    if (response.status !== 200) {
-                        throw new Error('API error')
-                    }
-
-                    return await response.json()
-                },
-            },
-        ],
     })),
-
     selectors(({ cache }) => ({
-        dateRange: [
-            (s) => [s.commonFilters],
-            (commonFilters: Partial<FilterType>) => {
-                return dateFilterToText(commonFilters.date_from, commonFilters.date_to, 'Last 7 days')
-            },
-        ],
         elements: [
             (s) => [s.elementStats, toolbarConfigLogic.selectors.dataAttributes, s.href, s.matchLinksByHref],
             (elementStats, dataAttributes, href, matchLinksByHref) => {
@@ -389,52 +318,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 countedElements ? countedElements.map((e) => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
 
-        heatmapElements: [
-            (s) => [s.rawHeatmap],
-            (rawHeatmap): HeatmapElement[] => {
-                if (!rawHeatmap) {
-                    return []
-                }
-
-                const elements: HeatmapElement[] = []
-
-                rawHeatmap?.results.forEach((element) => {
-                    if ('scroll_depth_bucket' in element) {
-                        elements.push({
-                            count: element.cumulative_count,
-                            xPercentage: 0,
-                            targetFixed: false,
-                            y: element.scroll_depth_bucket,
-                        })
-                    } else {
-                        elements.push({
-                            count: element.count,
-                            xPercentage: element.pointer_relative_x,
-                            targetFixed: element.pointer_target_fixed,
-                            y: element.pointer_y,
-                        })
-                    }
-                })
-
-                return elements
-            },
-        ],
-
-        viewportRange: [
-            (s) => [s.heatmapFilters, s.windowWidth],
-            (heatmapFilters, windowWidth) => calculateViewportRange(heatmapFilters, windowWidth),
-        ],
-
-        heatmapTooltipLabel: [
-            (s) => [s.heatmapFilters],
-            (heatmapFilters) => {
-                if (heatmapFilters.aggregation === 'unique_visitors') {
-                    return 'visitors'
-                }
-                return heatmapFilters.type + 's'
-            },
-        ],
-
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
             (posthog: PostHog | null): 'version' | 'disabled' | null => {
@@ -490,49 +373,47 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
     })),
-
     subscriptions(({ actions }) => ({
         viewportRange: () => {
             actions.maybeLoadHeatmap(500)
         },
     })),
-
     listeners(({ actions, values }) => ({
-        fetchHeatmapApi: async () => {
-            const { href, wildcardHref } = values
-            const { date_from, date_to } = values.commonFilters
-            const { type, aggregation } = values.heatmapFilters
-            const urlExact = wildcardHref === href ? href : undefined
-            const urlRegex = wildcardHref !== href ? wildcardHref : undefined
-
-            // toolbar fetch collapses queryparams but this URL has multiple with the same name
-            const response = await toolbarFetch(
-                `/api/heatmap/${encodeParams(
-                    {
-                        type,
-                        date_from,
-                        date_to,
-                        url_exact: urlExact,
-                        url_pattern: urlRegex,
-                        viewport_width_min: values.viewportRange.min,
-                        viewport_width_max: values.viewportRange.max,
-                        aggregation,
-                    },
-                    '?'
-                )}`,
-                'GET'
-            )
-
-            if (response.status === 403) {
-                toolbarConfigLogic.actions.authenticate()
-            }
-
-            if (response.status !== 200) {
-                throw new Error('API error')
-            }
-
-            return await response.json()
-        },
+        // fetchHeatmapApi: async () => {
+        //     const { href, wildcardHref } = values
+        //     const { date_from, date_to } = values.commonFilters
+        //     const { type, aggregation } = values.heatmapFilters
+        //     const urlExact = wildcardHref === href ? href : undefined
+        //     const urlRegex = wildcardHref !== href ? wildcardHref : undefined
+        //
+        //     // toolbar fetch collapses queryparams but this URL has multiple with the same name
+        //     const response = await toolbarFetch(
+        //         `/api/heatmap/${encodeParams(
+        //             {
+        //                 type,
+        //                 date_from,
+        //                 date_to,
+        //                 url_exact: urlExact,
+        //                 url_pattern: urlRegex,
+        //                 viewport_width_min: values.viewportRange.min,
+        //                 viewport_width_max: values.viewportRange.max,
+        //                 aggregation,
+        //             },
+        //             '?'
+        //         )}`,
+        //         'GET'
+        //     )
+        //
+        //     if (response.status === 403) {
+        //         toolbarConfigLogic.actions.authenticate()
+        //     }
+        //
+        //     if (response.status !== 200) {
+        //         throw new Error('API error')
+        //     }
+        //
+        //     return await response.json()
+        // },
 
         enableHeatmap: () => {
             actions.loadAllEnabled()
@@ -567,10 +448,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
         },
 
-        setHref: () => {
+        setHref: ({ href }) => {
+            actions.setDataHref(href)
+            actions.setUrlMatch('exact')
             actions.loadAllEnabled()
         },
-        setWildcardHref: () => {
+        setWildcardHref: ({ href }) => {
+            actions.setDataHref(href)
+            actions.setUrlMatch('regex')
             actions.loadAllEnabled(1000)
         },
         setCommonFilters: () => {
@@ -593,12 +478,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
         patchHeatmapFilters: ({ filters }) => {
             if (filters.type) {
                 // Clear the heatmap if the type changes
-                actions.loadHeatmapSuccess({ results: [] })
+                actions.resetHeatmapData()
             }
             actions.maybeLoadHeatmap(200)
         },
     })),
-
     afterMount(({ actions, values, cache }) => {
         actions.loadAllEnabled()
         cache.keyDownListener = (event: KeyboardEvent) => {
@@ -621,7 +505,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
         }, 100)
     }),
-
     beforeUnmount(({ cache }) => {
         window.removeEventListener('keydown', cache.keyDownListener)
         window.removeEventListener('keyup', cache.keyUpListener)

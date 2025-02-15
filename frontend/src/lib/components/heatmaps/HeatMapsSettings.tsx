@@ -8,10 +8,11 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import React, { useState } from 'react'
 
-import { HEATMAP_COLOR_PALETTE_OPTIONS, heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { HEATMAP_COLOR_PALETTE_OPTIONS } from '~/toolbar/elements/heatmapDataLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
 const ScrollDepthJSWarning = (): JSX.Element | null => {
-    const { scrollDepthPosthogJsError } = useValues(heatmapLogic)
+    const { scrollDepthPosthogJsError } = useValues(heatmapToolbarMenuLogic)
 
     if (!scrollDepthPosthogJsError) {
         return null
