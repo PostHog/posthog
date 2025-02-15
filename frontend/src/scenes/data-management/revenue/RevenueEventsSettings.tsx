@@ -8,7 +8,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { useCallback, useRef } from 'react'
 import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/revenueEventsSettingsLogic'
 
-import { RevenueTrackingEventItem } from '~/queries/schema'
+import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
 
 const ADD_EVENT_BUTTON_ID = 'data-management-revenue-settings-add-event'
 

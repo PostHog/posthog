@@ -1,4 +1,4 @@
-import { WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema'
+import { WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
 
 import {
     computePositionInBand,

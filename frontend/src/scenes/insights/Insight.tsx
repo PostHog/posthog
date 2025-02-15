@@ -9,7 +9,7 @@ import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
