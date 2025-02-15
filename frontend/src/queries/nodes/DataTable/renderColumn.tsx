@@ -17,7 +17,12 @@ import { urls } from 'scenes/urls'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
-import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, LLMTracePerson } from '~/queries/schema'
+import {
+    DataTableNode,
+    EventsQueryPersonColumn,
+    HasPropertiesNode,
+    LLMTracePerson,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode, isTracesQuery, trimQuotes } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'

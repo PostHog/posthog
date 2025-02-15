@@ -2,7 +2,7 @@ import * as d3 from 'd3'
 import { actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { GoalLine } from '~/queries/schema'
+import { GoalLine } from '~/queries/schema/schema-general'
 
 import { dataVisualizationLogic } from './dataVisualizationLogic'
 import type { displayLogicType } from './displayLogicType'
