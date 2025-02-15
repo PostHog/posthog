@@ -1310,12 +1310,8 @@ export const surveyLogic = kea<surveyLogicType>([
         defaultInterval: [
             (s) => [s.survey],
             (survey: Survey): IntervalType => {
-                if (!survey?.start_date) {
-                    return 'day'
-                }
-
-                const start = dayjs(survey.start_date)
-                const end = survey.end_date ? dayjs(survey.end_date) : dayjs().add(1, 'day')
+                const start = dayjs(survey.start_date || survey.created_at)
+                const end = survey.end_date ? dayjs(survey.end_date) : dayjs()
                 const diffInWeeks = end.diff(start, 'weeks')
 
                 if (diffInWeeks <= 4) {
