@@ -116,9 +116,10 @@ export function SurveyRepeatSchedule(): JSX.Element {
             <h3> How often should we show this survey? </h3>
             {canSurveyBeRepeated ? (
                 <span className="font-medium">
-                    <IconInfo className="mr-0.5" /> This survey is displayed whenever the event{' '}
-                    <LemonSnack>{survey.conditions?.events?.values.map((v) => v.name).join(', ')}</LemonSnack> is
-                    triggered. So these settings are not applicable. If you want, remove the event targeting in the{' '}
+                    <IconInfo className="mr-0.5" /> This survey is displayed whenever the{' '}
+                    <LemonSnack>{survey.conditions?.events?.values.map((v) => v.name).join(', ')}</LemonSnack>{' '}
+                    <span>{survey.conditions?.events?.values.length === 1 ? 'event is' : 'events are'}</span> triggered.
+                    So these settings are not applicable. If you want, remove the event targeting in the{' '}
                     <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
                         display conditions section
                     </Link>
