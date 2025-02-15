@@ -5,7 +5,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { inStorybook, inStorybookTestRunner, slugify } from 'lib/utils'
 import { Fragment, useState } from 'react'
 
-import { InsightQueryNode } from '~/queries/schema'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 import type { InsightEditorFilterGroup, InsightLogicProps } from '~/types'
 
 export interface EditorFilterGroupProps {

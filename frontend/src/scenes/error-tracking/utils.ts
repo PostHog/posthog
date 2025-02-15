@@ -2,7 +2,7 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
-import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
 
 const volumePeriods: ('customVolume' | 'volumeDay' | 'volumeMonth')[] = ['customVolume', 'volumeDay', 'volumeMonth']
 const sumVolumes = (...arrays: number[][]): number[] =>

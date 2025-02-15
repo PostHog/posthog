@@ -4,7 +4,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { useEffect, useState } from 'react'
 
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode } from '~/queries/schema/schema-general'
 import { isActorsQuery } from '~/queries/utils'
 
 export interface HogQLEditorProps {

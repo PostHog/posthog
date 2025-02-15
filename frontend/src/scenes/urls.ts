@@ -11,7 +11,7 @@ import {
     HogQLFilters,
     HogQLVariable,
     Node,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     ActionType,
     ActivityTab,
