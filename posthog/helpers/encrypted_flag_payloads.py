@@ -19,7 +19,9 @@ def get_decrypted_flag_payloads(request, encrypted_payloads: dict) -> dict:
 def get_decrypted_flag_payload(encrypted_payload: str | object, should_decrypt: bool) -> str:
     codec = EncryptionCodec(settings)
     return (
-        codec.decrypt(encrypted_payload.encode("utf-8")).decode("utf-8") if should_decrypt else REDACTED_PAYLOAD_VALUE
+        codec.decrypt(str(encrypted_payload).encode("utf-8")).decode("utf-8")
+        if should_decrypt
+        else REDACTED_PAYLOAD_VALUE
     )
 
 
