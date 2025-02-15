@@ -721,6 +721,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
         loadData: () => {
             actions.collectionNodeLoadData(props.key)
+            if (cache.loadingTimer) {
+                window.clearInterval(cache.loadingTimer)
+                cache.loadingTimer = null
+            }
+
+            if (values.dataLoading) {
+                const startTime = Date.now()
+                cache.loadingTimer = window.setInterval(() => {
+                    const seconds = Math.floor((Date.now() - startTime) / 1000)
+                    actions.setLoadingTime(seconds)
+                }, 1000)
+            }
         },
         loadDataSuccess: ({ response }) => {
             props.onData?.(response)
@@ -755,17 +767,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
         dataLoading: (dataLoading) => {
-            if (cache.loadingTimer) {
+            if (cache.loadingTimer && !dataLoading) {
                 window.clearInterval(cache.loadingTimer)
                 cache.loadingTimer = null
-            }
-
-            if (dataLoading) {
-                const startTime = Date.now()
-                cache.loadingTimer = window.setInterval(() => {
-                    const seconds = Math.floor((Date.now() - startTime) / 1000)
-                    actions.setLoadingTime(seconds)
-                }, 1000)
             }
         },
     })),
