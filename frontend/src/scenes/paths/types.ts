@@ -1,4 +1,4 @@
-import { PathsLink } from '~/queries/schema'
+import { PathsLink } from '~/queries/schema/schema-general'
 
 export type PathsNode = { name: string }
 

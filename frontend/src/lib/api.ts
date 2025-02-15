@@ -24,7 +24,7 @@ import {
     RecordingsQuery,
     RecordingsQueryResponse,
     RefreshType,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     ActionType,
     ActivityScope,

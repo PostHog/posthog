@@ -12,7 +12,7 @@ import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ReactNode, useRef } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { FileSystemEntry } from '~/queries/schema'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { NavbarBottom } from './NavbarBottom'

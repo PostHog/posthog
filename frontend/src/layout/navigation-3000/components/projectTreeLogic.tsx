@@ -32,7 +32,7 @@ import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTa
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 
-import { FileSystemEntry, FileSystemType } from '~/queries/schema'
+import { FileSystemEntry, FileSystemType } from '~/queries/schema/schema-general'
 import { InsightType, PipelineStage, ReplayTabs } from '~/types'
 
 import type { projectTreeLogicType } from './projectTreeLogicType'

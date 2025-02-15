@@ -3,7 +3,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
-import { HogQLQuery } from '~/queries/schema'
+import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
 
