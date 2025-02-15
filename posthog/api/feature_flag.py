@@ -548,7 +548,6 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "deleted",
             "active",
             "ensure_experience_continuity",
-            "is_remote_configuration",
             "has_encrypted_payloads",
         ]
 
