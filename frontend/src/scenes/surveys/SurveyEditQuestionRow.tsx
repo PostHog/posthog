@@ -309,7 +309,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                 )
                                             })}
                                             <div className="w-fit flex flex-row flex-wrap gap-2">
-                                                {((value || []).length < 6 || survey.type != SurveyType.Popover) && (
+                                                {((value || []).length < 15 || survey.type != SurveyType.Popover) && (
                                                     <>
                                                         <LemonButton
                                                             icon={<IconPlusSmall />}
