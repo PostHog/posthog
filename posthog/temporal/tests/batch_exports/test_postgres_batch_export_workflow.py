@@ -845,7 +845,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
     more than an hour ago) when setting `is_earliest_backfill=True`.
     """
     backfill_details = BackfillDetails(
-        backfill_id=str(uuid.uuid4()),
+        backfill_id=None,
         is_earliest_backfill=True,
         start_at=None,
         end_at=data_interval_end.isoformat(),

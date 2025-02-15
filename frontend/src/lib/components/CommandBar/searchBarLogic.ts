@@ -283,12 +283,12 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group3Loading,
                 group4Loading
             ) =>
-                searchLoading &&
-                personsLoading &&
-                group0Loading &&
-                group1Loading &&
-                group2Loading &&
-                group3Loading &&
+                searchLoading ||
+                personsLoading ||
+                group0Loading ||
+                group1Loading ||
+                group2Loading ||
+                group3Loading ||
                 group4Loading,
         ],
         tabsForGroups: [

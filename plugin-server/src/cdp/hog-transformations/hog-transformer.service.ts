@@ -8,7 +8,7 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
-import { CDP_TEST_ID, createInvocation, fixLogDeduplication, isLegacyPluginHogFunction } from '../../cdp/utils'
+import { createInvocation, fixLogDeduplication, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
@@ -175,15 +175,13 @@ export class HogTransformerService {
         return promises
     }
 
-    public transformEventAndProduceMessages(
-        event: PluginEvent,
-        runTestFunctions: boolean = false
-    ): Promise<TransformationResult> {
+    public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
                 hogTransformationAttempts.inc({ type: 'with_messages' })
-                const transformationResult = await this.transformEvent(event, runTestFunctions)
+                const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
+                const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 const messagePromises: Promise<void>[] = []
 
                 transformationResult.invocationResults.forEach((result) => {
@@ -199,23 +197,18 @@ export class HogTransformerService {
         })
     }
 
-    public transformEvent(event: PluginEvent, runTestFunctions: boolean = false): Promise<TransformationResultPure> {
+    public transformEvent(event: PluginEvent, teamHogFunctions: HogFunctionType[]): Promise<TransformationResultPure> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEvent`,
 
             func: async () => {
                 hogTransformationInvocations.inc()
-                const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
                 const results: HogFunctionInvocationResult[] = []
                 const transformationsSucceeded: string[] = event.properties?.$transformations_succeeded || []
                 const transformationsFailed: string[] = event.properties?.$transformations_failed || []
 
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
-                    if (hogFunction.name.includes(CDP_TEST_ID) && !runTestFunctions) {
-                        // Skip test functions if we're not running in test mode
-                        continue
-                    }
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
                     const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
 
@@ -258,9 +251,10 @@ export class HogTransformerService {
                     }
 
                     event.properties = {
-                        ...event.properties,
                         ...transformedEvent.properties,
                     }
+
+                    event.ip = event.properties.$ip ?? null
 
                     if ('event' in transformedEvent) {
                         if (typeof transformedEvent.event !== 'string') {
@@ -306,7 +300,7 @@ export class HogTransformerService {
         })
     }
 
-    public async executeHogFunction(
+    private async executeHogFunction(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals
     ): Promise<HogFunctionInvocationResult> {

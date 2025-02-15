@@ -107,7 +107,7 @@ export function SessionRecordingsPlaylist({
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
-                <AiFilter logic={logic} />
+                <AiFilter />
             </FlaggedFeature>
             <div className="h-full space-y-2">
                 <Playlist

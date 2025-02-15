@@ -1,6 +1,6 @@
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
-import { EventsQuery, HogQLQuery, SessionAttributionExplorerQuery, TracesQuery } from '~/queries/schema'
+import { EventsQuery, HogQLQuery, SessionAttributionExplorerQuery, TracesQuery } from '~/queries/schema/schema-general'
 import { isEventsQuery, isHogQLQuery, isSessionAttributionExplorerQuery, isTracesQuery } from '~/queries/utils'
 
 interface DateRangeProps<Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery> {

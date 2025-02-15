@@ -14,7 +14,7 @@ import {
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { getPersonsEndpoint } from '~/queries/query'
-import { DataNode, DataTableNode } from '~/queries/schema'
+import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
 import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { ExporterFormat } from '~/types'
 

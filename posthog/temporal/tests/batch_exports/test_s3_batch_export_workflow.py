@@ -1044,7 +1044,7 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     """
     workflow_id = str(uuid.uuid4())
     backfill_details = BackfillDetails(
-        backfill_id=str(uuid.uuid4()),
+        backfill_id=None,
         is_earliest_backfill=True,
         start_at=None,
         end_at=data_interval_end.isoformat(),
@@ -2273,7 +2273,7 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
         batch_export_model=model,
         is_backfill=is_backfill,
         backfill_details=BackfillDetails(
-            backfill_id=str(uuid.uuid4()),
+            backfill_id=None,
             start_at=backfill_start_at,
             end_at=data_interval_end,
             is_earliest_backfill=False,
