@@ -132,6 +132,8 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     }
 }
 
+const DATE_FORMAT = 'YYYY-MM-DD'
+
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
@@ -278,10 +280,10 @@ export const surveyLogic = kea<surveyLogicType>([
         surveyUserStats: {
             loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -336,10 +338,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -390,10 +392,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -474,10 +476,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 questionIndex: number
             }): Promise<SurveySingleChoiceResults> => {
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -520,10 +522,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -579,10 +581,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -656,10 +658,10 @@ export const surveyLogic = kea<surveyLogicType>([
             // Initialize date range based on survey dates when survey is loaded
             if ('created_at' in values.survey) {
                 const dateRange = {
-                    date_from: dayjs(values.survey.created_at).format('YYYY-MM-DD'),
+                    date_from: dayjs(values.survey.created_at).format(DATE_FORMAT),
                     date_to: values.survey.end_date
-                        ? dayjs(values.survey.end_date).format('YYYY-MM-DD')
-                        : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+                        ? dayjs(values.survey.end_date).format(DATE_FORMAT)
+                        : dayjs().add(1, 'day').format(DATE_FORMAT),
                 }
                 actions.setDateRange(dateRange)
             }
