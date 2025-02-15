@@ -1,5 +1,6 @@
 import { IconInfo } from '@posthog/icons'
 import { useValues } from 'kea'
+import { HEATMAP_COLOR_PALETTE_OPTIONS } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -8,7 +9,6 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import React, { useState } from 'react'
 
-import { HEATMAP_COLOR_PALETTE_OPTIONS } from '~/toolbar/elements/heatmapDataLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
 const ScrollDepthJSWarning = (): JSX.Element | null => {

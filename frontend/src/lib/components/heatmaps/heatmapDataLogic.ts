@@ -16,8 +16,6 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { FilterType } from '~/types'
 
-import type { heatmapDataLogicType } from './heatmapDataLogicType'
-
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
     { value: 'red', label: 'Red (monocolor)' },
@@ -25,7 +23,7 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'blue', label: 'Blue (monocolor)' },
 ]
 
-export const heatmapDataLogic = kea<heatmapDataLogicType>([
+export const heatmapDataLogic = kea([
     path(['toolbar', 'elements', 'heatmapDataLogic']),
     actions({
         setCommonFilters: (filters: CommonFilters) => ({ filters }),
