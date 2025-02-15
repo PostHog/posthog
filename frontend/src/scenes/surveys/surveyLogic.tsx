@@ -12,6 +12,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { CompareFilter, DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
@@ -711,6 +712,21 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             loadSurveySuccess: () => {
                 actions.loadSurveyUserStats()
+
+                if (values.survey.start_date) {
+                    activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+                }
+
+                // Initialize date range based on survey dates when survey is loaded
+                if ('created_at' in values.survey) {
+                    const dateRange = {
+                        date_from: dayjs(values.survey.created_at).format(DATE_FORMAT),
+                        date_to: values.survey.end_date
+                            ? dayjs(values.survey.end_date).format(DATE_FORMAT)
+                            : dayjs().add(1, 'day').format(DATE_FORMAT),
+                    }
+                    actions.setDateRange(dateRange)
+                }
             },
             resetSurveyResponseLimits: () => {
                 actions.setSurveyValue('responses_limit', null)
