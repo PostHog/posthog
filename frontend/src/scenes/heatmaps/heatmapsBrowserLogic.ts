@@ -57,7 +57,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
         ],
-        actions: [heatmapDataLogic, ['loadHeatmap']],
+        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn']],
     }),
 
     actions({
@@ -254,6 +254,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     }),
 
     listeners(({ actions, cache, props, values }) => ({
+        setReplayIframeData: ({ replayIframeData }) => {
+            if (replayIframeData) {
+                // we don't want to use the toolbar fetch or the iframe message approach
+                actions.setFetchFn('native')
+            }
+        },
         setBrowserSearch: async (_, breakpoint) => {
             await breakpoint(200)
             actions.loadBrowserSearchResults()

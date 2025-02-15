@@ -39,12 +39,21 @@ export const heatmapDataLogic = kea([
         setUrlMatch: (match: 'exact' | 'regex') => ({
             match,
         }),
+        setFetchFn: (fetchFn: 'native' | 'toolbar') => ({ fetchFn }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
         windowHeight: (window: Window) => window.innerHeight,
     })),
     reducers({
+        // TODO with toolbar on the posthog page as well as the page itself, this will clash
+        // need to make a separate data logic for toolbar and page
+        fetchFn: [
+            'toolbar' as 'toolbar' | 'native',
+            {
+                setFetchFn: (_, { fetchFn }) => fetchFn,
+            },
+        ],
         commonFilters: [
             { date_from: '-7d' } as CommonFilters,
             {
@@ -99,22 +108,21 @@ export const heatmapDataLogic = kea([
                     const urlRegex = matchType === 'regex' ? href : undefined
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
-                    const response = await toolbarFetch(
-                        `/api/heatmap/${encodeParams(
-                            {
-                                type,
-                                date_from,
-                                date_to,
-                                url_exact: urlExact,
-                                url_pattern: urlRegex,
-                                viewport_width_min: values.viewportRange.min,
-                                viewport_width_max: values.viewportRange.max,
-                                aggregation,
-                            },
-                            '?'
-                        )}`,
-                        'GET'
-                    )
+                    const apiURL = `/api/heatmap/${encodeParams(
+                        {
+                            type,
+                            date_from,
+                            date_to,
+                            url_exact: urlExact,
+                            url_pattern: urlRegex,
+                            viewport_width_min: values.viewportRange.min,
+                            viewport_width_max: values.viewportRange.max,
+                            aggregation,
+                        },
+                        '?'
+                    )}`
+
+                    const response = await (values.fetchFn === 'toolbar' ? toolbarFetch(apiURL, 'GET') : fetch(apiURL))
 
                     if (response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
