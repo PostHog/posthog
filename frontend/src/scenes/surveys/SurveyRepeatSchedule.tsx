@@ -107,7 +107,9 @@ export function SurveyRepeatSchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
     const { setSelectedSection } = useActions(surveyLogic)
 
-    const canSurveyBeRepeated = survey.conditions?.events?.repeatedActivation
+    const canSurveyBeRepeated = Boolean(
+        survey.conditions?.events?.repeatedActivation && survey.conditions?.events?.values?.length > 0
+    )
 
     return (
         <div className="mt-4">

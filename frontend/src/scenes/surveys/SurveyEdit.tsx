@@ -55,7 +55,7 @@ import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { Customization, WidgetCustomization } from './SurveyCustomization'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { SurveyEditSection, surveyLogic } from './surveyLogic'
+import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
 function SurveyCompletionConditions(): JSX.Element {
@@ -66,7 +66,7 @@ function SurveyCompletionConditions(): JSX.Element {
     const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
     const [visible, setVisible] = useState(false)
 
-    const surveyLimitOptions: LemonRadioOption<'until_stopped' | 'until_limit' | 'until_adaptive_limit'>[] = [
+    const surveyLimitOptions: LemonRadioOption<DataCollectionType>[] = [
         {
             value: 'until_stopped',
             label: 'Keep collecting responses until the survey is stopped',
@@ -89,7 +89,7 @@ function SurveyCompletionConditions(): JSX.Element {
             disabledReason: surveysRecurringScheduleAvailable
                 ? undefined
                 : 'Upgrade your plan to use an adaptive limit on survey responses',
-        } as unknown as LemonRadioOption<'until_stopped' | 'until_limit' | 'until_adaptive_limit'>)
+        } as unknown as LemonRadioOption<DataCollectionType>)
     }
 
     return (
@@ -99,7 +99,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 <LemonField.Pure>
                     <LemonRadio
                         value={dataCollectionType}
-                        onChange={(newValue: 'until_stopped' | 'until_limit' | 'until_adaptive_limit') => {
+                        onChange={(newValue: DataCollectionType) => {
                             if (newValue === 'until_limit') {
                                 resetSurveyAdaptiveSampling()
                                 setSurveyValue('responses_limit', survey.responses_limit || 100)
