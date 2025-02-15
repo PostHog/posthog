@@ -673,7 +673,7 @@ export const surveyLogic = kea<surveyLogicType>([
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
             if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
                 actions.setSelectedSection(SurveyEditSection.DisplayConditions)
-            } else if (hasFormErrors(values.survey.appearance)) {
+            } else if (hasFormErrors(values.surveyValidationErrors.appearance)) {
                 actions.setSelectedSection(SurveyEditSection.Customization)
             } else {
                 actions.setSelectedSection(SurveyEditSection.Steps)
@@ -1279,6 +1279,15 @@ export const surveyLogic = kea<surveyLogicType>([
                     questions: questions.map((question) => {
                         const questionErrors = {
                             question: !question.question && 'Please enter a question label.',
+                        }
+
+                        if (question.type === SurveyQuestionType.Link) {
+                            if (!question.link?.startsWith('https://') && !question.link?.startsWith('mailto:')) {
+                                return {
+                                    ...questionErrors,
+                                    link: 'Please enter a valid link.',
+                                }
+                            }
                         }
 
                         if (question.type === SurveyQuestionType.Rating) {
