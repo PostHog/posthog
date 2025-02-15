@@ -60,7 +60,7 @@ import { surveysLogic } from './surveysLogic'
 
 function SurveyRepeatSchedule(): JSX.Element {
     const { showSurveyRepeatSchedule, survey, schedule } = useValues(surveyLogic)
-    const { setSurveyValue, setSchedule } = useActions(surveyLogic)
+    const { setSurveyValue, setSchedule, setSelectedSection } = useActions(surveyLogic)
     const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
 
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
@@ -76,7 +76,11 @@ function SurveyRepeatSchedule(): JSX.Element {
                 <span className="font-medium">
                     <IconInfo className="mr-0.5" /> This survey is displayed whenever the event{' '}
                     <LemonSnack>{survey.conditions?.events?.values.map((v) => v.name).join(', ')}</LemonSnack> is
-                    triggered. So these settings are not applicable.
+                    triggered. So these settings are not applicable. If you want, remove the event targeting in the{' '}
+                    <Link onClick={() => setSelectedSection(SurveyEditSection.DisplayConditions)}>
+                        display conditions section
+                    </Link>
+                    .
                 </span>
             ) : (
                 <>
