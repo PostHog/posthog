@@ -45,6 +45,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'heatmapFilters',
                 'heatmapElements',
                 'heatmapTooltipLabel',
+                'heatmapScrollY',
             ],
         ],
         actions: [

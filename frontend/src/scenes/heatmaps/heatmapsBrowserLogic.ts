@@ -56,7 +56,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
         ],
-        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn']],
+        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setUrlMatch']],
     }),
 
     actions({
@@ -82,6 +82,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         startTrackingLoading: true,
         stopTrackingLoading: true,
         setReplayIframeData: (replayIframeData: ReplayIframeData | null) => ({ replayIframeData }),
+        updateReplayIframeURL: (url: string) => ({ url }),
     }),
 
     loaders(({ values }) => ({
@@ -150,6 +151,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             null as ReplayIframeData | null,
             {
                 setReplayIframeData: (_, { replayIframeData }) => replayIframeData,
+                updateReplayIframeURL: (state, { url }) => ({ ...state, url }),
             },
         ],
         filterPanelCollapsed: [
@@ -257,7 +259,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (replayIframeData) {
                 // we don't want to use the toolbar fetch or the iframe message approach
                 actions.setFetchFn('native')
+                actions.setHref(replayIframeData.url)
+                actions.patchHeatmapFilters
             }
+        },
+        updateReplayIframeURL: ({ url }) => {
+            if (url.includes('*')) {
+                actions.setUrlMatch('wildcard')
+            }
+            actions.setHref(url)
         },
         setBrowserSearch: async (_, breakpoint) => {
             await breakpoint(200)

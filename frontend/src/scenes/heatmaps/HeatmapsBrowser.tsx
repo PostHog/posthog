@@ -1,5 +1,5 @@
 import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonInputSelect, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -18,28 +18,33 @@ import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const { browserUrlSearchOptions, browserUrl } = useValues(logic)
-    const { setBrowserSearch, setBrowserUrl } = useActions(logic)
+    const { browserUrlSearchOptions, browserUrl, replayIframeData, hasValidReplayIframeData } = useValues(logic)
+    const { setBrowserSearch, setBrowserUrl, updateReplayIframeURL } = useActions(logic)
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
     return (
         <div className="bg-surface-primary p-2 border-b flex items-center gap-2">
             <span className="flex-1">
-                <LemonInputSelect
-                    mode="single"
-                    allowCustomValues
-                    placeholder={`e.g. ${placeholderUrl}`}
-                    onInputChange={(e) => setBrowserSearch(e)}
-                    value={browserUrl ? [browserUrl] : undefined}
-                    onChange={(v) => setBrowserUrl(v[0] ?? null)}
-                    options={
-                        browserUrlSearchOptions?.map((x) => ({
-                            label: x,
-                            key: x,
-                        })) ?? []
-                    }
-                />
+                {/*KLUDGE: LemonInputSelect handles long values badly*/}
+                {hasValidReplayIframeData ? (
+                    <LemonInput value={replayIframeData?.url} onChange={updateReplayIframeURL} />
+                ) : (
+                    <LemonInputSelect
+                        mode="single"
+                        allowCustomValues
+                        placeholder={`e.g. ${placeholderUrl}`}
+                        onInputChange={(e) => setBrowserSearch(e)}
+                        value={browserUrl ? [browserUrl] : undefined}
+                        onChange={(v) => setBrowserUrl(v[0] ?? null)}
+                        options={
+                            browserUrlSearchOptions?.map((x) => ({
+                                label: x,
+                                key: x,
+                            })) ?? []
+                        }
+                    />
+                )}
             </span>
 
             <LemonButton
@@ -254,21 +259,14 @@ export function HeatmapsBrowser(): JSX.Element {
 
     const logic = heatmapsBrowserLogic({ iframeRef })
 
-    const { browserUrl, isBrowserUrlAuthorized, replayIframeData, hasValidReplayIframeData } = useValues(logic)
+    const { browserUrl, isBrowserUrlAuthorized, hasValidReplayIframeData } = useValues(logic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <div className="flex flex-col gap-2">
                 <Warnings />
                 <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
-                    {hasValidReplayIframeData ? (
-                        <div className="bg-surface-primary p-2 border-b flex items-center space-x-2">
-                            <div>Site loaded from replay data for:</div>
-                            <div>{replayIframeData?.url}</div>
-                        </div>
-                    ) : (
-                        <UrlSearchHeader />
-                    )}
+                    <UrlSearchHeader />
 
                     <div className="relative flex flex-1 bg-surface-primary overflow-hidden">
                         {hasValidReplayIframeData ? (

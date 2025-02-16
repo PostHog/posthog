@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useMousePosition } from 'lib/components/heatmaps/useMousePosition'
+import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
@@ -8,8 +9,9 @@ import { toolbarConfigLogic } from '../toolbarConfigLogic'
 
 function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
-    const { heatmapElements, rawHeatmapLoading, shiftPressed } = useValues(heatmapToolbarMenuLogic)
+    const { heatmapElements, rawHeatmapLoading } = useValues(heatmapToolbarMenuLogic)
 
+    const shiftPressed = useShiftKeyPressed()
     const { y: mouseY } = useMousePosition()
 
     if (!mouseY) {
