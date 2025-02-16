@@ -162,13 +162,13 @@ function MaxChatInterfaceContent(): JSX.Element {
 
                                 <div className={`${message.role === 'assistant' ? 'flex flex-col' : ''} max-w-full`}>
                                     {message.role === 'assistant' && (
-                                        <div className="text-sm text-secondary mb-1">Max</div>
+                                        <div className="text-sm text-primary-alt mb-1">Max</div>
                                     )}
                                     <div
                                         className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
                                             message.role === 'assistant'
-                                                ? 'bg-surface-primary dark:bg-depth text-default'
-                                                : 'bg-surface-primary dark:bg-side text-default'
+                                                ? 'bg-surface-primary dark:bg-surface-primary text-default'
+                                                : 'bg-surface-primary dark:bg-surface-secondary text-default'
                                         }`}
                                     >
                                         {message.role === 'assistant'
@@ -337,12 +337,12 @@ function MaxChatInterfaceContent(): JSX.Element {
                 {(hasServerError || isRateLimited) && (
                     <div className="flex justify-start">
                         <div className="flex flex-col">
-                            <div className="text-sm text-secondary mb-1">Max</div>
-                            <div className="p-2 rounded-lg bg-surface-primary dark:bg-depth text-default">
+                            <div className="text-sm text-primary-alt mb-1">Max</div>
+                            <div className="p-2 rounded-lg bg-surface-primary dark:bg-surface-primary text-default">
                                 <div className="flex items-center gap-2">
                                     <span>
                                         {hasServerError
-                                            ? "🫣 Uh-oh. I wasn't able to connect to the Anthropic API (my brain!) Please try sending your message again in about 1 minute?"
+                                            ? "🫣 Uh-oh. I wasn't able to connect to the Anthropic API (my brain!) Please try sending your message again in about 1 minute? (If you see this message twice in a row, please use the 'End chat' button below to start a new chat.)"
                                             : isRateLimited
                                             ? "🫣 Uh-oh, I'm really popular today, we've been rate-limited. I just need to catch my breath. Hang on, I'll repeat your question and resume searching in less than a minute. I may repeat it a couple of times, but I will be back with an answer!"
                                             : 'Searching and thinking...'}
