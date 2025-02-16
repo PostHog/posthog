@@ -1,15 +1,17 @@
+import { offset } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { memo, useEffect, useRef, useState } from 'react'
-
-import { LemonButton } from '~/lib/lemon-ui/LemonButton'
-import { LemonCollapse } from '~/lib/lemon-ui/LemonCollapse'
-import { LemonDivider } from '~/lib/lemon-ui/LemonDivider'
-import { LemonTextArea } from '~/lib/lemon-ui/LemonTextArea'
-import { Spinner } from '~/lib/lemon-ui/Spinner'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { forwardRef, memo, useEffect, useRef, useState } from 'react'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { sidePanelMaxAILogic } from './sidePanelMaxAILogic'
 import { ChatMessage } from './sidePanelMaxAILogic'
@@ -86,29 +88,27 @@ function extractURLValidation(content: string): { hasQualityScore: boolean; cont
     }
 }
 
-export function MaxChatInterface(): JSX.Element {
-    return (
-        <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
-            <MaxChatInterfaceContent />
-        </FlaggedFeature>
-    )
-}
-
-function MaxChatInterfaceContent(): JSX.Element {
+const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>>(function MaxChatInterfaceContent(
+    _,
+    ref
+) {
     const { currentMessages, isSearchingThinking, isRateLimited, hasServerError } = useValues(sidePanelMaxAILogic)
     const { submitMessage } = useActions(sidePanelMaxAILogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const [inputMessage, setInputMessage] = useState('')
 
     useEffect(() => {
-        submitMessage('__GREETING__')
-    }, [submitMessage])
+        if (dataProcessingAccepted) {
+            submitMessage('__GREETING__')
+        }
+    }, [submitMessage, dataProcessingAccepted])
 
     const showInput = currentMessages.length > 0 && currentMessages.some((msg) => msg.role === 'assistant')
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            if (inputMessage.trim() && !isSearchingThinking) {
+            if (inputMessage.trim() && !isSearchingThinking && dataProcessingAccepted) {
                 submitMessage(inputMessage)
                 setInputMessage('')
             }
@@ -131,7 +131,7 @@ function MaxChatInterfaceContent(): JSX.Element {
     const displayMessages = currentMessages.filter((message) => message.content !== '__GREETING__')
 
     return (
-        <div className="flex flex-col h-full">
+        <div ref={ref} className="flex flex-col h-full">
             <div className="flex-1 overflow-y-auto p-3 space-y-4 [overflow-anchor:none]">
                 <div className="bg-surface-primary dark:bg-transparent rounded p-1">
                     <h4 className="mb-2">Tips for chatting with Max:</h4>
@@ -389,7 +389,7 @@ function MaxChatInterfaceContent(): JSX.Element {
                             className={isSearchingThinking ? 'opacity-50' : ''}
                             onClick={(e) => {
                                 e.preventDefault()
-                                if (inputMessage.trim() && !isSearchingThinking) {
+                                if (inputMessage.trim() && !isSearchingThinking && dataProcessingAccepted) {
                                     submitMessage(inputMessage)
                                     setInputMessage('')
                                 }
@@ -402,5 +402,23 @@ function MaxChatInterfaceContent(): JSX.Element {
                 </>
             )}
         </div>
+    )
+})
+
+export function MaxChatInterface(): JSX.Element {
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
+            <div className="relative">
+                {dataProcessingAccepted ? (
+                    <MaxChatInterfaceContent />
+                ) : (
+                    <AIConsentPopoverWrapper placement="right-start" middleware={[offset(-12)]} showArrow>
+                        <MaxChatInterfaceContent />
+                    </AIConsentPopoverWrapper>
+                )}
+            </div>
+        </FlaggedFeature>
     )
 }
