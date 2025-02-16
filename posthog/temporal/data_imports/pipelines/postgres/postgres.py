@@ -110,6 +110,8 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
         name = col.column_name
         pg_type = col.data_type
 
+        arrow_type: pa.DataType
+
         # Map PostgreSQL type names to PyArrow types
         match pg_type:
             case "bigint":
@@ -119,9 +121,14 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
             case "smallint":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                arrow_type = pa.decimal128(
-                    col.numeric_precision or default_numeric_precision, col.numeric_scale or default_numeric_scale
-                )
+                precision = col.numeric_precision or default_numeric_precision
+                scale = col.numeric_scale or default_numeric_scale
+                if precision <= 38:
+                    arrow_type = pa.decimal128(precision, scale)
+                elif precision <= 76:
+                    arrow_type = pa.decimal256(precision, scale)
+                else:
+                    arrow_type = pa.decimal256(76, max(0, 76 - (precision - scale)))
             case "real":
                 arrow_type = pa.float32()
             case "double precision":
@@ -181,6 +188,11 @@ def postgres_source(
         with connection.cursor() as cursor:
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table_structure = _get_table_structure(cursor, schema, table_name)
+
+            # Falback on checking for an `id` field on the table
+            if primary_keys is None:
+                if any(ts.column_name == "id" for ts in table_structure):
+                    primary_keys = ["id"]
 
     def get_rows() -> Iterator[Any]:
         arrow_schema = _get_arrow_schema_from_type_name(table_structure)

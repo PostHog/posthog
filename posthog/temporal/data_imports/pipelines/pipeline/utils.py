@@ -1,13 +1,19 @@
 import asyncio
 import dataclasses
+import decimal
 import json
 from collections.abc import Sequence
+import math
 from typing import Any, Optional
-from collections.abc import Generator, Iterator
+from collections.abc import Hashable
+from collections.abc import Iterator
 from dateutil import parser
 import uuid
 import orjson
+import numpy as np
+import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.sources import DltResource
 import deltalake as deltalake
@@ -20,6 +26,7 @@ from posthog.temporal.common.logger import FilteringBoundLogger
 from dlt.common.data_types.typing import TDataType
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from posthog.temporal.data_imports.deltalake_compaction_job import DeltalakeCompactionJobWorkflowInputs
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP = {
@@ -72,7 +79,7 @@ def _get_primary_keys(resource: DltResource) -> list[str] | None:
     raise Exception(f"primary_keys of type {primary_keys.__class__.__name__} are not supported")
 
 
-def _get_column_hints(resource: DltResource) -> dict[str, TDataType] | None:
+def _get_column_hints(resource: DltResource) -> dict[str, TDataType | None] | None:
     columns = resource._hints.get("columns")
 
     if columns is None:
@@ -81,8 +88,8 @@ def _get_column_hints(resource: DltResource) -> dict[str, TDataType] | None:
     return {key: value.get("data_type") for key, value in columns.items()}  # type: ignore
 
 
-def _handle_null_columns_with_definitions(table: pa.Table, resource: DltResource) -> pa.Table:
-    column_hints = _get_column_hints(resource)
+def _handle_null_columns_with_definitions(table: pa.Table, source: SourceResponse) -> pa.Table:
+    column_hints = source.column_hints
 
     if column_hints is None:
         return table
@@ -140,18 +147,27 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
             # If the delta table schema has a larger scale/precision, then update the
             # pyarrow schema to use the larger values so that we're not trying to downscale
-            if isinstance(field.type, pa.Decimal128Type):
+            if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
                 py_arrow_table_column = table.column(field.name)
+                assert isinstance(py_arrow_table_column.type, pa.Decimal128Type) or isinstance(
+                    py_arrow_table_column.type, pa.Decimal256Type
+                )
+
                 if (
                     field.type.precision > py_arrow_table_column.type.precision
                     or field.type.scale > py_arrow_table_column.type.scale
                 ):
                     field_index = table.schema.get_field_index(field.name)
+
+                    new_decimal_type = (
+                        pa.decimal128(field.type.precision, field.type.scale)
+                        if field.type.precision <= 38
+                        else pa.decimal256(field.type.precision, field.type.scale)
+                    )
+
                     new_schema = table.schema.set(
                         field_index,
-                        table.schema.field(field_index).with_type(
-                            pa.decimal128(field.type.precision, field.type.scale)
-                        ),
+                        table.schema.field(field_index).with_type(new_decimal_type),
                     )
                     table = table.cast(new_schema)
 
@@ -252,18 +268,13 @@ def _json_dumps(obj: Any) -> str:
 
 
 def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
-    try:
-        # Get the first batch to initialize column types
-        batch = list(data_iterator)
-        if not batch:
-            return pa.Table.from_pylist([])
+    batch = list(data_iterator)
+    if not batch:
+        return pa.Table.from_pylist([])
 
-        processed_batch = list(_process_row(batch))
+    processed_batch = _process_batch(list(batch), schema)
 
-        return pa.Table.from_pylist(processed_batch, schema=schema)
-
-    except Exception as e:
-        raise ValueError(f"Failed to process data stream: {str(e)}")
+    return processed_batch
 
 
 def table_from_py_list(table_data: list[Any]) -> pa.Table:
@@ -274,39 +285,116 @@ def table_from_py_list(table_data: list[Any]) -> pa.Table:
     return table_from_iterator(iter(table_data))
 
 
-def _process_row(table_data: list[dict]) -> Generator[dict, None, None]:
-    column_types: dict[str, set[type]] = {key: set() for key in table_data[0].keys()}
+def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+    # Support both given schemas and inferred schemas
+    if schema is None:
+        try:
+            arrow_schema = pa.Table.from_pylist(table_data).schema
+        except:
+            arrow_schema = None
+    else:
+        arrow_schema = schema
 
-    for row in table_data:
-        for column, value in row.items():
-            if value is None:
-                continue
+    drop_column_names: list[Hashable] = []
 
-            column_types[column].add(type(value))
-
-    inconsistent_columns_with_lists = {
-        column: types for column, types in column_types.items() if len(types) > 1 and list in types
+    columnar_table_data: dict[Hashable, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {
+        key: np.array(values) for key, values in pd.DataFrame(table_data, dtype=object).to_dict(orient="list").items()
     }
 
-    for row in table_data:
-        # Handle list type mismatches
-        for column_name in inconsistent_columns_with_lists.keys():
-            # If one type is a list, then make everything into a list
-            value = row[column_name]
-            if not isinstance(value, list):
-                row[column_name] = [value]
+    for idx, field_name in enumerate(columnar_table_data.keys()):
+        py_type: type = type(None)
+        unique_types_in_column = {type(item) for item in columnar_table_data[field_name].tolist()}
+
+        for row in table_data:
+            val = row[field_name]
+            if val is not None:
+                py_type = type(val)
+                break
+
+        # If a schema is present:
+        if arrow_schema:
+            field = arrow_schema.field(idx)
+
+            # cast double / float ndarrays to decimals if type mismatch, looks like decimals and floats are often mixed up in dialects
+            if pa.types.is_decimal(field.type) and issubclass(py_type, str | float):
+                float_array = pa.array(columnar_table_data[field_name], type=pa.float64())
+                columnar_table_data[field_name] = float_array.cast(field.type, safe=False)
+
+            # cast string timestamps to datetime objects
+            if pa.types.is_timestamp(field.type) and issubclass(py_type, str):
+                timestamp_array = pa.array(
+                    [safe_parse_datetime(s) for s in columnar_table_data[field_name].tolist()], type=field.type
+                )
+                columnar_table_data[field_name] = timestamp_array
+                has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
+
+                adjusted_field = arrow_schema.field(idx).with_nullable(has_nulls)
+                arrow_schema = arrow_schema.set(idx, adjusted_field)
+
+        # Convert UUIDs to strings
+        if issubclass(py_type, uuid.UUID):
+            uuid_str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
+            columnar_table_data[field_name] = uuid_str_array
+            py_type = str
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(idx, arrow_schema.field(idx).with_type(pa.string()))
+
+        # If one type is a list, then make everything into a list
+        if len(unique_types_in_column) > 1 and list in unique_types_in_column:
+            list_array = pa.array([s if isinstance(s, list) else [s] for s in columnar_table_data[field_name].tolist()])
+            columnar_table_data[field_name] = list_array
+            py_type = list
+            unique_types_in_column = {list}
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(idx, arrow_schema.field(idx).with_type(pa.string()))
+
+        # If str and dict are shared - then turn everything into a json string
+        if len(unique_types_in_column) > 1 and str in unique_types_in_column and dict in unique_types_in_column:
+            json_array = pa.array(
+                [
+                    None if s is None else _json_dumps(s) if isinstance(s, dict | list) else s
+                    for s in columnar_table_data[field_name].tolist()
+                ]
+            )
+            columnar_table_data[field_name] = json_array
+            py_type = str
+            unique_types_in_column = {str}
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(idx, arrow_schema.field(idx).with_type(pa.string()))
 
         # Convert any dict/lists to json strings to avoid schema mismatches in nested objects
-        for column_name, types in column_types.items():
-            has_dict_or_list = any(issubclass(column_type, dict | list) for column_type in types)
-            if has_dict_or_list:
-                row[column_name] = _json_dumps(row[column_name])
+        if issubclass(py_type, dict | list):
+            json_str_array = pa.array(
+                [None if s is None else _json_dumps(s) for s in columnar_table_data[field_name].tolist()]
+            )
+            columnar_table_data[field_name] = json_str_array
+            py_type = str
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(idx, arrow_schema.field(idx).with_type(pa.string()))
 
-        # Convert UUIDs to strings if needed
-        if any(isinstance(value, uuid.UUID) for value in row.values()):
-            row = _convert_uuid_to_string(row)
+        # Remove any NaN or infinite values from decimal columns
+        if issubclass(py_type, decimal.Decimal):
+            columnar_table_data[field_name] = pa.array(
+                [
+                    None
+                    if x is not None and (math.isnan(x) or (isinstance(x, decimal.Decimal) and x.is_infinite()))
+                    else x
+                    for x in columnar_table_data[field_name].tolist()
+                ],
+                type=field.type,
+            )
 
-        yield row
+        # Remove any binary columns
+        if issubclass(py_type, bytes):
+            drop_column_names.append(field_name)
+
+    if len(drop_column_names) != 0:
+        for column in drop_column_names:
+            del columnar_table_data[column]
+            if arrow_schema:
+                arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
+
+    return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
 
 
 def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> str:

@@ -7,6 +7,8 @@ import deltalake as deltalake
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _get_column_hints,
+    _handle_null_columns_with_definitions,
     _update_incremental_state,
     _get_primary_keys,
     _evolve_pyarrow_schema,
@@ -50,7 +52,10 @@ class PipelineNonDLT:
 
             self._resource_name = resource_name
             self._resource = SourceResponse(
-                items=resource, primary_keys=_get_primary_keys(resource), name=resource_name
+                items=resource,
+                primary_keys=_get_primary_keys(resource),
+                name=resource_name,
+                column_hints=_get_column_hints(resource),
             )
         else:
             self._resource = source
@@ -161,9 +166,7 @@ class PipelineNonDLT:
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
-
-        # TODO !!!!!
-        # pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
+        pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         delta_table = self._delta_table_helper.write_to_deltalake(
             pa_table, self._is_incremental, index, self._resource.primary_keys
