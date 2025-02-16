@@ -22,7 +22,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 

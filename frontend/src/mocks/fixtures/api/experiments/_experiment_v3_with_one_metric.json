@@ -79,14 +79,11 @@
     "type": "product",
     "metrics": [
         {
-            "kind": "ExperimentQuery",
-            "metric": {
-                "kind": "ExperimentMetric",
-                "metric_type": "count",
-                "metric_config": {
-                    "kind": "ExperimentEventMetricConfig",
-                    "event": "storybook-click"
-                }
+            "kind": "ExperimentMetric",
+            "metric_type": "count",
+            "metric_config": {
+                "kind": "ExperimentEventMetricConfig",
+                "event": "storybook-click"
             }
         }
     ],

@@ -12,12 +12,15 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { CompareFilter, DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     BaseMathType,
     Breadcrumb,
     FeatureFlagFilters,
+    IntervalType,
     MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
@@ -108,6 +111,11 @@ export interface QuestionResultsReady {
 export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
 export type ScheduleType = 'once' | 'recurring'
 
+export interface SurveyDateRange {
+    date_from: string | null
+    date_to: string | null
+}
+
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
 
 function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
@@ -122,6 +130,8 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
 }
+
+const DATE_FORMAT = 'YYYY-MM-DD'
 
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
@@ -179,12 +189,15 @@ export const surveyLogic = kea<surveyLogicType>([
         setSurveyTemplateValues: (template: any) => ({ template }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
-
         setSchedule: (schedule: ScheduleType) => ({ schedule }),
         resetTargeting: true,
         resetSurveyAdaptiveSampling: true,
         resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
+        setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
+        setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
+        setInterval: (interval: IntervalType) => ({ interval }),
+        setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -266,10 +279,10 @@ export const surveyLogic = kea<surveyLogicType>([
         surveyUserStats: {
             loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -280,21 +293,28 @@ export const surveyLogic = kea<surveyLogicType>([
                                 WHERE event = 'survey shown'
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate}),
+                                    AND timestamp <= ${endDate}
+                                    AND {filters}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
                                 WHERE event = 'survey dismissed'
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate}),
+                                    AND timestamp <= ${endDate}
+                                    AND {filters}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
                                 WHERE event = 'survey sent'
                                     AND properties.$survey_id = ${props.id}
                                     AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate})
+                                    AND timestamp <= ${endDate}
+                                    AND {filters})
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
+
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
                 if (results && results[0]) {
@@ -308,10 +328,8 @@ export const surveyLogic = kea<surveyLogicType>([
         surveyRatingResults: {
             loadSurveyRatingResults: async ({
                 questionIndex,
-                iteration,
             }: {
                 questionIndex: number
-                iteration?: number | null | undefined
             }): Promise<SurveyRatingResults> => {
                 const question = values.survey.questions[questionIndex]
                 if (question.type !== SurveyQuestionType.Rating) {
@@ -319,15 +337,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
-                let iterationCondition = ''
-                if (iteration && iteration > 0) {
-                    iterationCondition = ` AND properties.$survey_iteration='${iteration}' `
-                }
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -337,12 +351,16 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = 'survey sent'
                             AND properties.$survey_id = '${props.id}'
-                            ${iterationCondition}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            AND {filters}
                         GROUP BY survey_response
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
+
                 const responseJSON = await api.query(query)
                 // TODO:Dylan - I don't like how we lose our types here
                 // would be cool if we could parse this in a more type-safe way
@@ -373,10 +391,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -387,11 +405,15 @@ export const surveyLogic = kea<surveyLogicType>([
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
-                            AND properties.$survey_id = '${props.id}'
+                            AND properties.$survey_id = '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            AND {filters}
                         GROUP BY survey_response, survey_iteration
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
 
                 const responseJSON = await api.query(query)
@@ -453,10 +475,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 questionIndex: number
             }): Promise<SurveySingleChoiceResults> => {
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -469,9 +491,14 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            AND {filters}
                         GROUP BY survey_response
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
+
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
 
@@ -494,10 +521,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -510,10 +537,15 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id == '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            AND {filters}
                         GROUP BY choice
                         ORDER BY count() DESC
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
+
                 const responseJSON = await api.query(query)
                 let { results } = responseJSON
 
@@ -548,10 +580,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 const survey: Survey = values.survey as Survey
-                const startDate = dayjs(survey.start_date || survey.created_at).format('YYYY-MM-DD')
+                const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
                 const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
+                    : dayjs().add(1, 'day').format(DATE_FORMAT)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -563,8 +595,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND trim(JSONExtractString(properties, '${getResponseField(questionIndex)}')) != ''
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            AND {filters}
                         LIMIT 20
                     `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
                 }
 
                 const responseJSON = await api.query(query)
@@ -613,11 +649,25 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         loadSurveySuccess: () => {
             actions.loadSurveyUserStats()
+
+            if (values.survey.start_date) {
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+            }
+
+            // Initialize date range based on survey dates when survey is loaded
+            if ('created_at' in values.survey) {
+                const dateRange = {
+                    date_from: dayjs(values.survey.created_at).format(DATE_FORMAT),
+                    date_to: values.survey.end_date
+                        ? dayjs(values.survey.end_date).format(DATE_FORMAT)
+                        : dayjs().add(1, 'day').format(DATE_FORMAT),
+                }
+                actions.setDateRange(dateRange)
+            }
         },
         resetSurveyResponseLimits: () => {
             actions.setSurveyValue('responses_limit', null)
         },
-
         resetSurveyAdaptiveSampling: () => {
             actions.setSurveyValues({
                 response_sampling_interval: null,
@@ -645,7 +695,7 @@ export const surveyLogic = kea<surveyLogicType>([
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
             if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
                 actions.setSelectedSection(SurveyEditSection.DisplayConditions)
-            } else if (hasFormErrors(values.survey.appearance)) {
+            } else if (hasFormErrors(values.surveyValidationErrors.appearance)) {
                 actions.setSelectedSection(SurveyEditSection.Customization)
             } else {
                 actions.setSelectedSection(SurveyEditSection.Steps)
@@ -654,6 +704,23 @@ export const surveyLogic = kea<surveyLogicType>([
                 () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
                 5
             )
+        },
+        setPropertyFilters: () => {
+            // Reload all survey data when filters change
+            if (values.survey.questions) {
+                values.survey.questions.forEach((question, index) => {
+                    if (question.type === SurveyQuestionType.Rating) {
+                        actions.loadSurveyRatingResults({ questionIndex: index })
+                    } else if (question.type === SurveyQuestionType.SingleChoice) {
+                        actions.loadSurveySingleChoiceResults({ questionIndex: index })
+                    } else if (question.type === SurveyQuestionType.MultipleChoice) {
+                        actions.loadSurveyMultipleChoiceResults({ questionIndex: index })
+                    } else if (question.type === SurveyQuestionType.Open) {
+                        actions.loadSurveyOpenTextResults({ questionIndex: index })
+                    }
+                })
+            }
+            actions.loadSurveyUserStats()
         },
     })),
     reducers({
@@ -675,7 +742,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 setDataCollectionType: (_, { dataCollectionType }) => dataCollectionType,
             },
         ],
-
+        propertyFilters: [
+            [] as AnyPropertyFilter[],
+            {
+                setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
+            },
+        ],
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
@@ -897,6 +969,24 @@ export const surveyLogic = kea<surveyLogicType>([
                 setFlagPropertyErrors: (_, { errors }) => errors,
             },
         ],
+        dateRange: [
+            null as SurveyDateRange | null,
+            {
+                setDateRange: (_, { dateRange }) => dateRange,
+            },
+        ],
+        interval: [
+            null as IntervalType | null,
+            {
+                setInterval: (_, { interval }) => interval,
+            },
+        ],
+        compareFilter: [
+            null as CompareFilter | null,
+            {
+                setCompareFilter: (_, { compareFilter }) => compareFilter,
+            },
+        ],
     }),
     selectors({
         isSurveyRunning: [
@@ -965,8 +1055,8 @@ export const surveyLogic = kea<surveyLogicType>([
             ],
         ],
         dataTableQuery: [
-            (s) => [s.survey],
-            (survey): DataTableNode | null => {
+            (s) => [s.survey, s.propertyFilters],
+            (survey, propertyFilters): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
                 }
@@ -1006,13 +1096,14 @@ export const surveyLogic = kea<surveyLogicType>([
                                 operator: PropertyOperator.Exact,
                                 value: survey.id,
                             },
+                            ...propertyFilters,
                         ],
                     },
                     propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,
                     showEventFilter: false,
-                    showPropertyFilter: true,
+                    showPropertyFilter: false,
                     showTimings: false,
                 }
             },
@@ -1068,7 +1159,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
         ],
-
         getBranchingDropdownValue: [
             (s) => [s.survey],
             (survey) => (questionIndex: number, question: RatingSurveyQuestion | MultipleSurveyQuestion) => {
@@ -1218,6 +1308,21 @@ export const surveyLogic = kea<surveyLogicType>([
                 return urls.insightNew({ query })
             },
         ],
+        defaultInterval: [
+            (s) => [s.survey],
+            (survey: Survey): IntervalType => {
+                const start = dayjs(survey.start_date || survey.created_at)
+                const end = survey.end_date ? dayjs(survey.end_date) : dayjs()
+                const diffInWeeks = end.diff(start, 'weeks')
+
+                if (diffInWeeks <= 4) {
+                    return 'day'
+                } else if (diffInWeeks <= 12) {
+                    return 'week'
+                }
+                return 'month'
+            },
+        ],
     }),
     forms(({ actions, props, values }) => ({
         survey: {
@@ -1229,6 +1334,35 @@ export const surveyLogic = kea<surveyLogicType>([
                     questions: questions.map((question) => {
                         const questionErrors = {
                             question: !question.question && 'Please enter a question label.',
+                        }
+
+                        if (question.type === SurveyQuestionType.Link) {
+                            if (question.link) {
+                                if (question.link.startsWith('mailto:')) {
+                                    const emailRegex = /^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+                                    if (!emailRegex.test(question.link)) {
+                                        return {
+                                            ...questionErrors,
+                                            link: 'Please enter a valid mailto link (e.g., mailto:example@domain.com).',
+                                        }
+                                    }
+                                } else {
+                                    try {
+                                        const url = new URL(question.link)
+                                        if (url.protocol !== 'https:') {
+                                            return {
+                                                ...questionErrors,
+                                                link: 'Only HTTPS links are supported for security reasons.',
+                                            }
+                                        }
+                                    } catch {
+                                        return {
+                                            ...questionErrors,
+                                            link: 'Please enter a valid HTTPS URL.',
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         if (question.type === SurveyQuestionType.Rating) {

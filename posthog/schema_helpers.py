@@ -72,6 +72,7 @@ def to_dict(query: BaseModel) -> dict:
                                 "showMean",
                                 "yAxisScaleType",
                                 "showMultipleYAxes",
+                                "goalLines",
                             ]
                         }
 

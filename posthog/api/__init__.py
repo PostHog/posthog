@@ -32,6 +32,7 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    file_system,
     hog,
     hog_function,
     hog_function_template,
@@ -209,6 +210,8 @@ projects_router.register(
     "project_scheduled_changes",
     ["project_id"],
 )
+
+projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_systen", ["project_id"])
 
 environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
     r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]

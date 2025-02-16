@@ -1,10 +1,17 @@
-import { actions, kea, key, listeners, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
-import { QueryBasedInsightModel } from '~/types'
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    GoalLine,
+    InsightsThresholdBounds,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
+import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
 import { AlertType, AlertTypeWrite } from './types'
@@ -40,6 +47,17 @@ export interface AlertFormLogicProps {
     alert: AlertType | null
     insightId: QueryBasedInsightModel['id']
     onEditSuccess: () => void
+    insightVizDataLogicProps?: InsightLogicProps
+}
+
+const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
+    if (goalLines == null || goalLines.length == 0) {
+        return {}
+    }
+
+    // Simple assumption that the alert should be triggered when the first/smallest goal line is crossed
+    const smallerValue = Math.min(...goalLines.map((line) => line.value))
+    return { upper: smallerValue }
 }
 
 export const alertFormLogic = kea<alertFormLogicType>([
@@ -47,19 +65,23 @@ export const alertFormLogic = kea<alertFormLogicType>([
     props({} as AlertFormLogicProps),
     key(({ alert }) => alert?.id ?? 'new'),
 
+    connect((props: AlertFormLogicProps) => ({
+        values: [trendsDataLogic(props.insightVizDataLogicProps ?? { dashboardId: undefined }), ['goalLines']],
+    })),
+
     actions({
         deleteAlert: true,
         snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
         clearSnooze: true,
     }),
 
-    forms(({ props }) => ({
+    forms(({ props, values }) => ({
         alertForm: {
             defaults:
                 props.alert ??
                 ({
                     id: undefined,
-                    name: '',
+                    name: values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
                     created_by: null,
                     created_at: '',
                     enabled: true,
@@ -68,7 +90,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         series_index: 0,
                         check_ongoing_interval: false,
                     },
-                    threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
+                    threshold: {
+                        configuration: {
+                            type: InsightThresholdType.ABSOLUTE,
+                            bounds: getThresholdBounds(values.goalLines),
+                        },
+                    },
                     condition: {
                         type: AlertConditionType.ABSOLUTE_VALUE,
                     },

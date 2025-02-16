@@ -5,6 +5,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { BatchExportBackfill } from '~/types'
 
@@ -89,7 +90,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                             const color = colorForStatus(status)
                             const statusStyles = {
                                 success: 'border-success text-success-dark',
-                                primary: 'border-primary text-primary-dark',
+                                'accent-primary': 'border-accent-primary text-primary-dark',
                                 warning: 'border-warning text-warning-dark',
                                 danger: 'border-danger text-danger-dark',
                                 default: 'border-default text-default-dark',
@@ -107,13 +108,45 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         },
                     },
                     {
+                        title: 'Progress',
+                        key: 'progress',
+                        render: (_, backfill) => {
+                            const status = backfill.status
+                            const color = colorForStatus(status)
+                            const progress = backfill.progress
+                            if (progress && progress.progress !== null && progress.progress !== undefined) {
+                                let label = ''
+                                if (
+                                    progress.finished_runs !== null &&
+                                    progress.finished_runs !== undefined &&
+                                    progress.total_runs
+                                ) {
+                                    const runsLabel = progress.total_runs === 1 ? 'run' : 'runs'
+                                    label = `(${progress.finished_runs}/${progress.total_runs} ${runsLabel})`
+                                }
+
+                                return (
+                                    <span className="flex items-center gap-2">
+                                        <LemonProgress
+                                            percent={progress.progress * 100}
+                                            strokeColor={`var(--${color})`}
+                                            className="min-w-[80px]"
+                                        />
+                                        <span className="whitespace-nowrap flex-shrink-0">{label}</span>
+                                    </span>
+                                )
+                            }
+                            return ''
+                        },
+                    },
+                    {
                         title: 'ID',
                         key: 'runId',
                         render: (_, backfill) => backfill.id,
                     },
                     {
-                        title: 'Backfill interval start',
-                        key: 'backfillIntervalStart',
+                        title: 'Interval start',
+                        key: 'intervalStart',
                         tooltip: 'Start of the time range to backfill',
                         render: (_, backfill) => {
                             return backfill.start_at ? (
@@ -124,8 +157,8 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         },
                     },
                     {
-                        title: 'Backfill interval end',
-                        key: 'backfillIntervalEnd',
+                        title: 'Interval end',
+                        key: 'intervalEnd',
                         tooltip: 'End of the time range to backfill',
                         render: (_, backfill) => {
                             return backfill.end_at ? (
@@ -136,19 +169,14 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         },
                     },
                     {
-                        title: 'Total runs',
-                        key: 'totalRuns',
-                        render: (_, backfill) => backfill.total_runs,
-                    },
-                    {
-                        title: 'Backfill started',
-                        key: 'backfillStarted',
+                        title: 'Started',
+                        key: 'started',
                         tooltip: 'Date and time when this BatchExport backfill started',
                         render: (_, backfill) => (backfill.created_at ? <TZLabel time={backfill.created_at} /> : ''),
                     },
                     {
-                        title: 'Backfill finished',
-                        key: 'backfillFinished',
+                        title: 'Finished',
+                        key: 'finished',
                         tooltip: 'Date and time when this BatchExport backfill finished',
                         render: (_, backfill) => (backfill.finished_at ? <TZLabel time={backfill.finished_at} /> : ''),
                     },
@@ -220,14 +248,14 @@ function BackfillCancelButton({
 
 const colorForStatus = (
     status: BatchExportBackfill['status']
-): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
+): 'success' | 'accent-primary' | 'warning' | 'danger' | 'default' => {
     switch (status) {
         case 'Completed':
             return 'success'
         case 'ContinuedAsNew':
         case 'Running':
         case 'Starting':
-            return 'primary'
+            return 'accent-primary'
         case 'Cancelled':
         case 'Terminated':
         case 'TimedOut':
