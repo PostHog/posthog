@@ -21,7 +21,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, downloadFile, objectsEqual, uuid } from 'lib/utils'
+import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
@@ -95,6 +95,15 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLo
 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
+
+function removeFromLocalStorageWithPrefix(prefix: string): void {
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key.startsWith(prefix)) {
+            localStorage.removeItem(key)
+        }
+    }
+}
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
@@ -575,6 +584,37 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         return urlTimestamp.url
                     }
                 }
+            },
+        ],
+        resolution: [
+            (s) => [s.sessionPlayerData, s.currentTimestamp, s.currentSegment],
+            (sessionPlayerData, currentTimestamp, currentSegment): { width: number; height: number } | null => {
+                // Find snapshot to pull resolution from
+                if (!currentTimestamp) {
+                    return null
+                }
+                const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment?.windowId ?? ''] ?? []
+
+                const currIndex = findLastIndex(
+                    snapshots,
+                    (s: eventWithTime) => s.timestamp < currentTimestamp && (s.data as any).width
+                )
+
+                if (currIndex === -1) {
+                    return null
+                }
+                const snapshot = snapshots[currIndex]
+                return {
+                    width: snapshot.data?.['width'],
+                    height: snapshot.data?.['height'],
+                }
+            },
+            {
+                resultEqualityCheck: (prev, next) => {
+                    // Only update if the resolution values have changed (not the object reference)
+                    // stops PlayerMeta from re-rendering on every player position
+                    return objectsEqual(prev, next)
+                },
             },
         ],
     }),
@@ -1113,15 +1153,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            // TODO how to clean these up!
-            const key = 'ph_replay_fixed_heatmap_' + uuid()
+            const keyPrefix = 'ph_replay_fixed_heatmap_'
+            removeFromLocalStorageWithPrefix(keyPrefix)
+            const key = keyPrefix + uuid()
             const data: ReplayIframeData = {
                 html: iframeHtml,
-                width: parseFloat(iframe.width), // NB this should be meta width
-                height: parseFloat(iframe.height), // NB this should be meta height
+                width: values.resolution.width,
+                height: values.resolution.height,
                 startDateTime: values.sessionPlayerMetaData?.start_time,
                 url: values.currentURL,
-                createdAt: now().toISOString(),
             }
             localStorage.setItem(key, JSON.stringify(data))
             router.actions.push(urls.heatmaps(`iframeStorage=${key}`))

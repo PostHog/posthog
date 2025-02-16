@@ -6,7 +6,6 @@ import { windowValues } from 'kea-window-values'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { HeatmapJsData, HeatmapJsDataPoint } from 'lib/components/heatmaps/types'
 import { createVersionChecker } from 'lib/utils/semver'
 import { PostHog } from 'posthog-js'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
@@ -63,6 +62,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'loadHeatmap',
                 'loadHeatmapSuccess',
                 'loadHeatmapFailure',
+                'setHeatmapScrollY',
             ],
         ],
     }),
@@ -72,7 +72,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         }),
         enableHeatmap: true,
         disableHeatmap: true,
-        setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         toggleClickmapsEnabled: (enabled?: boolean) => ({ enabled }),
 
         loadMoreElementStats: true,
@@ -80,7 +79,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         loadAllEnabled: (delayMs: number = 0) => ({ delayMs }),
         maybeLoadClickmap: (delayMs: number = 0) => ({ delayMs }),
         maybeLoadHeatmap: (delayMs: number = 0) => ({ delayMs }),
-        setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -103,23 +101,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 getElementStatsFailure: () => false,
             },
         ],
-        shiftPressed: [
-            false,
-            {
-                setShiftPressed: (_, { shiftPressed }) => shiftPressed,
-            },
-        ],
         clickmapsEnabled: [
             false,
             { persist: true },
             {
                 toggleClickmapsEnabled: (state, { enabled }) => (enabled === undefined ? !state : enabled),
-            },
-        ],
-        heatmapScrollY: [
-            0,
-            {
-                setHeatmapScrollY: (_, { scrollY }) => scrollY,
             },
         ],
     }),
@@ -340,38 +326,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 return !isSupported ? 'version' : isDisabled ? 'disabled' : null
             },
         ],
-
-        heatmapJsData: [
-            (s) => [s.heatmapElements, s.heatmapScrollY, s.windowWidth, s.heatmapFixedPositionMode],
-            (heatmapElements, heatmapScrollY, windowWidth, heatmapFixedPositionMode): HeatmapJsData => {
-                // We want to account for all the fixed position elements, the scroll of the context and the browser width
-                const data = heatmapElements.reduce((acc, element) => {
-                    if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
-                        return acc
-                    }
-
-                    const y = Math.round(
-                        element.targetFixed && heatmapFixedPositionMode === 'fixed'
-                            ? element.y
-                            : element.y - heatmapScrollY
-                    )
-                    const x = Math.round(element.xPercentage * windowWidth)
-
-                    return [...acc, { x, y, value: element.count }]
-                }, [] as HeatmapJsDataPoint[])
-
-                // Max is the highest value in the data set we have
-                const max = data.reduce((max, { value }) => Math.max(max, value), 0)
-
-                // TODO: Group based on some sensible resolutions (we can then use this for a hover state to show more detail)
-
-                return {
-                    min: 0,
-                    max,
-                    data,
-                }
-            },
-        ],
     })),
     subscriptions(({ actions }) => ({
         viewportRange: () => {
@@ -379,42 +333,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        // fetchHeatmapApi: async () => {
-        //     const { href, wildcardHref } = values
-        //     const { date_from, date_to } = values.commonFilters
-        //     const { type, aggregation } = values.heatmapFilters
-        //     const urlExact = wildcardHref === href ? href : undefined
-        //     const urlRegex = wildcardHref !== href ? wildcardHref : undefined
-        //
-        //     // toolbar fetch collapses queryparams but this URL has multiple with the same name
-        //     const response = await toolbarFetch(
-        //         `/api/heatmap/${encodeParams(
-        //             {
-        //                 type,
-        //                 date_from,
-        //                 date_to,
-        //                 url_exact: urlExact,
-        //                 url_pattern: urlRegex,
-        //                 viewport_width_min: values.viewportRange.min,
-        //                 viewport_width_max: values.viewportRange.max,
-        //                 aggregation,
-        //             },
-        //             '?'
-        //         )}`,
-        //         'GET'
-        //     )
-        //
-        //     if (response.status === 403) {
-        //         toolbarConfigLogic.actions.authenticate()
-        //     }
-        //
-        //     if (response.status !== 200) {
-        //         throw new Error('API error')
-        //     }
-        //
-        //     return await response.json()
-        // },
-
         enableHeatmap: () => {
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
@@ -485,18 +403,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     afterMount(({ actions, values, cache }) => {
         actions.loadAllEnabled()
-        cache.keyDownListener = (event: KeyboardEvent) => {
-            if (event.shiftKey && !values.shiftPressed) {
-                actions.setShiftPressed(true)
-            }
-        }
-        cache.keyUpListener = (event: KeyboardEvent) => {
-            if (!event.shiftKey && values.shiftPressed) {
-                actions.setShiftPressed(false)
-            }
-        }
-        window.addEventListener('keydown', cache.keyDownListener)
-        window.addEventListener('keyup', cache.keyUpListener)
 
         cache.scrollCheckTimer = setInterval(() => {
             const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0

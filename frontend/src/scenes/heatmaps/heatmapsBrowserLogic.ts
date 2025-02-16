@@ -39,7 +39,6 @@ export interface ReplayIframeData {
     height: number // NB this should be meta height
     startDateTime: string | undefined
     url: string | undefined
-    createdAt: string
 }
 
 // team id is always available on window

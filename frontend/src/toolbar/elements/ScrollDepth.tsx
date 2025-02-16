@@ -1,10 +1,10 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useMousePosition } from 'lib/components/heatmaps/useMousePosition'
 
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
-import { useMousePosition } from './useMousePosition'
 
 function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)

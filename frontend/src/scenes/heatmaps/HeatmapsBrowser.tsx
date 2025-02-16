@@ -5,6 +5,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
@@ -242,6 +243,7 @@ function FixedReplayHeatmapBrowser({
             <div className="relative flex-1 w-full h-full">
                 {/*{loading ? <LoadingOverlay /> : null}*/}
                 {/*{!loading && iframeBanner ? <IframeErrorOverlay /> : null}*/}
+                <HeatmapCanvas positioning="absolute" />
                 <iframe
                     ref={iframeRef}
                     className="w-full h-full bg-white"

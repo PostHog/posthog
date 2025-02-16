@@ -6,6 +6,8 @@ import {
     CommonFilters,
     HeatmapFilters,
     HeatmapFixedPositionMode,
+    HeatmapJsData,
+    HeatmapJsDataPoint,
     HeatmapRequestType,
 } from 'lib/components/heatmaps/types'
 import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
@@ -16,6 +18,8 @@ import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { FilterType } from '~/types'
 
+import type { heatmapDataLogicType } from './heatmapDataLogicType'
+
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
     { value: 'red', label: 'Red (monocolor)' },
@@ -23,15 +27,13 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'blue', label: 'Blue (monocolor)' },
 ]
 
-export const heatmapDataLogic = kea([
+export const heatmapDataLogic = kea<heatmapDataLogicType>([
     path(['lib', 'components', 'heatmap', 'heatmapDataLogic']),
     actions({
         setCommonFilters: (filters: CommonFilters) => ({ filters }),
         setHeatmapFilters: (filters: HeatmapFilters) => ({ filters }),
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
-        loadHeatmap: (type: string) => ({
-            type,
-        }),
+        loadHeatmap: true,
         fetchHeatmapApi: (params: HeatmapRequestType) => ({ params }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
@@ -40,6 +42,7 @@ export const heatmapDataLogic = kea([
             match,
         }),
         setFetchFn: (fetchFn: 'native' | 'toolbar') => ({ fetchFn }),
+        setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -93,6 +96,12 @@ export const heatmapDataLogic = kea([
                 setUrlMatch: (_, { match }) => match,
             },
         ],
+        heatmapScrollY: [
+            0,
+            {
+                setHeatmapScrollY: (_, { scrollY }) => scrollY,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         rawHeatmap: [
@@ -144,6 +153,7 @@ export const heatmapDataLogic = kea([
                 return dateFilterToText(commonFilters.date_from, commonFilters.date_to, 'Last 7 days')
             },
         ],
+
         heatmapElements: [
             (s) => [s.rawHeatmap],
             (rawHeatmap): HeatmapElement[] => {
@@ -187,6 +197,38 @@ export const heatmapDataLogic = kea([
                     return 'visitors'
                 }
                 return heatmapFilters.type + 's'
+            },
+        ],
+
+        heatmapJsData: [
+            (s) => [s.heatmapElements, s.heatmapScrollY, s.windowWidth, s.heatmapFixedPositionMode],
+            (heatmapElements, heatmapScrollY, windowWidth, heatmapFixedPositionMode): HeatmapJsData => {
+                // We want to account for all the fixed position elements, the scroll of the context and the browser width
+                const data = heatmapElements.reduce((acc, element) => {
+                    if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
+                        return acc
+                    }
+
+                    const y = Math.round(
+                        element.targetFixed && heatmapFixedPositionMode === 'fixed'
+                            ? element.y
+                            : element.y - heatmapScrollY
+                    )
+                    const x = Math.round(element.xPercentage * windowWidth)
+
+                    return [...acc, { x, y, value: element.count }]
+                }, [] as HeatmapJsDataPoint[])
+
+                // Max is the highest value in the data set we have
+                const max = data.reduce((max, { value }) => Math.max(max, value), 0)
+
+                // TODO: Group based on some sensible resolutions (we can then use this for a hover state to show more detail)
+
+                return {
+                    min: 0,
+                    max,
+                    data,
+                }
             },
         ],
     }),
