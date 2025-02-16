@@ -67,13 +67,13 @@ const SectionSetting = ({
 }
 
 interface HeatmapsSettingsProps {
-    heatmapFilters: HeatmapFilters
-    patchHeatmapFilters: (filter: Partial<HeatmapFilters>) => void
-    viewportRange: { min: number; max: number }
-    heatmapColorPalette: string | null
-    setHeatmapColorPalette: (palette: string | null) => void
-    heatmapFixedPositionMode: HeatmapFixedPositionMode
-    setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => void
+    heatmapFilters?: HeatmapFilters
+    patchHeatmapFilters?: (filter: Partial<HeatmapFilters>) => void
+    viewportRange?: { min: number; max: number }
+    heatmapColorPalette?: string | null
+    setHeatmapColorPalette?: (palette: string | null) => void
+    heatmapFixedPositionMode?: HeatmapFixedPositionMode
+    setHeatmapFixedPositionMode?: (mode: HeatmapFixedPositionMode) => void
 }
 
 export const HeatmapsSettings = ({
@@ -102,8 +102,8 @@ export const HeatmapsSettings = ({
             >
                 <div className="flex gap-2 justify-between items-center">
                     <LemonSelect
-                        onChange={(e) => patchHeatmapFilters({ type: e })}
-                        value={heatmapFilters.type ?? undefined}
+                        onChange={(e) => patchHeatmapFilters?.({ type: e })}
+                        value={heatmapFilters?.type ?? undefined}
                         options={[
                             {
                                 value: 'click',
@@ -129,7 +129,7 @@ export const HeatmapsSettings = ({
                         size="small"
                     />
 
-                    {heatmapFilters.type === 'scrolldepth' && <ScrollDepthJSWarning />}
+                    {heatmapFilters?.type === 'scrolldepth' && <ScrollDepthJSWarning />}
                 </div>
             </SectionSetting>
 
@@ -144,8 +144,8 @@ export const HeatmapsSettings = ({
             >
                 <div className="flex gap-2 justify-between items-center">
                     <LemonSegmentedButton
-                        onChange={(e) => patchHeatmapFilters({ aggregation: e })}
-                        value={heatmapFilters.aggregation ?? 'total_count'}
+                        onChange={(e) => patchHeatmapFilters?.({ aggregation: e })}
+                        value={heatmapFilters?.aggregation ?? 'total_count'}
                         options={[
                             {
                                 value: 'total_count',
@@ -181,12 +181,12 @@ export const HeatmapsSettings = ({
                         min={0}
                         max={1}
                         step={0.01}
-                        value={heatmapFilters.viewportAccuracy ?? 0}
-                        onChange={(value) => patchHeatmapFilters({ viewportAccuracy: value })}
+                        value={heatmapFilters?.viewportAccuracy ?? 0}
+                        onChange={(value) => patchHeatmapFilters?.({ viewportAccuracy: value })}
                     />
                     <code className="w-[12rem] text-right text-xs whitsepace-nowrap">
-                        {`${Math.round((heatmapFilters.viewportAccuracy ?? 1) * 100)}% (${viewportRange.min}px - ${
-                            viewportRange.max
+                        {`${Math.round((heatmapFilters?.viewportAccuracy ?? 1) * 100)}% (${viewportRange?.min}px - ${
+                            viewportRange?.max
                         }px)`}
                     </code>
                 </div>
@@ -201,7 +201,7 @@ export const HeatmapsSettings = ({
                 />
             </SectionSetting>
 
-            {heatmapFilters.type !== 'scrolldepth' && (
+            {heatmapFilters?.type !== 'scrolldepth' && (
                 <SectionSetting
                     title="Fixed positioning calculation"
                     info={

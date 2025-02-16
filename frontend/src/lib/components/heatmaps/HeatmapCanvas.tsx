@@ -9,13 +9,15 @@ import { useMousePosition } from './useMousePosition'
 
 function HeatmapMouseInfo({
     heatmapJsRef,
+    containerRef,
 }: {
     heatmapJsRef: MutableRefObject<HeatmapJS<'value', 'x', 'y'> | undefined>
+    containerRef: MutableRefObject<HTMLDivElement | null | undefined>
 }): JSX.Element | null {
     const shiftPressed = useShiftKeyPressed()
     const { heatmapTooltipLabel } = useValues(heatmapDataLogic)
 
-    const mousePosition = useMousePosition()
+    const mousePosition = useMousePosition(containerRef?.current)
     const value = heatmapJsRef.current?.getValueAt(mousePosition)
 
     if (!mousePosition || (!value && !shiftPressed)) {
@@ -122,7 +124,7 @@ export function HeatmapCanvas({ positioning = 'fixed' }: { positioning?: 'absolu
         <div className={clsx('inset-0 overflow-hidden w-full h-full', positioning)}>
             {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas */}
             <div key={`${windowWidth}x${windowHeight}`} className="absolute inset-0" ref={setHeatmapContainer} />
-            <HeatmapMouseInfo heatmapJsRef={heatmapsJsRef} />
+            <HeatmapMouseInfo heatmapJsRef={heatmapsJsRef} containerRef={heatmapsJsContainerRef} />
         </div>
     )
 }

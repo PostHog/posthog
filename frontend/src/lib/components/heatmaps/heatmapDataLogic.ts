@@ -8,7 +8,6 @@ import {
     HeatmapFixedPositionMode,
     HeatmapJsData,
     HeatmapJsDataPoint,
-    HeatmapRequestType,
 } from 'lib/components/heatmaps/types'
 import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
@@ -30,11 +29,10 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
 export const heatmapDataLogic = kea<heatmapDataLogicType>([
     path(['lib', 'components', 'heatmap', 'heatmapDataLogic']),
     actions({
+        loadHeatmap: true,
         setCommonFilters: (filters: CommonFilters) => ({ filters }),
         setHeatmapFilters: (filters: HeatmapFilters) => ({ filters }),
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
-        loadHeatmap: true,
-        fetchHeatmapApi: (params: HeatmapRequestType) => ({ params }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
         setHref: (href: string) => ({ href }),
@@ -108,7 +106,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             null as HeatmapResponseType | null,
             {
                 resetHeatmapData: () => ({ results: [] }),
-                loadHeatmap: async () => {
+                loadHeatmap: async (_, breakpoint) => {
                     const href = values.href
                     const matchType = values.urlMatch
                     const { date_from, date_to } = values.commonFilters
@@ -131,6 +129,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         '?'
                     )}`
 
+                    breakpoint()
                     const response = await (values.fetchFn === 'toolbar' ? toolbarFetch(apiURL, 'GET') : fetch(apiURL))
 
                     if (response.status === 403) {
@@ -233,9 +232,23 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        fetchHeatmapApi: ({ params }) => {
-            // TODO need to be able to pass or set these params
-            actions.loadHeatmap(params.type)
+        setCommonFilters: () => {
+            actions.loadHeatmap()
+        },
+        setHeatmapFilters: () => {
+            actions.loadHeatmap()
+        },
+        patchHeatmapFilters: () => {
+            actions.loadHeatmap()
+        },
+        setHeatmapFixedPositionMode: () => {
+            actions.loadHeatmap()
+        },
+        setHeatmapColorPalette: () => {
+            actions.loadHeatmap()
+        },
+        setHref: () => {
+            actions.loadHeatmap()
         },
     })),
 ])
