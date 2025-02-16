@@ -48,7 +48,7 @@ export const functionsTableLogic = kea<functionsTableLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: pagination?
-                    return (await api.hogFunctions.list(undefined, props.type ?? 'destination')).results
+                    return (await api.hogFunctions.list({ types: [props.type ?? 'destination'] })).results
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({

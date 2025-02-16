@@ -8,7 +8,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { EditorFilterProps, FilterType } from '~/types'
 

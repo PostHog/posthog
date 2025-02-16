@@ -31,9 +31,6 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import { NodeKind, RevenueTrackingConfig } from '~/queries/schema'
-import { QueryContext } from '~/queries/types'
-
 import type {
     DashboardFilter,
     DatabaseSchemaField,
@@ -45,10 +42,13 @@ import type {
     HogQLVariable,
     InsightVizNode,
     Node,
+    NodeKind,
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
-} from './queries/schema'
+    RevenueTrackingConfig,
+} from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */

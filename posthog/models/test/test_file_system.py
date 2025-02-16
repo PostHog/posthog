@@ -28,7 +28,7 @@ class TestFileSystemModel(TestCase):
         ff = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
         Dashboard.objects.create(team=self.team, name="Main Dashboard", created_by=self.user)
-        Insight.objects.create(team=self.team, name="Traffic Insight", created_by=self.user)
+        Insight.objects.create(team=self.team, name="Traffic Insight", created_by=self.user, saved=True)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
 
         unfiled = get_unfiled_files(self.team, self.user)
@@ -69,8 +69,8 @@ class TestFileSystemModel(TestCase):
         """
         Insights with deleted=True should NOT appear as unfiled.
         """
-        Insight.objects.create(team=self.team, name="Active Insight", created_by=self.user, deleted=False)
-        Insight.objects.create(team=self.team, name="Deleted Insight", created_by=self.user, deleted=True)
+        Insight.objects.create(team=self.team, name="Active Insight", created_by=self.user, deleted=False, saved=True)
+        Insight.objects.create(team=self.team, name="Deleted Insight", created_by=self.user, deleted=True, saved=True)
         unfiled = get_unfiled_files(self.team, self.user)
         # Only the active insight is returned
         self.assertEqual(len(unfiled), 1)

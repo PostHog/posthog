@@ -23,7 +23,7 @@ import {
     MatchingEventsMatchType,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
-import { RecordingsQuery } from '~/queries/schema'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
 import {
     FilterableInspectorListItemTypes,
     MatchedRecordingEvent,

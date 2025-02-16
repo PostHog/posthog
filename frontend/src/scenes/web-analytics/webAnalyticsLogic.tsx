@@ -1929,7 +1929,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         event_names: ['$pageview'],
                         properties: ['$geoip_country_code'],
                     }),
-                    api.hogFunctions.list({ type: 'transformation' }),
+                    api.hogFunctions.list({ types: ['transformation'] }),
                 ])
 
                 const hasNonStaleCountryCodeDefinition =

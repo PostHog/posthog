@@ -9,7 +9,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'

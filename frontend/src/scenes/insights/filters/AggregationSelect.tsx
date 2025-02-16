@@ -6,7 +6,7 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightQueryNode, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
