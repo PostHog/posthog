@@ -688,12 +688,6 @@ function SurveyNPSResults({
                                     operator: PropertyOperator.Exact,
                                     value: survey.id,
                                 },
-                                {
-                                    type: PropertyFilterType.Event,
-                                    key: '$survey_iteration',
-                                    operator: PropertyOperator.Exact,
-                                    value: survey.current_iteration,
-                                },
                             ],
                             trendsFilter: {
                                 formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
