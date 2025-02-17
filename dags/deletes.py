@@ -9,9 +9,7 @@ from dagster import (
     OpExecutionContext,
     Config,
     MetadataValue,
-    InitResourceContext,
     ResourceParam,
-    ConfigurableResource,
 )
 from django.conf import settings
 from functools import partial
@@ -22,28 +20,10 @@ from posthog.clickhouse.cluster import (
     Mutation,
     MutationRunner,
     NodeRole,
-    get_cluster,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
-
-
-class ClickhouseClusterResource(ConfigurableResource):
-    """
-    The ClickHouse cluster used to run the job.
-    """
-
-    client_settings: dict[str, str] = {
-        "max_execution_time": "0",
-        "max_memory_usage": "0",
-        "receive_timeout": f"{24 * 60 * 60}",  # wait 24 hours for a response from CH
-        "mutations_sync": "0",
-        "lightweight_deletes_sync": "0",
-    }
-
-    def create_resource(self, context: InitResourceContext) -> ClickhouseCluster:
-        return get_cluster(context.log, client_settings=self.client_settings)
 
 
 class DeleteConfig(Config):
@@ -276,7 +256,7 @@ def get_oldest_person_override_timestamp(
     query = f"""
     SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
     """
-    [[result]] = cluster.any_host_by_role(lambda client: client.execute(query), NodeRole.WORKER).result()
+    [[result]] = cluster.any_host_by_role(lambda client: client.execute(query), NodeRole.DATA).result()
     return result
 
 
