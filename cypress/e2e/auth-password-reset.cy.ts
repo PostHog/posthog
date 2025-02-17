@@ -1,3 +1,5 @@
+// PD - migrated to playwright
+
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
 describe('Password Reset', () => {

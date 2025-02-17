@@ -28,7 +28,7 @@ import { hexToRGBA } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
-import { ChartSettings, YAxisSettings } from '~/queries/schema'
+import { ChartSettings, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
 
 import {
@@ -209,7 +209,7 @@ export const LineGraph = (): JSX.Element => {
             (acc, cur, curIndex) => {
                 const line: LineAnnotationOptions = {
                     label: {
-                        display: true,
+                        display: cur.displayLabel ?? true,
                         content: cur.label,
                         position: 'end',
                     },

@@ -35,6 +35,7 @@ export class HogFunctionManagerService {
 
     private pubSub: PubSub
     private refreshJob?: schedule.Job
+    private refreshIntegrationsJob?: schedule.Job
     private hogTypes: HogFunctionTypeType[] = []
     private lastUpdatedAt: string | null = null
 
@@ -75,6 +76,13 @@ export class HogFunctionManagerService {
                 status.error('🍿', 'Error reloading hog functions:', error)
             })
         })
+
+        // every 1 minute we reload all updated hog functions
+        this.refreshIntegrationsJob = schedule.scheduleJob('*/5 * * * *', async () => {
+            await this.reloadAllIntegrations().catch((error) => {
+                status.error('🍿', 'Error reloading integrations:', error)
+            })
+        })
         this.ready = true
     }
 
@@ -82,7 +90,9 @@ export class HogFunctionManagerService {
         if (this.refreshJob) {
             schedule.cancelJob(this.refreshJob)
         }
-
+        if (this.refreshIntegrationsJob) {
+            schedule.cancelJob(this.refreshIntegrationsJob)
+        }
         await this.pubSub.stop()
     }
 
@@ -224,6 +234,11 @@ export class HogFunctionManagerService {
         return this.enrichWithIntegrations(itemsToReload)
     }
 
+    public async reloadAllIntegrations(): Promise<void> {
+        // Reload all integrations for all hog functions in use
+        await this.enrichWithIntegrations(Object.values(this.hogFunctions).filter((x) => !!x) as HogFunctionType[])
+    }
+
     public sanitize(items: HogFunctionType[]): void {
         items.forEach((item) => {
             const encryptedInputsString = item.encrypted_inputs as string | undefined
@@ -264,7 +279,7 @@ export class HogFunctionManagerService {
             })
         })
 
-        if (!items.length) {
+        if (!integrationIds.length) {
             return
         }
 

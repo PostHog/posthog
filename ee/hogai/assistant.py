@@ -143,11 +143,13 @@ class Assistant:
             state = self._graph.get_state(config)
             if state.next:
                 interrupt_value = state.tasks[0].interrupts[0].value
-                yield self._serialize_message(
+                feedback_message = (
                     AssistantMessage(content=interrupt_value, id=str(uuid4()))
                     if isinstance(interrupt_value, str)
                     else interrupt_value
                 )
+                self._graph.update_state(config, PartialAssistantState(messages=[feedback_message]))
+                yield self._serialize_message(feedback_message)
             else:
                 self._report_conversation_state(last_viz_message)
         except Exception as e:
