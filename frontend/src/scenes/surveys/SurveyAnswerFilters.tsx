@@ -1,6 +1,8 @@
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getPropertyKey } from 'lib/taxonomy'
 import { allOperatorsMapping } from 'lib/utils'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { getSurveyResponseKey } from 'scenes/surveys/utils'
@@ -125,7 +127,15 @@ export function SurveyAnswerFilters(): JSX.Element {
                                                         : 'Enter text to match'
                                                 }
                                                 eventNames={['survey sent']}
-                                                additionalPropertiesFilter={[{ key: '$survey_id', values: survey.id }]}
+                                                additionalPropertiesFilter={[
+                                                    {
+                                                        key: getPropertyKey(
+                                                            '$survey_id',
+                                                            TaxonomicFilterGroupType.Events
+                                                        ),
+                                                        values: survey.id,
+                                                    },
+                                                ]}
                                             />
                                         )}
                                 </div>
