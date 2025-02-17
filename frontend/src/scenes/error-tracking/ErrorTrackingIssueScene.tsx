@@ -35,7 +35,7 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, initIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { updateIssue, initIssue, assignIssue } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
         initIssue()
@@ -51,7 +51,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 <div className="flex divide-x gap-x-2">
                                     <AssigneeSelect
                                         assignee={issue.assignee}
-                                        onChange={(assignee) => updateIssue({ assignee })}
+                                        onChange={assignIssue}
                                         type="secondary"
                                         showName
                                     />
