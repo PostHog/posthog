@@ -147,7 +147,11 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
+class TeamBaseModelSerializer(
+    serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
+):
+    """Base serializer for Team model with common validation and fields."""
+
     instance: Optional[Team]
 
     effective_membership_level = serializers.SerializerMethodField()
@@ -156,91 +160,62 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
 
-    class Meta:
-        model = Team
-        fields = (
-            "id",
-            "uuid",
-            "organization",
-            "project_id",
-            "api_token",
-            "app_urls",
-            "name",
-            "slack_incoming_webhook",
-            "created_at",
-            "updated_at",
-            "anonymize_ips",
-            "completed_snippet_onboarding",
-            "ingested_event",
-            "test_account_filters",
-            "test_account_filters_default_checked",
-            "path_cleaning_filters",
-            "is_demo",
-            "timezone",
-            "data_attributes",
-            "person_display_name_properties",
-            "correlation_config",
-            "autocapture_opt_out",
-            "autocapture_exceptions_opt_in",
-            "autocapture_web_vitals_opt_in",
-            "autocapture_web_vitals_allowed_metrics",
-            "autocapture_exceptions_errors_to_ignore",
-            "capture_console_log_opt_in",
-            "capture_performance_opt_in",
-            "session_recording_opt_in",
-            "session_recording_sample_rate",
-            "session_recording_minimum_duration_milliseconds",
-            "session_recording_linked_flag",
-            "session_recording_network_payload_capture_config",
-            "session_recording_url_trigger_config",
-            "session_recording_url_blocklist_config",
-            "session_recording_event_trigger_config",
-            "session_replay_config",
-            "survey_config",
-            "effective_membership_level",
-            "access_control",
-            "week_start_day",
-            "has_group_types",
-            "primary_dashboard",
-            "live_events_columns",
-            "recording_domains",
-            "cookieless_server_hash_mode",
-            "human_friendly_comparison_periods",
-            "person_on_events_querying_enabled",
-            "inject_web_apps",
-            "extra_settings",
-            "modifiers",
-            "default_modifiers",
-            "has_completed_onboarding_for",
-            "surveys_opt_in",
-            "heatmaps_opt_in",
-            "flags_persistence_default",
-            "live_events_token",
-            "product_intents",
-            "capture_dead_clicks",
-            "user_access_level",
-            "default_data_theme",
-            "revenue_tracking_config",
-            "access_control_version",
-            "onboarding_tasks",
-        )
-        read_only_fields = (
-            "id",
-            "uuid",
-            "organization",
-            "project_id",
-            "api_token",
-            "created_at",
-            "updated_at",
-            "ingested_event",
-            "effective_membership_level",
-            "has_group_types",
-            "default_modifiers",
-            "person_on_events_querying_enabled",
-            "live_events_token",
-            "user_access_level",
-            "access_control_version",
-        )
+    CONFIG_FIELDS = (
+        "app_urls",
+        "slack_incoming_webhook",
+        "anonymize_ips",
+        "completed_snippet_onboarding",
+        "test_account_filters",
+        "test_account_filters_default_checked",
+        "path_cleaning_filters",
+        "is_demo",
+        "timezone",
+        "data_attributes",
+        "person_display_name_properties",
+        "correlation_config",
+        "autocapture_opt_out",
+        "autocapture_exceptions_opt_in",
+        "autocapture_web_vitals_opt_in",
+        "autocapture_web_vitals_allowed_metrics",
+        "autocapture_exceptions_errors_to_ignore",
+        "capture_console_log_opt_in",
+        "capture_performance_opt_in",
+        "session_recording_opt_in",
+        "session_recording_sample_rate",
+        "session_recording_minimum_duration_milliseconds",
+        "session_recording_linked_flag",
+        "session_recording_network_payload_capture_config",
+        "session_recording_url_trigger_config",
+        "session_recording_url_blocklist_config",
+        "session_recording_event_trigger_config",
+        "session_replay_config",
+        "survey_config",
+        "week_start_day",
+        "primary_dashboard",
+        "live_events_columns",
+        "recording_domains",
+        "cookieless_server_hash_mode",
+        "human_friendly_comparison_periods",
+        "inject_web_apps",
+        "extra_settings",
+        "modifiers",
+        "has_completed_onboarding_for",
+        "surveys_opt_in",
+        "heatmaps_opt_in",
+        "flags_persistence_default",
+        "capture_dead_clicks",
+        "default_data_theme",
+        "revenue_tracking_config",
+        "onboarding_tasks",
+    )
+
+    COMPUTED_FIELDS = (
+        "effective_membership_level",
+        "has_group_types",
+        "live_events_token",
+        "product_intents",
+        "access_control_version",
+    )
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -478,6 +453,50 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return updated_team
 
 
+class TeamConfigSerializer(TeamBaseModelSerializer):
+    """This serializer for meant for updating team configuration settings - it has different permissions checks than TeamSerializer"""
+
+    class Meta:
+        model = Team
+        fields = TeamBaseModelSerializer.CONFIG_FIELDS
+
+
+class TeamSerializer(TeamBaseModelSerializer):
+    class Meta:
+        model = Team
+        fields = (
+            "id",
+            "uuid",
+            "name",
+            "organization",
+            "project_id",
+            "api_token",
+            "created_at",
+            "updated_at",
+            "access_control",
+            "product_intents",
+            "person_on_events_querying_enabled",
+            "default_modifiers",
+            "user_access_level",
+            *TeamBaseModelSerializer.CONFIG_FIELDS,
+            *TeamBaseModelSerializer.COMPUTED_FIELDS,
+        )
+
+        read_only_fields = (
+            "id",
+            "uuid",
+            "organization",
+            "project_id",
+            "api_token",
+            "created_at",
+            "updated_at",
+            "default_modifiers",
+            "person_on_events_querying_enabled",
+            "user_access_level",
+            *TeamBaseModelSerializer.COMPUTED_FIELDS,
+        )
+
+
 class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
@@ -591,6 +610,19 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         )
         # TRICKY: We pass in `team` here as access to `user.current_team` can fail if it was deleted
         report_user_action(user, f"team deleted", team=team)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["team:read"],
+        serializer_class=TeamConfigSerializer,
+    )
+    def config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        serializer = self.get_serializer(team, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
         methods=["PATCH"],
