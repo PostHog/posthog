@@ -306,7 +306,13 @@ def load_pending_person_deletions(
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
     if create_pending_person_deletions_table.is_reporting:
-        pending_deletions = AsyncDeletion.objects.all().values("team_id", "key", "created_at").iterator()
+        pending_deletions = (
+            AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+            )
+            .values("team_id", "key", "created_at")
+            .iterator()
+        )
     else:
         if not create_pending_person_deletions_table.team_id:
             pending_deletions = (
