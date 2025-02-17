@@ -9,7 +9,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
-from posthog.models.early_access_feature import EarlyAccessFeature
+from products.early_access_features.backend.models import EarlyAccessFeature
 from posthog.models.experiment import Experiment
 from posthog.models.feedback.survey import Survey
 from posthog.models.team.team import Team
@@ -130,6 +130,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "has_enriched_analytics": False,
             "tags": [],
             "user_access_level": "editor",
+            "is_remote_configuration": False,
+            "has_encrypted_payloads": False,
+            "status": "ACTIVE",
         }
 
         flag_response = response.json()["success"][0]
@@ -207,6 +210,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "features": ANY,
             "analytics_dashboards": ANY,
             "user_access_level": "editor",
+            "is_remote_configuration": False,
+            "has_encrypted_payloads": False,
+            "status": "ACTIVE",
         }
 
         flag_response = response.json()["success"][0]
@@ -328,6 +334,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "features": ANY,
             "analytics_dashboards": ANY,
             "user_access_level": "editor",
+            "is_remote_configuration": False,
+            "has_encrypted_payloads": False,
+            "status": "ACTIVE",
         }
         flag_response = response.json()["success"][0]
 

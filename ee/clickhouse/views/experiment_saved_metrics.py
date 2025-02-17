@@ -1,12 +1,14 @@
 import pydantic
+from django.db.models.functions import Lower
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
-from posthog.schema import ExperimentFunnelsQuery, ExperimentTrendsQuery
+from posthog.schema import ExperimentFunnelsQuery, ExperimentMetric, ExperimentQuery, ExperimentTrendsQuery
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
@@ -30,7 +32,7 @@ class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
         ]
 
 
-class ExperimentSavedMetricSerializer(serializers.ModelSerializer):
+class ExperimentSavedMetricSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -43,6 +45,7 @@ class ExperimentSavedMetricSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -57,14 +60,18 @@ class ExperimentSavedMetricSerializer(serializers.ModelSerializer):
 
         metric_query = value
 
-        if metric_query.get("kind") not in ["ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
-            raise ValidationError("Metric query kind must be 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'")
+        if metric_query.get("kind") not in ["ExperimentMetric", "ExperimentTrendsQuery", "ExperimentFunnelsQuery"]:
+            raise ValidationError(
+                "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
+            )
 
         # pydantic models are used to validate the query
         try:
-            if metric_query["kind"] == "ExperimentTrendsQuery":
+            if metric_query["kind"] == "ExperimentMetric":
+                ExperimentQuery(kind="ExperimentQuery", metric=ExperimentMetric(**metric_query))
+            elif metric_query["kind"] == "ExperimentTrendsQuery":
                 ExperimentTrendsQuery(**metric_query)
-            else:
+            elif metric_query["kind"] == "ExperimentFunnelsQuery":
                 ExperimentFunnelsQuery(**metric_query)
         except pydantic.ValidationError as e:
             raise ValidationError(str(e.errors())) from e
@@ -80,6 +87,5 @@ class ExperimentSavedMetricSerializer(serializers.ModelSerializer):
 
 class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
-    queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").all()
+    queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).all()
     serializer_class = ExperimentSavedMetricSerializer
-    ordering = "-created_at"

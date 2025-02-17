@@ -10,18 +10,25 @@ export interface LemonMarkdownProps {
     children: string
     /** Whether headings should just be <strong> text. Recommended for item descriptions. */
     lowKeyHeadings?: boolean
+    /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
+    disableDocsRedirect?: boolean
     className?: string
 }
 
 /** Beautifully rendered Markdown. */
-export function LemonMarkdown({ children, lowKeyHeadings = false, className }: LemonMarkdownProps): JSX.Element {
+export function LemonMarkdown({
+    children,
+    lowKeyHeadings = false,
+    disableDocsRedirect = false,
+    className,
+}: LemonMarkdownProps): JSX.Element {
     return (
         <div className={clsx('LemonMarkdown', className)}>
             {/* eslint-disable-next-line react/forbid-elements */}
             <ReactMarkdown
                 renderers={{
                     link: ({ href, children }) => (
-                        <Link to={href} target="_blank" targetBlankIcon>
+                        <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
                             {children}
                         </Link>
                     ),

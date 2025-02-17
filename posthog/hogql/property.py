@@ -184,13 +184,13 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.ILike,
-            left=expr,
+            left=ast.Call(name="toString", args=[expr]),
             right=ast.Constant(value=f"%{value}%"),
         )
     elif operator == PropertyOperator.NOT_ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotILike,
-            left=expr,
+            left=ast.Call(name="toString", args=[expr]),
             right=ast.Constant(value=f"%{value}%"),
         )
     elif operator == PropertyOperator.REGEX:
@@ -234,8 +234,31 @@ def _expr_to_compare_op(
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GTE:
         return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=apply_path_cleaning(expr, team),
+            right=apply_path_cleaning(ast.Constant(value=value), team),
+        )
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+
+
+def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
+    if not team.path_cleaning_filters:
+        return path_expr
+
+    for replacement in team.path_cleaning_filter_models():
+        path_expr = ast.Call(
+            name="replaceRegexpAll",
+            args=[
+                path_expr,
+                ast.Constant(value=replacement.regex),
+                ast.Constant(value=replacement.alias),
+            ],
+        )
+
+    return path_expr
 
 
 def property_to_expr(
@@ -509,10 +532,12 @@ def property_to_expr(
         cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
-            op=ast.CompareOperationOp.NotInCohort
-            # Kludge: negation is outdated but still used in places
-            if property.negation or property.operator == PropertyOperator.NOT_IN.value
-            else ast.CompareOperationOp.InCohort,
+            op=(
+                ast.CompareOperationOp.NotInCohort
+                # Kludge: negation is outdated but still used in places
+                if property.negation or property.operator == PropertyOperator.NOT_IN.value
+                else ast.CompareOperationOp.InCohort
+            ),
             right=ast.Constant(value=cohort.pk),
         )
 
@@ -588,6 +613,7 @@ def action_to_expr(action: Action) -> ast.Expr:
                             {"value": ast.Constant(value=value)},
                         )
                     )
+
         if step.url:
             if step.url_matching == "exact":
                 expr = parse_expr(
@@ -622,18 +648,25 @@ def action_to_expr(action: Action) -> ast.Expr:
         return ast.Or(exprs=or_queries)
 
 
-def entity_to_expr(entity: RetentionEntity) -> ast.Expr:
+def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         action = Action.objects.get(pk=entity.id)
         return action_to_expr(action)
     if entity.id is None:
         return ast.Constant(value=True)
 
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=["events", "event"]),
-        right=ast.Constant(value=entity.id),
-    )
+    filters: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value=entity.id),
+        )
+    ]
+
+    if entity.properties is not None and entity.properties != []:
+        filters.append(property_to_expr(entity.properties, team))
+
+    return ast.And(exprs=filters)
 
 
 def tag_name_to_expr(tag_name: str):

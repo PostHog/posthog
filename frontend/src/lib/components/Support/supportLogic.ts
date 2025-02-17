@@ -325,6 +325,8 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
+        openMaxChatInterface: true,
+        closeMaxChatInterface: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -332,6 +334,7 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openSupportForm: () => true,
                 closeSupportForm: () => false,
+                openMaxChatInterface: () => false,
             },
         ],
         isEmailFormOpen: [
@@ -339,6 +342,14 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
+            },
+        ],
+        isMaxChatInterfaceOpen: [
+            false,
+            {
+                openMaxChatInterface: () => true,
+                closeMaxChatInterface: () => false,
+                openEmailForm: () => false,
             },
         ],
     })),
@@ -562,6 +573,19 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         setSendSupportRequestValue: () => {
+            actions.updateUrlParams()
+        },
+        openMaxChatInterface: async () => {
+            const panelOptions = [
+                'max-chat',
+                '', // No target area needed for Max (yet)
+                '', // No severity level needed for Max
+                'false', // Make sure we don't open the email form instead
+            ].join(':')
+
+            if (values.sidePanelAvailable) {
+                actions.setSidePanelOptions(panelOptions)
+            }
             actions.updateUrlParams()
         },
     })),

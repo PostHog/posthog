@@ -35,14 +35,17 @@ from posthog.schema import (
 
 class SeriesWithExtras:
     series: EventsNode | ActionsNode | DataWarehouseNode
+    series_order: int
     is_previous_period_series: Optional[bool]
 
     def __init__(
         self,
         series: EventsNode | ActionsNode | DataWarehouseNode,
+        series_order: int,
         is_previous_period_series: Optional[bool],
     ):
         self.series = series
+        self.series_order = series_order
         self.is_previous_period_series = is_previous_period_series
 
 
@@ -95,6 +98,27 @@ class StickinessQueryRunner(QueryRunner):
         value = ast.Constant(value=self.query.stickinessFilter.stickinessCriteria.value)
         return parse_expr(f"""count() {get_count_operator(operator)} {{value}}""", {"value": value})
 
+    def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Expr:
+        if self.query.intervalCount is None:
+            return self.query_date_range.date_to_start_of_interval_hogql(ast.Field(chain=["e", "timestamp"]))
+
+        # find the number of intervals back from the end date
+        age = parse_expr(
+            """age({interval_name}, {from_date}, {to_date})""",
+            placeholders={
+                "interval_name": ast.Constant(value=self.query_date_range.interval_name),
+                "from_date": date,
+                "to_date": self.query_date_range.date_to_as_hogql(),
+            },
+        )
+        if self.query.intervalCount == 1:
+            return age
+
+        return parse_expr(
+            "floor({age} / {interval_count})",
+            placeholders={"age": age, "interval_count": ast.Constant(value=self.query.intervalCount)},
+        )
+
     def _events_query(self, series_with_extra: SeriesWithExtras) -> ast.SelectQuery:
         inner_query = parse_select(
             """
@@ -109,9 +133,7 @@ class StickinessQueryRunner(QueryRunner):
         """,
             {
                 "aggregation": self._aggregation_expressions(series_with_extra.series),
-                "start_of_interval": self.query_date_range.date_to_start_of_interval_hogql(
-                    ast.Field(chain=["e", "timestamp"])
-                ),
+                "start_of_interval": self.date_to_start_of_interval_hogql(ast.Field(chain=["e", "timestamp"])),
                 "sample": self._sample_value(),
                 "where_clause": self.where_clause(series_with_extra),
                 "having_clause": self._having_clause(),
@@ -169,7 +191,7 @@ class StickinessQueryRunner(QueryRunner):
                         SELECT sum(num_actors) as num_actors, num_intervals
                         FROM (
                             SELECT 0 as num_actors, (number + 1) as num_intervals
-                            FROM numbers(dateDiff({interval}, {date_from_start_of_interval}, {date_to_start_of_interval} + {interval_addition}))
+                            FROM numbers(ceil(dateDiff({interval}, {date_from_start_of_interval}, {date_to_start_of_interval} + {interval_addition}) / {intervalCount}))
                             UNION ALL
                             {events_query}
                         )
@@ -181,6 +203,7 @@ class StickinessQueryRunner(QueryRunner):
                     **date_range.to_placeholders(),
                     "interval_addition": interval_addition,
                     "events_query": self._events_query(series),
+                    "intervalCount": ast.Constant(value=self.query.intervalCount or 1),
                 },
             )
 
@@ -254,6 +277,14 @@ class StickinessQueryRunner(QueryRunner):
                     "labels": [
                         f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'}" for day in val[1]
                     ],
+                }
+
+                # Add minimal action data for color consistency with trends
+                series_object["action"] = {
+                    "order": series_with_extra.series_order,
+                    "type": "events",
+                    "name": series_label or "All events",
+                    "id": series_label,
                 }
 
                 # Modifications for when comparing to previous period
@@ -365,9 +396,10 @@ class StickinessQueryRunner(QueryRunner):
         series_with_extras = [
             SeriesWithExtras(
                 series,
+                index,
                 None,
             )
-            for series in self.query.series
+            for index, series in enumerate(self.query.series)
         ]
 
         if self.query.compareFilter is not None and self.query.compareFilter.compare:
@@ -376,12 +408,14 @@ class StickinessQueryRunner(QueryRunner):
                 updated_series.append(
                     SeriesWithExtras(
                         series=series.series,
+                        series_order=series.series_order,
                         is_previous_period_series=False,
                     )
                 )
                 updated_series.append(
                     SeriesWithExtras(
                         series=series.series,
+                        series_order=series.series_order,
                         is_previous_period_series=True,
                     )
                 )

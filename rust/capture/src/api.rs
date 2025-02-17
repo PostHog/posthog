@@ -18,21 +18,21 @@ pub struct CaptureResponse {
     pub quota_limited: Option<Vec<String>>,
 }
 
-#[derive(Error, Debug)]
+#[derive(Clone, Error, Debug)]
 pub enum CaptureError {
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
-    RequestParsingError(#[from] serde_json::Error),
+    RequestParsingError(String),
 
     #[error("request holds no event")]
     EmptyBatch,
     #[error("event submitted with an empty event name")]
     MissingEventName,
-    #[error("event submitted with an empty distinct_id")]
-    EmptyDistinctId,
     #[error("event submitted without a distinct_id")]
     MissingDistinctId,
+    #[error("event submitted with invalid cookieless mode")]
+    InvalidCookielessMode,
     #[error("replay event submitted without snapshot data")]
     MissingSnapshotData,
     #[error("replay event submitted without session id")]
@@ -63,6 +63,12 @@ pub enum CaptureError {
     RateLimited,
 }
 
+impl From<serde_json::Error> for CaptureError {
+    fn from(e: serde_json::Error) -> Self {
+        CaptureError::RequestParsingError(e.to_string())
+    }
+}
+
 impl IntoResponse for CaptureError {
     fn into_response(self) -> Response {
         match self {
@@ -70,8 +76,8 @@ impl IntoResponse for CaptureError {
             | CaptureError::RequestParsingError(_)
             | CaptureError::EmptyBatch
             | CaptureError::MissingEventName
-            | CaptureError::EmptyDistinctId
             | CaptureError::MissingDistinctId
+            | CaptureError::InvalidCookielessMode
             | CaptureError::EventTooBig
             | CaptureError::NonRetryableSinkError
             | CaptureError::MissingSessionId

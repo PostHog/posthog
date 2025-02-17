@@ -1,0 +1,24 @@
+{
+    "name": "Advanced GeoIP",
+    "url": "https://github.com/paolodamico/posthog-app-advanced-geoip",
+    "description": "Advanced GeoIP filtering app for PostHog",
+    "main": "index.ts",
+    "posthogVersion": ">=1.25.0",
+    "config": [
+        {
+            "key": "discardIp",
+            "name": "Discard IP addresses after GeoIP?",
+            "type": "choice",
+            "choices": ["true", "false"],
+            "hint": "Whether IP addresses should be discarded after doing GeoIP lookup.",
+            "required": true
+        },
+        {
+            "key": "discardLibs",
+            "name": "Discard GeoIP for libraries",
+            "type": "string",
+            "hint": "Comma-separated list of libraries ($lib) for which GeoIP should be ignored (e.g. `posthog-node,posthog-python`)",
+            "required": false
+        }
+    ]
+}

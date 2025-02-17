@@ -41,6 +41,9 @@ DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, t
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
 
+# Decide request logging settings
+
+DECIDE_REQUEST_LOGGING_SAMPLING_RATE = get_from_env("DECIDE_REQUEST_LOGGING_SAMPLING_RATE", 0.05, type_cast=float)
 
 # Decide regular request analytics
 # Takes 3 possible formats, all separated by commas:
@@ -84,11 +87,12 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
+    "products.early_access_features",  # TODO: add this automatically
 ]
 
 
 MIDDLEWARE = [
-    "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -118,7 +122,7 @@ MIDDLEWARE = [
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
-    "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
 
@@ -246,6 +250,13 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "posthog/year_in_posthog/images"),
 ]
 STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
+
+
+def static_varies_origin(headers, path, url):
+    headers["Vary"] = "Accept-Encoding, Origin"
+
+
+WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
 
 AUTH_USER_MODEL = "posthog.User"
 
@@ -405,3 +416,6 @@ if REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 1:
 REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOINT", "")
 REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
+# Teams allowed to modify transformation code (comma-separated list of team IDs),
+# keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
+HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))

@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { FunnelPathsFilter } from '~/queries/schema'
+import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 
 import { PathNodeCard } from './PathNodeCard'
 import { pathsDataLogic } from './pathsDataLogic'
@@ -26,9 +26,8 @@ export function Paths(): JSX.Element {
     const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError } = useValues(
-        pathsDataLogic(insightProps)
-    )
+    const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
+        useValues(pathsDataLogic(insightProps))
 
     const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
 
@@ -56,7 +55,7 @@ export function Paths(): JSX.Element {
             const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
             elements?.forEach((node) => node?.parentNode?.removeChild(node))
         }
-    }, [paths, !insightDataLoading, canvasWidth, canvasHeight])
+    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter])
 
     if (insightDataError) {
         return <InsightErrorState query={insightQuery} excludeDetail />
@@ -64,7 +63,21 @@ export function Paths(): JSX.Element {
 
     return (
         <div className="h-full w-full overflow-auto" id={id} ref={canvasContainerRef}>
-            <div ref={canvasRef} className="Paths" data-attr="paths-viz">
+            <div
+                ref={canvasRef}
+                className="Paths"
+                data-attr="paths-viz"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={
+                    {
+                        '--paths-node': theme?.['preset-1'] || '#000000',
+                        '--paths-node-start-or-end': theme?.['preset-2'] || '#000000',
+                        '--paths-link': theme?.['preset-1'] || '#000000',
+                        '--paths-link-hover': theme?.['preset-2'] || '#000000',
+                        '--paths-dropoff': 'rgba(220,53,69,0.7)',
+                    } as React.CSSProperties
+                }
+            >
                 {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
                 {!insightDataError &&
                     nodeCards &&

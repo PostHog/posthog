@@ -21,18 +21,18 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:18.19.1-bullseye-slim AS frontend-build
+FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
-RUN corepack enable && pnpm --version && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    rm -rf /tmp/pnpm-store
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && pnpm --version && \
+    pnpm --filter=@posthog/frontend install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
 
 COPY frontend/ frontend/
+COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
@@ -41,16 +41,9 @@ RUN pnpm build
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
-WORKDIR /code
-COPY ./rust ./rust
-COPY ./plugin-transpiler/ ./plugin-transpiler/
-WORKDIR /code/plugin-server
-SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_18.19.1 AS plugin-server-build
 
-# Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-COPY ./plugin-server/patches/ ./patches/
+# Compile and install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
@@ -60,35 +53,50 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /code
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY ./patches ./patches
+COPY ./rust ./rust
+COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
+COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
+COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Compile and install Node.js dependencies.
+# NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    cd ../plugin-transpiler && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm build && \
-    rm -rf /tmp/pnpm-store
+    pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm --filter=@posthog/plugin-transpiler install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm --filter=@posthog/plugin-transpiler build
+
+WORKDIR /code/plugin-server
 
 # Build the plugin server.
 #
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
-RUN pnpm build
+COPY ./plugin-server/tests/ ./tests/
 
-# As the plugin-server is now built, let’s keep
+# Build cyclotron first with increased memory
+RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm run build:cyclotron
+
+# Then build the plugin server with increased memory
+RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm build
+
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
-RUN corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    rm -rf /tmp/pnpm-store
-
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && \
+    pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
 
 #
 # ---------------------------------------------------------
 #
-FROM python:3.11.9-slim-bullseye AS posthog-build
+FROM python:3.11.9-slim-bookworm AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -115,8 +123,9 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Add in Django deps and generate Django's static files.
 COPY manage.py manage.py
-COPY hogvm hogvm/
+COPY common/hogvm common/hogvm/
 COPY posthog posthog/
+COPY products/ products/
 COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
@@ -125,7 +134,7 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 #
 # ---------------------------------------------------------
 #
-FROM debian:bullseye-slim AS fetch-geoip-db
+FROM debian:bookworm-slim AS fetch-geoip-db
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -145,8 +154,8 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: newer images change the base image from bullseye to bookworm which makes compiled openssl versions have all sorts of issues
-FROM unit:1.32.0-python3.11 
+# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
+FROM unit:1.33.0-python3.11 
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
@@ -190,8 +199,12 @@ ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
 
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-transpiler/dist /code/plugin-transpiler/dist
+COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
+COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
+COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/index.node /code/rust/cyclotron-node/index.node
+COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
+COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
 
@@ -214,7 +227,9 @@ COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
-COPY --chown=posthog:posthog hogvm hogvm/
+COPY --chown=posthog:posthog common/hogvm common/hogvm/
+COPY --chown=posthog:posthog dags dags/
+COPY --chown=posthog:posthog products products/
 
 # Keep server command backwards compatible
 RUN cp ./bin/docker-server-unit ./bin/docker-server

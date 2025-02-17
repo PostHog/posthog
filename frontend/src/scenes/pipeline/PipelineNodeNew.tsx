@@ -23,7 +23,6 @@ import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfigura
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
-import { pipelineTransformationsLogic } from './transformationsLogic'
 import { PipelineBackend } from './types'
 import { RenderApp } from './utils'
 
@@ -105,7 +104,7 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
     }
 
     if (stage === PipelineStage.Transformation) {
-        return <TransformationOptionsTable />
+        return <NewDestinations types={['transformation']} />
     } else if (stage === PipelineStage.Destination) {
         return <NewDestinations types={DESTINATION_TYPES} />
     } else if (stage === PipelineStage.SiteApp) {
@@ -118,12 +117,6 @@ export function PipelineNodeNew(params: { stage?: string; id?: string } = {}): J
         return <NewSourceWizardScene />
     }
     return <NotFound object="pipeline new options" />
-}
-
-function TransformationOptionsTable(): JSX.Element {
-    const { plugins, loading } = useValues(pipelineTransformationsLogic)
-    const targets = Object.values(plugins).map(convertPluginToTableEntry)
-    return <NodeOptionsTable stage={PipelineStage.Transformation} targets={targets} loading={loading} />
 }
 
 function SiteAppOptionsTable(): JSX.Element {

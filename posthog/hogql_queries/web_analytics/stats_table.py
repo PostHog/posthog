@@ -455,6 +455,13 @@ GROUP BY session_id, breakdown_value
                 else response.columns
             )
 
+        # Add replay URL column if it doesn't exist (for session replay cross-selling)
+        if columns is not None:
+            if "context.columns.replay_url" not in columns:
+                # Append replay URL column to the list of columns (as Robbie suggested)
+                columns = [*list(columns), "context.columns.replay_url"]
+                results_mapped = [[*row, ""] for row in (results_mapped or [])]
+
         return WebStatsTableQueryResponse(
             columns=columns,
             results=results_mapped,
@@ -543,10 +550,10 @@ GROUP BY session_id, breakdown_value
                 raise NotImplementedError("Breakdown not implemented")
 
     def _processed_breakdown_value(self):
-        if self.query.breakdownBy != WebStatsBreakdown.LANGUAGE:
-            return ast.Field(chain=["breakdown_value"])
+        if self.query.breakdownBy == WebStatsBreakdown.LANGUAGE:
+            return parse_expr("arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 1)")
 
-        return parse_expr("arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 1)")
+        return ast.Field(chain=["breakdown_value"])
 
     def _include_extra_aggregation_value(self):
         return self.query.breakdownBy == WebStatsBreakdown.LANGUAGE
@@ -589,22 +596,6 @@ GROUP BY session_id, breakdown_value
 
     def _bounce_entry_pathname_breakdown(self):
         return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
-
-    def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
-        if not self.query.doPathCleaning or not self.team.path_cleaning_filters:
-            return path_expr
-
-        for replacement in self.team.path_cleaning_filter_models():
-            path_expr = ast.Call(
-                name="replaceRegexpAll",
-                args=[
-                    path_expr,
-                    ast.Constant(value=replacement.regex),
-                    ast.Constant(value=replacement.alias),
-                ],
-            )
-
-        return path_expr
 
 
 def coalesce_with_null_display(*exprs: ast.Expr) -> ast.Expr:

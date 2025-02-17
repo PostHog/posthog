@@ -260,6 +260,23 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["sampleRate"], "0.80")
 
+    def test_session_recording_sample_rate_of_0_is_not_treated_as_no_sampling(self, *args):
+        # :TRICKY: Test for regression around caching
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["sampleRate"] is None
+
+        self._update_team({"session_recording_sample_rate": 0.0})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"]["sampleRate"], "0.00")
+
     def test_session_recording_sample_rate_of_1_is_treated_as_no_sampling(self, *args):
         # :TRICKY: Test for regression around caching
 
@@ -783,6 +800,76 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above query mean fewer queries
         response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"}, assert_num_queries=4)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["featureFlags"], ["default-flag"])
+
+    def test_feature_flags_across_multiple_environments(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        second_team_in_project = Team.objects.create(
+            organization=self.organization, project=self.project, name="Second Team"
+        )
+        self.client.logout()
+        Person.objects.create(
+            team=second_team_in_project,  # Person is in second team, but flags are in first!
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=50,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+
+        # Test number of queries with multiple property filter feature flags
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
+            rollout_percentage=50,
+            name="Filter by property",
+            key="filer-by-property",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "tim@posthog.com",
+                                "type": "person",
+                            }
+                        ]
+                    }
+                ]
+            },
+            name="Filter by property 2",
+            key="filer-by-property-2",
+            created_by=self.user,
+        )
+
+        response = self._post_decide(
+            {"token": second_team_in_project.api_token, "distinct_id": "example_id"}, assert_num_queries=4
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("default-flag", response.json()["featureFlags"])
+        self.assertIn("beta-feature", response.json()["featureFlags"])
+        self.assertIn("filer-by-property-2", response.json()["featureFlags"])
+
+        response = self._post_decide(
+            {"token": second_team_in_project.api_token, "distinct_id": "another_id"}, assert_num_queries=4
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
 
@@ -3362,7 +3449,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_appropriately(self, *args):
-        random.seed(12345)
+        random.seed(67890)
         FeatureFlag.objects.create(
             team=self.team,
             rollout_percentage=50,
@@ -3373,7 +3460,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.client.logout()
         with self.settings(DECIDE_BILLING_SAMPLING_RATE=0.5), freeze_time("2022-05-07 12:23:07"):
             for _ in range(5):
-                # given the seed, 4 out of 5 are sampled
+                # given the seed, 2 out of 5 are sampled
                 response = self._post_decide(api_version=3)
                 self.assertEqual(response.status_code, 200)
 
@@ -3381,7 +3468,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # check that no increments made it to redis
             self.assertEqual(
                 client.hgetall(f"posthog:decide_requests:{self.team.pk}"),
-                {b"165192618": b"8"},
+                {b"165192618": b"4"},
             )
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
@@ -4772,7 +4859,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
-        self.assertEqual(len(response_data["flags"]), 3)
+        self.assertEqual(len(response_data["flags"]), 4)
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
@@ -4839,6 +4926,18 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "ensure_experience_continuity": False,
             },
             sorted_flags[2],
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Inactive feature",
+                "key": "inactive-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                "deleted": False,
+                "active": False,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[3],
         )
 
         self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company"})

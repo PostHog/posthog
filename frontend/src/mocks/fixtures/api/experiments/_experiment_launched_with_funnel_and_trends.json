@@ -1,0 +1,219 @@
+{
+    "id": 90,
+    "name": "jan-16-running",
+    "description": "Dashboard: [http://localhost:8010/project/1/dashboard/147](http://localhost:8010/project/1/dashboard/147)",
+    "start_date": "2024-12-30T21:55:00Z",
+    "end_date": null,
+    "feature_flag_key": "jan-16-running",
+    "feature_flag": {
+        "id": 103,
+        "team_id": 1,
+        "name": "Feature Flag for Experiment jan-16-running",
+        "key": "jan-16-running",
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+            "multivariate": {
+                "variants": [
+                    {
+                        "key": "control",
+                        "rollout_percentage": 50
+                    },
+                    {
+                        "key": "test",
+                        "rollout_percentage": 50
+                    }
+                ]
+            },
+            "holdout_groups": null,
+            "aggregation_group_type_index": null,
+            "payloads": {}
+        },
+        "deleted": false,
+        "active": true,
+        "ensure_experience_continuity": false
+    },
+    "holdout": null,
+    "holdout_id": null,
+    "parameters": {
+        "feature_flag_variants": [
+            {
+                "key": "control",
+                "rollout_percentage": 50
+            },
+            {
+                "key": "test",
+                "rollout_percentage": 50
+            }
+        ],
+        "recommended_sample_size": 0,
+        "recommended_running_time": 0,
+        "minimum_detectable_effect": 1
+    },
+    "secondary_metrics": [],
+    "saved_metrics": [
+        {
+            "id": 108,
+            "experiment": 90,
+            "saved_metric": 15,
+            "metadata": {
+                "type": "primary"
+            },
+            "created_at": "2025-01-22T14:56:12.766068Z",
+            "query": {
+                "kind": "ExperimentTrendsQuery",
+                "count_query": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "total",
+                            "name": "[jan-16-running] event one",
+                            "event": "[jan-16-running] event one"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_to": "2025-01-20T23:59",
+                        "date_from": "2025-01-06T13:54",
+                        "explicitDate": true
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "name": "jan-16-running event one"
+        },
+        {
+            "id": 109,
+            "experiment": 90,
+            "saved_metric": 16,
+            "metadata": {
+                "type": "secondary"
+            },
+            "created_at": "2025-01-22T14:56:12.770270Z",
+            "query": {
+                "kind": "ExperimentTrendsQuery",
+                "count_query": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "total",
+                            "name": "[jan-16-running] event two",
+                            "event": "[jan-16-running] event two"
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_to": "2025-01-20T23:59",
+                        "date_from": "2025-01-06T13:54",
+                        "explicitDate": true
+                    },
+                    "trendsFilter": {
+                        "display": "ActionsLineGraph"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "name": "jan-16-running event two"
+        }
+    ],
+    "saved_metrics_ids": [
+        {
+            "id": 108,
+            "metadata": {
+                "type": "primary"
+            }
+        },
+        {
+            "id": 109,
+            "metadata": {
+                "type": "secondary"
+            }
+        }
+    ],
+    "filters": {},
+    "archived": false,
+    "created_by": {
+        "id": 1,
+        "uuid": "0192f783-9ca1-0000-047c-397bd60d6c39",
+        "distinct_id": "6PMxBkEONKiJoizOIKGkcTICvtOk1smj277H6lqowDG",
+        "first_name": "Employee 427",
+        "last_name": "",
+        "email": "test@posthog.com",
+        "is_email_verified": null,
+        "hedgehog_config": null,
+        "role_at_organization": null
+    },
+    "created_at": "2025-01-16T21:51:09.062768Z",
+    "updated_at": "2025-01-22T14:56:12.772335Z",
+    "type": "product",
+    "metrics": [
+        {
+            "kind": "ExperimentFunnelsQuery",
+            "funnels_query": {
+                "kind": "FunnelsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "name": "[jan-16-running] seen",
+                        "event": "[jan-16-running] seen"
+                    },
+                    {
+                        "kind": "EventsNode",
+                        "name": "[jan-16-running] payment",
+                        "event": "[jan-16-running] payment"
+                    }
+                ],
+                "dateRange": {
+                    "date_to": "2025-01-16T23:59",
+                    "date_from": "2025-01-02T13:54",
+                    "explicitDate": true
+                },
+                "funnelsFilter": {
+                    "layout": "horizontal",
+                    "funnelVizType": "steps",
+                    "funnelWindowInterval": 14,
+                    "funnelWindowIntervalUnit": "day"
+                },
+                "filterTestAccounts": true
+            }
+        }
+    ],
+    "metrics_secondary": [
+        {
+            "kind": "ExperimentTrendsQuery",
+            "count_query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "math": "total",
+                        "name": "[jan-16-running] event one",
+                        "event": "[jan-16-running] event one"
+                    }
+                ],
+                "interval": "day",
+                "dateRange": {
+                    "date_to": "2025-01-16T23:59",
+                    "date_from": "2025-01-02T13:54",
+                    "explicitDate": true
+                },
+                "trendsFilter": {
+                    "display": "ActionsLineGraph"
+                },
+                "filterTestAccounts": true
+            }
+        }
+    ],
+    "stats_config": {
+        "version": 2
+    }
+}

@@ -296,13 +296,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Just complex series aggregation
         elif self._aggregation_operation.requires_query_orchestration() and (
             self._aggregation_operation.is_first_time_ever_math()
-            or self._aggregation_operation.is_first_matching_event()
         ):
             return self._aggregation_operation.get_first_time_math_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
                 event_name_filter=self._event_or_action_where_expr(),
-                is_first_matching_event=self._aggregation_operation.is_first_matching_event(),
             ).build()
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_actors_query_orchestrator(
@@ -671,7 +669,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
-        is_data_warehouse_series = isinstance(series, DataWarehouseNode)
+        is_data_warehouse_event_series = (
+            isinstance(series, DataWarehouseNode)
+            and self.modifiers.dataWarehouseEventsModifiers is not None
+            and any(
+                series.table_name == modifier.table_name for modifier in self.modifiers.dataWarehouseEventsModifiers
+            )
+        )
 
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
@@ -698,20 +702,28 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                if is_data_warehouse_series:
-                    if property["type"] in ("event", "person"):
-                        if property["type"] == "event":
-                            property["key"] = f"events.properties.{property['key']}"
-                        elif property["type"] == "person":
-                            property["key"] = f"events.person.properties.{property['key']}"
-                        property["type"] = "data_warehouse"
-                    filters.append(property_to_expr(property, self.team))
+                if is_data_warehouse_event_series:
+                    property_clone = property.copy()
+                    if property_clone["type"] in ("event", "person"):
+                        if property_clone["type"] == "event":
+                            property_clone["key"] = f"events.properties.{property_clone['key']}"
+                        elif property_clone["type"] == "person":
+                            property_clone["key"] = f"events.person.properties.{property_clone['key']}"
+                        property_clone["type"] = "data_warehouse"
+                    expr = property_to_expr(property_clone, self.team)
+                    if (
+                        property_clone["type"] in ("group", "element")
+                        and isinstance(expr, ast.CompareOperation)
+                        and isinstance(expr.left, ast.Field)
+                    ):
+                        expr.left.chain = ["events", *expr.left.chain]
+                    filters.append(expr)
                 else:
                     filters.append(property_to_expr(property, self.team))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            if is_data_warehouse_series:
+            if is_data_warehouse_event_series:
                 data_warehouse_properties = [
                     p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
                 ]

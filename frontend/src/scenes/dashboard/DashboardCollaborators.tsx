@@ -1,4 +1,4 @@
-import { IconLock, IconOpenSidebar, IconTrash, IconUnlock } from '@posthog/icons'
+import { IconLock, IconTrash, IconUnlock } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -14,8 +14,14 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, SidePanelTab, UserType } from '~/types'
+import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
+import {
+    AccessControlResourceType,
+    AvailableFeature,
+    DashboardType,
+    FusedDashboardCollaboratorType,
+    UserType,
+} from '~/types'
 
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 
@@ -41,7 +47,6 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
         dashboardCollaboratorsLogic({ dashboardId })
     )
     const { push } = useActions(router)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
 
@@ -49,29 +54,27 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
         return null
     }
 
-    if (newAccessControl) {
+    // Only render the new access control if they are not using the old dashboard permissions (v1) and have the feature flag enabled
+    if (newAccessControl && dashboard.access_control_version === 'v2') {
         return (
-            <div>
-                <h3>Access control</h3>
-                <LemonBanner type="info" className="mb-4">
-                    Permissions have moved! We're rolling out our new access control system. Click below to open it.
-                </LemonBanner>
-                <LemonButton
-                    type="primary"
-                    icon={<IconOpenSidebar />}
-                    onClick={() => {
-                        openSidePanel(SidePanelTab.AccessControl)
-                        push(urls.dashboard(dashboard.id))
-                    }}
-                >
-                    Open access control
-                </LemonButton>
-            </div>
+            <AccessControlPopoutCTA
+                resourceType={AccessControlResourceType.Dashboard}
+                callback={() => {
+                    push(urls.dashboard(dashboard.id))
+                }}
+            />
         )
     }
 
     return (
         <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+            {newAccessControl && (
+                <LemonBanner type="warning" className="mb-4">
+                    We've upgraded our access control system but this dashboard is using a legacy version that can't be
+                    automatically upgraded. Please reach out to support if you're interested in migrating to the new
+                    system.
+                </LemonBanner>
+            )}
             {(!canEditDashboard || !canRestrictDashboard) && (
                 <LemonBanner type="info" className="mb-4">
                     {canEditDashboard

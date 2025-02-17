@@ -19,15 +19,9 @@ def prepare_s3_files_for_querying(
 
     s3_folder_for_job = f"{settings.BUCKET_URL}/{folder_path}"
 
-    if pipeline_version == ExternalDataJob.PipelineVersion.V2:
-        s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_table_name}__v2"
-    else:
-        s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_table_name}"
+    s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_table_name}"
 
-    if pipeline_version == ExternalDataJob.PipelineVersion.V2:
-        s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_table_name}__query_v2"
-    else:
-        s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_table_name}__query"
+    s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_table_name}__query"
 
     if s3.exists(s3_folder_for_querying):
         s3.delete(s3_folder_for_querying, recursive=True)
@@ -44,7 +38,3 @@ def is_posthog_team(team_id: int) -> bool:
 
     region = get_from_env("CLOUD_DEPLOYMENT", optional=True)
     return (region == "EU" and team_id == 1) or (region == "US" and team_id == 2)
-
-
-def is_enabled_for_team(team_id: int) -> bool:
-    return str(team_id) in settings.V2_PIPELINE_ENABLED_TEAM_IDS

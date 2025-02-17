@@ -27,10 +27,12 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
     const tooltip = `${usersOnlineString}${inTeamString}${updatedAgoString}`
 
     return (
-        <Tooltip title={tooltip}>
-            <span>
-                <IconLive /> <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> currently online
-            </span>
-        </Tooltip>
+        <div className="hidden sm:flex items-center mb-4 border-b">
+            <Tooltip title={tooltip}>
+                <span className="whitespace-nowrap" data-attr="web-analytics-live-user-count">
+                    <IconLive /> <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> currently online
+                </span>
+            </Tooltip>
+        </div>
     )
 }

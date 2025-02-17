@@ -1,0 +1,44 @@
+{
+    "name": "Pub/Sub Export",
+    "url": "https://github.com/PostHog/pubsub-plugin",
+    "description": "Sends events to a Pub/Sub topic on ingestion.",
+    "main": "index.ts",
+    "posthogVersion": ">= 1.25.0",
+    "config": [
+        {
+            "key": "googleCloudKeyJson",
+            "name": "JSON file with your google cloud key",
+            "type": "attachment",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "topicId",
+            "hint": "A topic will be created if it does not exist.",
+            "name": "Topic ID",
+            "type": "string",
+            "required": true
+        },
+        {
+            "key": "exportEventsToIgnore",
+            "name": "Events to ignore",
+            "type": "string",
+            "default": "$feature_flag_called",
+            "hint": "Comma separated list of events to ignore"
+        },
+        {
+            "key": "exportEventsBufferBytes",
+            "name": "Maximum upload size in bytes",
+            "type": "string",
+            "default": "1048576",
+            "hint": "Default 1MB. Upload events after buffering this many of them. The value must be between 1 MB and 10 MB."
+        },
+        {
+            "key": "exportEventsBufferSeconds",
+            "name": "Export events at least every X seconds",
+            "type": "string",
+            "default": "30",
+            "hint": "Default 30 seconds. If there are events to upload and this many seconds has passed since the last upload, then upload the queued events. The value must be between 1 and 600 seconds."
+        }
+    ]
+}

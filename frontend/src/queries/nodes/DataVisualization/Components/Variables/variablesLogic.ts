@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
-import { DataVisualizationNode, HogQLVariable } from '~/queries/schema'
+import { DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
 import { DashboardType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
@@ -60,6 +60,7 @@ export const variablesLogic = kea<variablesLogicType>([
         }),
         setEditorQuery: (query: string) => ({ query }),
         updateSourceQuery: true,
+        resetVariables: true,
     })),
     propsChanged(({ props, actions }, oldProps) => {
         if (oldProps.queryInput !== props.queryInput) {
@@ -103,6 +104,9 @@ export const variablesLogic = kea<variablesLogicType>([
 
                     return stateCopy
                 },
+                resetVariables: () => {
+                    return []
+                },
             },
         ],
         editorQuery: [
@@ -142,7 +146,10 @@ export const variablesLogic = kea<variablesLogicType>([
     }),
     listeners(({ props, values, actions }) => ({
         addVariable: () => {
-            actions.updateSourceQuery()
+            // dashboard items handle source query separately
+            if (!props.readOnly) {
+                actions.updateSourceQuery()
+            }
         },
         removeVariable: () => {
             actions.updateSourceQuery()
@@ -191,6 +198,11 @@ export const variablesLogic = kea<variablesLogicType>([
         editorQuery: (query: string) => {
             const queryVariableMatches = getVariablesFromQuery(query)
 
+            if (!queryVariableMatches.length) {
+                actions.resetVariables()
+                return
+            }
+
             queryVariableMatches?.forEach((match) => {
                 if (match === null) {
                     return
@@ -212,10 +224,16 @@ export const variablesLogic = kea<variablesLogicType>([
                 return
             }
 
+            const queryVariableMatches = getVariablesFromQuery(query.source.query)
+
             const variables = Object.values(query.source.variables ?? {})
 
             if (variables.length) {
-                actions.addVariables(variables)
+                variables.forEach((variable) => {
+                    if (queryVariableMatches.includes(variable.code_name)) {
+                        actions.addVariable(variable)
+                    }
+                })
             }
         },
     })),

@@ -319,7 +319,6 @@ CREATE OR REPLACE VIEW events_batch_export_backfill ON CLUSTER {settings.CLICKHO
 )
 """
 
-# TODO: is this the best query to use?
 EVENT_COUNT_BY_INTERVAL = """
 SELECT
     toStartOfInterval(_inserted_at, INTERVAL {interval}) AS interval_start,

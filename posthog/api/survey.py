@@ -43,7 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey
+from posthog.models.feedback.survey import Survey, MAX_ITERATION_COUNT
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
@@ -60,6 +60,10 @@ class SurveySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     conditions = serializers.SerializerMethodField(method_name="get_conditions", read_only=True)
     feature_flag_keys = serializers.SerializerMethodField()
+    # NB this is enforced in the UI too
+    iteration_count = serializers.IntegerField(
+        required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
+    )
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
@@ -128,6 +132,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
+    # NB this is enforced in the UI too
+    iteration_count = serializers.IntegerField(
+        required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
+    )
 
     class Meta:
         model = Survey
@@ -203,15 +211,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if value is None:
             return value
 
-        actions = value.get("actions")
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Conditions must be an object")
+
+        actions = value.get("actions", None)
+
         if actions is None:
             return value
 
-        values = actions.get("values")
+        values = actions.get("values", None)
         if values is None or len(values) == 0:
             return value
 
-        action_ids = (value.get("id") for value in values)
+        action_ids = [value.get("id") for value in values if isinstance(value, dict) and "id" in value]
+
+        if len(action_ids) == 0:
+            return value
+
         project_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
 
         for project_action in project_actions:
@@ -747,7 +763,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         survey = self.get_object()
 
-        cache_key = f'summarize_survey_responses_{self.team.pk}_{self.kwargs["pk"]}'
+        cache_key = f"summarize_survey_responses_{self.team.pk}_{self.kwargs['pk']}"
         # Check if the response is cached
         cached_response = cache.get(cache_key)
         if cached_response is not None:

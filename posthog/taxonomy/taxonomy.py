@@ -32,6 +32,8 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "igshid",
     "ttclid",
     "rdt_cid",
+    "irclid",
+    "_kx",
 ]
 
 PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
@@ -72,6 +74,8 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "igshid",
     "ttclid",
     "rdt_cid",
+    "irclid",
+    "_kx",
 }
 
 # synced with frontend/src/lib/taxonomy.tsx
@@ -174,7 +178,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$exception": {
             "label": "Exception",
-            "description": "Automatically captured exceptions from the client Sentry integration",
+            "description": "An unexpected error or unhandled exception in your application",
         },
         "$web_vitals": {
             "label": "Web vitals",
@@ -183,6 +187,22 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_generation": {
             "label": "AI Generation (LLM)",
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
+        },
+        "$ai_metric": {
+            "label": "AI Metric (LLM)",
+            "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
+        },
+        "$ai_feedback": {
+            "label": "AI Feedback (LLM)",
+            "description": "User-provided feedback for a trace of a generative AI model (LLM).",
+        },
+        "$ai_trace": {
+            "label": "AI Trace (LLM)",
+            "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls",
+        },
+        "$ai_span": {
+            "label": "AI Span (LLM)",
+            "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)",
         },
         "Application Opened": {
             "label": "Application Opened",
@@ -252,6 +272,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "$last_posthog_reset": {
+            "label": "Timestamp of last call to `Reset` in the web sdk",
+            "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
+            "ignored_in_assistant": True,
+            "system": True,
+        },
         # do we need distinct_id and $session_duration here in the back end?
         "$copy_type": {
             "label": "Copy Type",
@@ -344,34 +370,53 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Sentry tags",
             "description": "Tags sent to Sentry along with the exception",
         },
-        "$exception_type": {
-            "label": "Exception type",
-            "description": 'Exception categorized into types. E.g. "Error"',
-        },
-        "$exception_message": {
-            "label": "Exception Message",
-            "description": "The message detected on the error.",
-        },
-        "$exception_source": {
-            "label": "Exception source",
-            "description": "The source of the exception. E.g. JS file.",
-        },
         "$exception_list": {
             "label": "Exception list",
             "description": "List of one or more associated exceptions",
             "system": True,
         },
+        "$exception_level": {
+            "label": "Exception level",
+            "description": "Exception categorized by severity",
+            "examples": ["error"],
+        },
+        "$exception_type": {
+            "label": "Exception type",
+            "description": "Exception categorized into types",
+            "examples": ["Error"],
+        },
+        "$exception_message": {
+            "label": "Exception message",
+            "description": "The message detected on the error",
+        },
+        "$exception_fingerprint": {
+            "label": "Exception fingerprint",
+            "description": "A fingerprint used to group issues, can be set clientside",
+        },
+        "$exception_proposed_fingerprint": {
+            "label": "Exception proposed fingerprint",
+            "description": "The fingerprint used to group issues. Auto generated unless provided clientside",
+        },
+        "$exception_issue_id": {
+            "label": "Exception issue ID",
+            "description": "The id of the issue the fingerprint was associated with at ingest time",
+        },
+        "$exception_source": {
+            "label": "Exception source",
+            "description": "The source of the exception",
+            "examples": ["JS file"],
+        },
         "$exception_lineno": {
             "label": "Exception source line number",
-            "description": "Which line in the exception source that caused the exception.",
+            "description": "Which line in the exception source that caused the exception",
         },
         "$exception_colno": {
             "label": "Exception source column number",
-            "description": "Which column of the line in the exception source that caused the exception.",
+            "description": "Which column of the line in the exception source that caused the exception",
         },
         "$exception_DOMException_code": {
             "label": "DOMException code",
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
+            "description": "If a DOMException was thrown, it also has a DOMException code",
         },
         "$exception_is_synthetic": {
             "label": "Exception is synthetic",
@@ -379,7 +424,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$exception_stack_trace_raw": {
             "label": "Exception raw stack trace",
-            "description": "The exception's stack trace, as a string.",
+            "description": "The exceptions stack trace, as a string",
         },
         "$exception_handled": {
             "label": "Exception was handled",
@@ -388,6 +433,25 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$exception_personURL": {
             "label": "Exception person URL",
             "description": "The PostHog person that experienced the exception",
+        },
+        "$cymbal_errors": {
+            "label": "Exception processing errors",
+            "description": "Errors encountered while trying to process exceptions",
+            "system": True,
+        },
+        "$exception_capture_endpoint": {
+            "label": "Exception capture endpoint",
+            "description": "Endpoint used by posthog-js exception autocapture.",
+            "examples": ["/e/"],
+        },
+        "$exception_capture_endpoint_suffix": {
+            "label": "Exception capture endpoint",
+            "description": "Endpoint used by posthog-js exception autocapture.",
+            "examples": ["/e/"],
+        },
+        "$exception_capture_enabled_server_side": {
+            "label": "Exception capture enabled server side",
+            "description": "Whether exception autocapture was enabled in remote config.",
         },
         "$ce_version": {
             "label": "$ce_version",
@@ -1074,6 +1138,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "rdt_cid",
             "description": "Reddit Click ID",
         },
+        "irclid": {
+            "label": "irclid",
+            "description": "Impact Click ID",
+        },
+        "_kx": {
+            "label": "_kx",
+            "description": "Klaviyo Tracking ID",
+        },
         "gad_source": {
             "label": "gad_source",
             "description": "Google Ads Source",
@@ -1341,6 +1413,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Trace ID (LLM)",
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_metric_name": {
+            "label": "AI Metric Name (LLM)",
+            "description": "The name assigned to the metric used to evaluate the LLM trace",
+            "examples": ["rating", "accuracy"],
+        },
+        "$ai_metric_value": {
+            "label": "AI Metric Value (LLM)",
+            "description": "The value assigned to the metric used to evaluate the LLM trace",
+            "examples": ["negative", "95"],
+        },
+        "$ai_feedback_text": {
+            "label": "AI Feedback Text (LLM)",
+            "description": "The text provided by the user for feedback on the LLM trace",
+            "examples": ['"The response was helpful, but it did not use the provided context."'],
+        },
+        "$ai_parent_id": {
+            "label": "AI Parent ID (LLM)",
+            "description": "The parent span ID of a span or generation, used to group a trace into a tree view",
+            "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
+        },
+        "$ai_span_id": {
+            "label": "AI Span ID (LLM)",
+            "description": "The unique identifier for a LLM trace, generation, or span.",
+            "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
         },
     },
     "numerical_event_properties": {},

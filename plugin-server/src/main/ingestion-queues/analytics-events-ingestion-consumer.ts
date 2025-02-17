@@ -1,5 +1,4 @@
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
 
 import { buildStringMatcher } from '../../config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
@@ -7,12 +6,6 @@ import { Hub, PluginServerService } from '../../types'
 import { status } from '../../utils/status'
 import { eachBatchParallelIngestion, IngestionOverflowMode } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
-
-export const ingestionPartitionKeyOverflowed = new Counter({
-    name: 'ingestion_partition_key_overflowed',
-    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
-    labelNames: ['partition_key'],
-})
 
 export const startAnalyticsEventsIngestionConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.

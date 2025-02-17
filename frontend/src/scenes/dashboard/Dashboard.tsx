@@ -1,5 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -46,8 +47,16 @@ export function Dashboard({ id, dashboard, placement, themes }: DashboardProps =
 }
 
 function DashboardScene(): JSX.Element {
-    const { placement, dashboard, canEditDashboard, tiles, itemsLoading, dashboardMode, dashboardFailedToLoad } =
-        useValues(dashboardLogic)
+    const {
+        placement,
+        dashboard,
+        canEditDashboard,
+        tiles,
+        itemsLoading,
+        dashboardMode,
+        dashboardFailedToLoad,
+        accessDeniedToDashboard,
+    } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useEffect(() => {
@@ -89,6 +98,10 @@ function DashboardScene(): JSX.Element {
 
     if (!dashboard && !itemsLoading && !dashboardFailedToLoad) {
         return <NotFound object="dashboard" />
+    }
+
+    if (accessDeniedToDashboard) {
+        return <AccessDenied object="dashboard" />
     }
 
     return (

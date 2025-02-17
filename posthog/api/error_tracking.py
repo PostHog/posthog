@@ -6,15 +6,21 @@ from rest_framework import serializers, viewsets, status
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 
+from django.http import JsonResponse
 from django.conf import settings
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet, ErrorTrackingStackFrame
+from posthog.models.error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingSymbolSet,
+    ErrorTrackingStackFrame,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+)
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
-
 
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
@@ -28,10 +34,30 @@ class ObjectStorageUnavailable(Exception):
     pass
 
 
+class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
+    id = serializers.SerializerMethodField()
+    type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ErrorTrackingIssueAssignment
+        fields = ["id", "type"]
+
+    def get_id(self, obj):
+        return obj.user_id or obj.user_group_id
+
+    def get_type(self, obj):
+        return "user_group" if obj.user_group else "user"
+
+
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
+    # Might not be entirely accurate if an issue is merged but it's a good
+    # approximation to use in absence of doing a ClickHouse query
+    first_seen = serializers.DateTimeField(source="created_at")
+    assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
+
     class Meta:
         model = ErrorTrackingIssue
-        fields = ["assignee", "status"]
+        fields = ["id", "status", "name", "description", "first_seen", "assignee"]
 
 
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
@@ -42,11 +68,45 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
+    def retrieve(self, request, *args, **kwargs):
+        fingerprint = self.request.GET.get("fingerprint")
+        if fingerprint:
+            fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue").filter(
+                team=self.team
+            )
+            record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
+
+            if record:
+                if not record.issue_id == self.request.GET.get("pk"):
+                    return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
+
+                serializer = self.get_serializer(record.issue)
+                return Response(serializer.data)
+
+        return super().retrieve(request, *args, **kwargs)
+
     @action(methods=["POST"], detail=True)
     def merge(self, request, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
         ids: list[str] = request.data.get("ids", [])
         issue.merge(issue_ids=ids)
+        return Response({"success": True})
+
+    @action(methods=["PATCH"], detail=True)
+    def assign(self, request, **kwargs):
+        assignee = request.data.get("assignee", None)
+
+        if assignee:
+            ErrorTrackingIssueAssignment.objects.update_or_create(
+                issue_id=self.get_object().id,
+                defaults={
+                    "user_id": None if assignee["type"] == "user_group" else assignee["id"],
+                    "user_group_id": None if assignee["type"] == "user" else assignee["id"],
+                },
+            )
+        else:
+            ErrorTrackingIssueAssignment.objects.filter(issue_id=self.get_object().id).delete()
+
         return Response({"success": True})
 
 
@@ -105,6 +165,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         (storage_ptr, content_hash) = upload_symbol_set(minified, source_map, self.team_id)
         symbol_set.storage_ptr = storage_ptr
         symbol_set.content_hash = content_hash
+        symbol_set.failure_reason = None
         symbol_set.save()
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)

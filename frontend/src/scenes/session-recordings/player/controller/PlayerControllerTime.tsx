@@ -13,11 +13,9 @@ import { HotKeyOrModifier } from '~/types'
 import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
-export function Timestamp(): JSX.Element {
-    const { logicProps, currentPlayerTime, currentTimestamp, sessionPlayerData } =
-        useValues(sessionRecordingPlayerLogic)
+function RelativeTimestampLabel(): JSX.Element {
+    const { logicProps, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
-    const { timestampFormat } = useValues(playerSettingsLogic)
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
     const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
@@ -25,17 +23,32 @@ export function Timestamp(): JSX.Element {
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 
     return (
+        <div className="flex gap-0.5">
+            <span>{colonDelimitedDuration(startTimeSeconds, fixedUnits)}</span>
+            <span>/</span>
+            <span>{colonDelimitedDuration(endTimeSeconds, fixedUnits)}</span>
+        </div>
+    )
+}
+
+export function Timestamp(): JSX.Element {
+    const { logicProps, currentTimestamp, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
+    const { timestampFormat } = useValues(playerSettingsLogic)
+
+    const scrubbingTimestamp = sessionPlayerData.start?.valueOf()
+        ? scrubbingTime + sessionPlayerData.start?.valueOf()
+        : undefined
+
+    return (
         <div data-attr="recording-timestamp" className="text-center whitespace-nowrap font-mono text-xs">
             {timestampFormat === TimestampFormat.Relative ? (
-                <div className="flex gap-0.5">
-                    <span>{colonDelimitedDuration(startTimeSeconds, fixedUnits)}</span>
-                    <span>/</span>
-                    <span>{colonDelimitedDuration(endTimeSeconds, fixedUnits)}</span>
-                </div>
-            ) : currentTimestamp ? (
-                <SimpleTimeLabel startTime={currentTimestamp} isUTC={timestampFormat === TimestampFormat.UTC} />
+                <RelativeTimestampLabel />
             ) : (
-                '--/--/----, 00:00:00'
+                <SimpleTimeLabel
+                    startTime={isScrubbing ? scrubbingTimestamp : currentTimestamp}
+                    timestampFormat={timestampFormat}
+                />
             )}
         </div>
     )

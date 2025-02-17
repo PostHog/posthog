@@ -1,12 +1,15 @@
 from contextlib import contextmanager
 from enum import Enum
 from functools import cache
+from collections.abc import Mapping
 
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import Client as HttpClient, httputil
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
+
+from posthog.utils import patchable
 
 
 class Workload(Enum):
@@ -16,6 +19,12 @@ class Workload(Enum):
     ONLINE = "ONLINE"
     # Historical exports, other long-running processes where latency is less critical
     OFFLINE = "OFFLINE"
+
+
+class NodeRole(Enum):
+    ALL = "ALL"
+    COORDINATOR = "COORDINATOR"
+    DATA = "DATA"
 
 
 _default_workload = Workload.ONLINE
@@ -45,7 +54,7 @@ class ProxyClient:
         if written_rows > 0:
             return written_rows
         if with_column_types:
-            column_types_driver_format = list(zip(result.column_names, result.column_types))
+            column_types_driver_format = [(a, b.name) for (a, b) in zip(result.column_names, result.column_types)]
             return result.result_set, column_types_driver_format
         return result.result_set
 
@@ -62,15 +71,16 @@ _clickhouse_http_pool_mgr = httputil.get_pool_manager(
     block=True,  # makes the maxsize limit per pool, keeps connections
     num_pools=12,  # number of pools
     ca_cert=settings.CLICKHOUSE_CA,  # type: ignore[arg-type]  #  ca_cert default value is None, but the type hint is str instead of Optional[str], https://github.com/ClickHouse/clickhouse-connect/pull/450
-    verify=settings.CLICKHOUSE_VERIFY,
+    verify=settings.QUERYSERVICE_VERIFY,
 )
 
 
+@contextmanager
 def get_http_client(**overrides):
     kwargs = {
-        "host": settings.CLICKHOUSE_HOST,
+        "host": settings.QUERYSERVICE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
-        "secure": settings.CLICKHOUSE_SECURE,
+        "secure": settings.QUERYSERVICE_SECURE,
         "username": settings.CLICKHOUSE_USER,
         "password": settings.CLICKHOUSE_PASSWORD,
         "settings": {"mutations_sync": "1"} if settings.TEST else {},
@@ -80,9 +90,10 @@ def get_http_client(**overrides):
         "pool_mgr": _clickhouse_http_pool_mgr,
         **overrides,
     }
-    return ProxyClient(get_client(**kwargs))
+    yield ProxyClient(get_client(**kwargs))
 
 
+@patchable
 def get_client_from_pool(workload: Workload = Workload.DEFAULT, team_id=None, readonly=False):
     """
     Returns the client for a given workload.
@@ -156,8 +167,7 @@ def default_client(host=settings.CLICKHOUSE_HOST):
     )
 
 
-@cache
-def make_ch_pool(**overrides) -> ChPool:
+def _make_ch_pool(*, client_settings: Mapping[str, str] | None = None, **overrides) -> ChPool:
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
@@ -168,13 +178,19 @@ def make_ch_pool(**overrides) -> ChPool:
         "verify": settings.CLICKHOUSE_VERIFY,
         "connections_min": settings.CLICKHOUSE_CONN_POOL_MIN,
         "connections_max": settings.CLICKHOUSE_CONN_POOL_MAX,
-        "settings": {"mutations_sync": "1"} if settings.TEST else {},
+        "settings": {
+            **({"mutations_sync": "1"} if settings.TEST else {}),
+            **(client_settings or {}),
+        },
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
         "send_receive_timeout": 30 if settings.TEST else 999_999_999,
         **overrides,
     }
 
     return ChPool(**kwargs)
+
+
+make_ch_pool = cache(_make_ch_pool)
 
 
 @contextmanager

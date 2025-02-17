@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.utils.timezone import now
 from prometheus_client import Counter, Gauge
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries

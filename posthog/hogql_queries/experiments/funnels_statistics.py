@@ -1,6 +1,6 @@
 from rest_framework.exceptions import ValidationError
 from numpy.random import default_rng
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 import scipy.stats as stats
 from posthog.hogql_queries.experiments import (
     EXPECTED_LOSS_SIGNIFICANCE_LEVEL,

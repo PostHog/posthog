@@ -1,6 +1,7 @@
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -13,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey } from '~/types'
 
+import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { DataWarehouseSources } from './data-warehouse/sources'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
@@ -21,6 +23,7 @@ import { OnboardingProductConfiguration } from './OnboardingProductConfiguration
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
+import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingDashboardTemplateConfigureStep } from './productAnalyticsSteps/DashboardTemplateConfigureStep'
 import { OnboardingDashboardTemplateSelectStep } from './productAnalyticsSteps/DashboardTemplateSelectStep'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
@@ -52,6 +55,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     const { billing, billingLoading } = useValues(billingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
+
+    const showNewPlansStep = useFeatureFlag('ONBOARDING_NEW_PLANS_STEP', 'test')
 
     useEffect(() => {
         createAllSteps()
@@ -85,7 +90,11 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             steps = [...steps, ReverseProxyStep]
         }
         if (shouldShowBillingStep && billingProduct) {
-            const BillingStep = <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            const BillingStep = showNewPlansStep ? (
+                <OnboardingUpgradeStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            ) : (
+                <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            )
             steps = [...steps, BillingStep]
         }
         const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
@@ -96,7 +105,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     if (!currentOnboardingStep) {
         return (
             <div className="flex items-center justify-center my-20">
-                <Spinner className="text-2xl text-muted w-10 h-10" />
+                <Spinner className="text-2xl text-secondary w-10 h-10" />
             </div>
         )
     }
@@ -117,6 +126,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' &&
         window.innerWidth > 1000 &&
         combinedSnippetAndLiveEventsHosts.length > 0
+
+    const showSessionReplayStep =
+        useFeatureFlag('ONBOARDING_SESSION_REPLAY_SEPARATE_STEP', 'test') &&
+        !selectedProducts.includes(ProductKey.SESSION_REPLAY)
 
     const options: ProductConfigOption[] = [
         {
@@ -177,6 +190,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         },
     ]
 
+    const filteredOptions = showSessionReplayStep
+        ? options.filter((option) => option.teamProperty !== 'session_recording_opt_in')
+        : options
+
     return (
         <OnboardingWrapper>
             <SDKs
@@ -184,7 +201,14 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
             />
-            <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={options} />
+            <OnboardingProductConfiguration
+                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+                options={filteredOptions}
+            />
+
+            {showSessionReplayStep && (
+                <OnboardingSessionReplayConfiguration stepKey={OnboardingStepKey.SESSION_REPLAY} />
+            )}
 
             {/* this is two conditionals because they need to be direct children of the wrapper */}
             {showTemplateSteps ? (

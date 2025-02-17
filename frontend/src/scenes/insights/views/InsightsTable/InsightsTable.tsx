@@ -3,6 +3,7 @@ import './InsightsTable.scss'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
+import { useMemo } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -11,6 +12,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType, ItemMode } from '~/types'
 
@@ -18,6 +20,7 @@ import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import { countryCodeToName } from '../WorldMap'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
+import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
@@ -69,6 +72,7 @@ export function InsightsTable({
         isNonTimeSeriesDisplay,
         compareFilter,
         isTrends,
+        isStickiness,
         display,
         interval,
         breakdownFilter,
@@ -80,6 +84,7 @@ export function InsightsTable({
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -146,7 +151,7 @@ export function InsightsTable({
 
     if (breakdownFilter?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
-            formatBreakdownLabel(item.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
+            formatBreakdownLabel(item.breakdown_value, breakdownFilter, cohorts?.results, formatPropertyValueForDisplay)
 
         columns.push({
             title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
@@ -182,7 +187,7 @@ export function InsightsTable({
                 formatBreakdownLabel(
                     Array.isArray(item.breakdown_value) ? item.breakdown_value[index] : item.breakdown_value,
                     breakdownFilter,
-                    cohorts,
+                    cohorts?.results,
                     formatPropertyValueForDisplay,
                     index
                 )
@@ -210,6 +215,14 @@ export function InsightsTable({
         })
     }
 
+    if (hasInsightColors && !isMainInsightView) {
+        columns.push({
+            title: <ColorCustomizationColumnTitle />,
+            render: (_, item) => <ColorCustomizationColumnItem item={item} />,
+            key: 'color',
+        })
+    }
+
     if (allowAggregation) {
         columns.push({
             title: (
@@ -234,28 +247,35 @@ export function InsightsTable({
         })
     }
 
-    if (indexedResults?.length > 0 && indexedResults[0].data) {
-        const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = indexedResults[0].data.map(
-            (__, index: number) => ({
-                title: (
-                    <ValueColumnTitle
-                        index={index}
-                        indexedResults={indexedResults}
-                        compare={!!compareFilter?.compare}
-                        interval={interval}
-                    />
-                ),
-                render: (_, item: IndexedTrendResult) => (
-                    <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
-                ),
-                key: `data-${index}`,
-                sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
-                align: 'right',
-            })
-        )
+    const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = useMemo(() => {
+        const results = indexedResults?.[0]?.data
+        if (!results?.length) {
+            return []
+        }
 
-        columns.push(...valueColumns)
-    }
+        const capitalizeFirstLetter = (str: string): string => str.charAt(0).toUpperCase() + str.slice(1)
+
+        return results.map((_, index) => ({
+            title: isStickiness ? (
+                `${interval ? capitalizeFirstLetter(interval) : 'Day'} ${index + 1}`
+            ) : (
+                <ValueColumnTitle
+                    index={index}
+                    indexedResults={indexedResults}
+                    compare={compareFilter?.compare}
+                    interval={interval}
+                />
+            ),
+            render: (_, item: IndexedTrendResult) => (
+                <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
+            ),
+            key: `data-${index}`,
+            sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
+            align: 'right',
+        }))
+    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval])
+
+    columns.push(...valueColumns)
 
     return (
         <LemonTable

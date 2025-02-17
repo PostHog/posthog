@@ -154,21 +154,11 @@ pub async fn test_black_hole(
     // Check every event has a distinct id. This is the last piece of data validation capture does.
     for event in events {
         match event.extract_distinct_id() {
-            Ok(_) => {}
-            Err(CaptureError::EmptyDistinctId) => {
-                metrics::counter!(REQUEST_OUTCOME, "outcome" => "failure", "reason" => "empty_distinct_id")
-                    .increment(1);
-                return Err(CaptureError::EmptyDistinctId);
-            }
-            Err(CaptureError::MissingDistinctId) => {
+            Some(_) => {}
+            None => {
                 metrics::counter!(REQUEST_OUTCOME, "outcome" => "failure", "reason" => "missing_distinct_id")
                     .increment(1);
                 return Err(CaptureError::MissingDistinctId);
-            }
-            Err(e) => {
-                metrics::counter!(REQUEST_OUTCOME, "outcome" => "failure", "reason" => e.to_string())
-                    .increment(1);
-                return Err(e);
             }
         }
     }
@@ -230,6 +220,6 @@ pub fn from_bytes(bytes: Bytes, limit: usize, comp: String) -> Result<RawRequest
 
     match serde_json::from_str::<RawRequest>(&payload) {
         Ok(res) => Ok(res),
-        Err(e) => Err(CaptureError::RequestParsingError(e)),
+        Err(e) => Err(CaptureError::RequestParsingError(e.to_string())),
     }
 }

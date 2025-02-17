@@ -1,9 +1,10 @@
+import { IconClock } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRangeFilter'
 import { dateFromToText } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
-import { CompareFilter as CompareFilterType } from '~/queries/schema'
+import { CompareFilter as CompareFilterType } from '~/queries/schema/schema-general'
 
 type CompareFilterProps = {
     compareFilter?: CompareFilterType | null
@@ -70,6 +71,7 @@ export function CompareFilter({
 
     return (
         <LemonSelect
+            icon={<IconClock />}
             onSelect={(newValue) => {
                 if (newValue == 'compareTo') {
                     updateCompareFilter({ compare: true, compare_to: tentativeCompareTo })

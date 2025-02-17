@@ -1,13 +1,11 @@
 import dataclasses
 import uuid
 
-from django.conf import settings
 from django.db import close_old_connections
 from temporalio import activity
 
 # TODO: remove dependency
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.warehouse.data_load.service import delete_external_data_schedule
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import (
@@ -21,13 +19,7 @@ class CreateExternalDataJobModelActivityInputs:
     team_id: int
     schema_id: uuid.UUID
     source_id: uuid.UUID
-
-
-def get_pipeline_version() -> str:
-    if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-        return ExternalDataJob.PipelineVersion.V2
-
-    return ExternalDataJob.PipelineVersion.V1
+    billable: bool
 
 
 @activity.defn
@@ -54,7 +46,8 @@ def create_external_data_job_model_activity(
             rows_synced=0,
             workflow_id=activity.info().workflow_id,
             workflow_run_id=activity.info().workflow_run_id,
-            pipeline_version=get_pipeline_version(),
+            pipeline_version=ExternalDataJob.PipelineVersion.V2,
+            billable=inputs.billable,
         )
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)

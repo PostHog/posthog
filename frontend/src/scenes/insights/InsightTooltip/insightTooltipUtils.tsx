@@ -3,7 +3,7 @@ import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 
 import { formatBreakdownLabel } from '../utils'
@@ -41,6 +41,7 @@ export interface TooltipConfig {
     renderCount?: (value: number) => React.ReactNode
     showHeader?: boolean
     hideColorCol?: boolean
+    groupTypeLabel?: string
 }
 
 export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' | 'renderCount'> {
@@ -113,7 +114,12 @@ export function invertDataSource(
         const pillValues = []
         if (s.breakdown_value !== undefined) {
             pillValues.push(
-                formatBreakdownLabel(s.breakdown_value, breakdownFilter, cohorts, formatPropertyValueForDisplay)
+                formatBreakdownLabel(
+                    s.breakdown_value,
+                    breakdownFilter,
+                    cohorts?.results,
+                    formatPropertyValueForDisplay
+                )
             )
         }
         if (s.compare_label) {

@@ -5,7 +5,6 @@ import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -32,16 +31,8 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const {
-        filteredExperiments,
-        experimentsLoading,
-        tab,
-        searchTerm,
-        shouldShowEmptyState,
-        searchStatus,
-        userFilter,
-        featureFlags,
-    } = useValues(experimentsLogic)
+    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState, searchStatus, userFilter } =
+        useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
 
@@ -128,7 +119,7 @@ export function Experiments(): JSX.Element {
                                                 LemonDialog.open({
                                                     title: 'Archive this experiment?',
                                                     content: (
-                                                        <div className="text-sm text-muted">
+                                                        <div className="text-sm text-secondary">
                                                             This action will move the experiment to the archived tab. It
                                                             can be restored at any time.
                                                         </div>
@@ -159,7 +150,7 @@ export function Experiments(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Delete this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-secondary">
                                                     This action cannot be undone. All experiment data will be
                                                     permanently removed.
                                                 </div>
@@ -221,15 +212,13 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.Yours, label: 'Your experiments' },
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                     { key: ExperimentsTabs.Holdouts, label: 'Holdout groups' },
-                    ...(featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS]
-                        ? [{ key: ExperimentsTabs.SharedMetrics, label: 'Shared metrics' }]
-                        : []),
+                    { key: ExperimentsTabs.SharedMetrics, label: 'Shared metrics' },
                 ]}
             />
 
             {tab === ExperimentsTabs.Holdouts ? (
                 <Holdouts />
-            ) : tab === ExperimentsTabs.SharedMetrics && featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] ? (
+            ) : tab === ExperimentsTabs.SharedMetrics ? (
                 <SharedMetrics />
             ) : (
                 <>

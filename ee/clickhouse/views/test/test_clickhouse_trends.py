@@ -69,7 +69,7 @@ def test_includes_only_intervals_within_range(client: Client):
             client=client,
             team_id=team.id,
             name="test cohort",
-            groups=[{"properties": [{"key": "cohort_identifier", "value": 1, "type": "person"}]}],
+            groups=[{"properties": [{"key": "cohort_identifier", "value": "1", "type": "person"}]}],
         )
 
         journeys_for(

@@ -702,6 +702,16 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_fbclid_only(self):
+        # no reproduction, this just came from a support ticket, see https://posthoghelp.zendesk.com/agent/tickets/23328
+        self.assertEqual(
+            "Organic Social",
+            self._get_initial_channel_type_from_wild_clicks(
+                "https://xyz.com/?fbclid=ABC",
+                "",
+            ),
+        )
+
     # # The one won't work, meta sites like instagram add fbclid regardless of whether it's an ad or not.
     # # Customers would need to add their own params to the url to work around this.
     # def test_instagram_feed_sponsored_link(self):

@@ -134,11 +134,10 @@ describe('eachBatchX', () => {
         queue = {
             bufferSleep: jest.fn(),
             pluginsServer: {
-                WORKER_CONCURRENCY: 1,
                 TASKS_PER_WORKER: 10,
                 INGESTION_CONCURRENCY: 4,
                 kafkaProducer: {
-                    queueMessage: jest.fn(),
+                    queueMessages: jest.fn(() => Promise.resolve()),
                 },
                 pluginConfigsPerTeam: new Map(),
             },

@@ -1,5 +1,12 @@
+import pytest
+from django.db.utils import IntegrityError
+
 from posthog.test.base import BaseTest
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from posthog.models.error_tracking import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueAssignment,
+)
 
 
 class TestErrorTracking(BaseTest):
@@ -74,3 +81,17 @@ class TestErrorTracking(BaseTest):
         assert override
         assert override.issue_id != issue.id
         assert override.version == 1
+
+    def test_error_tracking_issue_assignment_cascade_deletes(self):
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
+
+        assert ErrorTrackingIssueAssignment.objects.count() == 1
+        issue.delete()
+        assert ErrorTrackingIssueAssignment.objects.count() == 0
+
+    def test_error_tracking_issue_assignment_uniqueness(self):
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        with pytest.raises(IntegrityError):
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)

@@ -1,15 +1,19 @@
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconEllipsis, IconServer } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { useRef } from 'react'
+import { Scene } from 'scenes/sceneTypes'
 
 import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
 
+import { viewLinkLogic } from '../viewLinkLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSceneLogic } from './editorSceneLogic'
+import { editorSidebarLogic } from './editorSidebarLogic'
 import { editorSizingLogic } from './editorSizingLogic'
 import { QueryWindow } from './QueryWindow'
 
@@ -17,8 +21,6 @@ export function EditorScene(): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
     const queryPaneRef = useRef(null)
-    const { activeNavbarItem } = useValues(navigation3000Logic)
-    const { sidebarOverlayOpen } = useValues(editorSceneLogic)
 
     const editorSizingLogicProps = {
         editorSceneRef: ref,
@@ -38,14 +40,7 @@ export function EditorScene(): JSX.Element {
     return (
         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
             <div className="w-full h-full flex flex-row overflow-hidden" ref={ref}>
-                {activeNavbarItem && (
-                    <Sidebar
-                        key={activeNavbarItem.identifier}
-                        navbarItem={activeNavbarItem}
-                        sidebarOverlay={<EditorSidebarOverlay />}
-                        sidebarOverlayProps={{ isOpen: sidebarOverlayOpen }}
-                    />
-                )}
+                <EditorSidebar />
                 <QueryWindow />
             </div>
             <ViewLinkModal />
@@ -53,27 +48,65 @@ export function EditorScene(): JSX.Element {
     )
 }
 
+const EditorSidebar = (): JSX.Element => {
+    const { sidebarOverlayOpen } = useValues(editorSceneLogic)
+    const navBarItem: SidebarNavbarItem = {
+        identifier: Scene.SQLEditor,
+        label: 'SQL editor',
+        icon: <IconServer />,
+        logic: editorSidebarLogic,
+    }
+
+    return (
+        <Sidebar
+            navbarItem={navBarItem}
+            sidebarOverlay={<EditorSidebarOverlay />}
+            sidebarOverlayProps={{ isOpen: sidebarOverlayOpen }}
+        />
+    )
+}
+
 const EditorSidebarOverlay = (): JSX.Element => {
     const { setSidebarOverlayOpen } = useActions(editorSceneLogic)
     const { sidebarOverlayTreeItems, selectedSchema } = useValues(editorSceneLogic)
+    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
 
     return (
-        <div className="flex flex-col">
-            <header className="flex flex-row h-10 border-b shrink-0 p-1 gap-2">
+        <div className="flex flex-col h-full">
+            <header className="flex flex-row items-center h-10 border-b shrink-0 p-1 gap-2">
                 <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => setSidebarOverlayOpen(false)} />
                 {selectedSchema?.name && (
                     <CopyToClipboardInline
                         className="font-mono"
                         tooltipMessage={null}
                         description="schema"
-                        iconStyle={{ color: 'var(--muted-alt)' }}
+                        iconStyle={{ color: 'var(--text-secondary)' }}
                         explicitValue={selectedSchema?.name}
                     >
                         {selectedSchema?.name}
                     </CopyToClipboardInline>
                 )}
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Add join',
+                            onClick: () => {
+                                if (selectedSchema) {
+                                    selectSourceTable(selectedSchema.name)
+                                    toggleJoinTableModal()
+                                }
+                            },
+                        },
+                    ]}
+                >
+                    <div className="absolute right-1 flex">
+                        <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                    </div>
+                </LemonMenu>
             </header>
-            <DatabaseTableTree items={sidebarOverlayTreeItems} />
+            <div className="overflow-y-auto flex-1">
+                <DatabaseTableTree items={sidebarOverlayTreeItems} />
+            </div>
         </div>
     )
 }

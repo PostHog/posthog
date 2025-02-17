@@ -1,25 +1,26 @@
 import gc
 import time
 from typing import Any
-import os
 import pyarrow as pa
-import subprocess
 from dlt.sources import DltSource, DltResource
 import deltalake as deltalake
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _handle_null_columns_with_definitions,
     _update_incremental_state,
     _get_primary_keys,
     _evolve_pyarrow_schema,
     _append_debug_column_to_pyarrows_table,
     _update_job_row_count,
+    _update_last_synced_at_sync,
     table_from_py_list,
+    trigger_compaction_job,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 
 
 class PipelineNonDLT:
@@ -57,7 +58,14 @@ class PipelineNonDLT:
         self._internal_schema = HogQLSchema()
 
     def run(self):
+        pa_memory_pool = pa.default_memory_pool()
+
         try:
+            # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
+            if self._job.rows_synced is not None and self._job.rows_synced != 0:
+                self._job.rows_synced = 0
+                self._job.save()
+
             buffer: list[Any] = []
             py_table = None
             chunk_size = 5000
@@ -68,9 +76,9 @@ class PipelineNonDLT:
                 self._logger.debug("Deleting existing table due to reset_pipeline being set")
                 self._delta_table_helper.reset_table()
 
-                source: ExternalDataSource = self._job.pipeline
-                source.job_inputs.pop("reset_pipeline", None)
-                source.save()
+                self._schema.sync_type_config.pop("reset_pipeline", None)
+                self._schema.sync_type_config.pop("incremental_field_last_value", None)
+                self._schema.save()
 
             for item in self._resource:
                 py_table = None
@@ -106,6 +114,12 @@ class PipelineNonDLT:
                 row_count += py_table.num_rows
                 chunk_index += 1
 
+                # Cleanup
+                if "py_table" in locals() and py_table is not None:
+                    del py_table
+                pa_memory_pool.release_unused()
+                gc.collect()
+
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
                 self._process_pa_table(pa_table=py_table, index=chunk_index)
@@ -126,6 +140,8 @@ class PipelineNonDLT:
                 del buffer
             if "py_table" in locals() and py_table is not None:
                 del py_table
+
+            pa_memory_pool.release_unused()
             gc.collect()
 
     def _process_pa_table(self, pa_table: pa.Table, index: int):
@@ -133,6 +149,7 @@ class PipelineNonDLT:
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+        pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         table_primary_keys = _get_primary_keys(self._resource)
         delta_table = self._delta_table_helper.write_to_deltalake(
@@ -151,32 +168,20 @@ class PipelineNonDLT:
             self._logger.debug("No deltalake table, not continuing with post-run ops")
             return
 
-        self._logger.debug("Spawning new process for deltatable compact and vacuuming")
-        try:
-            process = subprocess.Popen(
-                [
-                    "python",
-                    f"{os.getcwd()}/posthog/temporal/data_imports/pipelines/pipeline/delta_table_subprocess.py",
-                    "--table_uri",
-                    self._delta_table_helper._get_delta_table_uri(),
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                close_fds=True,
-            )
-            stdout, stderr = process.communicate()
+        self._logger.debug("SKIPPING deltatable compact and vacuuming")
 
-            if process.returncode != 0:
-                raise Exception(f"Delta subprocess failed: {stderr.decode()}")
-        finally:
-            if process.poll() is not None:
-                process.kill()
+        self._logger.debug("Triggering workflow to compact and vacuum")
+        compaction_job_id = trigger_compaction_job(self._job, self._schema)
+        self._logger.debug(f"Compaction workflow id: {compaction_job_id}")
 
         file_uris = delta_table.file_uris()
-        self._logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")
+        self._logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
         prepare_s3_files_for_querying(
             self._job.folder_path(), self._resource_name, file_uris, ExternalDataJob.PipelineVersion.V2
         )
+
+        self._logger.debug("Updating last synced at timestamp on schema")
+        _update_last_synced_at_sync(self._schema, self._job)
 
         self._logger.debug("Validating schema and updating table")
 

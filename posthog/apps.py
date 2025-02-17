@@ -2,15 +2,15 @@ import os
 
 import posthoganalytics
 import structlog
+from asgiref.sync import async_to_sync
 from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
 from posthoganalytics.exception_capture import Integrations
 
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
 from posthog.tasks.tasks import sync_all_organization_available_product_features
-from posthog.utils import get_machine_id, get_self_capture_api_token
+from posthog.utils import get_machine_id, initialize_self_capture_api_token
 
 logger = structlog.get_logger(__name__)
 
@@ -32,6 +32,14 @@ class PostHogConfig(AppConfig):
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
         elif settings.DEBUG:
+            # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
+            # Due to ASGI's workings, we can't query for the right project API key in this `ready()` method
+            # Instead, we configure self-capture with `self_capture_wrapper()` in posthog/asgi.py - see that file
+            # Self-capture for WSGI is initialized here
+            posthoganalytics.disabled = True
+            if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
+                async_to_sync(initialize_self_capture_api_token)()
+
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
                 # Sync all organization.available_product_features once on launch, in case plans changed
@@ -46,20 +54,13 @@ class PostHogConfig(AppConfig):
                     {"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
 
-            local_api_key = get_self_capture_api_token(None)
-            if SELF_CAPTURE and local_api_key:
-                posthoganalytics.api_key = local_api_key
-                posthoganalytics.host = settings.SITE_URL
-            else:
-                posthoganalytics.disabled = True
-
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
 
         from posthog.async_migrations.setup import setup_async_migrations
 
-        if SKIP_ASYNC_MIGRATIONS_SETUP:
+        if settings.SKIP_ASYNC_MIGRATIONS_SETUP:
             logger.warning("Skipping async migrations setup. This is unsafe in production!")
         else:
             setup_async_migrations()

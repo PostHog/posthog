@@ -59,7 +59,12 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     # Convert the mappings to code
     mapping_code = ""
+
     for mapping in hog_function.mappings or []:
+        mapping_disabled = mapping.get("disabled", False)
+        if mapping_disabled:
+            continue
+
         mapping_inputs = mapping.get("inputs", {})
         mapping_inputs_schema = mapping.get("inputs_schema", [])
         mapping_filters_expr = hog_function_filters_to_expr(mapping.get("filters", {}) or {}, hog_function.team, {})

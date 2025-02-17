@@ -62,7 +62,7 @@ export function PathItemFilters({
                                     className="new-prop-filter"
                                     data-attr={'new-prop-filter-' + pageKey}
                                     type="secondary"
-                                    icon={<IconPlusSmall />}
+                                    icon={<IconPlusSmall color="var(--accent-primary)" />}
                                     sideIcon={null}
                                 >
                                     Add exclusion

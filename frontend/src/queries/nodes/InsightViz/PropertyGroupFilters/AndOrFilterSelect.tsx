@@ -9,6 +9,7 @@ interface AndOrFilterSelectProps {
     prefix?: React.ReactNode
     suffix?: [singular: string, plural: string]
     disabledReason?: LemonButtonProps['disabledReason']
+    size?: LemonButtonProps['size']
 }
 
 export function AndOrFilterSelect({
@@ -18,13 +19,14 @@ export function AndOrFilterSelect({
     prefix = 'Match',
     suffix = ['filter in this group', 'filters in this group'],
     disabledReason,
+    size = 'small',
 }: AndOrFilterSelectProps): JSX.Element {
     return (
         <div className="flex items-center font-medium">
             <span className="ml-2">{prefix}</span>
             <LemonSelect
                 className="mx-2"
-                size="small"
+                size={size}
                 value={value}
                 onChange={(type) => onChange(type as FilterLogicalOperator)}
                 disabledReason={disabledReason}
@@ -73,7 +75,9 @@ const SelectOption = ({ title, description, value, selectedValue }: SelectOption
     <div className="flex p-1 items-center">
         <div
             className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${
-                value === selectedValue ? 'bg-primary text-white' : 'bg-bg-3000 text-primary-alt'
+                value === selectedValue
+                    ? 'bg-accent-primary text-primary-inverse [text-shadow:0_0_1px_black]'
+                    : 'bg-surface-secondary text-primary'
             }`}
         >
             {value}

@@ -2,6 +2,7 @@ import apiReal from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import {
+    ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
     FilterLogicalOperator,
@@ -94,6 +95,16 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_token: '123',
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
+    revenue_tracking_config: { events: [] },
+    flags_persistence_default: false,
+    access_control_version: 'v1',
+    has_completed_onboarding_for: {
+        product_analytics: true,
+    },
+    onboarding_tasks: {
+        ingest_first_event: ActivationTaskStatus.COMPLETED,
+        setup_session_recordings: ActivationTaskStatus.COMPLETED,
+    },
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

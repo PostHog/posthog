@@ -1,4 +1,3 @@
-import { urls } from '@posthog/apps-common'
 import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -8,6 +7,7 @@ import { asDisplay, asLink } from 'scenes/persons/person-utils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { PersonType } from '~/types'

@@ -6,14 +6,18 @@ from django.db import connection
 from freezegun import freeze_time
 from inline_snapshot import snapshot
 from rest_framework import status
+from django.test.utils import override_settings
 
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.models.team import Team
 
 
 EXAMPLE_FULL = {
@@ -71,6 +75,13 @@ def get_db_field_value(field, model_id):
 
 
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def setUp(self):
+        super().setUp()
+        with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
+            mock_get_templates.return_value.status_code = 200
+            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
+            HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
+
     def _create_slack_function(self, data: Optional[dict] = None):
         payload = {
             "name": "Slack",
@@ -173,6 +184,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
+        with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
+            mock_get_templates.return_value.status_code = 200
+            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
+            HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
+
     def _get_function_activity(
         self,
         function_id: Optional[int] = None,
@@ -228,6 +244,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "masking": None,
             "mappings": None,
             "status": {"rating": 0, "state": 0, "tokens": 0},
+            "execution_order": None,
         }
 
         id = response.json()["id"]
@@ -264,13 +281,17 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "Fetch URL",
                 "description": "Test description",
                 "hog": "fetch(inputs.url);",
+                "inputs": {"url": {"value": "https://example.com"}},
                 "template_id": template_webhook.id,
                 "type": "destination",
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        assert response.json()["hog"] == "fetch(inputs.url);"
         assert response.json()["template"] == {
             "type": "destination",
+            "free": False,
             "name": template_webhook.name,
             "description": template_webhook.description,
             "id": template_webhook.id,
@@ -286,14 +307,35 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "sub_templates": response.json()["template"]["sub_templates"],
         }
 
+    def test_creates_with_template_values_if_not_provided(self, *args):
+        payload: dict = {
+            "name": "Fetch URL",
+            "description": "Test description",
+            "template_id": template_webhook.id,
+            "type": "destination",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "attr": "inputs__url",
+            "code": "invalid_input",
+            "detail": "This field is required.",
+            "type": "validation_error",
+        }
+
+        payload["inputs"] = {"url": {"value": "https://example.com"}}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["hog"] == template_webhook.hog
+        assert response.json()["inputs_schema"] == template_webhook.inputs_schema
+
     def test_deletes_via_update(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "type": "destination",
+                **EXAMPLE_FULL,
                 "name": "Fetch URL",
-                "description": "Test description",
-                "hog": "fetch(inputs.url);",
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -640,8 +682,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "type": "destination",
-                "name": "Fetch URL",
+                **EXAMPLE_FULL,
                 "hog": "let i := 0;\nwhile(i < 3) {\n  i := i + 1;\n  fetch(inputs.url, {\n    'headers': {\n      'x-count': f'{i}'\n    },\n    'body': inputs.payload,\n    'method': inputs.method\n  });\n}",
             },
         )
@@ -766,6 +807,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "person",
                 1,
                 3,
+                2,
+                "toString",
+                1,
                 20,
                 32,
                 "$pageview",
@@ -786,6 +830,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "person",
                 1,
                 3,
+                2,
+                "toString",
+                1,
                 20,
                 32,
                 "$pageview",
@@ -882,7 +929,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",
-                    data={"type": "destination", "name": "Fetch URL", "hog": "fetch(inputs.url);", "enabled": True},
+                    data={
+                        **EXAMPLE_FULL,
+                        "name": "Fetch URL",
+                    },
                 )
                 id = response.json()["id"]
 
@@ -1110,11 +1160,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_cannot_modify_type_of_existing_hog_function(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Site Destination Function",
-                "hog": "export function onLoad() { console.log('Hello, site_destination'); }",
-                "type": "site_destination",
-            },
+            data=EXAMPLE_FULL,
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -1134,11 +1180,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_transpiled_field_not_populated_for_other_types(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "name": "Regular Function",
-                "hog": "fetch(inputs.url);",
-                "type": "destination",
-            },
+            data=EXAMPLE_FULL,
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -1196,3 +1238,295 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
             }
         }
+
+    def test_validates_mappings(self):
+        payload = {
+            "name": "TypeScript Destination Function",
+            "hog": "export function onLoad() { console.log(inputs.message); }",
+            "type": "site_destination",
+            "mappings": [
+                {
+                    "inputs": {"message": {"value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!"}},
+                    "inputs_schema": [
+                        {"key": "message", "type": "string", "label": "Message", "required": True},
+                        {"key": "required", "type": "string", "label": "Required", "required": True},
+                    ],
+                },
+            ],
+        }
+
+        def create(payload):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data=payload,
+            )
+            return response
+
+        response = create(payload)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == snapshot(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This field is required.",
+                "attr": "inputs__required",
+            }
+        )
+
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[])
+    def test_transformation_functions_require_template_when_disabled(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Custom Transform",
+                "type": "transformation",
+                "hog": "return event",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Transformation functions must be created from a template.",
+            "attr": "template_id",
+        }
+
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[])
+    def test_transformation_functions_preserve_template_code_when_disabled(self):
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = template_slack  # Use existing template instead of creating mock
+
+            # First create with transformations enabled
+            with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"]):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": "Template Transform",
+                        "type": "transformation",
+                        "template_id": template_slack.id,
+                        "hog": "return modified_event",
+                        "inputs": {
+                            "slack_workspace": {"value": 1},
+                            "channel": {"value": "#general"},
+                        },
+                    },
+                )
+                assert response.status_code == status.HTTP_201_CREATED, response.json()
+                function_id = response.json()["id"]
+
+            # Try to update with transformations disabled
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+                data={
+                    "hog": "return another_event",
+                },
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["hog"] == template_slack.hog  # Original template code preserved
+
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[])
+    def test_transformation_uses_template_code_even_when_enabled(self):
+        # Even with transformations enabled, we should still use template code
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "transformation",
+                "name": "Test Function",
+                "description": "Test description",
+                "template_id": template_slack.id,
+                "hog": "return custom_event",  # This should be ignored
+                "inputs": {
+                    "slack_workspace": {"value": 1},
+                    "channel": {"value": "#general"},
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["hog"] == template_slack.hog  # Should always use template code
+
+    def test_transformation_type_gets_execution_order_automatically(self):
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = template_slack
+
+            # Create first transformation function
+            response1 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "type": "transformation",
+                    "name": "First Transformation",
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response1.status_code == status.HTTP_201_CREATED
+            assert response1.json()["execution_order"] == 1
+
+            # Create second transformation function
+            response2 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "type": "transformation",
+                    "name": "Second Transformation",
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response2.status_code == status.HTTP_201_CREATED
+            assert response2.json()["execution_order"] == 2
+
+            # Create a non-transformation function - should not get execution_order
+            response3 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,  # This is fine for destination type
+                    "type": "destination",
+                    "name": "Destination Function",
+                },
+            )
+            assert response3.status_code == status.HTTP_201_CREATED
+            assert response3.json()["execution_order"] is None
+
+    def test_list_hog_functions_ordered_by_execution_order_and_created_at(self):
+        # Create functions with different execution orders and creation times
+        with freeze_time("2024-01-01T00:00:00Z"):
+            self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,
+                    "name": "Function 1",
+                    "execution_order": 1,
+                },
+            ).json()
+
+        with freeze_time("2024-01-02T00:00:00Z"):
+            self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,
+                    "name": "Function 2",
+                    "execution_order": 1,  # Same execution_order as fn1
+                },
+            ).json()
+
+        with freeze_time("2024-01-03T00:00:00Z"):
+            self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,
+                    "name": "Function 3",
+                    "execution_order": 2,
+                },
+            ).json()
+
+        with freeze_time("2024-01-04T00:00:00Z"):
+            self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,
+                    "name": "Function 4",
+                    "execution_order": None,  # No execution order
+                },
+            ).json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+
+        # Verify order: execution_order ASC, created_at ASC, nulls last
+        assert [f["name"] for f in results] == [
+            "Function 1",  # execution_order=1, created first
+            "Function 2",  # execution_order=1, created second
+            "Function 3",  # execution_order=2
+            "Function 4",  # execution_order=null
+        ]
+
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"])
+    def test_transformation_code_editing_restricted_by_team(self):
+        # Create team with ID 2
+        team_2 = Team.objects.create(id=2, organization=self.organization, name="Team 2")
+        self.team = team_2  # Switch to team 2 context
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Custom Transform",
+                "type": "transformation",
+                "hog": "return modified_event",
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["hog"] == "return modified_event"
+
+        # Create and switch to team 3
+        team_3 = Team.objects.create(id=3, organization=self.organization, name="Team 3")
+        self.team = team_3
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Custom Transform",
+                "type": "transformation",
+                "hog": "return modified_event",
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Transformation functions must be created from a template.",
+            "attr": "template_id",
+        }
+
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"])
+    def test_transformation_code_editing_with_template_restricted_by_team(self):
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = template_slack
+
+            # Create and test with team ID 2
+            team_2 = Team.objects.create(id=2, organization=self.organization, name="Team 2")
+            self.team = team_2
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Template Transform",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "hog": "return custom_event",
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert response.json()["hog"] == "return custom_event"  # Custom code allowed
+
+            # Create and test with team ID 3
+            team_3 = Team.objects.create(id=3, organization=self.organization, name="Team 3")
+            self.team = team_3
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Template Transform",
+                    "type": "transformation",
+                    "template_id": template_slack.id,
+                    "hog": "return custom_event",
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            assert response.json()["hog"] == template_slack.hog  # Template code enforced

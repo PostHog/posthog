@@ -11,7 +11,9 @@ import pyarrow as pa
 import structlog
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import aupdate_batch_export_run
+from posthog.batch_exports.service import (
+    aupdate_batch_export_run,
+)
 
 T = typing.TypeVar("T")
 logger = structlog.get_logger()

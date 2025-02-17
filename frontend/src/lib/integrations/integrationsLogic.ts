@@ -9,6 +9,7 @@ import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconIntercom from 'public/services/intercom.png'
+import IconLinkedIn from 'public/services/linkedin.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
@@ -28,6 +29,7 @@ const ICONS: Record<IntegrationKind, any> = {
     'google-ads': IconGoogleAds,
     snapchat: IconSnapchat,
     intercom: IconIntercom,
+    'linkedin-ads': IconLinkedIn,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([

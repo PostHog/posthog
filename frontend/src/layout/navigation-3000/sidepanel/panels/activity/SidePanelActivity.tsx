@@ -1,13 +1,11 @@
 import { IconNotification } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonSelect,
     LemonSelectOption,
     LemonSkeleton,
     LemonSwitch,
     LemonTabs,
-    Link,
     Spinner,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -17,11 +15,10 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useRef } from 'react'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -72,7 +69,7 @@ export const SidePanelActivity = (): JSX.Element => {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    usePageVisibility((pageIsVisible) => {
+    usePageVisibilityCb((pageIsVisible) => {
         togglePolling(pageIsVisible)
     })
 
@@ -168,14 +165,6 @@ export const SidePanelActivity = (): JSX.Element => {
                     {/* Controls */}
                     {activeTab === SidePanelActivityTab.Unread ? (
                         <div className="px-2 pb-2 space-y-2 shrink-0">
-                            <LemonBanner type="info" dismissKey="notifications-introduction">
-                                Notifications shows you changes others make to{' '}
-                                <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
-                                <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
-                                <Link to="https://posthog.com/community">our community forum</Link> and tell us what
-                                else should be here!
-                            </LemonBanner>
-
                             <div className="flex items-center justify-between gap-2">
                                 {toggleExtendedDescription}
                                 {hasUnread ? (
@@ -238,7 +227,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                             />
                                         ))
                                     ) : (
-                                        <div className="p-6 text-center border border-dashed rounded text-muted-alt">
+                                        <div className="p-6 text-center border border-dashed rounded text-secondary">
                                             You're all caught up!
                                         </div>
                                     )}
@@ -257,7 +246,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                                 />
                                             ))}
 
-                                            <div className="flex items-center justify-center h-10 gap-2 m-4 text-muted-alt">
+                                            <div className="flex items-center justify-center h-10 gap-2 m-4 text-secondary">
                                                 {allActivityResponseLoading ? (
                                                     <>
                                                         <Spinner textColored /> Loading older activity

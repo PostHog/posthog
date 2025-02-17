@@ -1,5 +1,13 @@
 import { IconCrown, IconLeave, IconLock, IconUnlock } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSelect,
+    LemonSelectOption,
+    LemonSnack,
+    LemonSwitch,
+    LemonTable,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -209,6 +217,8 @@ export function TeamMembers(): JSX.Element | null {
 export function TeamAccessControl(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { migrateAccessControlVersion } = useActions(organizationLogic)
+    const { migrateAccessControlVersionLoading } = useValues(organizationLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
@@ -217,13 +227,29 @@ export function TeamAccessControl(): JSX.Element {
     })
 
     const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
-    if (newAccessControl) {
+
+    // Only render the new access control if they have been migrated and have the feature flag enabled
+    if (newAccessControl && currentTeam?.access_control_version === 'v2') {
         return <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
     }
 
     return (
         <>
             <p>
+                {newAccessControl && (
+                    <LemonBanner
+                        className="mb-4"
+                        type="warning"
+                        action={{
+                            children: 'Upgrade now',
+                            onClick: () => migrateAccessControlVersion(),
+                            loading: migrateAccessControlVersionLoading,
+                        }}
+                    >
+                        You're eligible to upgrade to our new access control system. This will allow you to better
+                        manage access to your project and resources.
+                    </LemonBanner>
+                )}
                 {currentTeam?.access_control ? (
                     <>
                         This project is{' '}
@@ -249,7 +275,7 @@ export function TeamAccessControl(): JSX.Element {
                 onChange={(checked) => {
                     // Let them uncheck it if it's already checked, but don't let them check it if they don't have the feature
                     checked
-                        ? guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () =>
+                        ? guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () =>
                               updateCurrentTeam({ access_control: checked })
                           )
                         : updateCurrentTeam({ access_control: checked })

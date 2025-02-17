@@ -4,7 +4,7 @@ import { Pool } from 'pg'
 import { defaultConfig } from '../../src/config/config'
 import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
-import { DependencyUnavailableError } from '../../src/utils/db/error'
+import { DependencyUnavailableError, RedisOperationError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
@@ -351,7 +351,7 @@ describe('DB', () => {
 
     describe('updatePerson', () => {
         it('Clickhouse and Postgres are in sync if multiple updates concurrently', async () => {
-            jest.spyOn(db.kafkaProducer!, 'queueMessage')
+            jest.spyOn(db.kafkaProducer!, 'queueMessages')
             const team = await getFirstTeam(hub)
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
@@ -364,10 +364,7 @@ describe('DB', () => {
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
             const [updatedPerson, kafkaMessages] = await db.updatePersonDeprecated(personProvided, update)
-            await hub.db.kafkaProducer.queueMessages({
-                kafkaMessages,
-                waitForAck: true,
-            })
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
@@ -380,10 +377,9 @@ describe('DB', () => {
             expect(updatedPerson.properties).toEqual({ c: 'aaa' })
 
             // verify correct Kafka message was sent
-            expect(db.kafkaProducer!.queueMessage).toHaveBeenLastCalledWith({
-                kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
-                waitForAck: true,
-            })
+            expect(db.kafkaProducer!.queueMessages).toHaveBeenLastCalledWith([
+                generateKafkaPersonUpdateMessage(updatedPerson),
+            ])
         })
     })
 
@@ -428,15 +424,12 @@ describe('DB', () => {
                 const [_p, updatePersonKafkaMessages] = await db.updatePersonDeprecated(person, {
                     properties: { foo: 'bar' },
                 })
-                await hub.db.kafkaProducer.queueMessages({
-                    kafkaMessages: updatePersonKafkaMessages,
-                    waitForAck: true,
-                })
+                await hub.db.kafkaProducer.queueMessages(updatePersonKafkaMessages)
                 await db.kafkaProducer.flush()
                 await delayUntilEventIngested(fetchPersonsRows, 2)
 
                 const kafkaMessages = await db.deletePerson(person)
-                await db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+                await db.kafkaProducer.queueMessages(kafkaMessages)
                 await db.kafkaProducer.flush()
 
                 const persons = await delayUntilEventIngested(fetchPersonsRows, 3)
@@ -533,7 +526,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
+                { prop: TIMESTAMP.toISO()! },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
@@ -910,6 +903,61 @@ describe('DB', () => {
     })
 
     describe('redis', () => {
+        describe('instrumentRedisQuery', () => {
+            const otherErrorType = new Error('other error type')
+
+            it('should only throw Redis errors for operations', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => ({
+                    get: jest.fn().mockImplementation(() => {
+                        throw otherErrorType
+                    }),
+                }))
+                hub.redisPool.release = jest.fn()
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
+            it('should only throw Redis errors for pool acquire', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => {
+                    throw otherErrorType
+                })
+                hub.redisPool.release = jest.fn()
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
+
+            it('should only throw Redis errors for pool release', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => ({
+                    get: jest.fn().mockImplementation(() => {
+                        return 'testValue'
+                    }),
+                }))
+                hub.redisPool.release = jest.fn().mockImplementation(() => {
+                    throw otherErrorType
+                })
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
+        })
+
+        describe('get', () => {
+            const defaultValue = 'testDefaultValue'
+            const value = 'testValue'
+            const key = 'testKey'
+            const tag = 'testTag'
+            it('should get a value that was previously set', async () => {
+                await hub.db.redisSet(key, value, tag)
+                const result = await hub.db.redisGet(key, defaultValue, tag)
+                expect(result).toEqual(value)
+            })
+            it('should return the default value if there is no value already set', async () => {
+                const result = await hub.db.redisGet(key, defaultValue, tag)
+                expect(result).toEqual(defaultValue)
+            })
+        })
+
         describe('buffer operations', () => {
             it('writes and reads buffers', async () => {
                 const buffer = Buffer.from('test')

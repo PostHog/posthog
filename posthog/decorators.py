@@ -21,9 +21,7 @@ from .utils import generate_cache_key, get_safe_cache
 class CacheType(StrEnum):
     TRENDS = "Trends"
     FUNNEL = "Funnel"
-    RETENTION = "Retention"
     STICKINESS = "Stickiness"
-    PATHS = "Path"
 
 
 ResultPackage = Union[dict[str, Any], list[dict[str, Any]]]

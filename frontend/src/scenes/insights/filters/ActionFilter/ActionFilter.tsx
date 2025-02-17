@@ -86,8 +86,8 @@ export interface ActionFilterProps {
         deleteButton,
         orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element
-    /** Only show these property math definitions */
-    onlyPropertyMathDefinitions?: Array<string>
+    /** Only allow these math types in the selector */
+    allowedMathTypes?: readonly string[]
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -98,7 +98,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         addFilterDefaultOptions = {},
         mathAvailability = MathAvailability.All,
         buttonCopy = '',
-        buttonProps = { fullWidth: true },
+        buttonProps = {},
         disabled = false,
         sortable = false,
         showSeriesIndicator = false,
@@ -118,7 +118,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         buttonType = 'tertiary',
         readOnly = false,
         bordered = false,
-        onlyPropertyMathDefinitions,
+        allowedMathTypes,
     },
     ref
 ): JSX.Element {
@@ -177,7 +177,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         onRenameClick: showModal,
         sortable,
         showNumericalPropsOnly,
-        onlyPropertyMathDefinitions,
+        allowedMathTypes,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
@@ -239,6 +239,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             onClick={() => addFilter()}
                             data-attr="add-action-event-button"
                             icon={<IconPlusSmall />}
+                            size="small"
                             disabled={reachedLimit || disabled || readOnly}
                             {...buttonProps}
                         >

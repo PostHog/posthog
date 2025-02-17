@@ -1,5 +1,9 @@
 import clsx from 'clsx'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import {
+    LemonButton,
+    LemonButtonWithoutSideActionProps,
+    LemonButtonWithSideActionProps,
+} from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropsWithChildren } from 'react'
@@ -26,16 +30,18 @@ export function SettingsBar({
     border,
     className,
 }: PropsWithChildren<{
-    border: 'bottom' | 'top' | 'none'
+    border: 'bottom' | 'top' | 'all' | 'none'
     className?: string
 }>): JSX.Element {
     return (
         <div
             className={clsx(
-                border === 'bottom' && 'border-b',
-                border === 'top' && 'border-t',
-                'flex flex-row w-full overflow-hidden font-light text-xs bg-bg-3000 items-center',
-                className
+                'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
+                className,
+                {
+                    'border-b': ['bottom', 'all'].includes(border),
+                    'border-t': ['top', 'all'].includes(border),
+                }
             )}
         >
             {children}
@@ -73,7 +79,10 @@ export function SettingsMenu({
     )
 }
 
-type SettingsButtonProps = Omit<LemonButtonProps, 'status' | 'sideAction' | 'className'> & {
+type SettingsButtonProps = (
+    | Omit<LemonButtonWithoutSideActionProps, 'status' | 'className'>
+    | Omit<LemonButtonWithSideActionProps, 'status' | 'className'>
+) & {
     title?: string
     icon?: JSX.Element | null
     label: JSX.Element | string

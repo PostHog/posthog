@@ -4,14 +4,14 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
+import { captureException } from '../../../utils/posthog'
 import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
 import { EventPipelineRunner } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
-import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
-import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter, ingestionPartitionKeyOverflowed, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
     ingestEventBatchingDistinctIdBatchLengthSummary,
@@ -67,10 +67,10 @@ async function handleProcessingError(
     // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
     // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
     //
-    // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
+    // TODO: properly abstract out this `isRetriable` error logic. This is currently relying on the
     // fact that node-rdkafka adheres to the `isRetriable` interface.
     if (error?.isRetriable === false) {
-        const sentryEventId = Sentry.captureException(error)
+        const sentryEventId = captureException(error)
         const headers: MessageHeader[] = message.headers ?? []
         headers.push({ ['sentry-event-id']: sentryEventId })
         headers.push({ ['event-id']: pluginEvent.uuid })
@@ -80,7 +80,6 @@ async function handleProcessingError(
                 value: message.value,
                 key: message.key ?? null, // avoid undefined, just to be safe
                 headers: headers,
-                waitForAck: true,
             })
         } catch (error) {
             // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
@@ -169,12 +168,10 @@ export async function eachBatchParallelIngestion(
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
+                        // TODO: this is the old way of doing it, we don't need to pass the hogTransformer down
+                        // TODO: as we will switch to the new ingestion flow and this will be removed
+                        const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent, null)
                         const result = (await retryIfRetriable(async () => {
-                            const runner = new EventPipelineRunner(
-                                queue.pluginsServer,
-                                pluginEvent,
-                                queue.eventsProcessor
-                            )
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
@@ -271,6 +268,7 @@ export function computeKey(pluginEvent: PipelineEvent): string {
 async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[], overflowMode: IngestionOverflowMode) {
     ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
     const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
+
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.produce({
@@ -281,7 +279,6 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
                 // instead as that behavior is safer.
                 key: useRandomPartitioning ? null : message.key ?? null,
                 headers: message.headers,
-                waitForAck: true,
             })
         )
     )

@@ -1,0 +1,243 @@
+#
+# docker-compose file used ONLY for local development using a coordinator topology in ClickHouse.
+# For more info, see:
+# https://posthog.com/handbook/engineering/developing-locally
+#
+# PostHog has sunset support for self-hosted K8s deployments.
+# See: https://posthog.com/blog/sunsetting-helm-support-posthog
+#
+
+services:
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
+        ports:
+            - 8010:8000
+        depends_on:
+            - replay-capture
+            - capture
+            - feature-flags
+        extra_hosts:
+            - 'web:host-gateway'
+    db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        ports:
+            - '5432:5432'
+        # something in the django app when running in dev mode
+        # (maybe only in Pycharm) keeps many idle transactions open
+        # and eventually kills postgres, these settings aim to stop that happening.
+        # They are only for DEV and should not be used in production.
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
+    redis:
+        extends:
+            file: docker-compose.base.yml
+            service: redis
+        ports:
+            - '6379:6379'
+    redis7:
+        extends:
+            file: docker-compose.base.yml
+            service: redis7
+        ports:
+            - '6479:6379'
+
+    flower:
+        extends:
+            file: docker-compose.base.yml
+            service: flower
+        ports:
+            - '5555:5555'
+
+    clickhouse: &clickhouse
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse
+        hostname: clickhouse
+        ports:
+            - '8123:8123'
+            - '8443:8443'
+            - '9000:9000'
+            - '9440:9440'
+            - '9009:9009'
+        volumes:
+            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
+            # revert this when we upgrade clickhouse
+            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/data_node.xml:/etc/clickhouse-server/config.d/data_node.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        depends_on:
+            - kafka
+            - zookeeper
+
+    clickhouse-coordinator:
+        hostname: clickhouse-coordinator
+        <<: *clickhouse
+        volumes:
+            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
+            # revert this when we upgrade clickhouse
+            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/config.d/coordinator.xml:/etc/clickhouse-server/config.d/coordinator.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+        ports:
+            - '9001:9001'
+
+    zookeeper:
+        extends:
+            file: docker-compose.base.yml
+            service: zookeeper
+        ports:
+            - '2181:2181'
+
+    kafka:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka
+        ports:
+            - '9092:9092'
+        depends_on:
+            - zookeeper
+
+    kafka_ui:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka_ui
+        ports:
+            - '9093:8080'
+        depends_on:
+            - kafka
+
+    objectstorage:
+        extends:
+            file: docker-compose.base.yml
+            service: objectstorage
+        ports:
+            - '19000:19000'
+            - '19001:19001'
+
+    maildev:
+        extends:
+            file: docker-compose.base.yml
+            service: maildev
+        ports:
+            - '1080:1080'
+            - '1025:1025'
+
+    webhook-tester:
+        image: tarampampam/webhook-tester:1.1.0
+        restart: on-failure
+        ports:
+            - '2080:2080'
+        environment:
+            - LISTEN_PORT=2080
+
+    # capture-rs
+    capture:
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+        environment:
+            - DEBUG=1
+        depends_on:
+            - redis
+            - kafka
+
+    # vector replay capture
+    replay-capture:
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
+        depends_on:
+            - redis
+            - kafka
+
+    property-defs-rs:
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+        depends_on:
+            - kafka
+
+    feature-flags:
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+        depends_on:
+            - redis
+            - db
+
+    livestream:
+        extends:
+            file: docker-compose.base.yml
+            service: livestream
+        environment:
+            - JWT.TOKEN=${SECRET_KEY}
+        ports:
+            - '8666:8080'
+        volumes:
+            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
+
+    # Temporal containers
+    elasticsearch:
+        extends:
+            file: docker-compose.base.yml
+            service: elasticsearch
+        expose:
+            - 9200
+
+    temporal:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal
+
+    temporal-admin-tools:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-admin-tools
+        depends_on:
+            - temporal
+    temporal-ui:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-ui
+        depends_on:
+            temporal:
+                condition: service_started
+            db:
+                condition: service_healthy
+
+    cyclotron-fetch:
+        extends:
+            file: docker-compose.base.yml
+            service: cyclotron-fetch
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            RUST_LOG: 'info'
+        depends_on:
+            db:
+                condition: service_healthy
+
+    cyclotron-janitor:
+        extends:
+            file: docker-compose.base.yml
+            service: cyclotron-janitor
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            RUST_LOG: 'info'
+        depends_on:
+            db:
+                condition: service_healthy

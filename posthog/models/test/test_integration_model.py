@@ -89,8 +89,8 @@ class TestOauthIntegrationModel(BaseTest):
         "SALESFORCE_CONSUMER_SECRET": "salesforce-client-secret",
         "HUBSPOT_APP_CLIENT_ID": "hubspot-client-id",
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
-        "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY": "google-client-id",
-        "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET": "google-client-secret",
+        "GOOGLE_ADS_APP_CLIENT_ID": "google-client-id",
+        "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
     }
 
     def create_integration(

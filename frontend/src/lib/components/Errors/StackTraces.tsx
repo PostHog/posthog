@@ -54,7 +54,9 @@ export function ChainedStackTraces({
                         >
                             <div className="space-y-0.5">
                                 <h3 className="StackTrace__type mb-0">{type}</h3>
-                                <div className="StackTrace__value line-clamp-2 text-muted italic text-xs">{value}</div>
+                                <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs">
+                                    {value}
+                                </div>
                             </div>
                             <Trace frames={frames || []} showAllFrames={showAllFrames} embedded={embedded} />
                         </div>
@@ -78,7 +80,7 @@ function Trace({
     const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)
 
     const panels = displayFrames.map(
-        ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure }, index) => {
+        ({ raw_id, source, line, column, resolved_name, lang, resolved, resolve_failure, in_app }, index) => {
             const record = stackFrameRecords[raw_id]
             return {
                 key: index,
@@ -88,13 +90,13 @@ function Trace({
                             <span>{source}</span>
                             {resolved_name ? (
                                 <div className="flex space-x-0.5">
-                                    <span className="text-muted">in</span>
+                                    <span className="text-secondary">in</span>
                                     <span>{resolved_name}</span>
                                 </div>
                             ) : null}
                             {line ? (
                                 <div className="flex space-x-0.5">
-                                    <span className="text-muted">@</span>
+                                    <span className="text-secondary">@</span>
                                     <span>
                                         {line}
                                         {column && `:${column}`}
@@ -102,13 +104,14 @@ function Trace({
                                 </div>
                             ) : null}
                         </div>
-                        {!resolved && (
-                            <div className="flex items-center space-x-1">
+                        <div className="space-x-1">
+                            {in_app && <LemonTag>In App</LemonTag>}
+                            {!resolved && (
                                 <Tooltip title={resolve_failure}>
                                     <LemonTag>Unresolved</LemonTag>
                                 </Tooltip>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                 ),
                 content:
@@ -150,7 +153,7 @@ function FrameContextLine({
     highlight?: boolean
 }): JSX.Element {
     return (
-        <div className={highlight ? 'bg-accent-3000' : 'bg-bg-light'}>
+        <div className={highlight ? 'bg-fill-error-highlight' : 'bg-surface-primary'}>
             {lines
                 .sort((l) => l.number)
                 .map(({ number, line }) => (

@@ -50,14 +50,14 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
         ],
         defaultTheme: [
             (s) => [s.currentTeam, s.themes, s.posthogTheme],
-            (currentTeam, themes, posthogTheme) => {
+            (currentTeam, themes, posthogTheme): DataColorThemeModel | null => {
                 if (!currentTeam || !themes) {
                     return null
                 }
 
                 // use the posthog theme unless someone set a specfic theme for the team
                 const environmentTheme = themes.find((theme) => theme.id === currentTeam.default_data_theme)
-                return environmentTheme || posthogTheme
+                return environmentTheme || posthogTheme || null
             },
         ],
         getTheme: [
@@ -74,7 +74,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                         return customTheme.colors.reduce((theme, color, index) => {
                             theme[`preset-${index + 1}`] = color
                             return theme
-                        }, {})
+                        }, {} as Record<string, string>)
                     }
 
                     if (defaultTheme) {

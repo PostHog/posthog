@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
@@ -19,18 +20,65 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { getFilterLabel } from 'lib/taxonomy'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagGroupType, PropertyOperator } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     featureFlagReleaseConditionsLogic,
     FeatureFlagReleaseConditionsLogicProps,
 } from './FeatureFlagReleaseConditionsLogic'
+
+function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
+    if (property.type === 'cohort') {
+        return (
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                to={urls.cohort(property.value)}
+                sideIcon={<IconOpenInNew />}
+                targetBlank
+            >
+                {property.cohort_name || `ID ${property.value}`}
+            </LemonButton>
+        )
+    }
+
+    if (property.value === PropertyOperator.IsNotSet || property.value === PropertyOperator.IsSet) {
+        return <></>
+    }
+    const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
+
+    return (
+        <>
+            {propertyValues.map((val, idx) => (
+                <LemonSnack key={idx}>
+                    {val}
+                    <span>
+                        {isPropertyFilterWithOperator(property) &&
+                        ['is_date_before', 'is_date_after'].includes(property.operator) &&
+                        dateStringToComponents(String(val)) // check it's a relative date
+                            ? ` ( ${dateFilterToText(
+                                  String(val),
+                                  undefined,
+                                  '',
+                                  [],
+                                  false,
+                                  String(val).slice(-1) === 'h' ? 'MMMM D, YYYY HH:mm:ss' : 'MMMM D, YYYY',
+                                  true
+                              )}{' '}
+                                                            )`
+                            : ''}
+                    </span>
+                </LemonSnack>
+            ))}
+        </>
+    )
+}
 
 export function FeatureFlagReleaseConditions({
     id,
@@ -80,7 +128,6 @@ export function FeatureFlagReleaseConditions({
     const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants } =
         useValues(featureFlagLogic)
 
-    const { cohortsById } = useValues(cohortsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
@@ -110,7 +157,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 border rounded p-4 bg-bg-light">
+                <div className="mb-4 border rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
@@ -182,46 +229,19 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                     )}
+                                    {property?.type !== 'cohort' &&
+                                        getFilterLabel(
+                                            property.key,
+                                            property.type === 'person'
+                                                ? TaxonomicFilterGroupType.PersonProperties
+                                                : TaxonomicFilterGroupType.EventProperties
+                                        )}
                                     <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key} </LemonSnack>
                                     {isPropertyFilterWithOperator(property) ? (
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
 
-                                    {property.type === 'cohort' ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            to={urls.cohort(property.value)}
-                                            sideIcon={<IconOpenInNew />}
-                                            targetBlank
-                                        >
-                                            {(property.value && cohortsById[property.value]?.name) ||
-                                                `ID ${property.value}`}
-                                        </LemonButton>
-                                    ) : (
-                                        [...(Array.isArray(property.value) ? property.value : [property.value])].map(
-                                            (val, idx) => (
-                                                <LemonSnack key={idx}>
-                                                    {val}
-                                                    {isPropertyFilterWithOperator(property) &&
-                                                    ['is_date_before', 'is_date_after'].includes(property.operator) &&
-                                                    dateStringToComponents(String(val)) // check it's a relative date
-                                                        ? ` ( ${dateFilterToText(
-                                                              String(val),
-                                                              undefined,
-                                                              '',
-                                                              [],
-                                                              false,
-                                                              String(val).slice(-1) === 'h'
-                                                                  ? 'MMMM D, YYYY HH:mm:ss'
-                                                                  : 'MMMM D, YYYY',
-                                                              true
-                                                          )} )`
-                                                        : ''}
-                                                </LemonSnack>
-                                            )
-                                        )
-                                    )}
+                                    <PropertyValueComponent property={property} />
                                 </div>
                             ))}
                         </>
@@ -279,8 +299,10 @@ export function FeatureFlagReleaseConditions({
                         >
                             <div className="text-sm ">
                                 Rolled out to{' '}
-                                <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                <b>{aggregationTargetName}</b> in this set.{' '}
+                                {group.rollout_percentage != null ? <b>{group.rollout_percentage}</b> : <b>100</b>}
+                                <b>%</b>
+                                <span> of </span>
+                                <b>{aggregationTargetName}</b> <span>in this set.</span>
                             </div>
                         </LemonTag>
                     ) : (
@@ -344,7 +366,7 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     return ''
                                 })()}{' '}
-                                of total {aggregationTargetName}.
+                                <span>of total {aggregationTargetName}.</span>
                             </div>
                         </div>
                     )}
@@ -400,7 +422,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 rounded p-4 bg-bg-light">
+                <div className="mb-4 rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <div>
@@ -466,7 +488,7 @@ export function FeatureFlagReleaseConditions({
                             {!excludeTitle && (
                                 <>
                                     <h3 className="l3">Release conditions</h3>
-                                    <div className="text-muted mb-4">
+                                    <div className="text-secondary mb-4">
                                         Specify {aggregationTargetName} for flag release. Condition sets roll out
                                         independently.
                                         {aggregationTargetName === 'users' && (

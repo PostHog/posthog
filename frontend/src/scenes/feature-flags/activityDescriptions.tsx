@@ -62,7 +62,7 @@ const featureFlagActionsMapping: Record<
             } else {
                 filtersAfter.payloads &&
                     Object.keys(filtersAfter.payloads).forEach((key: string) => {
-                        const changedPayload = filtersAfter.payloads[key]?.toString() || null
+                        const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
                         changes.push(<SentenceList listParts={[changedPayload]} prefix="changed payload to" />)
                     })
 
@@ -145,7 +145,7 @@ const featureFlagActionsMapping: Record<
         if (isMultivariateFlag) {
             filtersAfter.payloads &&
                 Object.keys(filtersAfter.payloads).forEach((key: string) => {
-                    const changedPayload = filtersAfter.payloads[key]?.toString() || null
+                    const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
                     changes.push(
                         <SentenceList
                             listParts={[
@@ -253,6 +253,9 @@ const featureFlagActionsMapping: Record<
     has_enriched_analytics: () => null,
     surveys: () => null,
     user_access_level: () => null,
+    is_remote_configuration: () => null,
+    has_encrypted_payloads: () => null,
+    status: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

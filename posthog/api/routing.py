@@ -168,26 +168,28 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
             queryset = self._filter_queryset_by_parents_lookups(queryset)
 
-            if self.action != "list":
-                # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
-                # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
-                return queryset
-
-            # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
-            include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
-
-            # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
-            if self.scope_object == "project":
-                include_all_if_admin = True
-
-            # Only apply access control filter if we're not already in a recursive call
-            queryset = self.user_access_control.filter_queryset_by_access_level(
-                queryset, include_all_if_admin=include_all_if_admin
-            )
+            queryset = self._filter_queryset_by_access_level(queryset)
 
             return queryset
         finally:
             self._in_get_queryset = False
+
+    def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
+        if self.action != "list":
+            # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
+            # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
+            return queryset
+
+        # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
+        include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
+
+        # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
+        if self.scope_object == "project":
+            include_all_if_admin = True
+
+        return self.user_access_control.filter_queryset_by_access_level(
+            queryset, include_all_if_admin=include_all_if_admin
+        )
 
     def dangerously_get_object(self) -> Any:
         """
@@ -250,37 +252,41 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     @cached_property
     def team(self) -> Team:
         if team_from_token := self._get_team_from_request():
-            return team_from_token
-
-        if self._is_project_view:
-            return Team.objects.get(
+            team = team_from_token
+        elif self._is_project_view:
+            team = Team.objects.get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
-
-        if self.param_derived_from_user_current_team == "team_id":
+        elif self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
+            assert user.team is not None
             team = user.team
-            assert team is not None
-            return team
-        try:
-            return Team.objects.get(id=self.team_id)
-        except Team.DoesNotExist:
-            raise NotFound(
-                detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
-            )
+        else:
+            try:
+                team = Team.objects.get(id=self.team_id)
+            except Team.DoesNotExist:
+                raise NotFound(
+                    detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+                )
+
+        tag_queries(team_id=team.pk)
+        return team
 
     @cached_property
     def project_id(self) -> int:
         if team_from_token := self._get_team_from_request():
-            return team_from_token.project_id
+            project_id = team_from_token.project_id
 
-        if self.param_derived_from_user_current_team == "project_id":
+        elif self.param_derived_from_user_current_team == "project_id":
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
-            return team.project_id
+            project_id = team.project_id
+        else:
+            project_id = self.parents_query_dict["project_id"]
 
-        return self.parents_query_dict["project_id"]
+        tag_queries(team_id=project_id)
+        return project_id
 
     @cached_property
     def project(self) -> Project:
@@ -307,7 +313,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                 current_organization_id = self.team.organization_id
             if self._is_project_view:
                 current_organization_id = self.project.organization_id
-            else:
+            elif user:
                 current_organization_id = user.current_organization_id
 
             if not current_organization_id:

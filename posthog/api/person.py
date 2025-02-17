@@ -68,7 +68,6 @@ from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.queries.property_values import get_person_property_values_for_key
-from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
@@ -242,7 +241,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonLimitOffsetPagination
     throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
     lifecycle_class = Lifecycle
-    retention_class = Retention
     stickiness_class = Stickiness
 
     def safely_get_queryset(self, queryset):
@@ -844,34 +842,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
-
-    @action(methods=["GET"], detail=False)
-    def retention(self, request: request.Request) -> response.Response:
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {
-                    "message": "Could not retrieve team",
-                    "detail": "Could not validate team associated with user",
-                },
-                status=400,
-            )
-        filter = RetentionFilter(request=request, team=team)
-        filter = prepare_actor_query_filter(filter)
-        base_uri = request.build_absolute_uri("/")
-
-        people, raw_count = self.retention_class(base_uri=base_uri).actors_in_period(filter, team)
-
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-
-        return response.Response(
-            {
-                "result": people,
-                "next": next_url,
-                "missing_persons": raw_count - len(people),
-                "filters": filter.to_dict(),
-            }
-        )
 
     @action(methods=["GET"], detail=False)
     def stickiness(self, request: request.Request) -> response.Response:

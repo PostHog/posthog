@@ -1,5 +1,6 @@
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
-import { actions, kea, listeners, path } from 'kea'
+import Fuse from 'fuse.js'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -8,12 +9,19 @@ import { UserBasicType, UserGroup } from '~/types'
 
 import type { userGroupsLogicType } from './userGroupsLogicType'
 
+export interface UserGroupsFuse extends Fuse<UserGroup> {}
+
 export const userGroupsLogic = kea<userGroupsLogicType>([
     path(['scenes', 'settings', 'environment', 'userGroupsLogic']),
 
     actions({
         ensureAllGroupsLoaded: true,
         openGroupCreationForm: true,
+        setSearch: (search) => ({ search }),
+    }),
+
+    reducers({
+        search: ['', { setSearch: (_, { search }) => search }],
     }),
 
     loaders(({ values }) => ({
@@ -54,6 +62,18 @@ export const userGroupsLogic = kea<userGroupsLogicType>([
             },
         ],
     })),
+
+    selectors({
+        userGroupsFuse: [
+            (s) => [s.userGroups],
+            (userGroups): UserGroupsFuse => new Fuse<UserGroup>(userGroups, { keys: ['name'], threshold: 0.3 }),
+        ],
+        filteredGroups: [
+            (s) => [s.userGroups, s.userGroupsFuse, s.search],
+            (userGroups, userGroupsFuse, search): UserGroup[] =>
+                search ? userGroupsFuse.search(search).map((result) => result.item) : userGroups ?? [],
+        ],
+    }),
 
     listeners(({ values, actions }) => ({
         openGroupCreationForm: () => {

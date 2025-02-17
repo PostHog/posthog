@@ -4,7 +4,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { useState } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { QueryTiming } from '~/queries/schema'
+import { QueryTiming } from '~/queries/schema/schema-general'
 
 export interface TimingsProps {
     timings: QueryTiming[]
@@ -64,8 +64,13 @@ function ElapsedTimeWithTimings({
 }
 
 export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Element | null {
-    const { elapsedTime, loadingStart, responseError, isShowingCachedResults, timings } = useValues(dataNodeLogic)
+    const { elapsedTime, loadingStart, responseError, isShowingCachedResults, timings, query } =
+        useValues(dataNodeLogic)
     const [, setTick] = useState(0)
+
+    if ('query' in query && query.query === '') {
+        return null
+    }
 
     let time = elapsedTime
     if (isShowingCachedResults) {

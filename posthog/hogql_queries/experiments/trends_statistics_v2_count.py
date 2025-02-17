@@ -1,5 +1,5 @@
 from rest_framework.exceptions import ValidationError
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import (
     EXPECTED_LOSS_SIGNIFICANCE_LEVEL,
     FF_DISTRIBUTION_THRESHOLD,
@@ -36,9 +36,9 @@ def calculate_probabilities_v2_count(
     Returns:
     --------
     list[float]
-        A list of probabilities that sum to 1, where:
-        - The first element is the probability that the control variant is the best
-        - Subsequent elements are the probabilities that each test variant is the best
+        A list of probabilities where each element represents:
+        - index 0: probability control variant beats the best test variant
+        - index i>0: probability test variant i-1 beats control
 
     Notes:
     ------
@@ -78,16 +78,14 @@ def calculate_probabilities_v2_count(
     # Calculate probabilities
     probabilities = []
 
-    # Probability control wins (beats all test variants)
-    control_wins = np.all([samples_control > test_sample for test_sample in test_samples], axis=0)
+    # Probability control wins (beats the best test variant)
+    best_test_samples = np.max(test_samples, axis=0)
+    control_wins = samples_control > best_test_samples
     probabilities.append(float(np.mean(control_wins)))
 
-    # Probability each test variant wins (beats control and all other test variants)
-    for i, test_sample in enumerate(test_samples):
-        other_test_samples = test_samples[:i] + test_samples[i + 1 :]
-        variant_wins = np.all(
-            [test_sample > samples_control] + [test_sample > other for other in other_test_samples], axis=0
-        )
+    # Probability each test variant wins (beats control only)
+    for test_sample in test_samples:
+        variant_wins = test_sample > samples_control
         probabilities.append(float(np.mean(variant_wins)))
 
     return probabilities

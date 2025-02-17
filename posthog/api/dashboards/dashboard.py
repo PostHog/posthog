@@ -3,7 +3,6 @@ from typing import Any, Optional, cast
 
 import structlog
 from django.db.models import Prefetch
-from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -94,6 +93,7 @@ class DashboardBasicSerializer(
     created_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()
+    access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
 
     class Meta:
@@ -113,6 +113,7 @@ class DashboardBasicSerializer(
             "effective_restriction_level",
             "effective_privilege_level",
             "user_access_level",
+            "access_control_version",
         ]
         read_only_fields = fields
 
@@ -126,6 +127,12 @@ class DashboardBasicSerializer(
             return Dashboard.PrivilegeLevel.CAN_VIEW
         return self.user_permissions.dashboard(dashboard).effective_privilege_level
 
+    def get_access_control_version(self, dashboard: Dashboard) -> str:
+        # This effectively means that the dashboard they are using the old dashboard permissions
+        if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
+            return "v1"
+        return "v2"
+
 
 class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
@@ -137,6 +144,7 @@ class DashboardSerializer(DashboardBasicSerializer):
     delete_insights = serializers.BooleanField(write_only=True, required=False, default=False)
     effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()
+    access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
 
     class Meta:
@@ -162,6 +170,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             "effective_restriction_level",
             "effective_privilege_level",
             "user_access_level",
+            "access_control_version",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
@@ -516,13 +525,14 @@ class DashboardsViewSet(
                 ),
             )
 
+        # Add access level filtering for list actions
+        queryset = self._filter_queryset_by_access_level(queryset)
+
         return queryset
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pk = kwargs["pk"]
-        queryset = self.get_queryset()
-        dashboard = get_object_or_404(queryset, pk=pk)
+        dashboard = self.get_object()
         dashboard.last_accessed_at = now()
         dashboard.save(update_fields=["last_accessed_at"])
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())

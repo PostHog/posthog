@@ -6,6 +6,7 @@ from django.db.models import Q
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import SharingAccessTokenAuthentication
+from posthog.constants import AvailableFeature
 from posthog.models import DataColorTheme
 
 
@@ -17,18 +18,35 @@ class GlobalThemePermission(BasePermission):
             return True
         elif view.team == obj.team:
             return True
-        return request.user.is_staff
+        elif obj.is_global and request.user.is_staff:
+            return True
+        else:
+            return False
+
+
+class PaidThemePermission(BasePermission):
+    message = "This feature is only available on paid plans."
+
+    def has_object_permission(self, request, view, obj) -> bool:
+        if request.method in SAFE_METHODS or obj.is_global:
+            return True
+
+        return view.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES)
 
 
 class PublicDataColorThemeSerializer(serializers.ModelSerializer):
+    is_global = serializers.SerializerMethodField()
+
     class Meta:
         model = DataColorTheme
         fields = ["id", "name", "colors", "is_global"]
         read_only_fields = ["id", "name", "colors", "is_global"]
 
+    def get_is_global(self, obj):
+        return obj.team_id is None
+
 
 class DataColorThemeSerializer(PublicDataColorThemeSerializer):
-    is_global = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -46,15 +64,12 @@ class DataColorThemeSerializer(PublicDataColorThemeSerializer):
         validated_data["created_by"] = self.context["request"].user
         return super().create(validated_data, *args, **kwargs)
 
-    def get_is_global(self, obj):
-        return obj.team_id is None
-
 
 class DataColorThemeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = DataColorTheme.objects.all().order_by("-created_at")
     serializer_class = DataColorThemeSerializer
-    permission_classes = [GlobalThemePermission]
+    permission_classes = [GlobalThemePermission, PaidThemePermission]
     sharing_enabled_actions = ["retrieve", "list"]
 
     # override the team scope queryset to also include global themes

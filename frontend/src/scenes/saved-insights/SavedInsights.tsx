@@ -1,6 +1,7 @@
 import './SavedInsights.scss'
 
 import {
+    IconAI,
     IconBrackets,
     IconCorrelationAnalysis,
     IconCursor,
@@ -23,6 +24,7 @@ import {
 } from '@posthog/icons'
 import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
@@ -55,7 +57,14 @@ import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
-import { ActivityScope, InsightType, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import {
+    AccessControlResourceType,
+    ActivityScope,
+    InsightType,
+    LayoutView,
+    QueryBasedInsightModel,
+    SavedInsightsTabs,
+} from '~/types'
 
 import { ReloadInsight } from './ReloadInsight'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -209,20 +218,26 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
     },
     [NodeKind.HogQLQuery]: {
-        name: 'HogQL',
-        description: 'Direct HogQL query.',
+        name: 'SQL',
+        description: 'Direct SQL query.',
         icon: IconBrackets,
         inMenu: true,
     },
+    [NodeKind.HogQLASTQuery]: {
+        name: 'SQL AST',
+        description: 'Direct SQL AST query.',
+        icon: IconBrackets,
+        inMenu: false,
+    },
     [NodeKind.HogQLMetadata]: {
-        name: 'HogQL Metadata',
-        description: 'Metadata for a HogQL query.',
+        name: 'SQL Metadata',
+        description: 'Metadata for a SQL query.',
         icon: IconHogQL,
         inMenu: true,
     },
     [NodeKind.HogQLAutocomplete]: {
-        name: 'HogQL Autocomplete',
-        description: 'Autocomplete for the HogQL query editor.',
+        name: 'SQL Autocomplete',
+        description: 'Autocomplete for the SQL query editor.',
         icon: IconHogQL,
         inMenu: false,
     },
@@ -256,6 +271,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.WebVitalsQuery]: {
+        name: 'Web vitals',
+        description: 'View web vitals.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
+    [NodeKind.WebVitalsPathBreakdownQuery]: {
+        name: 'Web vitals path breakdown',
+        description: 'View web vitals broken down by path.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query.',
@@ -280,6 +307,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconVideoCamera,
         inMenu: false,
     },
+    [NodeKind.ExperimentQuery]: {
+        name: 'Experiment Result',
+        description: 'View experiment result.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.ExperimentTrendsQuery]: {
         name: 'Experiment Trends Result',
         description: 'View experiment trend result.',
@@ -289,6 +322,30 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.ExperimentFunnelsQuery]: {
         name: 'Experiment Funnels Result',
         description: 'View experiment funnel result.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentMetric]: {
+        name: 'Experiment Metric',
+        description: 'Experiment metric configuration.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentEventMetricConfig]: {
+        name: 'Experiment Event Metric Config',
+        description: 'Configuration for experiment event metrics.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentActionMetricConfig]: {
+        name: 'Experiment Action Metric Config',
+        description: 'Configuration for experiment action metrics.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentDataWarehouseMetricConfig]: {
+        name: 'Experiment Data Warehouse Metric Config',
+        description: 'Configuration for experiment data warehouse metrics.',
         icon: IconFlask,
         inMenu: false,
     },
@@ -309,8 +366,13 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.ActorsPropertyTaxonomyQuery]: {
         name: 'Actor Property Taxonomy',
-        description: 'View the taxonomy of the actor’s property.',
+        description: "View the taxonomy of the actor's property.",
         icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.TracesQuery]: {
+        name: 'LLM Observability Traces',
+        icon: IconAI,
         inMenu: false,
     },
 }
@@ -324,7 +386,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.LIFECYCLE]: QUERY_TYPES_METADATA[NodeKind.LifecycleQuery],
     [InsightType.SQL]: {
         name: 'SQL',
-        description: 'Use HogQL to query your data.',
+        description: 'Use SQL to query your data.',
         icon: IconHogQL,
         inMenu: true,
     },
@@ -458,7 +520,7 @@ export function SavedInsights(): JSX.Element {
             key: 'id',
             width: 32,
             render: function renderType(_, insight) {
-                return <InsightIcon insight={insight} className="text-muted text-2xl" />
+                return <InsightIcon insight={insight} className="text-secondary text-2xl" />
             },
         },
         {
@@ -474,7 +536,10 @@ export function SavedInsights(): JSX.Element {
                                 <>
                                     {name || <i>{summarizeInsight(insight.query)}</i>}
 
-                                    <LemonButton
+                                    <AccessControlledLemonButton
+                                        userAccessLevel={insight.user_access_level}
+                                        minAccessLevel="editor"
+                                        resourceType={AccessControlResourceType.Insight}
                                         className="ml-1"
                                         size="xsmall"
                                         onClick={(e) => {
@@ -485,7 +550,7 @@ export function SavedInsights(): JSX.Element {
                                             insight.favorited ? (
                                                 <IconStarFilled className="text-warning" />
                                             ) : (
-                                                <IconStar className="text-muted" />
+                                                <IconStar className="text-secondary" />
                                             )
                                         }
                                         tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
@@ -539,17 +604,30 @@ export function SavedInsights(): JSX.Element {
                                 <LemonButton to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
+
                                 <LemonDivider />
-                                <LemonButton to={urls.insightEdit(insight.short_id)} fullWidth>
+
+                                <AccessControlledLemonButton
+                                    userAccessLevel={insight.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType={AccessControlResourceType.Insight}
+                                    to={urls.insightEdit(insight.short_id)}
+                                    fullWidth
+                                >
                                     Edit
-                                </LemonButton>
-                                <LemonButton
+                                </AccessControlledLemonButton>
+
+                                <AccessControlledLemonButton
+                                    userAccessLevel={insight.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType={AccessControlResourceType.Insight}
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
                                 >
                                     Rename
-                                </LemonButton>
+                                </AccessControlledLemonButton>
+
                                 <LemonButton
                                     onClick={() => duplicateInsight(insight)}
                                     data-attr="duplicate-insight-from-list-view"
@@ -557,8 +635,13 @@ export function SavedInsights(): JSX.Element {
                                 >
                                     Duplicate
                                 </LemonButton>
+
                                 <LemonDivider />
-                                <LemonButton
+
+                                <AccessControlledLemonButton
+                                    userAccessLevel={insight.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType={AccessControlResourceType.Insight}
                                     status="danger"
                                     onClick={() =>
                                         void deleteInsightWithUndo({
@@ -571,7 +654,7 @@ export function SavedInsights(): JSX.Element {
                                     fullWidth
                                 >
                                     Delete insight
-                                </LemonButton>
+                                </AccessControlledLemonButton>
                             </>
                         }
                     />
@@ -615,7 +698,7 @@ export function SavedInsights(): JSX.Element {
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
                     <LemonDivider className="my-4" />
                     <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
-                        <span className="text-muted-alt">
+                        <span className="text-secondary">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
                                       count === 1 ? '' : 's'

@@ -723,30 +723,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
-    describe('pinned playlists', () => {
-        it('should not show others if there are pinned recordings', () => {
-            logic = sessionRecordingsPlaylistLogic({
-                key: 'tests',
-                updateSearchParams: true,
-                pinnedRecordings: ['1234'],
-            })
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({ showOtherRecordings: false })
-        })
-
-        it('should show others if there are no pinned recordings', () => {
-            logic = sessionRecordingsPlaylistLogic({
-                key: 'tests',
-                updateSearchParams: true,
-                pinnedRecordings: [],
-            })
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({ showOtherRecordings: true })
-        })
-    })
-
     describe('convertUniversalFiltersToRecordingsQuery', () => {
         it('expands the visited_page filter to a pageview with $current_url property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({

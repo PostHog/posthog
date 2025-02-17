@@ -1,15 +1,17 @@
 from datetime import datetime, timedelta, UTC
 from django.core.cache import cache
 from flaky import flaky
+from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from dateutil import parser
 
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 from posthog.models import WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.experiment import Experiment
+from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.schema import ExperimentSignificanceCode
 from posthog.test.base import (
@@ -17,7 +19,6 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
-    snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
     FuzzyInt,
 )
@@ -636,6 +637,123 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["type"], "validation_error")
         self.assertEqual(response.json()["detail"], "Metadata must be an object")
 
+    @freeze_time("2025-02-10T13:00:00Z")
+    def test_fetching_experiment_with_stale_metric_dates_applies_experiment_date_range(self):
+        test_feature_flag = FeatureFlag.objects.create(
+            name=f"Test experiment flag",
+            key="test-flag",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test",
+                            "rollout_percentage": 50,
+                        },
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+        funnel_query = {
+            "kind": "ExperimentFunnelsQuery",
+            "funnels_query": {
+                "kind": "FunnelsQuery",
+                "series": [
+                    {"kind": "EventsNode", "name": "[jan-16-running] seen", "event": "[jan-16-running] seen"},
+                    {"kind": "EventsNode", "name": "[jan-16-running] payment", "event": "[jan-16-running] payment"},
+                ],
+                "dateRange": {"date_to": "2025-02-13T23:59", "date_from": "2025-01-30T12:16", "explicitDate": True},
+                "funnelsFilter": {
+                    "layout": "horizontal",
+                    "funnelVizType": "steps",
+                    "funnelWindowInterval": 14,
+                    "funnelWindowIntervalUnit": "day",
+                },
+                "filterTestAccounts": True,
+            },
+        }
+        trends_query = {
+            "kind": "ExperimentTrendsQuery",
+            "count_query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "math": "total",
+                        "name": "[jan-16-running] event one",
+                        "event": "[jan-16-running] event one",
+                    }
+                ],
+                "interval": "day",
+                "dateRange": {"date_to": "2025-01-16T23:59", "date_from": "2025-01-02T13:54", "explicitDate": True},
+                "trendsFilter": {"display": "ActionsLineGraph"},
+                "filterTestAccounts": True,
+            },
+        }
+        saved_trends_metric = ExperimentSavedMetric.objects.create(
+            name="Test saved metric",
+            description="Test description",
+            query=trends_query,
+            team=self.team,
+            created_by=self.user,
+        )
+        saved_funnel_metric = ExperimentSavedMetric.objects.create(
+            name="Test saved metric",
+            description="Test description",
+            query=funnel_query,
+            team=self.team,
+            created_by=self.user,
+        )
+        experiment = Experiment.objects.create(
+            name="Test Experiment with stale dates",
+            team=self.team,
+            feature_flag=test_feature_flag,
+            start_date=datetime(2025, 2, 1),
+            end_date=None,
+            metrics=[funnel_query],
+            metrics_secondary=[trends_query],
+        )
+
+        for saved_metric_data in [saved_funnel_metric, saved_trends_metric]:
+            saved_metric_serializer = ExperimentToSavedMetricSerializer(
+                data={
+                    "experiment": experiment.id,
+                    "saved_metric": saved_metric_data.id,
+                    "metadata": {"type": "secondary"},
+                },
+            )
+            saved_metric_serializer.is_valid(raise_exception=True)
+            saved_metric_serializer.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
+        )
+        self.assertEqual(response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
+        )
+        self.assertEqual(response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_from"],
+            "2025-02-01T00:00:00Z",
+        )
+        self.assertEqual(response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_from"],
+            "2025-02-01T00:00:00Z",
+        )
+        self.assertEqual(response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_to"], "")
+
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -744,31 +862,6 @@ class TestExperimentCRUD(APILicensedTest):
             response.json()["detail"],
             "Can't update keys: get_feature_flag_key on Experiment",
         )
-
-    def test_cant_reuse_existing_feature_flag(self):
-        ff_key = "a-b-test"
-        FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=50,
-            name="Beta feature",
-            key=ff_key,
-            created_by=self.user,
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {"events": []},
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "There is already a feature flag with this key.")
 
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
@@ -1476,7 +1569,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(17):
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1776,6 +1869,61 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+    def test_create_experiment_with_feature_flag_missing_control(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "test-1", "rollout_percentage": 50},
+                        {"key": "test-2", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Feature flag must have control as the first variant.")
+
+    def test_create_experiment_with_valid_existing_feature_flag(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["feature_flag"]["id"], feature_flag.id)
 
     def test_feature_flag_and_experiment_sync(self):
         # Create an experiment with control and test variants
@@ -2156,7 +2304,6 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
-    @snapshot_clickhouse_insert_cohortpeople_queries
     def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(self):
         cohort_extra = Cohort.objects.create(
             team=self.team,
@@ -2277,6 +2424,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             },
             self.team,
         )
+
         _create_person(
             distinct_ids=["1"],
             team_id=self.team.pk,

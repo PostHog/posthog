@@ -28,9 +28,17 @@ where
     // TODO - we should have a dedicated URL for both this and the writer – the reader will read
     // from the replica, and the writer will write to the main database.
     let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
-        Ok(client) => Arc::new(client),
+        Ok(client) => {
+            tracing::info!("Successfully created read Postgres client");
+            Arc::new(client)
+        }
         Err(e) => {
-            tracing::error!("Failed to create read Postgres client: {}", e);
+            tracing::error!(
+                error = %e,
+                url = %config.read_database_url,
+                max_connections = config.max_pg_connections,
+                "Failed to create read Postgres client"
+            );
             return;
         }
     };
@@ -39,9 +47,17 @@ where
         // TODO - we should have a dedicated URL for both this and the reader – the reader will read
         // from the replica, and the writer will write to the main database.
         match get_pool(&config.write_database_url, config.max_pg_connections).await {
-            Ok(client) => Arc::new(client),
+            Ok(client) => {
+                tracing::info!("Successfully created write Postgres client");
+                Arc::new(client)
+            }
             Err(e) => {
-                tracing::error!("Failed to create write Postgres client: {}", e);
+                tracing::error!(
+                    error = %e,
+                    url = %config.write_database_url,
+                    max_connections = config.max_pg_connections,
+                    "Failed to create write Postgres client"
+                );
                 return;
             }
         };

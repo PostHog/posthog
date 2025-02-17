@@ -68,11 +68,16 @@ export async function populateTeamDataStep(
         throw new Error(`Not a valid UUID: "${event.uuid}"`)
     }
 
+    const skipPersonsProcessingForDistinctIds = runner.hub.eventsToSkipPersonsProcessingByToken.get(event.token!)
+
+    const forceOptOutPersonProfiles =
+        team.person_processing_opt_out || skipPersonsProcessingForDistinctIds?.includes(event.distinct_id)
+
     // We allow teams to set the person processing mode on a per-event basis, but override
     // it with the team-level setting, if it's set to opt-out (since this is billing related,
     // we go with preferring not to do the processing even if the event says to do it, if the
     // setting says not to).
-    if (team.person_processing_opt_out) {
+    if (forceOptOutPersonProfiles) {
         if (event.properties) {
             event.properties.$process_person_profile = false
         } else {

@@ -132,6 +132,70 @@
             "rollout_percentage": null
         },
         {
+            "id": 1738,
+            "name": "",
+            "key": "mock-remote-config",
+            "filters": {
+                "groups": [
+                    {
+                        "variant": null,
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+                "payloads": {
+                    "true": "{\"foo\":\"bar\"}"
+                },
+                "multivariate": null
+            },
+            "deleted": false,
+            "active": true,
+            "created_by": {
+                "id": 6352,
+                "uuid": "cf25089d-71f1-4f70-9d0b-7577e47d78c1",
+                "distinct_id": "8ed346b4-01e9-44e2-b5a1-286cb131a400",
+                "first_name": "Cameron",
+                "email": "cameron@posthog.com"
+            },
+            "created_at": "2022-02-08T20:54:04.344072Z",
+            "is_simple_flag": false,
+            "is_remote_configuration": true,
+            "has_encrypted_payload": false,
+            "rollout_percentage": null
+        },
+        {
+            "id": 1739,
+            "name": "",
+            "key": "mock-encrypted-remote-config",
+            "filters": {
+                "groups": [
+                    {
+                        "variant": null,
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+                "payloads": {
+                    "true": "gAAAAABngGwzIQ-TVgvyS6d-3AqG4hhjKbI4P2TdoEL4faaENFlJk3D6g5RCfS2zm7cNmpsIfhDxKWEu9Tstd3AQ0qZcBui_6Q=="
+                },
+                "multivariate": null
+            },
+            "deleted": false,
+            "active": true,
+            "created_by": {
+                "id": 6352,
+                "uuid": "cf25089d-71f1-4f70-9d0b-7577e47d78c1",
+                "distinct_id": "8ed346b4-01e9-44e2-b5a1-286cb131a400",
+                "first_name": "Cameron",
+                "email": "cameron@posthog.com"
+            },
+            "created_at": "2022-02-08T20:54:04.344072Z",
+            "is_simple_flag": false,
+            "is_remote_configuration": true,
+            "has_encrypted_payload": true,
+            "rollout_percentage": null
+        },
+        {
             "id": 1498,
             "name": "Feature https://github.com/PostHog/posthog/issues/3636.",
             "key": "dashboard-permissions",

@@ -4,7 +4,7 @@ import { parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 
 export function ReloadInsight(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
@@ -23,9 +23,9 @@ export function ReloadInsight(): JSX.Element {
         return <> </>
     }
     return (
-        <div className="text-muted-alt mb-4">
+        <div className="text-secondary mb-4">
             You have an unsaved insight from {new Date(draftQuery.timestamp).toLocaleString()}.{' '}
-            <Link to={urls.insightNew(undefined, null, draftQuery.query)}>Click here</Link> to view it.
+            <Link to={urls.insightNew({ query: draftQuery.query })}>Click here</Link> to view it.
         </div>
     )
 }

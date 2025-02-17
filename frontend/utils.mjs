@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 
 import autoprefixer from 'autoprefixer'
+import * as ps from 'child_process'
 import chokidar from 'chokidar'
 import cors from 'cors'
 import cssnano from 'cssnano'
@@ -14,6 +15,7 @@ import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import tailwindcss from 'tailwindcss'
+import ts from 'typescript'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -26,12 +28,6 @@ export function copyPublicFolder(srcDir, destDir) {
             console.error(err)
         }
     })
-}
-
-/** Update the file's modified and accessed times to now. */
-async function touchFile(file) {
-    const now = new Date()
-    await fs.utimes(file, now, now)
 }
 
 export function copyIndexHtml(
@@ -367,6 +363,9 @@ export async function buildOrWatch(config) {
                 [
                     path.resolve(absWorkingDir, 'src'),
                     path.resolve(absWorkingDir, '../ee/frontend'),
+                    path.resolve(absWorkingDir, '../common'),
+                    path.resolve(absWorkingDir, '../products/*/manifest.json'),
+                    path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
                     tailwindConfigJsPath,
                 ],
                 {
@@ -378,12 +377,13 @@ export async function buildOrWatch(config) {
                 if (inputFiles.size === 0) {
                     await buildPromise
                 }
+
+                // Manifests have been updated, so we need to rebuild urls.
+                if (filePath.includes('manifest.json')) {
+                    gatherProductManifests()
+                }
+
                 if (inputFiles.has(filePath) || filePath === tailwindConfigJsPath) {
-                    if (filePath.match(/\.tsx?$/) || filePath === tailwindConfigJsPath) {
-                        // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
-                        // in case any new utility classes are used. `touch`ing `utilities.scss` achieves this.
-                        await touchFile(path.resolve(absWorkingDir, 'src/styles/utilities.scss'))
-                    }
                     void debouncedBuild()
                 }
             })
@@ -488,4 +488,118 @@ export function startServer(opts = {}) {
         pauseServer,
         resumeServer,
     }
+}
+
+export function gatherProductUrls(products) {
+    const sourceFiles = []
+    for (const product of products) {
+        try {
+            if (fse.readFileSync(`products/${product}/frontend/urls.ts`)) {
+                sourceFiles.push(`products/${product}/frontend/urls.ts`)
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+    const program = ts.createProgram(sourceFiles, {
+        target: 1, // ts.ScriptTarget.ES5
+        module: 1, // ts.ModuleKind.CommonJS
+        noEmit: true,
+        noErrorTruncation: true,
+    })
+
+    const urls = []
+
+    for (const sourceFile of program.getSourceFiles()) {
+        if (!sourceFiles.includes(sourceFile.fileName)) {
+            continue
+        }
+        ts.forEachChild(sourceFile, function visit(node) {
+            if (
+                ts.isVariableDeclaration(node) &&
+                node.name.text === 'urls' &&
+                ts.isObjectLiteralExpression(node.initializer)
+            ) {
+                for (const property of node.initializer.properties) {
+                    urls.push(property)
+                }
+            } else {
+                ts.forEachChild(node, visit)
+            }
+        })
+    }
+
+    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed })
+    const sourceFile = ts.factory.createSourceFile(
+        // [ts.factory.createObjectLiteralExpression(urls)],
+        [],
+        ts.factory.createToken(ts.SyntaxKind.EndOfFileToken),
+        ts.NodeFlags.None
+    )
+    const code = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(urls), sourceFile)
+    return code
+}
+
+export function gatherProductManifests() {
+    const products = fse.readdirSync('products').filter((p) => !['__pycache__', 'README.md'].includes(p))
+    const allScenes = {}
+    const allRoutes = {}
+    const allRedirects = {}
+    let productScenes = ''
+
+    for (const product of products) {
+        try {
+            const manifest = JSON.parse(fse.readFileSync(`products/${product}/manifest.json`, 'utf-8'))
+            const scenes = Object.fromEntries(
+                Object.entries(manifest.scenes ?? {}).map(([key, value]) => [key, { name: manifest.name, ...value }])
+            )
+            Object.assign(allScenes, scenes)
+            Object.assign(allRoutes, manifest.routes ?? {})
+            Object.assign(allRedirects, manifest.redirects ?? {})
+
+            productScenes +=
+                Object.entries(scenes ?? {})
+                    .map(
+                        ([key, value]) =>
+                            `${JSON.stringify(key)}: (): any => import(${JSON.stringify(
+                                `../../products/${product}/${value.import}`
+                            )})`
+                    )
+                    .join(',\n') + ',\n'
+        } catch (e) {
+            console.error(`Could not read "products/${product}/manifest.json"`, e)
+        }
+    }
+
+    const productRoutes = Object.entries(allRoutes)
+        .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
+        .join(',\n    ')
+    const productRedirects = Object.entries(allRedirects)
+        .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
+        .join(',\n    ')
+    const productConfiguration = Object.entries(allScenes)
+        .map(([key, value]) => {
+            const { import: _imp, ...rest } = value
+            return `${JSON.stringify(key)}: ${JSON.stringify(rest)}`
+        })
+        .join(',\n    ')
+
+    const productUrls = gatherProductUrls(products)
+
+    let productsTsx = `
+        // Generated by utils.mjs, based on product folders\n
+        /** This const is auto-generated, as is the whole file */
+        export const productScenes: Record<string, any> = {${productScenes}}\n
+        /** This const is auto-generated, as is the whole file */
+        export const productRoutes: Record<string, [string, string]> = {${productRoutes}}\n
+        /** This const is auto-generated, as is the whole file */
+        export const productRedirects: Record<string, string> = {${productRedirects}}\n
+        /** This const is auto-generated, as is the whole file */
+        export const productConfiguration: Record<string, any> = {${productConfiguration}}\n
+        /** This const is auto-generated, as is the whole file */
+        export const productUrls = ${productUrls}
+    `
+    fse.writeFileSync('frontend/src/products.ts', productsTsx)
+
+    ps.execSync('prettier --write frontend/src/products.ts')
 }

@@ -7,7 +7,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from prometheus_client import Counter
 from rest_framework import status
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
@@ -38,6 +38,8 @@ from posthog.utils import (
     load_data_from_request,
 )
 from posthog.utils_cors import cors_response
+
+logger = structlog.get_logger(__name__)
 
 FLAG_EVALUATION_COUNTER = Counter(
     "flag_evaluation_total",
@@ -144,6 +146,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     response["surveys"] = True if team.surveys_opt_in else False
     response["heatmaps"] = True if team.heatmaps_opt_in else False
+    response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
     site_apps = []
@@ -247,7 +250,15 @@ def get_decide(request: HttpRequest):
             )
         team = user.teams.get(id=project_id)
 
+    is_request_sampled_for_logging = random() < settings.DECIDE_REQUEST_LOGGING_SAMPLING_RATE
     if team:
+        if is_request_sampled_for_logging:
+            logger.warn(
+                "DECIDE_REQUEST_STARTED",
+                team_id=team.id,
+                distinct_id=data.get("distinct_id", None),
+            )
+
         if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
             return cors_response(
                 request,
@@ -296,7 +307,7 @@ def get_decide(request: HttpRequest):
             }
 
             feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-                team.pk,
+                team,
                 distinct_id,
                 data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),
@@ -324,6 +335,15 @@ def get_decide(request: HttpRequest):
                 errors_computing=errors,
                 has_hash_key_override=bool(data.get("$anon_distinct_id")),
             ).inc()
+
+            if is_request_sampled_for_logging:
+                logger.warn(
+                    "DECIDE_REQUEST_SUCCEEDED",
+                    team_id=team.id,
+                    distinct_id=distinct_id,
+                    errors_while_computing=errors or False,
+                    has_hash_key_override=bool(data.get("$anon_distinct_id")),
+                )
         else:
             flags_response["featureFlags"] = {}
 
@@ -371,7 +391,10 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> bool
     try:
         if team.session_recording_opt_in and not _session_recording_domain_not_allowed(team, request):
             capture_console_logs = True if team.capture_console_log_opt_in else False
-            sample_rate = str(team.session_recording_sample_rate) if team.session_recording_sample_rate else None
+            sample_rate = (
+                str(team.session_recording_sample_rate) if team.session_recording_sample_rate is not None else None
+            )
+
             if sample_rate == "1.00":
                 sample_rate = None
 

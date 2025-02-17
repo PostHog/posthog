@@ -1,3 +1,5 @@
+// PD - migrated to playwright
+
 describe('Annotations', () => {
     beforeEach(() => {
         cy.clickNavMenu('datamanagement')

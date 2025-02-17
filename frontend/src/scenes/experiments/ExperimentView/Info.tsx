@@ -1,9 +1,10 @@
-import { IconWarning } from '@posthog/icons'
+import { IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
@@ -11,12 +12,13 @@ import { ProgressStatus } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-import { ActionBanner, ResultsTag, StatusTag } from './components'
+import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
-    const { experiment, featureFlags } = useValues(experimentLogic)
-    const { updateExperiment, setExperimentStatsVersion } = useActions(experimentLogic)
+    const { experiment, featureFlags, metricResults, metricResultsLoading, secondaryMetricResultsLoading } =
+        useValues(experimentLogic)
+    const { updateExperiment, setExperimentStatsVersion, refreshExperimentResults } = useActions(experimentLogic)
 
     const { created_by } = experiment
 
@@ -26,20 +28,16 @@ export function Info(): JSX.Element {
 
     const currentStatsVersion = experiment.stats_config?.version || 1
 
+    const lastRefresh = metricResults?.[0]?.last_refresh
+
     return (
         <div>
-            <div className="flex">
-                <div className="w-1/2 inline-flex space-x-8">
+            <div className="flex flex-wrap justify-between gap-4">
+                <div className="inline-flex space-x-8">
                     <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
                     </div>
-                    {!featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] && (
-                        <div className="block">
-                            <div className="text-xs font-semibold uppercase tracking-wide">Significance</div>
-                            <ResultsTag />
-                        </div>
-                    )}
                     {experiment.feature_flag && (
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">
@@ -74,6 +72,12 @@ export function Info(): JSX.Element {
                             </Link>
                         </div>
                     )}
+                    <div className="block">
+                        <div className="text-xs font-semibold uppercase tracking-wide">
+                            <span>Stats Engine</span>
+                        </div>
+                        <div className="flex gap-1">Bayesian</div>
+                    </div>
                     {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">
@@ -98,8 +102,42 @@ export function Info(): JSX.Element {
                     )}
                 </div>
 
-                <div className="w-1/2 flex flex-col justify-end">
-                    <div className="ml-auto inline-flex space-x-8">
+                <div className="flex flex-col">
+                    <div className="inline-flex space-x-8">
+                        {experiment.start_date && (
+                            <div className="block">
+                                <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
+                                <div className="inline-flex space-x-2">
+                                    <span
+                                        className={`${
+                                            lastRefresh
+                                                ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
+                                                    ? 'text-danger'
+                                                    : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
+                                                    ? 'text-warning'
+                                                    : ''
+                                                : ''
+                                        }`}
+                                    >
+                                        {metricResultsLoading || secondaryMetricResultsLoading
+                                            ? 'Loading…'
+                                            : lastRefresh
+                                            ? dayjs(lastRefresh).fromNow()
+                                            : 'a while ago'}
+                                    </span>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={() => {
+                                            refreshExperimentResults(true)
+                                        }}
+                                        data-attr="refresh-experiment"
+                                        icon={<IconRefresh />}
+                                        tooltip="Refresh experiment results"
+                                    />
+                                </div>
+                            </div>
+                        )}
                         <ExperimentDates />
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">Created by</div>
@@ -123,7 +161,6 @@ export function Info(): JSX.Element {
                     compactButtons
                 />
             </div>
-            {!featureFlags[FEATURE_FLAGS.EXPERIMENTS_MULTIPLE_METRICS] && <ActionBanner />}
         </div>
     )
 }

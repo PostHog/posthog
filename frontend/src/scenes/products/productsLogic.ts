@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router } from 'kea-router'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -46,8 +47,8 @@ export const productsLogic = kea<productsLogicType>([
                     product_type: productKey as ProductKey,
                     intent_context:
                         values.firstProductOnboarding === productKey
-                            ? 'onboarding product selected - primary'
-                            : 'onboarding product selected - secondary',
+                            ? ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY
+                            : ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_SECONDARY,
                 })
             })
         },

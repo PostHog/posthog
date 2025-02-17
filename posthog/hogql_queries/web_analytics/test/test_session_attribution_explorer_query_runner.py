@@ -16,13 +16,10 @@ from posthog.schema import (
     SessionPropertyFilter,
     PropertyOperator,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-)
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
 
+@snapshot_clickhouse_queries
 class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_session(
         self, url=None, source=None, medium=None, campaign=None, gclid=None, gad_source=None, referring_domain="$direct"
