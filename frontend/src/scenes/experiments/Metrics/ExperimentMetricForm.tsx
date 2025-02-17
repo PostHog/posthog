@@ -3,11 +3,12 @@ import { useActions, useValues } from 'kea'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { Query } from '~/queries/Query/Query'
+import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { filterToMetricConfig, metricConfigToFilter } from '../utils'
+import { filterToMetricConfig, metricConfigToFilter, metricToQuery } from '../utils'
 import { commonActionFilterProps } from './Selectors'
 
 export function ExperimentMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
@@ -69,6 +70,16 @@ export function ExperimentMetricForm({ isSecondary = false }: { isSecondary?: bo
                 showNumericalPropsOnly={true}
                 mathAvailability={MathAvailability.All}
                 {...commonActionFilterProps}
+            />
+            <Query
+                query={{
+                    kind: NodeKind.InsightVizNode,
+                    source: metricToQuery(currentMetric),
+                    showTable: false,
+                    showLastComputation: true,
+                    showLastComputationRefresh: false,
+                }}
+                readOnly
             />
         </>
     )

@@ -126,8 +126,17 @@ export function ExperimentMetricModal({
                         })
                     }}
                     options={[
-                        { value: ExperimentMetricType.COUNT, label: 'Count' },
-                        { value: ExperimentMetricType.CONTINUOUS, label: 'Continuous' },
+                        {
+                            value: ExperimentMetricType.COUNT,
+                            label: 'Count',
+                            description:
+                                'Tracks how many times an event happens, useful for click counts or page views.',
+                        },
+                        {
+                            value: ExperimentMetricType.CONTINUOUS,
+                            label: 'Continuous',
+                            description: 'Measures numerical values like revenue or session length.',
+                        },
                     ]}
                 />
             </div>
