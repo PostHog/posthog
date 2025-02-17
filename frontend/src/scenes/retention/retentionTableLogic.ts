@@ -1,6 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { range } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -8,6 +7,7 @@ import { InsightLogicProps, InsightType } from '~/types'
 
 import { retentionLogic } from './retentionLogic'
 import type { retentionTableLogicType } from './retentionTableLogicType'
+import { RetentionTablePayload } from './types'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -52,6 +52,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         ],
         hideSizeColumn: [(s) => [s.retentionVizOptions], (retentionVizOptions) => retentionVizOptions?.hideSizeColumn],
 
+        // max lag for return event
         maxIntervalsCount: [
             (s) => [s.results],
             (results) => {
@@ -60,41 +61,39 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         ],
 
         tableHeaders: [
-            (s) => [s.results, s.hideSizeColumn],
-            (results, hideSizeColumn) => {
-                return ['Cohort', ...(hideSizeColumn ? [] : ['Size']), ...results.map((x) => x.label)]
+            (s) => [s.results, s.hideSizeColumn, s.maxIntervalsCount],
+            (results, hideSizeColumn, maxIntervalsCount) => {
+                return [
+                    'Cohort',
+                    ...(hideSizeColumn ? [] : ['Size']),
+                    ...results.slice(0, maxIntervalsCount).map((x) => x.label),
+                ]
             },
         ],
 
         tableRows: [
-            (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdownFilter, s.hideSizeColumn],
-            (results, maxIntervalsCount, retentionFilter, breakdownFilter, hideSizeColumn) => {
+            (s) => [s.results, s.retentionFilter, s.hideSizeColumn],
+            (results, retentionFilter, hideSizeColumn) => {
                 const { period } = retentionFilter || {}
-                const { breakdowns } = breakdownFilter || {}
 
-                return range(maxIntervalsCount).map((index: number) => {
-                    const currentResult = results[index]
+                return results.map((currentResult: RetentionTablePayload) => {
                     let firstColumn // Prepare for some date gymnastics
 
-                    if (breakdowns?.length) {
-                        firstColumn = currentResult.label
-                    } else {
-                        switch (period) {
-                            case 'Hour':
-                                firstColumn = dayjs.utc(currentResult.date).format('MMM D, h A')
-                                break
-                            case 'Month':
-                                firstColumn = dayjs.utc(currentResult.date).format('MMM YYYY')
-                                break
-                            case 'Week': {
-                                const startDate = dayjs.utc(currentResult.date)
-                                const endDate = startDate.add(6, 'day') // To show last day of the week we add 6 days, not 7
-                                firstColumn = `${startDate.format('MMM D')} to ${endDate.format('MMM D')}`
-                                break
-                            }
-                            default:
-                                firstColumn = dayjs.utc(currentResult.date).format('MMM D')
+                    switch (period) {
+                        case 'Hour':
+                            firstColumn = dayjs.utc(currentResult.date).format('MMM D, h A')
+                            break
+                        case 'Month':
+                            firstColumn = dayjs.utc(currentResult.date).format('MMM YYYY')
+                            break
+                        case 'Week': {
+                            const startDate = dayjs.utc(currentResult.date)
+                            const endDate = startDate.add(6, 'day') // To show last day of the week we add 6 days, not 7
+                            firstColumn = `${startDate.format('MMM D')} to ${endDate.format('MMM D')}`
+                            break
                         }
+                        default:
+                            firstColumn = dayjs.utc(currentResult.date).format('MMM D')
                     }
 
                     const secondColumn = hideSizeColumn ? [] : [currentResult.values[0].count]
