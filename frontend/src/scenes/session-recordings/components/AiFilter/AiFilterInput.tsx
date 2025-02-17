@@ -26,8 +26,8 @@ export function AiFilterInput(): JSX.Element {
                         isLoading
                             ? 'Thinking…'
                             : messages.length === 0
-                              ? 'Show me recordings of people who ...'
-                              : 'Ask follow-up'
+                            ? 'Show me recordings of people who ...'
+                            : 'Ask follow-up'
                     }
                     onPressEnter={() => {
                         if (input) {
