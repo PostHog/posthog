@@ -25,20 +25,23 @@ FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY frontend/package.json frontend/tailwind.config.js frontend/babel.config.js frontend/webpack.config.js frontend/
+COPY frontend/bin/ frontend/bin/
 COPY patches/ patches/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/eslint_rules/ common/eslint_rules/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && pnpm --version && \
-    pnpm --filter=@posthog/frontend install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
+    pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
 
 COPY frontend/ frontend/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
-COPY ./bin/ ./bin/
-COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN pnpm build
+COPY bin/ bin/
+# we got rid of the node_modules folders under products/, etc. so we need to install the (cached) dependencies again
+RUN pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
+RUN pnpm --filter=@posthog/frontend build
 
 #
 # ---------------------------------------------------------
@@ -71,8 +74,8 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm --filter=@posthog/plugin-transpiler install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     pnpm --filter=@posthog/plugin-transpiler build
 
 WORKDIR /code/plugin-server
@@ -85,10 +88,10 @@ COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
 
 # Build cyclotron first with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm run build:cyclotron
+RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter=@posthog/plugin-server run build:cyclotron
 
 # Then build the plugin server with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm build
+RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter=@posthog/plugin-server build
 
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.

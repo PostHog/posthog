@@ -72,15 +72,14 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: |
                   npm install -g husky@7 # until we make <root>/package.json a build package
-                  pnpm --filter=@posthog/cyclotron install --frozen-lockfile
+                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
                   pnpm --filter=@posthog/cyclotron build
-                  pnpm --filter=@posthog/plugin-server install --frozen-lockfile
 
             - name: Check formatting with prettier
-              run: pnpm prettier:check
+              run: pnpm --filter=@posthog/plugin-server prettier:check
 
             - name: Lint with ESLint
-              run: pnpm lint
+              run: pnpm --filter=@posthog/plugin-server lint
 
     tests:
         name: Plugin Server Tests (${{matrix.shard}})
@@ -187,7 +186,7 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd plugin-server && pnpm setup:test
+              run: pnpm --filter=@posthog/plugin-server setup:test
 
             - name: Test with Jest
               if: needs.changes.outputs.plugin-server == 'true'
@@ -196,7 +195,7 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
-              run: cd plugin-server && pnpm test -- --runInBand --forceExit --shard=${{matrix.shard}}
+              run: pnpm --filter=@posthog/plugin-server test -- --runInBand --forceExit --shard=${{matrix.shard}}
 
     functional-tests:
         name: Functional tests
@@ -270,7 +269,7 @@ jobs:
                   npm install -g husky@7 # until we make <root>/package.json a build package
                   pnpm --filter=@posthog/plugin-server... install --frozen-lockfile 
                   pnpm --filter=@posthog/cyclotron build
-                  pnpm build
+                  pnpm --filter=@posthog/plugin-server build
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'

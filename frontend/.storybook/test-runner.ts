@@ -63,7 +63,7 @@ const LOADER_SELECTORS = [
     '.Lettermark--unknown',
 ]
 
-const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
+const customSnapshotsDir = `${process.cwd()}/__snapshots__`
 
 const JEST_TIMEOUT_MS = 15000
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
