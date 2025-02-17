@@ -893,7 +893,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             response_format=AiFilterSchema,
             posthog_distinct_id=self._distinct_id_from_request(request),
             posthog_properties={
-                "ai_product": "session_recording",
+                "ai_product": "session_replay",
                 "ai_feature": "ai_filters",
             },
         )
@@ -932,7 +932,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             response_format=AiRegexSchema,
             posthog_distinct_id=self._distinct_id_from_request(request),
             posthog_properties={
-                "ai_product": "session_recording",
+                "ai_product": "session_replay",
                 "ai_feature": "ai_regex",
             },
         )
