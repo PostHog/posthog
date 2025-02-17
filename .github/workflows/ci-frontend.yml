@@ -87,7 +87,7 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+              run: pnpm --filter=@posthog/playwright... install --frozen-lockfile
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
