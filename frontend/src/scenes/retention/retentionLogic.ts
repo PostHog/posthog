@@ -4,7 +4,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTablePayload } from 'scenes/retention/types'
 
-import { RetentionFilter } from '~/queries/schema'
+import { RetentionFilter } from '~/queries/schema/schema-general'
 import { isRetentionQuery } from '~/queries/utils'
 import { DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
