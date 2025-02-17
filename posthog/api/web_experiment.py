@@ -73,6 +73,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             "name": validated_data.get("name", ""),
             "description": "",
             "type": "web",
+            "created_by": self.context["request"].user,
             "variants": validated_data.get("variants", None),
             "filters": {
                 "events": [{"type": "events", "id": "$pageview", "order": 0, "name": "$pageview"}],
