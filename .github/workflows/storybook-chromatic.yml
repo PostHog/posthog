@@ -119,7 +119,7 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
+              run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Install CI utilities with pnpm
               run: pnpm install http-server wait-on -g

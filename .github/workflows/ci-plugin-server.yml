@@ -72,9 +72,8 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: |
                   npm install -g husky@7 # until we make <root>/package.json a build package
-                  pnpm --filter=@posthog/cyclotron install --frozen-lockfile
+                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
                   pnpm --filter=@posthog/cyclotron build
-                  pnpm --filter=@posthog/plugin-server install --frozen-lockfile
 
             - name: Check formatting with prettier
               run: pnpm --filter=@posthog/plugin-server prettier:check
