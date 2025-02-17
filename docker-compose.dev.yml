@@ -148,13 +148,6 @@ services:
             - redis
             - kafka
 
-    property-defs-rs:
-        extends:
-            file: docker-compose.base.yml
-            service: property-defs-rs
-        depends_on:
-            - kafka
-
     feature-flags:
         extends:
             file: docker-compose.base.yml
@@ -200,27 +193,5 @@ services:
         depends_on:
             temporal:
                 condition: service_started
-            db:
-                condition: service_healthy
-
-    cyclotron-fetch:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-fetch
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            RUST_LOG: 'info'
-        depends_on:
-            db:
-                condition: service_healthy
-
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            RUST_LOG: 'info'
-        depends_on:
             db:
                 condition: service_healthy

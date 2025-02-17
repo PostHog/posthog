@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Dev-only script to ensure postgres is up
+# for services NOT managed by Docker Compose
+
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=${1:-posthog}
+DB_USER=posthog
+export PGPASSWORD=posthog
+
+# Loop until PostgreSQL is up and accepting connections
+until psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c '\q' > /dev/null 2>&1; do
+  echo "Awaiting PostgresSQL warmup..."
+  sleep 1
+done
+
+echo "PostgreSQL is up!"
+exit 0
