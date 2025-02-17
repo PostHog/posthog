@@ -11,6 +11,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { AvailableFeature } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
@@ -151,21 +152,41 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
 }
 
 function determineProjectSwitchUrl(pathname: string, newTeamId: number): string {
-    // NOTE: There is a tradeoff here - because we choose keep the whole path it could be that the
-    // project switch lands on something like insight/abc that won't exist.
-    // On the other hand, if we remove the ID, it could be that someone opens a page, realizes they're in the wrong project
-    // and after switching is on a different page than before.
     let route = removeProjectIdIfPresent(pathname)
     route = removeFlagIdIfPresent(route)
 
     // List of routes that should redirect to project home
-    // instead of keeping the current path.
     const redirectToHomeRoutes = ['/products', '/onboarding']
+
+    const { currentTeam } = teamLogic.values
+    const { breadcrumbs } = breadcrumbsLogic.values
+    const { sortedProjectsMap } = environmentSwitcherLogic.values
 
     const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
 
     if (shouldRedirectToHome) {
         return urls.project(newTeamId) // Go to project home
+    }
+
+    // Find the target team's project ID
+    let targetTeamProjectId: number | null = null
+    for (const [_, [, teams]] of sortedProjectsMap.entries()) {
+        const targetTeam = teams.find((team) => team.id === newTeamId)
+        if (targetTeam) {
+            targetTeamProjectId = targetTeam.project_id
+            break
+        }
+    }
+
+    // If switching between projects (not just environments), redirect to parent path
+    if (currentTeam && targetTeamProjectId && currentTeam.project_id !== targetTeamProjectId) {
+        // Get the parent breadcrumb's path if it exists
+        const parentBreadcrumb = breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 2] : null
+        if (parentBreadcrumb?.path) {
+            return urls.project(newTeamId, parentBreadcrumb.path)
+        }
+        // If no parent path found, go to project home
+        return urls.project(newTeamId)
     }
 
     return urls.project(newTeamId, route)
