@@ -1214,9 +1214,10 @@ function __setProperty(objectOrArray, key, value) {
         [],
     ],
     "substring": [
-        """function substring(s, start, length = s.length - start + 1) {
+        """function substring(s, start, optionalLength) {
     if (typeof s !== 'string') return '';
     const startIdx = start - 1;
+    const length = Number.isNaN(optionalLength + 1) ? s.length - startIdx : optionalLength
     if (startIdx < 0 || length < 0) return '';
     const endIdx = startIdx + length;
     return startIdx < s.length ? s.slice(startIdx, endIdx) : '';

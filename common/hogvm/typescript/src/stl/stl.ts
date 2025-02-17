@@ -315,11 +315,12 @@ function startsWithFn([str, prefix]: any[]): boolean {
     return typeof str === 'string' && typeof prefix === 'string' && str.startsWith(prefix)
 }
 
-function substringFn([s, start, length = s.length - start + 1]: any[]): string {
+function substringFn([s, start, optionalLength]: any[]): string {
     if (typeof s !== 'string') {
         return ''
     }
     const startIdx = start - 1
+    const length = Number.isNaN(optionalLength + 1) ? s.length - startIdx : optionalLength
     if (startIdx < 0 || length < 0) {
         return ''
     }

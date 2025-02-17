@@ -717,10 +717,10 @@ def substring(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     # start is 1-based.
     s = args[0]
     start = args[1]
-    length = args[2] if len(args) > 2 else len(s) - start + 1
     if not isinstance(s, str):
         return ""
     start_idx = start - 1
+    length = args[2] if len(args) > 2 else len(s) - start_idx
     if start_idx < 0 or length < 0:
         return ""
     end_idx = start_idx + length
