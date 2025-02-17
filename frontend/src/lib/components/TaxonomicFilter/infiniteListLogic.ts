@@ -14,7 +14,7 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
-import { isEmail, isURL } from 'lib/utils'
+import { isURL } from 'lib/utils'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
@@ -210,9 +210,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     if (props.listGroupType === TaxonomicFilterGroupType.EventProperties && isURL(searchQuery)) {
                         return '$current_url'
                     }
-                    if (props.listGroupType === TaxonomicFilterGroupType.PersonProperties && isEmail(searchQuery)) {
-                        return 'email' // TODO not everyone will call this email 🤷
-                    }
+                    // TODO not everyone will call this email 🤷
+                    // but this is an obvious option to add
+                    // if (props.listGroupType === TaxonomicFilterGroupType.PersonProperties && isEmail(searchQuery)) {
+                    //     return 'email'
+                    // }
                     return searchQuery
                 },
             },
@@ -422,7 +424,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             if (values.isExpandableButtonSelected) {
                 actions.expand()
             } else {
-                actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
+                actions.selectItem(values.group, values.selectedItemValue, values.selectedItem, values.searchQuery)
             }
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {

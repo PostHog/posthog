@@ -14,6 +14,7 @@ import {
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
+import posthog from 'posthog-js'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
@@ -630,6 +631,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item, originalQuery }) => {
             if (item || group.type === TaxonomicFilterGroupType.HogQLExpression) {
+                if (item.name !== originalQuery) {
+                    posthog.capture('selected swapped in query in taxonomic filter', {
+                        group: group.type,
+                        value: value,
+                        itemName: item.name,
+                        originalQuery,
+                        item,
+                    })
+                }
                 props.onChange?.(group, value, item, originalQuery)
             }
             actions.setSearchQuery('')
