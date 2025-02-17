@@ -292,6 +292,15 @@ importers:
       '@monaco-editor/react':
         specifier: 4.6.0
         version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@posthog-products/early-access-features':
+        specifier: workspace:*
+        version: link:../products/early_access_features
+      '@posthog-products/llm-observability':
+        specifier: workspace:*
+        version: link:../products/llm_observability
+      '@posthog-products/messaging':
+        specifier: workspace:*
+        version: link:../products/messaging
       '@posthog/esbuilder':
         specifier: workspace:*
         version: link:../common/esbuilder

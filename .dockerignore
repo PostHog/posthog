@@ -47,10 +47,9 @@
 !tsconfig.json
 !unit.json.tpl
 ee/frontend/node_modules
-common/esbuilder/node_modules
-common/eslint_rules/node_modules
-common/hogvm/typescript/node_modules
-common/plugin_transpiler/node_modules
+common/*/*/node_modules
+common/*/node_modules
+products/*/node_modules
 rust/.env
 rust/.github
 rust/cyclotron-node/dist
