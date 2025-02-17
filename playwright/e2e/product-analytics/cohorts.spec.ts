@@ -16,7 +16,6 @@ test.describe('Cohorts', () => {
         await page.click('[data-attr="cohort-personPropertyBehavioral-have_property-type"]')
         await page.click('[data-attr="cohort-taxonomic-field-key"]')
 
-        await page.fill('[data-attr=taxonomic-filter-searchfield]', 'is_demo')
         await page.click('[data-attr=prop-filter-person_properties-0]', { force: true })
         await page.click('[data-attr=prop-val]')
         await page.click('[data-attr=prop-val-0]', { force: true })
