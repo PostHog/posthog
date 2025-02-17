@@ -756,14 +756,6 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.26
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."project_id" = 99999
-  LIMIT 1
-  '''
-# ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.27
-  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -832,7 +824,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.28
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.27
   '''
   SELECT "posthog_productintent"."id",
          "posthog_productintent"."team_id",
@@ -844,6 +836,14 @@
          "posthog_productintent"."activation_last_checked_at"
   FROM "posthog_productintent"
   WHERE "posthog_productintent"."team_id" = 99999
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.28
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_grouptypemapping"
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
+  LIMIT 1
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.29
@@ -5165,14 +5165,6 @@
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.26
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."project_id" = 99999
-  LIMIT 1
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.27
-  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -5241,7 +5233,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.28
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.27
   '''
   SELECT "posthog_productintent"."id",
          "posthog_productintent"."team_id",
@@ -5253,6 +5245,14 @@
          "posthog_productintent"."activation_last_checked_at"
   FROM "posthog_productintent"
   WHERE "posthog_productintent"."team_id" = 99999
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.28
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_grouptypemapping"
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
+  LIMIT 1
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.29
