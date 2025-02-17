@@ -8,6 +8,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
+import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp'
 import dart from 'react-syntax-highlighter/dist/esm/languages/prism/dart'
 import elixir from 'react-syntax-highlighter/dist/esm/languages/prism/elixir'
 import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
@@ -52,12 +53,15 @@ export enum Language {
     Markup = 'markup',
     SQL = 'sql',
     Kotlin = 'kotlin',
+    CSharp = 'csharp',
 }
 
 export const getLanguage = (lang: string): Language => {
     switch (lang) {
         case 'bash':
             return Language.Bash
+        case 'csharp':
+            return Language.CSharp
         case 'jsx':
             return Language.JSX
         case 'javascript':
@@ -113,6 +117,7 @@ SyntaxHighlighter.registerLanguage(Language.PHP, php)
 SyntaxHighlighter.registerLanguage(Language.Python, python)
 SyntaxHighlighter.registerLanguage(Language.Dart, dart)
 SyntaxHighlighter.registerLanguage(Language.Go, go)
+SyntaxHighlighter.registerLanguage(Language.CSharp, csharp)
 SyntaxHighlighter.registerLanguage(Language.JSON, json)
 SyntaxHighlighter.registerLanguage(Language.YAML, yaml)
 SyntaxHighlighter.registerLanguage(Language.HTML, markup)

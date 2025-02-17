@@ -3,7 +3,7 @@ import './WebVitalsTab.scss'
 import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import { WebVitalsMetric } from '~/queries/schema'
+import { WebVitalsMetric } from '~/queries/schema/schema-general'
 
 import { getThresholdColor, getValueWithUnit, LONG_METRIC_NAME, METRIC_DESCRIPTION } from './definitions'
 import { WebVitalsProgressBar } from './WebVitalsProgressBar'

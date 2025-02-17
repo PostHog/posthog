@@ -22,7 +22,7 @@ import {
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
-import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
+import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -334,6 +334,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.ExperimentEventMetricConfig]: {
         name: 'Experiment Event Metric Config',
         description: 'Configuration for experiment event metrics.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentActionMetricConfig]: {
+        name: 'Experiment Action Metric Config',
+        description: 'Configuration for experiment action metrics.',
         icon: IconFlask,
         inMenu: false,
     },
@@ -672,11 +678,7 @@ export function SavedInsights(): JSX.Element {
                         ? [
                               {
                                   key: SavedInsightsTabs.Alerts,
-                                  label: (
-                                      <div className="flex items-center gap-2">
-                                          Alerts <LemonTag type="highlight">ALPHA</LemonTag>
-                                      </div>
-                                  ),
+                                  label: <div className="flex items-center gap-2">Alerts</div>,
                               },
                           ]
                         : []),

@@ -180,7 +180,7 @@ class MaxChatViewSet(viewsets.ViewSet):
         return Response(
             {
                 "error": "rate_limit_exceeded",
-                "message": "🫣 Uh-oh, I'm really popular today! I've hit my rate limit. I need to catch my breath, please try asking your question again after 30 seconds. 🦔",
+                "message": "🫣 Uh-oh, I'm really popular today, we've been rate-limited. I just need to catch my breath. Hang on, I'll repeat your question for you and resume searching in less than a minute...",
                 "retry_after": retry_after,
             },
             status=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -305,14 +305,14 @@ class MaxChatViewSet(viewsets.ViewSet):
                             except (ValueError, TypeError):
                                 continue
 
-                    retry_seconds = max(reset_times) if reset_times else 15
+                    retry_seconds = max(reset_times) if reset_times else 180
 
                 django_logger.warning(f"✨🦔 Rate limit hit - waiting {retry_seconds} seconds before retry")
                 return self._handle_rate_limit(retry_seconds)
 
             except Exception as header_error:
                 django_logger.warning(f"✨🦔 Rate limit handling error: {str(header_error)}")
-                return self._handle_rate_limit(15)  # Default to 15 seconds
+                return self._handle_rate_limit(180)  # Default to 3 minutes
         except Exception as e:
             django_logger.error(f"✨🦔 Request to Anthropic API failed: {str(e)}", exc_info=True)
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

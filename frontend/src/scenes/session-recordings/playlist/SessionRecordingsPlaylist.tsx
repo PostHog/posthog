@@ -46,8 +46,9 @@ export function SessionRecordingsPlaylist({
         hasNext,
         allowFlagsFilters,
         allowHogQLFilters,
+        totalFiltersCount,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters } = useActions(logic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -106,7 +107,7 @@ export function SessionRecordingsPlaylist({
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
-                <AiFilter logic={logic} />
+                <AiFilter />
             </FlaggedFeature>
             <div className="h-full space-y-2">
                 <Playlist
@@ -119,8 +120,10 @@ export function SessionRecordingsPlaylist({
                     filterActions={
                         notebookNode ? null : (
                             <RecordingsUniversalFilters
+                                resetFilters={resetFilters}
                                 filters={filters}
                                 setFilters={setFilters}
+                                totalFiltersCount={totalFiltersCount}
                                 className="border-b"
                                 allowReplayHogQLFilters={allowHogQLFilters}
                                 allowReplayFlagsFilters={allowFlagsFilters}

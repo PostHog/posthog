@@ -86,7 +86,8 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
-                    return (await api.hogFunctions.list(values.filters?.filters, props.type)).results
+                    return (await api.hogFunctions.list({ filters: values.filters?.filters, types: [props.type] }))
+                        .results
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({

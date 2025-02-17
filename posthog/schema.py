@@ -137,11 +137,11 @@ class AssistantGenericPropertyFilter3(BaseModel):
 
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
+    TOOL = "tool"
     AI = "ai"
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
-    AI_ROUTER = "ai/router"
 
 
 class RetentionReference(StrEnum):
@@ -161,6 +161,25 @@ class AssistantSingleValuePropertyFilterOperator(StrEnum):
     NOT_ICONTAINS = "not_icontains"
     REGEX = "regex"
     NOT_REGEX = "not_regex"
+
+
+class AssistantToolCall(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    args: dict[str, Any]
+    id: str
+    name: str
+
+
+class AssistantToolCallMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    tool_call_id: str
+    type: Literal["tool"] = "tool"
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -787,6 +806,22 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
+class FileSystemType(StrEnum):
+    FEATURE_FLAG = "feature_flag"
+    INSIGHT = "insight"
+    DASHBOARD = "dashboard"
+    EXPERIMENT = "experiment"
+    NOTEBOOK = "notebook"
+    REPL = "repl"
+    SURVEY = "survey"
+    SQL = "sql"
+    SOURCE = "source"
+    DESTINATION = "destination"
+    SITE_APP = "site_app"
+    TRANSFORMATION = "transformation"
+    FOLDER = "folder"
+
+
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
@@ -1087,6 +1122,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
+    EXPERIMENT_ACTION_METRIC_CONFIG = "ExperimentActionMetricConfig"
     EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
@@ -1220,7 +1256,7 @@ class QueryResponseAlternative5(BaseModel):
     stdout: Optional[str] = None
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1320,15 +1356,6 @@ class RevenueTrackingEventItem(BaseModel):
     )
     eventName: str
     revenueProperty: str
-
-
-class RouterMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    type: Literal["ai/router"] = "ai/router"
 
 
 class SamplingRate(BaseModel):
@@ -2203,29 +2230,6 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     timestamp_field: str
 
 
-class ExperimentEventMetricConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    event: str
-    kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
-    math_hogql: Optional[str] = None
-    math_property: Optional[str] = None
-
-
-class ExperimentMetric(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    filterTestAccounts: Optional[bool] = None
-    inverse: Optional[bool] = None
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-    metric_config: Union[ExperimentEventMetricConfig, ExperimentDataWarehouseMetricConfig]
-    metric_type: ExperimentMetricType
-    name: Optional[str] = None
-
-
 class FeaturePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2235,6 +2239,23 @@ class FeaturePropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class FileSystemEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = Field(
+        default=None, description="Timestamp when file was added. Used to check persistence"
+    )
+    href: Optional[str] = Field(default=None, description="Object's URL")
+    id: str = Field(..., description="Unique UUID for tree entry")
+    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
+    path: str = Field(..., description="Object's name and folder")
+    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    type: Optional[FileSystemType] = Field(
+        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
+    )
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -3222,6 +3243,7 @@ class AssistantMessage(BaseModel):
     content: str
     id: Optional[str] = None
     meta: Optional[AssistantMessageMetadata] = None
+    tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
 
 
@@ -4484,6 +4506,96 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
+class ExperimentActionMetricConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: float
+    kind: Literal["ExperimentActionMetricConfig"] = "ExperimentActionMetricConfig"
+    math: Optional[ExperimentMetricMath] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+
+
+class ExperimentEventMetricConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
+    math: Optional[ExperimentMetricMath] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    name: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+
+
+class ExperimentMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterTestAccounts: Optional[bool] = None
+    inverse: Optional[bool] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]
+    metric_type: ExperimentMetricType
+    name: Optional[str] = None
+
+
+class ExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMetric
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+
+
 class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5073,6 +5185,22 @@ class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMetric
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+
+
+class QueryResponseAlternative14(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     dateFrom: Optional[str] = None
     dateTo: Optional[str] = None
     error: Optional[str] = Field(
@@ -5093,7 +5221,7 @@ class QueryResponseAlternative13(BaseModel):
     )
 
 
-class QueryResponseAlternative14(BaseModel):
+class QueryResponseAlternative15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5120,7 +5248,7 @@ class QueryResponseAlternative14(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative17(BaseModel):
+class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5141,7 +5269,7 @@ class QueryResponseAlternative17(BaseModel):
     )
 
 
-class QueryResponseAlternative18(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5167,7 +5295,7 @@ class QueryResponseAlternative18(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative19(BaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5194,7 +5322,7 @@ class QueryResponseAlternative19(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative20(BaseModel):
+class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5224,7 +5352,7 @@ class QueryResponseAlternative20(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative21(BaseModel):
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5248,7 +5376,7 @@ class QueryResponseAlternative21(BaseModel):
     )
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5275,7 +5403,7 @@ class QueryResponseAlternative22(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5296,7 +5424,7 @@ class QueryResponseAlternative25(BaseModel):
     )
 
 
-class QueryResponseAlternative26(BaseModel):
+class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5322,7 +5450,7 @@ class QueryResponseAlternative26(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5347,7 +5475,7 @@ class QueryResponseAlternative27(BaseModel):
     )
 
 
-class QueryResponseAlternative30(BaseModel):
+class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5372,7 +5500,7 @@ class QueryResponseAlternative30(BaseModel):
     )
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5394,7 +5522,7 @@ class QueryResponseAlternative31(BaseModel):
     )
 
 
-class QueryResponseAlternative32(BaseModel):
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5416,7 +5544,7 @@ class QueryResponseAlternative32(BaseModel):
     )
 
 
-class QueryResponseAlternative34(BaseModel):
+class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5437,7 +5565,7 @@ class QueryResponseAlternative34(BaseModel):
     )
 
 
-class QueryResponseAlternative35(BaseModel):
+class QueryResponseAlternative36(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5458,7 +5586,7 @@ class QueryResponseAlternative35(BaseModel):
     )
 
 
-class QueryResponseAlternative37(BaseModel):
+class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5484,7 +5612,7 @@ class QueryResponseAlternative37(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative40(BaseModel):
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5505,7 +5633,7 @@ class QueryResponseAlternative40(BaseModel):
     )
 
 
-class QueryResponseAlternative41(BaseModel):
+class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5526,7 +5654,7 @@ class QueryResponseAlternative41(BaseModel):
     )
 
 
-class QueryResponseAlternative42(BaseModel):
+class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5547,7 +5675,7 @@ class QueryResponseAlternative42(BaseModel):
     )
 
 
-class QueryResponseAlternative43(BaseModel):
+class QueryResponseAlternative44(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6103,6 +6231,34 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     )
 
 
+class CachedExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    credible_intervals: dict[str, list[float]]
+    insight: list[dict[str, Any]]
+    is_cached: bool
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    last_refresh: AwareDatetime
+    metric: ExperimentMetric
+    next_allowed_client_refresh: AwareDatetime
+    p_value: float
+    probability: dict[str, float]
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: Optional[int] = None
+    timezone: str
+    variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
+
+
 class CachedHogQLQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6296,6 +6452,20 @@ class EventTaxonomyQuery(BaseModel):
     response: Optional[EventTaxonomyQueryResponse] = None
 
 
+class ExperimentQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: Optional[int] = None
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMetric
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    name: Optional[str] = None
+    response: Optional[ExperimentQueryResponse] = None
+
+
 class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6389,7 +6559,7 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
-class QueryResponseAlternative33(BaseModel):
+class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6644,35 +6814,6 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     useSessionsTable: Optional[bool] = None
 
 
-class CachedExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    count_query: Optional[TrendsQuery] = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: Optional[TrendsQuery] = None
-    insight: list[dict[str, Any]]
-    is_cached: bool
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    p_value: float
-    probability: dict[str, float]
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    timezone: str
-    variants: list[ExperimentVariantTrendsBaseStats]
-
-
 class CachedExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6841,23 +6982,6 @@ class EventsQuery(BaseModel):
     response: Optional[EventsQueryResponse] = None
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
-
-
-class ExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: Optional[TrendsQuery] = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: Optional[TrendsQuery] = None
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class ExperimentTrendsQueryResponse(BaseModel):
@@ -7214,7 +7338,7 @@ class QueryResponseAlternative12(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
-class QueryResponseAlternative28(BaseModel):
+class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7230,7 +7354,7 @@ class QueryResponseAlternative28(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class QueryResponseAlternative29(BaseModel):
+class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7289,11 +7413,9 @@ class RetentionQuery(BaseModel):
 
 
 class RootAssistantMessage(
-    RootModel[
-        Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
-    ]
+    RootModel[Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]]
 ):
-    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RouterMessage]
+    root: Union[VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage]
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):
@@ -7354,20 +7476,6 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     significant: bool
     stats_version: Optional[int] = None
     variants: list[ExperimentVariantFunnelsBaseStats]
-
-
-class ExperimentQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    experiment_id: Optional[int] = None
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMetric
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    name: Optional[str] = None
-    response: Optional[ExperimentTrendsQueryResponse] = None
 
 
 class ExperimentTrendsQuery(BaseModel):
@@ -7476,7 +7584,7 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
-class QueryResponseAlternative38(BaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7510,14 +7618,14 @@ class QueryResponseAlternative(
             QueryResponseAlternative12,
             QueryResponseAlternative13,
             QueryResponseAlternative14,
-            QueryResponseAlternative17,
-            Any,
+            QueryResponseAlternative15,
             QueryResponseAlternative18,
+            Any,
             QueryResponseAlternative19,
             QueryResponseAlternative20,
             QueryResponseAlternative21,
             QueryResponseAlternative22,
-            QueryResponseAlternative25,
+            QueryResponseAlternative23,
             QueryResponseAlternative26,
             QueryResponseAlternative27,
             QueryResponseAlternative28,
@@ -7528,13 +7636,14 @@ class QueryResponseAlternative(
             QueryResponseAlternative33,
             QueryResponseAlternative34,
             QueryResponseAlternative35,
-            QueryResponseAlternative37,
+            QueryResponseAlternative36,
             QueryResponseAlternative38,
             QueryResponseAlternative39,
             QueryResponseAlternative40,
             QueryResponseAlternative41,
             QueryResponseAlternative42,
             QueryResponseAlternative43,
+            QueryResponseAlternative44,
         ]
     ]
 ):
@@ -7554,14 +7663,14 @@ class QueryResponseAlternative(
         QueryResponseAlternative12,
         QueryResponseAlternative13,
         QueryResponseAlternative14,
-        QueryResponseAlternative17,
-        Any,
+        QueryResponseAlternative15,
         QueryResponseAlternative18,
+        Any,
         QueryResponseAlternative19,
         QueryResponseAlternative20,
         QueryResponseAlternative21,
         QueryResponseAlternative22,
-        QueryResponseAlternative25,
+        QueryResponseAlternative23,
         QueryResponseAlternative26,
         QueryResponseAlternative27,
         QueryResponseAlternative28,
@@ -7572,13 +7681,14 @@ class QueryResponseAlternative(
         QueryResponseAlternative33,
         QueryResponseAlternative34,
         QueryResponseAlternative35,
-        QueryResponseAlternative37,
+        QueryResponseAlternative36,
         QueryResponseAlternative38,
         QueryResponseAlternative39,
         QueryResponseAlternative40,
         QueryResponseAlternative41,
         QueryResponseAlternative42,
         QueryResponseAlternative43,
+        QueryResponseAlternative44,
     ]
 
 
@@ -8021,6 +8131,7 @@ class QueryRequest(BaseModel):
         ErrorTrackingQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
+        ExperimentQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebExternalClicksTableQuery,
@@ -8091,6 +8202,7 @@ class QuerySchemaRoot(
             ErrorTrackingQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
+            ExperimentQuery,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebExternalClicksTableQuery,
@@ -8135,6 +8247,7 @@ class QuerySchemaRoot(
         ErrorTrackingQuery,
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
+        ExperimentQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebExternalClicksTableQuery,

@@ -2,7 +2,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { WebAnalyticsPropertyFilters } from '~/queries/schema'
+import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
 
 export const WebPropertyFilters = ({
     webAnalyticsFilters,

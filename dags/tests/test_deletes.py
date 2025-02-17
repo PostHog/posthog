@@ -1,7 +1,5 @@
-from collections.abc import Iterator
 from datetime import datetime, timedelta
 from uuid import UUID
-
 
 import pytest
 from clickhouse_driver import Client
@@ -12,13 +10,8 @@ from dags.deletes import (
     PendingPersonEventDeletesTable,
     PendingDeletesDictionary,
 )
-from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-
-
-@pytest.fixture
-def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
-    yield get_cluster()
 
 
 @pytest.mark.django_db
