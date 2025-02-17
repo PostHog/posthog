@@ -140,8 +140,6 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         customSparklineConfig: [
             (s) => [s.sparklineOptions],
             (sparklineOptions): ErrorTrackingSparklineConfig | null =>
-                // the first of the options should always be the "customVolume"
-                // the second option will always be either lastDay (24h) or lastMonth (30d)
                 sparklineOptions ? constructSparklineConfig(sparklineOptions.custom.value) : null,
         ],
     }),
