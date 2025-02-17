@@ -277,7 +277,7 @@ def create_pending_person_deletions_table(
         team_id=config.team_id,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
-    cluster.any_host_by_role(table.create, NodeRole.WORKER).result()
+    cluster.any_host_by_role(table.create, NodeRole.DATA).result()
     return table
 
 
@@ -292,8 +292,8 @@ def create_reporting_pending_person_deletions_table(
         cluster=settings.CLICKHOUSE_CLUSTER,
         is_reporting=True,
     )
-    cluster.any_host_by_role(table.create, NodeRole.WORKER).result()
-    cluster.any_host_by_role(table.truncate, NodeRole.WORKER).result()
+    cluster.any_host_by_role(table.create, NodeRole.DATA).result()
+    cluster.any_host_by_role(table.truncate, NodeRole.DATA).result()
     return table
 
 
@@ -306,7 +306,7 @@ def load_pending_person_deletions(
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
     if create_pending_person_deletions_table.is_reporting:
-        pending_deletions = AsyncDeletion.objects.all().iterator()
+        pending_deletions = AsyncDeletion.objects.all().values("team_id", "key", "created_at").iterator()
     else:
         if not create_pending_person_deletions_table.team_id:
             pending_deletions = (
@@ -389,7 +389,7 @@ def create_deletes_dict(
     def sync_replica(client: Client):
         client.execute(f"SYSTEM SYNC REPLICA {load_pending_person_deletions.qualified_name} STRICT")
 
-    cluster.map_hosts_by_role(sync_replica, NodeRole.WORKER).result()
+    cluster.map_hosts_by_role(sync_replica, NodeRole.DATA).result()
 
     del_dict = PendingDeletesDictionary(
         source=load_pending_person_deletions,
@@ -402,7 +402,7 @@ def create_deletes_dict(
             max_execution_time=config.max_execution_time,
             max_memory_usage=config.max_memory_usage,
         ),
-        NodeRole.WORKER,
+        NodeRole.DATA,
     ).result()
     return del_dict
 
@@ -413,7 +413,7 @@ def load_and_verify_deletes_dictionary(
     dictionary: PendingDeletesDictionary,
 ) -> PendingDeletesDictionary:
     """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
-    checksums = cluster.map_hosts_by_role(dictionary.load, NodeRole.WORKER, concurrency=1).result()
+    checksums = cluster.map_hosts_by_role(dictionary.load, NodeRole.DATA, concurrency=1).result()
     assert len(set(checksums.values())) == 1
     return dictionary
 
@@ -435,7 +435,7 @@ def delete_person_events(
         )
         return result[0][0] if result else 0
 
-    count_result = cluster.map_hosts_by_role(count_pending_deletes, NodeRole.WORKER).result()
+    count_result = cluster.map_hosts_by_role(count_pending_deletes, NodeRole.DATA).result()
 
     all_zero = all(count == 0 for count in count_result.values())
     if all_zero:
@@ -504,8 +504,8 @@ def cleanup_delete_assets(
         ).update(delete_verified_at=datetime.now())
 
     # Must drop dict first
-    cluster.any_host_by_role(create_deletes_dict.drop, NodeRole.WORKER).result()
-    cluster.any_host_by_role(create_pending_person_deletions_table.drop, NodeRole.WORKER).result()
+    cluster.any_host_by_role(create_deletes_dict.drop, NodeRole.DATA).result()
+    cluster.any_host_by_role(create_pending_person_deletions_table.drop, NodeRole.DATA).result()
 
     return True
 
