@@ -390,11 +390,14 @@ export function DeltaChart({
                                 })}
 
                                 {variants.map((variant, index) => {
-                                    const interval = credibleIntervalForVariant(result, variant.key, metricType)
-                                    const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
-
                                     let delta: number
-                                    if (metricType === InsightType.TRENDS) {
+                                    if (metricType === InsightType.FUNNELS) {
+                                        const variantRate = conversionRateForVariant(result, variant.key)
+                                        const controlRate = conversionRateForVariant(result, 'control')
+                                        delta =
+                                            variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
+                                    } else {
+                                        // NOTE: Legacy trends metrics and new experiment metrics use the same logic
                                         const controlVariant = result.variants.find(
                                             (v: TrendExperimentVariant) => v.key === 'control'
                                         ) as TrendExperimentVariant
@@ -415,17 +418,16 @@ export function DeltaChart({
                                             const variantMean = variantData.count / variantData.absolute_exposure
                                             delta = (variantMean - controlMean) / controlMean
                                         }
-                                    } else {
-                                        const variantRate = conversionRateForVariant(result, variant.key)
-                                        const controlRate = conversionRateForVariant(result, 'control')
-                                        delta =
-                                            variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
                                     }
 
+                                    const interval = credibleIntervalForVariant(result, variant.key, metricType)
+                                    const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
+
                                     const y = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
-                                    const x1 = valueToX(lower)
-                                    const x2 = valueToX(upper)
                                     const deltaX = valueToX(delta)
+                                    const violinWidth = Math.abs(valueToX(upper) - valueToX(lower))
+                                    const x1 = deltaX - violinWidth / 2
+                                    const x2 = deltaX + violinWidth / 2
 
                                     return (
                                         <g
