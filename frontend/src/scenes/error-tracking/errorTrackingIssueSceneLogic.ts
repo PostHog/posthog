@@ -86,7 +86,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 },
                 assignIssue: async ({ assignee }) => {
                     await api.errorTracking.assignIssue(props.id, assignee)
-                    return { ...values.issue, assignee }
+                    return values.issue ? { ...values.issue, assignee } : values.issue
                 },
                 setIssue: ({ issue }) => issue,
             },
