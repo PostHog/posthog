@@ -301,6 +301,9 @@ importers:
       '@posthog-products/messaging':
         specifier: workspace:*
         version: link:../products/messaging
+      '@posthog/ee':
+        specifier: workspace:*
+        version: link:../ee/frontend
       '@posthog/esbuilder':
         specifier: workspace:*
         version: link:../common/esbuilder
