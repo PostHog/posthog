@@ -45,7 +45,7 @@ export interface QueryTile {
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
 
-    connect({ values: [sceneLogic, ['sceneKey']] }),
+    connect({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] }),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -514,8 +514,8 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     query: `
                 SELECT
                     argMax(user_tuple, timestamp) as user,
-                    count() as generations,
                     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
+                    count() as generations,
                     round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
@@ -531,7 +531,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             person.properties
                         ) as user_tuple
                     FROM events
-                    WHERE event = '$ai_generation'
+                    WHERE event = '$ai_generation' AND {filters}
                 )
                 GROUP BY distinct_id
                 ORDER BY total_cost DESC
@@ -539,19 +539,20 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     `,
                     filters: {
                         dateRange: {
-                            date_from: dateFilter.dateFrom || '-7d',
-                            date_to: dateFilter.dateTo,
+                            date_from: dateFilter.dateFrom || null,
+                            date_to: dateFilter.dateTo || null,
                         },
                         filterTestAccounts: shouldFilterTestAccounts,
                         properties: propertyFilters,
                     },
                 },
-                columns: ['user', 'generations', 'traces', 'total_cost', 'first_seen', 'last_seen'],
+                columns: ['user', 'traces', 'generations', 'total_cost', 'first_seen', 'last_seen'],
                 showDateRange: true,
                 showReload: true,
                 showSearch: true,
                 showTestAccountFilters: true,
                 showExport: true,
+                showColumnConfigurator: true,
             }),
         ],
     }),

@@ -2,15 +2,15 @@ import { useActions, useValues } from 'kea'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { isEventsQuery } from '~/queries/utils'
+import { isHogQLQuery } from '~/queries/utils'
 
 import { llmObservabilityLogic } from './llmObservabilityLogic'
 
 const mapPerson = (person: any): { distinct_id: string; created_at: string; properties: Record<string, any> } => {
     return {
-        distinct_id: person[0],
-        created_at: person[1],
-        properties: person[2],
+        distinct_id: Array.isArray(person) && person.length > 0 ? person[0] : '',
+        created_at: Array.isArray(person) && person.length > 1 ? person[1] : '',
+        properties: Array.isArray(person) && person.length > 2 ? person[2] : {},
     }
 }
 
@@ -22,12 +22,15 @@ export function LLMObservabilityUsers(): JSX.Element {
         <DataTable
             query={usersQuery}
             setQuery={(query) => {
-                if (!isEventsQuery(query.source)) {
-                    throw new Error('Invalid query')
+                if (!isHogQLQuery(query.source)) {
+                    console.warn('LLMObservabilityUsers received a non-events query:', query.source)
+                    return
                 }
-                setDates(query.source.after || null, query.source.before || null)
-                setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                setPropertyFilters(query.source.properties || [])
+                const { filters = {} } = query.source
+                const { dateRange = {} } = filters
+                setDates(dateRange.date_from || null, dateRange.date_to || null)
+                setShouldFilterTestAccounts(filters.filterTestAccounts || false)
+                setPropertyFilters(filters.properties || [])
             }}
             context={{
                 columns: {
@@ -52,11 +55,11 @@ export function LLMObservabilityUsers(): JSX.Element {
                     },
                     total_cost: {
                         title: 'Total Cost (USD)',
-                        render: function RenderCost({ record, value }) {
-                            if (record === null) {
+                        render: function RenderCost({ value }) {
+                            if (!value || !Number(value)) {
                                 return <span>N/A</span>
                             }
-                            return <span>${value}</span>
+                            return <span>${Number(value).toFixed(4)}</span>
                         },
                     },
                 },
