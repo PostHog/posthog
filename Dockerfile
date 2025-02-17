@@ -27,13 +27,13 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
+COPY common/esbuilder/ common/esbuilder/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && pnpm --version && \
     pnpm --filter=@posthog/frontend install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
 
 COPY frontend/ frontend/
 COPY products/ products/
-COPY common/esbuilder/ common/esbuilder/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
