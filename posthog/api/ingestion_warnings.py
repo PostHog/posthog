@@ -15,8 +15,7 @@ class IngestionWarningsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def list(self, request: Request, **kw) -> Response:
         start_date = now() - timedelta(days=30)
-        warning_events = sync_execute(
-            """
+        query = """
             SELECT
                 type,
                 count(details) as total_count,
@@ -35,16 +34,22 @@ class IngestionWarningsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     WHERE
                         team_id = %(team_id)s
                         AND timestamp > %(start_date)s
+                        AND (
+                    %(search)s IS NULL OR positionUTF8(details, %(search)s) > 0 OR positionUTF8(type, %(search)s) > 0
+                        )
                     ORDER BY
                         type,
                         timestamp DESC
                 )
             GROUP BY
                 type
-        """,
+        """
+        warning_events = sync_execute(
+            query,
             {
                 "team_id": self.team_id,
                 "start_date": start_date.strftime("%Y-%m-%d %H:%M:%S"),
+                "search": request.GET.get("q", None),
             },
         )
 

@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
@@ -35,12 +35,26 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
         values: [teamLogic, ['timezone'], projectLogic, ['currentProjectId']],
     }),
 
+    actions({
+        setSearchQuery: (search: string) => ({ search }),
+    }),
+
+    reducers({
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { search }) => search,
+            },
+        ],
+    }),
+
     loaders(({ values }) => ({
         data: [
             [] as IngestionWarningSummary[],
             {
                 loadData: async () => {
-                    const { results } = await api.get(`api/projects/${values.currentProjectId}/ingestion_warnings`)
+                    const q = values.searchQuery ? `?q=${values.searchQuery}` : ''
+                    const { results } = await api.get(`api/projects/${values.currentProjectId}/ingestion_warnings${q}`)
                     return results
                 },
             },
@@ -89,7 +103,20 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
                 return summaryDatasets
             },
         ],
+        showProductIntro: [
+            (s) => [s.data, s.dataLoading, s.searchQuery],
+            (data: IngestionWarningSummary[], dataLoading: boolean, searchQuery) =>
+                data.length === 0 && !dataLoading && !searchQuery.trim().length,
+        ],
     }),
+
+    listeners(({ actions }) => ({
+        setSearchQuery: async (_, breakpoint) => {
+            await breakpoint(100)
+            actions.loadData()
+        },
+    })),
+
     afterMount(({ actions }) => {
         actions.loadData()
     }),
