@@ -30,8 +30,6 @@
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'ee/frontend/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ee/frontend/mobile-replay/schema/mobile/rr-mobile-schema.json && prettier --write ee/frontend/mobile-replay/schema/mobile/rr-mobile-schema.json",
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json",
         "mypy-baseline-sync": "mypy -p posthog | mypy-baseline sync",
-        "prettier": "prettier --write \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
-        "prettier:check": "prettier --check \"frontend/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "lint:js": "eslint --cache frontend/src cypress products common",
         "lint:css": "stylelint \"(frontend|products|common)/**/*.{css,scss}\"",
         "format:backend": "ruff .",
