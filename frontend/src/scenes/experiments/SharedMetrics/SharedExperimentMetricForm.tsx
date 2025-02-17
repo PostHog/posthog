@@ -3,13 +3,13 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { Query } from '~/queries/Query/Query'
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { filterToMetricConfig, metricConfigToFilter, metricToQuery } from '../utils'
 import { sharedMetricLogic } from './sharedMetricLogic'
-import { Query } from '~/queries/Query/Query'
 
 export function SharedExperimentMetricForm(): JSX.Element {
     const { sharedMetric } = useValues(sharedMetricLogic)
