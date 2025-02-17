@@ -27,6 +27,8 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
+COPY common/esbuilder/ common/esbuilder/
+COPY common/eslint_rules/ common/eslint_rules/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && pnpm --version && \
     pnpm --filter=@posthog/frontend install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
@@ -59,6 +61,7 @@ WORKDIR /code
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY ./patches ./patches
 COPY ./rust ./rust
+COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
@@ -123,6 +126,7 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Add in Django deps and generate Django's static files.
 COPY manage.py manage.py
+COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
 COPY posthog posthog/
 COPY products/ products/

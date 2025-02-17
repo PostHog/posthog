@@ -35,6 +35,7 @@ export function SelectorEditor({ selector, variant, transformIndex }: SelectorEd
             <LemonButton
                 size="xsmall"
                 icon={<IconPencil />}
+                tooltip="Edit selector"
                 onClick={(e) => {
                     e.stopPropagation()
                     setEditSelectorValue(selector ?? '')

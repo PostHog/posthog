@@ -1911,6 +1911,15 @@ export function getCoreFilterDefinition(
     return null
 }
 
+export function getFirstFilterTypeFor(propertyKey: string): TaxonomicFilterGroupType | null {
+    for (const type of Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP) as TaxonomicFilterGroupType[]) {
+        if (propertyKey in CORE_FILTER_DEFINITIONS_BY_GROUP[type]) {
+            return type
+        }
+    }
+    return null
+}
+
 export function getFilterLabel(key: PropertyKey, type: TaxonomicFilterGroupType): string {
     const data = getCoreFilterDefinition(key, type)
     return (data ? data.label : key)?.trim() ?? '(empty string)'

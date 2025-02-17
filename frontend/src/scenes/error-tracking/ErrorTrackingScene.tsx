@@ -117,7 +117,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     const [data, labels] =
         sparklineSelectedPeriod === '24h'
             ? [record.aggregations.volumeDay, sparklineLabelsDay]
-            : sparklineSelectedPeriod === '1m'
+            : sparklineSelectedPeriod === '30d'
             ? [record.aggregations.volumeMonth, sparklineLabelsMonth]
             : customSparklineConfig
             ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]
@@ -127,13 +127,18 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
-    const { sparklineSelectedPeriod: period, sparklineOptions: options } = useValues(errorTrackingLogic)
+    const { sparklineSelectedPeriod, sparklineOptions } = useValues(errorTrackingLogic)
     const { setSparklineSelectedPeriod: onChange } = useActions(errorTrackingLogic)
 
-    return period ? (
+    return sparklineSelectedPeriod && sparklineOptions ? (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
-            <LemonSegmentedButton size="xsmall" value={period} options={options} onChange={onChange} />
+            <LemonSegmentedButton
+                size="xsmall"
+                value={sparklineSelectedPeriod}
+                options={Object.values(sparklineOptions)}
+                onChange={onChange}
+            />
         </div>
     ) : null
 }
