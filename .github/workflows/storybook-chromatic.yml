@@ -42,7 +42,9 @@ jobs:
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
-              run: pnpm install -w -D chromatic
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  pnpm install -w -D chromatic
 
             - name: Publish to Chromatic
               uses: chromaui/action@v11
@@ -51,7 +53,7 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
-                  workingDir: frontend
+                  workingDir: ./frontend/
 
     visual-regression:
         name: Visual regression tests
