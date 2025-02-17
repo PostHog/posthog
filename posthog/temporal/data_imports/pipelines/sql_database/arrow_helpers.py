@@ -1,13 +1,16 @@
 import decimal
 import json
 import math
+import orjson
+import pyarrow as pa
 import pyarrow.compute as pc
+import numpy as np
 from typing import Any, Optional
 from dateutil import parser
 from collections.abc import Sequence
 
 from dlt.common.schema.typing import TTableSchemaColumns
-from dlt.common import logger, json as orjson
+from dlt.common import logger
 from dlt.common.configuration import with_config
 from dlt.common.destination import DestinationCapabilitiesContext
 from dlt.common.json import custom_encode, map_nested_in_place
@@ -57,8 +60,6 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
     Columns missing `data_type` will be inferred from the row data.
     Columns with object types not supported by arrow are excluded from the resulting table.
     """
-    from dlt.common.libs.pyarrow import pyarrow as pa
-    import numpy as np
 
     caps = DestinationCapabilitiesContext.generic_capabilities()
     caps.decimal_precision = (76, 32)
@@ -184,7 +185,7 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
 
 def json_dumps(obj: Any) -> str:
     try:
-        return orjson.dumps(obj)
+        return orjson.dumps(obj).decode()
     except TypeError as e:
         if str(e) == "Integer exceeds 64-bit range":
             return json.dumps(obj)

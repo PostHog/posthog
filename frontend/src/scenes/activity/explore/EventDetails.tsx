@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, KNOWN_PROMOTED_PROPERTY_PARENTS } from 'lib/taxonomy'
 import { pluralize } from 'lib/utils'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/event-property-utls'
@@ -30,6 +31,8 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
     const displayedEventProperties = {}
     const visibleSystemProperties = {}
     const featureFlagProperties = {}
+    let setProperties = {}
+    let setOnceProperties = {}
     let systemPropsCount = 0
     for (const key of Object.keys(event.properties)) {
         if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] && CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
@@ -41,6 +44,10 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
             if (key.startsWith('$feature') || key === '$active_feature_flags') {
                 featureFlagProperties[key] = event.properties[key]
+            } else if (key === '$set') {
+                setProperties = event.properties[key]
+            } else if (key === '$set_once') {
+                setOnceProperties = event.properties[key]
             } else {
                 displayedEventProperties[key] = event.properties[key]
             }
@@ -161,6 +168,56 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     />
                 </div>
             ),
+        })
+    }
+
+    if (Object.keys(setProperties).length > 0) {
+        tabs.push({
+            key: 'set',
+            label: 'Person properties',
+            content: (
+                <div className="ml-10 mt-2">
+                    <p>
+                        Person properties sent with this event. Will replace any property value that may have been set
+                        on this person profile before now.{' '}
+                        <Link to="https://posthog.com/docs/getting-started/person-properties">Learn more</Link>
+                    </p>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Event}
+                        properties={{
+                            ...setProperties,
+                        }}
+                        useDetectedPropertyType={true}
+                        tableProps={tableProps}
+                        searchable
+                    />
+                </div>
+            ),
+        })
+    }
+
+    if (Object.keys(setOnceProperties).length > 0) {
+        tabs.push({
+            key: 'set_once',
+            content: (
+                <div className="ml-10 mt-2">
+                    <p>
+                        "Set once" person properties sent with this event. Will replace any property value that have
+                        never been set on this person profile before now.{' '}
+                        <Link to="https://posthog.com/docs/getting-started/person-properties">Learn more</Link>
+                    </p>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Event}
+                        properties={{
+                            ...setOnceProperties,
+                        }}
+                        useDetectedPropertyType={true}
+                        tableProps={tableProps}
+                        searchable
+                    />
+                </div>
+            ),
+            label: 'Set once person properties',
         })
     }
 

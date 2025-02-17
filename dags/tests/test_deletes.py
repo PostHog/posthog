@@ -1,24 +1,16 @@
-from collections.abc import Iterator
 from datetime import datetime, timedelta
 from uuid import UUID
-
 
 import pytest
 from clickhouse_driver import Client
 
-from django.conf import settings
 from dags.deletes import (
     deletes_job,
     PendingPersonEventDeletesTable,
     PendingDeletesDictionary,
 )
-from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-
-
-@pytest.fixture
-def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
-    yield get_cluster()
 
 
 @pytest.mark.django_db
@@ -29,11 +21,6 @@ def test_full_job(cluster: ClickhouseCluster):
     delete_count = 1000
 
     events = [(i, f"distinct_id_{i}", UUID(int=i), timestamp - timedelta(hours=i)) for i in range(event_count)]
-
-    def truncate_events(client: Client) -> None:
-        client.execute(f"TRUNCATE TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'")
-
-    cluster.any_host(truncate_events).result()
 
     def insert_events(client: Client) -> None:
         client.execute(

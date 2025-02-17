@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import { Message } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { configure } from 'safe-stable-stringify'
@@ -7,6 +6,7 @@ import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { TeamId, TimestampFormat } from '../../types'
 import { cleanErrorStackTrace } from '../../utils/db/error'
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 
@@ -216,7 +216,7 @@ export class AppMetrics {
                 ),
             }
         } catch (err) {
-            Sentry.captureException(err)
+            captureException(err)
             status.warn('⚠️', 'Failed to serialize error for app metrics. Not reporting this error.', err)
             return {}
         }

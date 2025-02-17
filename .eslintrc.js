@@ -20,7 +20,7 @@ module.exports = {
         },
         'import/resolver': {
             node: {
-                paths: ['eslint-rules'], // Add the directory containing your custom rules
+                paths: ['./common/eslint_rules', '../common/eslint_rules', '../../common/eslint_rules', '../../../common/eslint_rules'], // Add the directory containing your custom rules
                 extensions: ['.js', '.jsx', '.ts', '.tsx'], // Ensure ESLint resolves both JS and TS files
             },
         },
@@ -276,6 +276,7 @@ module.exports = {
         'no-else-return': 'warn',
         'react-google-translate/no-conditional-text-nodes-with-siblings': 'warn',
         'react-google-translate/no-return-text-nodes': 'warn',
+        'posthog/no-schema-index-import': 'error',
     },
     overrides: [
         {
@@ -362,7 +363,7 @@ module.exports = {
             globals: { ...globals, process: 'readonly' },
         },
         {
-            files: 'eslint-rules/**/*',
+            files: './common/eslint_rules/*',
             rules: {
                 '@typescript-eslint/no-var-requires': 'off',
             },

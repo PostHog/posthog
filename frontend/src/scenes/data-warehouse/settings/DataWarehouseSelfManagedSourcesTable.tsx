@@ -4,7 +4,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
+import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import { PipelineNodeTab, PipelineStage } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'

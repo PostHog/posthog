@@ -4,7 +4,7 @@ import { parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 
 export function ReloadInsight(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)

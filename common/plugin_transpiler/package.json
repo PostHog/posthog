@@ -11,11 +11,11 @@
     },
     "author": "PostHog Inc.",
     "license": "MIT",
-    "devDependencies": {
+    "dependencies": {
         "@babel/standalone": "^7.23.2",
         "@types/babel__standalone": "^7.1.6",
         "@types/node": "^18.11.9",
-        "esbuild": "^0.19.5",
+        "@posthog/esbuilder": "workspace:*",
         "typescript": "^5.2.2"
     }
 }
