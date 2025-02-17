@@ -12,7 +12,7 @@ import {
 export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
-export const SurveyQuestionLabel = {
+export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Open]: 'Freeform text',
     [SurveyQuestionType.Rating]: 'Rating',
     [SurveyQuestionType.Link]: 'Link',
