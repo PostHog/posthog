@@ -1,6 +1,6 @@
 import './ImagePreview.scss'
 
-import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
@@ -199,7 +199,10 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                                       <p>
                                                           Person properties sent with this event. Will replace any
                                                           property value that may have been set on this person profile
-                                                          before now.
+                                                          before now.{' '}
+                                                          <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                                              Learn more
+                                                          </Link>
                                                       </p>
                                                   }
                                               />
@@ -218,7 +221,10 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                                       <p>
                                                           "Set once" person properties sent with this event. Will
                                                           replace any property value that have never been set on this
-                                                          person profile before now.
+                                                          person profile before now.{' '}
+                                                          <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                                              Learn more
+                                                          </Link>
                                                       </p>
                                                   }
                                               />
