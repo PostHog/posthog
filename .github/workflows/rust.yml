@@ -166,7 +166,7 @@ jobs:
               run: cd ../ && python manage.py setup_test_environment --only-postgres
 
             - name: Download MaxMind Database
-              if: needs.changes.outputs.rust == 'true'
+              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               run: |
                   ./bin/download-mmdb
 
