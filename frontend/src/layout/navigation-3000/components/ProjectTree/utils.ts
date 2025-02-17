@@ -52,7 +52,7 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
 
         // Create the actual item node.
         const node: TreeDataItem = {
-            id: 'project/' + item.id,
+            id: 'project/' + (item.id || item.path),
             name: itemName,
             icon: item.icon || iconForType(item.type),
             record: item,
