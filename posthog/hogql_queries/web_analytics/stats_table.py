@@ -2,7 +2,7 @@ from typing import Union
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_expr, parse_select_static
 from posthog.hogql.property import (
     property_to_expr,
     get_property_operator,
@@ -124,7 +124,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
 
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
         with self.timings.measure("stats_table_bounce_query"):
-            query = parse_select(
+            query = parse_select_static(
                 """
 SELECT
     counts.breakdown_value AS "context.columns.breakdown_value",
@@ -240,7 +240,7 @@ ORDER BY "context.columns.visitors" DESC,
             raise NotImplementedError("Bounce rate is only supported for page breakdowns")
 
         with self.timings.measure("stats_table_scroll_query"):
-            query = parse_select(
+            query = parse_select_static(
                 """
 SELECT
     counts.breakdown_value AS "context.columns.breakdown_value",
@@ -317,7 +317,7 @@ ORDER BY "context.columns.visitors" DESC,
         return query
 
     def _main_inner_query(self, breakdown):
-        query = parse_select(
+        query = parse_select_static(
             """
 SELECT
     any(person_id) AS filtered_person_id,

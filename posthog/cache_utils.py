@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 import threading
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from functools import lru_cache, wraps
 from typing import Any, Generic, ParamSpec, TypeVar
 
 import orjson
@@ -76,6 +77,33 @@ def instance_memoize(callback):
         return memo[args]
 
     return _inner
+
+
+def lru_cache_ignore_args(ignore_args: set[str], maxsize=128):
+    """
+    A decorator for an LRU cache that ignores specific arguments when caching.
+
+    Uses the functools.lru_cache decorator under the hood.
+
+    The ignored args MUST be passed as keyword arguments.
+
+    :param ignore_args: Set of argument names to ignore for caching.
+    :param maxsize: Maximum size of the LRU cache.
+    """
+
+    def decorator(func):
+        @lru_cache(maxsize=maxsize)
+        def cached_function(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k not in ignore_args}
+            return cached_function(*args, **filtered_kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 class OrjsonJsonSerializer(BaseSerializer):
