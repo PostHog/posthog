@@ -15,7 +15,7 @@ from .query import create_default_modifiers_for_team
 if TYPE_CHECKING:
     from posthog.models import User, Team
 
-openai_client = OpenAI(posthog_client=posthoganalytics) if os.getenv("OPENAI_API_KEY") else None
+openai_client = OpenAI(posthog_client=posthoganalytics) if os.getenv("OPENAI_API_KEY") else None  # type: ignore
 
 UNCLEAR_PREFIX = "UNCLEAR:"
 
