@@ -142,12 +142,13 @@ class Assistant:
             # Check if the assistant has requested help.
             state = self._graph.get_state(config)
             if state.next:
-                interrupt_value = state.tasks[0].interrupts[0].value
-                yield self._serialize_message(
-                    AssistantMessage(content=interrupt_value, id=str(uuid4()))
-                    if isinstance(interrupt_value, str)
-                    else interrupt_value
-                )
+                for task in state.tasks:
+                    for interrupt in task.interrupts:
+                        yield self._serialize_message(
+                            AssistantMessage(content=interrupt.value, id=str(uuid4()))
+                            if isinstance(interrupt.value, str)
+                            else interrupt.value
+                        )
             else:
                 self._report_conversation_state(last_viz_message)
         except Exception as e:
