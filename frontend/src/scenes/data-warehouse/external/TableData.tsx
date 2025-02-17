@@ -6,7 +6,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Dispatch, SetStateAction } from 'react'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 

@@ -29,23 +29,21 @@ import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/node
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
 import {
-    DashboardFilter,
-    ErrorTrackingQuery,
-    ErrorTrackingQueryResponse,
-    HogQLVariable,
-    QueryStatus,
-} from '~/queries/schema'
-import {
     ActorsQuery,
     ActorsQueryResponse,
     AnyResponseType,
+    DashboardFilter,
     DataNode,
+    ErrorTrackingQuery,
+    ErrorTrackingQueryResponse,
     EventsQuery,
     EventsQueryResponse,
     HogQLQueryModifiers,
+    HogQLVariable,
     InsightVizNode,
     NodeKind,
     PersonsNode,
+    QueryStatus,
     QueryTiming,
 } from '~/queries/schema/schema-general'
 import {

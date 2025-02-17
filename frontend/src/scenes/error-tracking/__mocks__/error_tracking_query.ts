@@ -1,6 +1,6 @@
 import { range, uuid } from 'lib/utils'
 
-import { ErrorTrackingQueryResponse, ErrorTrackingRelationalIssue } from '~/queries/schema'
+import { ErrorTrackingQueryResponse, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 const eventProperties = JSON.stringify({
     $os: 'Mac OS X',

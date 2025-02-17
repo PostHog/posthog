@@ -20,7 +20,7 @@ import { useEffect, useRef, useState } from 'react'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery } from '~/queries/schema'
+import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 

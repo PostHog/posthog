@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { DatabaseSchemaViewTable } from '~/queries/schema'
+import { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
