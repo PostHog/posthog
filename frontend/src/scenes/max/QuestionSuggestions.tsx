@@ -1,4 +1,4 @@
-import { IconArrowUpRight, IconGear, IconOpenSidebar, IconShuffle } from '@posthog/icons'
+import { IconArrowUpRight, IconGear, IconShuffle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
@@ -17,14 +17,8 @@ export function QuestionSuggestions(): JSX.Element {
 
     if (!coreMemoryLoading && !coreMemory?.text) {
         return (
-            <LemonButton
-                size="xsmall"
-                type="primary"
-                sideIcon={<IconOpenSidebar />}
-                className="relative"
-                onClick={() => askMax('👋')}
-            >
-                Tell me a bit about your product, and I'll offer better answers and suggestions
+            <LemonButton size="xsmall" type="primary" className="relative" onClick={() => askMax('👋')}>
+                Let's get started with a bit of learning about your project!
             </LemonButton>
         )
     }
