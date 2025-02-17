@@ -1,0 +1,15 @@
+{
+    "name": "@posthog/cypress",
+    "scripts": {},
+    "dependencies": {
+        "cypress": "^13.11.0",
+        "cypress-axe": "^1.5.0",
+        "cypress-network-idle": "^1.14.2",
+        "cypress-terminal-report": "^6.1.0",
+        "eslint-plugin-posthog": "workspace:*",
+        "@posthog/frontend": "workspace:*"
+    },
+    "peerDependencies": {
+        "posthog-js": "*"
+    }
+}

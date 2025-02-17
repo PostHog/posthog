@@ -224,6 +224,30 @@ importers:
         specifier: ~4.9.5
         version: 4.9.5
 
+  cypress:
+    dependencies:
+      '@posthog/frontend':
+        specifier: workspace:*
+        version: link:../frontend
+      cypress:
+        specifier: ^13.11.0
+        version: 13.11.0
+      cypress-axe:
+        specifier: ^1.5.0
+        version: 1.5.0(axe-core@4.5.1)(cypress@13.11.0)
+      cypress-network-idle:
+        specifier: ^1.14.2
+        version: 1.14.2
+      cypress-terminal-report:
+        specifier: ^6.1.0
+        version: 6.1.0(cypress@13.11.0)
+      eslint-plugin-posthog:
+        specifier: workspace:*
+        version: link:../common/eslint_rules
+      posthog-js:
+        specifier: '*'
+        version: 1.217.2
+
   ee/frontend:
     dependencies:
       '@posthog/rrweb-types':
@@ -443,9 +467,6 @@ importers:
       crypto-browserify:
         specifier: ^3.12.0
         version: 3.12.1
-      cypress-network-idle:
-        specifier: ^1.14.2
-        version: 1.14.2
       d3:
         specifier: ^7.9.0
         version: 7.9.0
@@ -694,9 +715,6 @@ importers:
       '@parcel/transformer-typescript-types':
         specifier: 2.13.3
         version: 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))(typescript@4.9.5)
-      '@playwright/test':
-        specifier: 1.45.0
-        version: 1.45.0
       '@sentry/types':
         specifier: 7.112.1
         version: 7.112.1
@@ -868,15 +886,6 @@ importers:
       css-loader:
         specifier: ^3.4.2
         version: 3.6.0(webpack@5.88.2)
-      cypress:
-        specifier: ^13.11.0
-        version: 13.11.0
-      cypress-axe:
-        specifier: ^1.5.0
-        version: 1.5.0(axe-core@4.5.1)(cypress@13.11.0)
-      cypress-terminal-report:
-        specifier: ^6.1.0
-        version: 6.1.0(cypress@13.11.0)
       esbuild-visualizer:
         specifier: ^0.6.0
         version: 0.6.0
@@ -1042,6 +1051,15 @@ importers:
       whatwg-fetch:
         specifier: ^3.6.2
         version: 3.6.2
+
+  playwright:
+    dependencies:
+      '@playwright/test':
+        specifier: 1.45.0
+        version: 1.45.0
+      '@posthog/frontend':
+        specifier: workspace:*
+        version: link:../frontend
 
   plugin-server:
     dependencies:
@@ -8210,10 +8228,6 @@ packages:
   enhanced-resolve@5.15.0:
     resolution: {integrity: sha512-LXYT42KJ7lpIKECr2mAXIaMldcNCh/7E0KBKOu4KSfkHmP+mZmSs+8V5gBAqisWBy0OO4W5Oyys0GO1Y8KtdKg==}
     engines: {node: '>=10.13.0'}
-
-  enquirer@2.3.6:
-    resolution: {integrity: sha512-yjNnPr315/FjS4zIsUxYguYUPP2e1NK4d7E7ZOLiyYCcbFBiTMyID+2wvm2w6+pZ/odMA7cRkjhsPbltwBOrLg==}
-    engines: {node: '>=8.6'}
 
   enquirer@2.4.1:
     resolution: {integrity: sha512-rRqJg/6gd538VHvR3PSrdRBb/1Vy2YfzHqzvbhGIQpDRKIa4FgV/54b5Q1xYSxOOwKvjXweS26E0Q+nAMwp2pQ==}
@@ -18123,11 +18137,11 @@ snapshots:
   '@npmcli/fs@2.1.2':
     dependencies:
       '@gar/promisify': 1.1.3
-      semver: 7.5.4
+      semver: 7.7.0
 
   '@npmcli/fs@3.1.0':
     dependencies:
-      semver: 7.5.4
+      semver: 7.7.0
 
   '@npmcli/move-file@2.0.1':
     dependencies:
@@ -18377,7 +18391,7 @@ snapshots:
       '@parcel/rust': 2.13.3
       '@parcel/utils': 2.13.3
       nullthrows: 1.1.1
-      semver: 7.5.4
+      semver: 7.7.0
     transitivePeerDependencies:
       - '@parcel/core'
 
@@ -18389,7 +18403,7 @@ snapshots:
       '@parcel/rust': 2.13.3
       '@parcel/utils': 2.13.3
       nullthrows: 1.1.1
-      semver: 7.5.4
+      semver: 7.7.0
     transitivePeerDependencies:
       - '@parcel/core'
 
@@ -20369,7 +20383,7 @@ snapshots:
       pretty-hrtime: 1.0.3
       prompts: 2.4.2
       read-pkg-up: 7.0.1
-      semver: 7.5.4
+      semver: 7.7.0
       telejson: 7.2.0
       tiny-invariant: 1.3.3
       ts-dedent: 2.2.0
@@ -21740,7 +21754,7 @@ snapshots:
       debug: 4.4.0(supports-color@8.1.1)
       globby: 11.1.0
       is-glob: 4.0.3
-      semver: 7.5.4
+      semver: 7.7.0
       tsutils: 3.21.0(typescript@4.9.5)
     optionalDependencies:
       typescript: 4.9.5
@@ -21906,7 +21920,7 @@ snapshots:
       nopt: 5.0.0
       npmlog: 5.0.1
       rimraf: 3.0.2
-      semver: 7.5.4
+      semver: 7.7.0
       tar: 6.2.1
     transitivePeerDependencies:
       - bluebird
@@ -23470,7 +23484,7 @@ snapshots:
       postcss-modules-scope: 3.0.0(postcss@8.5.2)
       postcss-modules-values: 4.0.0(postcss@8.5.2)
       postcss-value-parser: 4.2.0
-      semver: 7.5.4
+      semver: 7.7.0
       webpack: 5.88.2(@swc/core@1.10.14(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
 
   css-prefers-color-scheme@10.0.0(postcss@8.5.2):
@@ -23591,7 +23605,7 @@ snapshots:
       cypress: 13.11.0
       fs-extra: 10.1.0
       process: 0.11.10
-      semver: 7.5.4
+      semver: 7.7.0
       tv4: 1.3.0
 
   cypress@13.11.0:
@@ -23613,7 +23627,7 @@ snapshots:
       common-tags: 1.8.2
       dayjs: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
       debug: 4.4.0(supports-color@8.1.1)
-      enquirer: 2.3.6
+      enquirer: 2.4.1
       eventemitter2: 6.4.7
       execa: 4.1.0
       executable: 4.1.1
@@ -23624,7 +23638,7 @@ snapshots:
       is-ci: 3.0.1
       is-installed-globally: 0.4.0
       lazy-ass: 1.6.0
-      listr2: 3.14.0(enquirer@2.3.6)
+      listr2: 3.14.0(enquirer@2.4.1)
       lodash: 4.17.21
       log-symbols: 4.1.0
       minimist: 1.2.8
@@ -23633,7 +23647,7 @@ snapshots:
       process: 0.11.10
       proxy-from-env: 1.0.0
       request-progress: 3.0.0
-      semver: 7.5.4
+      semver: 7.7.0
       supports-color: 8.1.1
       tmp: 0.2.1
       untildify: 4.0.0
@@ -24314,10 +24328,6 @@ snapshots:
     dependencies:
       graceful-fs: 4.2.11
       tapable: 2.2.1
-
-  enquirer@2.3.6:
-    dependencies:
-      ansi-colors: 4.1.3
 
   enquirer@2.4.1:
     dependencies:
@@ -25328,7 +25338,7 @@ snapshots:
       minimatch: 3.1.2
       node-abort-controller: 3.1.1
       schema-utils: 3.3.0
-      semver: 7.5.4
+      semver: 7.7.0
       tapable: 2.2.1
       typescript: 4.9.5
       webpack: 5.88.2(@swc/core@1.10.14(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
@@ -26673,7 +26683,7 @@ snapshots:
       '@babel/parser': 7.26.3
       '@istanbuljs/schema': 0.1.3
       istanbul-lib-coverage: 3.2.0
-      semver: 7.5.4
+      semver: 7.7.0
     transitivePeerDependencies:
       - supports-color
 
@@ -27297,7 +27307,7 @@ snapshots:
       jest-util: 28.1.3
       natural-compare: 1.4.0
       pretty-format: 28.1.3
-      semver: 7.5.4
+      semver: 7.7.0
     transitivePeerDependencies:
       - supports-color
 
@@ -27322,7 +27332,7 @@ snapshots:
       jest-util: 29.7.0
       natural-compare: 1.4.0
       pretty-format: 29.7.0
-      semver: 7.5.4
+      semver: 7.7.0
     transitivePeerDependencies:
       - supports-color
 
@@ -27841,7 +27851,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  listr2@3.14.0(enquirer@2.3.6):
+  listr2@3.14.0(enquirer@2.4.1):
     dependencies:
       cli-truncate: 2.1.0
       colorette: 2.0.20
@@ -27852,7 +27862,7 @@ snapshots:
       through: 2.3.8
       wrap-ansi: 7.0.0
     optionalDependencies:
-      enquirer: 2.3.6
+      enquirer: 2.4.1
 
   listr2@8.2.5:
     dependencies:
@@ -28559,7 +28569,7 @@ snapshots:
 
   node-abi@3.74.0:
     dependencies:
-      semver: 7.5.4
+      semver: 7.7.0
 
   node-abort-controller@3.1.1: {}
 
@@ -28622,7 +28632,7 @@ snapshots:
       nopt: 6.0.0
       npmlog: 6.0.2
       rimraf: 3.0.2
-      semver: 7.5.4
+      semver: 7.7.0
       tar: 6.2.1
       which: 2.0.2
     transitivePeerDependencies:
@@ -28639,7 +28649,7 @@ snapshots:
       nopt: 6.0.0
       npmlog: 6.0.2
       rimraf: 3.0.2
-      semver: 7.5.4
+      semver: 7.7.0
       tar: 6.2.1
       which: 2.0.2
     transitivePeerDependencies:
@@ -28708,7 +28718,7 @@ snapshots:
     dependencies:
       hosted-git-info: 4.1.0
       is-core-module: 2.13.1
-      semver: 7.5.4
+      semver: 7.7.0
       validate-npm-package-license: 3.0.4
 
   normalize-path@3.0.0: {}
@@ -30088,7 +30098,7 @@ snapshots:
       jsdoc: 4.0.2
       minimist: 1.2.8
       protobufjs: 7.2.3
-      semver: 7.5.4
+      semver: 7.7.0
       tmp: 0.2.1
       uglify-js: 3.19.3
 
@@ -31225,7 +31235,7 @@ snapshots:
 
   simple-update-notifier@2.0.0:
     dependencies:
-      semver: 7.5.4
+      semver: 7.7.0
 
   single-line-log@1.1.2:
     dependencies:

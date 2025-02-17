@@ -4,8 +4,10 @@ packages:
     - common/eslint_rules
     - common/hogvm/typescript
     - common/plugin_transpiler
+    - cypress
     - ee/frontend
     - frontend
     - plugin-server
     - products/*
     - rust/cyclotron-node
+    - playwright
