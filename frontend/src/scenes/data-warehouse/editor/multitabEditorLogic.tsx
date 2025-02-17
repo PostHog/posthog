@@ -123,6 +123,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             null as QueryTabState | null,
             {
                 loadQueryTabState: async () => {
+                    if (!values.user) {
+                        return null
+                    }
                     let queryTabStateModel = null
                     try {
                         queryTabStateModel = await api.queryTabState.user(values.user?.uuid)
