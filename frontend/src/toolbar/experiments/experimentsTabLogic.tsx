@@ -6,6 +6,7 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { percentageDistribution } from '~/scenes/experiments/utils'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -26,11 +27,7 @@ function newExperiment(): WebExperimentForm {
             },
             test: {
                 is_new: true,
-                transforms: [
-                    {
-                        text: '',
-                    },
-                ],
+                transforms: [{}],
                 rollout_percentage: 50,
             },
         },
@@ -74,7 +71,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         applyVariant: (newVariantKey: string) => ({
             newVariantKey,
         }),
-        addNewElement: (variant: string) => ({ variant }),
+        addNewTransformation: (variant: string) => ({ variant }),
         removeElement: (variant: string, index: number) => ({ variant, index }),
         inspectForElementWithIndex: (variant: string, type: ElementSelectorType, index: number | null) => ({
             variant,
@@ -82,10 +79,16 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             index,
         }),
         editSelectorWithIndex: (variant: string, index: number | null) => ({ variant, index }),
-        inspectElementSelected: (element: HTMLElement, variant: string, index: number | null) => ({
+        inspectElementSelected: (
+            element: HTMLElement,
+            variant: string,
+            index: number | null,
+            selector?: string | null
+        ) => ({
             element,
             variant,
             index,
+            selector,
         }),
         saveExperiment: (formValues: WebExperimentForm) => ({ formValues }),
         showButtonExperiments: true,
@@ -133,7 +136,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             },
         ],
         selectedElementType: [
-            '',
+            'all-elements',
             {
                 selectElementType: (_, { elementType }) => elementType,
             },
@@ -230,14 +233,12 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
     selectors({
         removeVariantAvailable: [
-            (s) => [s.experimentForm, s.selectedExperimentId],
-            (experimentForm: WebExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+            (s) => [s.experimentForm],
+            (experimentForm: WebExperimentForm): boolean | undefined => {
                 /*Only show the remove button if all of these conditions are met:
-                1. Its a new Experiment
-                2. The experiment is still in draft form
-                3. there's more than one test variant, and the variant is not control*/
+                1. The experiment is still in draft form
+                2. there's more than one test variant, and the variant is not control*/
                 return (
-                    selectedExperimentId === 'new' &&
                     experimentForm.start_date == null &&
                     experimentForm.variants &&
                     Object.keys(experimentForm.variants).length > 2
@@ -245,12 +246,11 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             },
         ],
         addVariantAvailable: [
-            (s) => [s.experimentForm, s.selectedExperimentId],
-            (experimentForm: WebExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+            (s) => [s.experimentForm],
+            (experimentForm: WebExperimentForm): boolean | undefined => {
                 /*Only show the add button if all of these conditions are met:
-                1. Its a new Experiment
-                2. The experiment is still in draft form*/
-                return selectedExperimentId === 'new' || experimentForm.start_date == null
+                1. The experiment is still in draft form*/
+                return experimentForm.start_date == null
             },
         ],
         selectedExperiment: [
@@ -269,12 +269,37 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             if (!selectedExperiment) {
                 actions.setExperimentFormValues({ name: '', variants: {} })
             } else {
+                // Build original_html_state from existing selectors
+                const original_html_state: Record<string, { html: string; css?: string }> = {}
+
+                if ((selectedExperiment as WebExperiment).variants) {
+                    Object.values((selectedExperiment as WebExperiment).variants).forEach((variant) => {
+                        variant.transforms?.forEach((transform) => {
+                            if (transform.selector) {
+                                const element = document.querySelector(transform.selector) as HTMLElement
+                                if (element) {
+                                    const style = element.getAttribute('style')
+                                    original_html_state[transform.selector] = {
+                                        html: element.innerHTML,
+                                        ...(style && { css: style }),
+                                    }
+                                }
+                            }
+                        })
+                    })
+                }
+
                 actions.setExperimentFormValues({
                     name: selectedExperiment.name,
                     variants: (selectedExperiment as WebExperiment).variants
                         ? (selectedExperiment as WebExperiment).variants
                         : {},
+                    original_html_state,
                 })
+
+                // TODO: refactor into a single actions to select + apply changes
+                actions.applyVariant('control')
+                actions.selectVariant('control')
             }
         },
     })),
@@ -297,11 +322,13 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             actions.showButtonExperiments()
             toolbarLogic.actions.setVisibleMenu('experiments')
         },
-        inspectElementSelected: ({ element, variant, index }) => {
+        inspectElementSelected: ({ element, variant, index, selector }) => {
             if (values.experimentForm?.variants) {
                 const currentVariant = values.experimentForm.variants[variant]
                 if (currentVariant && index !== null && currentVariant.transforms.length > index) {
-                    const selector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                    if (!selector) {
+                        selector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                    }
                     if (!selector) {
                         return
                     }
@@ -311,9 +338,11 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     if (previousSelector) {
                         const originalHtmlState = values.experimentForm.original_html_state?.[previousSelector]
                         if (originalHtmlState) {
-                            const element = document.querySelector(previousSelector) as HTMLElement
-                            element.innerHTML = originalHtmlState.innerHTML
-                            element.textContent = originalHtmlState.textContent
+                            const previousElement = document.querySelector(previousSelector) as HTMLElement
+                            previousElement.innerHTML = originalHtmlState.html
+                            if (originalHtmlState.css) {
+                                previousElement.setAttribute('style', originalHtmlState.css)
+                            }
                         }
                     }
 
@@ -326,7 +355,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                 i === index
                                     ? {
                                           selector,
-                                          text: element.textContent || t.text,
+                                          html: element.innerHTML,
+                                          ...(element.getAttribute('style') && { css: element.getAttribute('style') }),
                                       }
                                     : t
                             ),
@@ -338,8 +368,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     actions.setExperimentFormValue('original_html_state', {
                         ...values.experimentForm.original_html_state,
                         [selector]: {
-                            innerHTML: element.innerHTML,
-                            textContent: element.textContent,
+                            html: element.innerHTML,
+                            ...(element.getAttribute('style') && { css: element.getAttribute('style') }),
                         },
                     })
                 }
@@ -363,8 +393,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                             elements.forEach((element) => {
                                 const htmlElement = element as HTMLElement
                                 if (htmlElement) {
-                                    htmlElement.innerHTML = originalState.innerHTML
-                                    htmlElement.textContent = originalState.textContent
+                                    htmlElement.innerHTML = originalState.html
+                                    htmlElement.setAttribute('style', originalState.css)
                                 }
                             })
                         }
@@ -384,10 +414,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                     if (transform.css) {
                                         htmlElement.setAttribute('style', transform.css)
                                     }
-
-                                    if (transform.text) {
-                                        htmlElement.innerText = transform.text
-                                    }
                                 }
                             })
                         }
@@ -396,10 +422,13 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             }
         },
         rebalanceRolloutPercentage: () => {
-            const perVariantRollout = Math.round(100 / Object.keys(values.experimentForm.variants || {}).length)
+            const perVariantRollout = percentageDistribution(Object.keys(values.experimentForm.variants || {}).length)
+
+            let i = 0
             for (const existingVariant in values.experimentForm.variants) {
                 if (values.experimentForm.variants[existingVariant]) {
-                    values.experimentForm.variants[existingVariant].rollout_percentage = Number(perVariantRollout)
+                    values.experimentForm.variants[existingVariant].rollout_percentage = Number(perVariantRollout[i])
+                    i++
                 }
             }
             actions.setExperimentFormValue('variants', values.experimentForm.variants)
@@ -414,12 +443,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                 values.experimentForm.variants[nextVariantName] = {
                     is_new: true,
-                    transforms: [
-                        {
-                            text: '',
-                            html: '',
-                        },
-                    ],
+                    transforms: [{}],
                     conditions: null,
                     rollout_percentage: 0,
                 }
@@ -428,7 +452,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.rebalanceRolloutPercentage()
             }
         },
-        addNewElement: ({ variant }) => {
+        addNewTransformation: ({ variant }) => {
             if (values.experimentForm.variants) {
                 const webVariant = values.experimentForm.variants[variant]
                 if (webVariant) {
@@ -436,10 +460,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         webVariant.transforms = []
                     }
 
-                    webVariant.transforms.push({
-                        text: '',
-                        html: '',
-                    })
+                    webVariant.transforms.push({})
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     actions.selectVariant(variant)

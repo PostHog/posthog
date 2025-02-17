@@ -130,8 +130,9 @@ export function EventDefinitionsTable(): JSX.Element {
                     : ''}
                 event usage statistics?{' '}
                 <Link
-                    to={urls.insightNewHogQL(
-                        'SELECT event, count()\n' +
+                    to={urls.insightNewHogQL({
+                        query:
+                            'SELECT event, count()\n' +
                             'FROM events\n' +
                             'WHERE {filters}\n' +
                             (filters.event_type === 'event_custom'
@@ -141,8 +142,8 @@ export function EventDefinitionsTable(): JSX.Element {
                                 : '') +
                             'GROUP BY event\n' +
                             'ORDER BY count() DESC',
-                        { dateRange: { date_from: '-24h' } }
-                    )}
+                        filters: { dateRange: { date_from: '-24h' } },
+                    })}
                 >
                     Query with SQL
                 </Link>

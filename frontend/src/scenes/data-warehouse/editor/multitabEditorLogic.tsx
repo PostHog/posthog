@@ -13,8 +13,7 @@ import { urls } from 'scenes/urls'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
-import { DataVisualizationNode } from '~/queries/schema'
-import { HogQLMetadataResponse, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLMetadataResponse, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, ExportContext } from '~/types'
 
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
@@ -478,15 +477,27 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         saveAsViewSubmit: async ({ name }) => {
             const query: HogQLQuery = values.sourceQuery.source
 
+            const queryToSave = {
+                ...query,
+                query: values.queryInput,
+            }
+
             const logic = dataNodeLogic({
                 key: dataNodeKey,
-                query,
+                query: queryToSave,
             })
 
             const types = logic.values.response?.types ?? []
-
-            await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query, types })
-            actions.updateState()
+            try {
+                await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
+                    name,
+                    query: queryToSave,
+                    types,
+                })
+                actions.updateState()
+            } catch (e) {
+                lemonToast.error('Failed to save view')
+            }
         },
         saveAsInsight: async () => {
             LemonDialog.openForm({

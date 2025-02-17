@@ -6,7 +6,7 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
-import { AnyResponseType, DataNode as DataNodeType, DataTableNode } from '~/queries/schema'
+import { AnyResponseType, DataNode as DataNodeType, DataTableNode } from '~/queries/schema/schema-general'
 
 interface DataNodeProps {
     query: DataNodeType

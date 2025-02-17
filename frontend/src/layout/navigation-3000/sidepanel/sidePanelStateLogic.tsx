@@ -84,10 +84,16 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             }
 
             const panelHash = hashParams['panel'] as string | undefined
+
             if (panelHash) {
                 const [panel, ...panelOptions] = panelHash.split(':')
 
-                if (panel && (panel !== values.selectedTab || !values.sidePanelOpen)) {
+                if (
+                    panel &&
+                    (panel !== values.selectedTab ||
+                        !values.sidePanelOpen ||
+                        panelOptions.join(':') !== values.selectedTabOptions)
+                ) {
                     actions.openSidePanel(panel as SidePanelTab, panelOptions.join(':'))
                 }
             }

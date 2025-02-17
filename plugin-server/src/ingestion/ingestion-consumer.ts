@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
@@ -18,6 +17,8 @@ import {
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { captureException } from '../utils/posthog'
+import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'

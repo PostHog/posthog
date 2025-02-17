@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { InsightCardProps } from './InsightCard'
@@ -59,7 +59,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
                             items={[
                                 {
                                     label: 'Open as new insight',
-                                    to: urls.insightNew(undefined, undefined, query),
+                                    to: urls.insightNew({ query }),
                                 },
                             ]}
                         />

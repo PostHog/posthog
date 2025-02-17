@@ -529,9 +529,6 @@ describe('IngestionConsumer', () => {
         }
 
         beforeEach(async () => {
-            // Enable HOG transformations
-            hub.HOG_TRANSFORMATIONS_ENABLED = true
-
             // Create a transformation function using the geoip template as an example
             const hogByteCode = await compileHog(geoipTemplate.hog)
             transformationFunction = await insertHogFunction({

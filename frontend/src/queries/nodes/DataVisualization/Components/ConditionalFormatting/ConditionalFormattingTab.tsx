@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { ColorGlyph } from 'lib/components/SeriesGlyph'
 
 import { ColorPickerButton } from '~/queries/nodes/DataVisualization/Components/ColorPickerButton'
-import { ConditionalFormattingRule } from '~/queries/schema'
+import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { FORMATTING_TEMPLATES } from '../../types'

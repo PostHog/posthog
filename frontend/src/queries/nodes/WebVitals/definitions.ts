@@ -2,7 +2,7 @@ import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { WebVitalsPercentile } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema'
+import { WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
 
 const PERCENTILE_NAME: Record<WebVitalsPercentile, string> = {
     p75: '75%',
@@ -104,23 +104,22 @@ export const getValueWithUnit = (value: number | undefined, tab: WebVitalsMetric
     return { value: value.toFixed(2), unit: undefined }
 }
 
-type Color = 'muted' | 'success' | 'warning' | 'danger'
-export const getThresholdColor = (value: number | undefined, metric: WebVitalsMetric): Color => {
+export const getThresholdColor = (value: number | undefined, metric: WebVitalsMetric): string => {
     const threshold = WEB_VITALS_THRESHOLDS[metric]
 
     if (value === undefined) {
-        return 'muted'
+        return 'var(--color-gray-500)'
     }
 
     if (value <= threshold.good) {
-        return 'success'
+        return WEB_VITALS_COLORS.good
     }
 
     if (value <= threshold.poor) {
-        return 'warning'
+        return WEB_VITALS_COLORS.needs_improvements
     }
 
-    return 'danger'
+    return WEB_VITALS_COLORS.poor
 }
 
 // Returns a value between 0 and 1 that represents the position of the value inside that band
@@ -152,7 +151,7 @@ export const WEB_VITALS_THRESHOLDS: Record<WebVitalsMetric, WebVitalsThreshold> 
 }
 
 export const WEB_VITALS_COLORS = {
-    good: 'rgb(45, 200, 100)',
-    needs_improvements: 'rgb(255, 160, 0)',
-    poor: 'rgb(220, 53, 69)',
+    good: 'var(--color-green-700)',
+    needs_improvements: 'var(--color-amber-500)',
+    poor: 'var(--color-red-700)',
 } as const

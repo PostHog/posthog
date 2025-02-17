@@ -3,14 +3,27 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import merge from 'lodash.merge'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
-import { AnyEntityNode, type FunnelsQuery, NodeKind, type TrendsQuery } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
-import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
+import {
+    AnyEntityNode,
+    EventsNode,
+    ExperimentActionMetricConfig,
+    ExperimentDataWarehouseMetricConfig,
+    ExperimentEventMetricConfig,
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentMetricMath,
+    ExperimentMetricType,
+    ExperimentTrendsQuery,
+    type FunnelsQuery,
+    NodeKind,
+    type TrendsQuery,
+} from '~/queries/schema/schema-general'
+import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ChartDisplayType,
     FeatureFlagFilters,
     FeatureFlagType,
+    FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelTimeConversionMetrics,
     FunnelVizType,
@@ -28,6 +41,17 @@ export function getExperimentInsightColour(variantIndex: number | null): string 
 
 export function formatUnitByQuantity(value: number, unit: string): string {
     return value === 1 ? unit : unit + 's'
+}
+
+export function percentageDistribution(variantCount: number): number[] {
+    const basePercentage = Math.floor(100 / variantCount)
+    const percentages = new Array(variantCount).fill(basePercentage)
+    let remaining = 100 - basePercentage * variantCount
+    for (let i = 0; remaining > 0; i++, remaining--) {
+        // try to equally distribute `remaining` across variants
+        percentages[i] += 1
+    }
+    return percentages
 }
 
 export function getMinimumDetectableEffect(
@@ -141,12 +165,31 @@ function seriesToFilter(
 }
 
 export function getViewRecordingFilters(
-    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery,
+    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
-    if (metric.kind === NodeKind.ExperimentTrendsQuery) {
+    if (metric.kind === NodeKind.ExperimentMetric) {
+        if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+            return [
+                {
+                    id: metric.metric_config.event,
+                    name: metric.metric_config.event,
+                    type: 'events',
+                    properties: [
+                        {
+                            key: `$feature/${featureFlagKey}`,
+                            type: PropertyFilterType.Event,
+                            value: [variantKey],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ]
+        }
+        return []
+    } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
             const exposure_filter = seriesToFilter(metric.exposure_query.series[0], featureFlagKey, variantKey)
             if (exposure_filter) {
@@ -262,6 +305,29 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     }
 }
 
+export function getDefaultCountMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.COUNT,
+        metric_config: {
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+        },
+    }
+}
+
+export function getDefaultContinuousMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.CONTINUOUS,
+        metric_config: {
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+            math: 'sum',
+        },
+    }
+}
+
 export function getExperimentMetricFromInsight(
     insight: QueryBasedInsightModel | null
 ): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
@@ -310,4 +376,76 @@ export function getExperimentMetricFromInsight(
     }
 
     return undefined
+}
+
+export function metricConfigToFilter(
+    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+): FilterType {
+    if (metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+        return {
+            events: [
+                {
+                    id: metric_config.event,
+                    name: metric_config.event,
+                    kind: NodeKind.EventsNode,
+                    type: 'events',
+                    math: metric_config.math,
+                    math_property: metric_config.math_property,
+                    math_hogql: metric_config.math_hogql,
+                    properties: metric_config.properties,
+                } as EventsNode,
+            ],
+            actions: [],
+        }
+    } else if (metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
+        return {
+            events: [],
+            actions: [
+                {
+                    id: metric_config.action,
+                    name: metric_config.name,
+                    kind: NodeKind.EventsNode,
+                    type: 'actions',
+                    math: metric_config.math,
+                    math_property: metric_config.math_property,
+                    math_hogql: metric_config.math_hogql,
+                    properties: metric_config.properties,
+                } as EventsNode,
+            ],
+        }
+    }
+
+    return {}
+}
+
+export function filterToMetricConfig(
+    entity: Record<string, any> | undefined
+): ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig | undefined {
+    if (!entity) {
+        return undefined
+    }
+
+    if (entity.kind === NodeKind.EventsNode) {
+        if (entity.type === 'events') {
+            return {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                event: entity.id as string,
+                name: entity.name,
+                math: (entity.math as ExperimentMetricMath) || 'total',
+                math_property: entity.math_property,
+                math_hogql: entity.math_hogql,
+                properties: entity.properties,
+            }
+        } else if (entity.type === 'actions') {
+            return {
+                kind: NodeKind.ExperimentActionMetricConfig,
+                action: entity.id,
+                name: entity.name,
+                math: (entity.math as ExperimentMetricMath) || 'total',
+                math_property: entity.math_property,
+                math_hogql: entity.math_hogql,
+                properties: entity.properties,
+            }
+        }
+    }
 }

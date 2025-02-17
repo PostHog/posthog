@@ -11,6 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -48,8 +49,6 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
-    PluginConfigTypeNew,
-    PluginType,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -230,10 +229,7 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeavesScroll: boolean
 }
 
-const GEOIP_PLUGIN_URLS = [
-    'https://github.com/PostHog/posthog-plugin-geoip',
-    'https://www.npmjs.com/package/@posthog/geoip-plugin',
-]
+const GEOIP_TEMPLATE_IDS = ['template-geoip', 'plugin-posthog-plugin-geoip']
 
 export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = 'web-analytics'
 
@@ -252,7 +248,16 @@ const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
+            userLogic,
+            ['hasAvailableFeature'],
+            preflightLogic,
+            ['isDev'],
+        ],
     })),
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
@@ -1840,9 +1845,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         if (!tab) {
                             return undefined
                         }
-                        return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tab.query))
+                        return urls.insightNew({ query: formatQueryForNewInsight(tab.query) })
                     } else if (tile.kind === 'query') {
-                        return urls.insightNew(undefined, undefined, formatQueryForNewInsight(tile.query))
+                        return urls.insightNew({ query: formatQueryForNewInsight(tile.query) })
                     } else if (tile.kind === 'replay') {
                         return urls.replay()
                     }
@@ -1850,7 +1855,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
     })),
-    loaders(() => ({
+    loaders(({ values }) => ({
         // load the status check query here and pass the response into the component, so the response
         // is accessible in this logic
         statusCheck: {
@@ -1913,13 +1918,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         shouldShowGeographyTile: {
             _default: null as boolean | null,
             loadShouldShowGeographyTile: async (): Promise<boolean> => {
-                const [propertiesResponse, pluginsResponse, pluginsConfigResponse] = await Promise.allSettled([
+                // Always display on dev mode, we don't always have events and/or hogQL functions
+                // but we want the map to be there for debugging purposes
+                if (values.isDev) {
+                    return true
+                }
+
+                const [propertiesResponse, hogFunctionsResponse] = await Promise.allSettled([
                     api.propertyDefinitions.list({
                         event_names: ['$pageview'],
                         properties: ['$geoip_country_code'],
                     }),
-                    api.loadPaginatedResults<PluginType>('api/organizations/@current/plugins'),
-                    api.loadPaginatedResults<PluginConfigTypeNew>('api/plugin_config'),
+                    api.hogFunctions.list({ types: ['transformation'] }),
                 ])
 
                 const hasNonStaleCountryCodeDefinition =
@@ -1932,17 +1942,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return false
                 }
 
-                const geoIpPlugin =
-                    pluginsResponse.status === 'fulfilled' &&
-                    pluginsResponse.value.find((plugin) => plugin.url && GEOIP_PLUGIN_URLS.includes(plugin.url))
-                const geoIpPluginId = geoIpPlugin ? geoIpPlugin.id : undefined
+                if (hogFunctionsResponse.status !== 'fulfilled') {
+                    return false
+                }
 
-                const geoIpPluginConfig =
-                    isNotNil(geoIpPluginId) &&
-                    pluginsConfigResponse.status === 'fulfilled' &&
-                    pluginsConfigResponse.value.find((plugin) => plugin.plugin === geoIpPluginId)
+                const enabledGeoIPHogFunction = hogFunctionsResponse.value.results.find((hogFunction) => {
+                    const isFromTemplate = GEOIP_TEMPLATE_IDS.includes(hogFunction.template?.id ?? '')
+                    const matchesName = hogFunction.name === 'GeoIP' // Failsafe in case someone implements their custom GeoIP function
 
-                return !!geoIpPluginConfig && geoIpPluginConfig.enabled
+                    return (isFromTemplate || matchesName) && hogFunction.enabled
+                })
+
+                return Boolean(enabledGeoIPHogFunction)
             },
         },
     })),

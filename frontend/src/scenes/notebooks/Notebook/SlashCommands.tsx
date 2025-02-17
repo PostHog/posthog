@@ -233,7 +233,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
             ),
     },
     {
-        title: 'HogQL',
+        title: 'SQL',
         search: 'sql',
         icon: <IconHogQL color="currentColor" />,
         command: (chain, pos) =>

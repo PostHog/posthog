@@ -38,6 +38,7 @@ if (res.status != 200 or res.body.ok == false) {
             "label": "Slack workspace",
             "requiredScopes": "channels:read groups:read chat:write chat:write.customize",
             "secret": False,
+            "hidden": False,
             "required": True,
         },
         {
@@ -48,6 +49,7 @@ if (res.status != 200 or res.body.ok == false) {
             "label": "Channel to post to",
             "description": "Select the channel to post to (e.g. #general). The PostHog app must be installed in the workspace.",
             "secret": False,
+            "hidden": False,
             "required": True,
         },
         {
@@ -57,6 +59,7 @@ if (res.status != 200 or res.body.ok == false) {
             "default": ":hedgehog:",
             "required": False,
             "secret": False,
+            "hidden": False,
         },
         {
             "key": "username",
@@ -65,6 +68,7 @@ if (res.status != 200 or res.body.ok == false) {
             "default": "PostHog",
             "required": False,
             "secret": False,
+            "hidden": False,
         },
         {
             "key": "blocks",
@@ -97,6 +101,7 @@ if (res.status != 200 or res.body.ok == false) {
             ],
             "secret": False,
             "required": False,
+            "hidden": False,
         },
         {
             "key": "text",
@@ -106,6 +111,7 @@ if (res.status != 200 or res.body.ok == false) {
             "default": "*{person.name}* triggered event: '{event.event}'",
             "secret": False,
             "required": False,
+            "hidden": False,
         },
     ],
     sub_templates=[
@@ -198,6 +204,31 @@ if (res.status != 200 or res.body.ok == false) {
                 },
                 "text": {
                     "default": "*{person.properties.email}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
+                },
+            },
+        ),
+        HogFunctionSubTemplate(
+            id="error-tracking-issue-created",
+            name="Post to Slack on issue created",
+            description="",
+            filters={"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+            type="internal_destination",
+            input_schema_overrides={
+                "blocks": {
+                    "default": [
+                        {
+                            "text": {
+                                "text": "*{person.properties.email}* {event.properties.activity} {event.properties.scope} {event.properties.item_id} ",
+                                "type": "mrkdwn",
+                            },
+                            "type": "section",
+                        }
+                    ],
+                    "hidden": True,
+                },
+                "text": {
+                    "default": "*{person.properties.email}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
+                    "hidden": True,
                 },
             },
         ),

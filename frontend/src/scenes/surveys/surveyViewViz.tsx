@@ -1,4 +1,3 @@
-import { offset } from '@floating-ui/react'
 import {
     IconInfo,
     IconSparkles,
@@ -6,9 +5,8 @@ import {
     IconThumbsDownFilled,
     IconThumbsUp,
     IconThumbsUpFilled,
-    IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonTable, Popover, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -22,11 +20,12 @@ import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { surveyDataProcessingLogic } from 'scenes/surveys/suveyDataProcessingLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
-import { GraphType } from '~/types'
-import { InsightLogicProps, SurveyQuestionType } from '~/types'
+import { GraphType, InsightLogicProps, SurveyQuestionType } from '~/types'
 
 import {
     QuestionResultsReady,
@@ -87,7 +86,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
     return (
         <>
             {total > 0 && (
-                <div className="mb-8">
+                <div>
                     <div className="relative w-full mx-auto h-10 mb-4">
                         {[
                             {
@@ -170,7 +169,7 @@ export function Summary({
     surveyUserStatsLoading: boolean
 }): JSX.Element {
     return (
-        <div className="mb-4 mt-2">
+        <div>
             {surveyUserStatsLoading ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : (
@@ -191,7 +190,6 @@ export function RatingQuestionBarChart({
     questionIndex,
     surveyRatingResults,
     surveyRatingResultsReady,
-    iteration,
 }: {
     questionIndex: number
     surveyRatingResults: SurveyRatingResults
@@ -202,22 +200,21 @@ export function RatingQuestionBarChart({
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
     const question = survey.questions[questionIndex]
+    useEffect(() => {
+        loadSurveyRatingResults({ questionIndex })
+    }, [questionIndex, loadSurveyRatingResults])
     if (question.type !== SurveyQuestionType.Rating) {
         throw new Error(`Question type must be ${SurveyQuestionType.Rating}`)
     }
-    useEffect(() => {
-        loadSurveyRatingResults({ questionIndex, iteration })
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyRatingResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyRatingResults[questionIndex]?.total ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">{`${
                         question.scale === 10
                             ? '0 - 10'
@@ -306,13 +303,13 @@ export function NPSSurveyResultsBarChart({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyRecurringNPSResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyRecurringNPSResults[questionIndex]?.total ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">{`${
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
@@ -403,13 +400,13 @@ export function SingleChoiceQuestionPieChart({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveySingleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveySingleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">Single choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
                     <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
@@ -514,7 +511,7 @@ export function MultipleChoiceQuestionBarChart({
     }, [surveyMultipleChoiceResults])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyMultipleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyMultipleChoiceResults[questionIndex]?.data.length ? (
@@ -578,7 +575,7 @@ export function OpenTextViz({
 }): JSX.Element {
     const { loadSurveyOpenTextResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
-    const surveyResponseField = questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+    const surveyResponseKey = getSurveyResponseKey(questionIndex)
 
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.Open) {
@@ -591,7 +588,7 @@ export function OpenTextViz({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyOpenTextResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
@@ -621,9 +618,9 @@ export function OpenTextViz({
                             return (
                                 <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
                                     <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
-                                        {typeof event.properties[surveyResponseField] !== 'string'
-                                            ? JSON.stringify(event.properties[surveyResponseField])
-                                            : event.properties[surveyResponseField]}
+                                        {typeof event.properties[surveyResponseKey] !== 'string'
+                                            ? JSON.stringify(event.properties[surveyResponseKey])
+                                            : event.properties[surveyResponseKey]}
                                     </div>
                                     <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay
@@ -644,76 +641,32 @@ export function OpenTextViz({
 }
 
 function ResponseSummariesButton({ questionIndex }: { questionIndex: number | undefined }): JSX.Element {
-    const [popOverClosed, setPopOverClosed] = useState(false)
-
     const { summarize } = useActions(surveyLogic)
     const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
-    const { surveyDataProcessingAccepted, surveyDataProcessingRefused } = useValues(surveyDataProcessingLogic)
-    const { acceptSurveyDataProcessing, refuseSurveyDataProcessing } = useActions(surveyDataProcessingLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
 
-    const summarizeButton = (
-        <LemonButton
-            type="secondary"
-            data-attr="summarize-survey"
-            onClick={() => summarize({ questionIndex })}
-            disabledReason={
-                surveyDataProcessingRefused
-                    ? 'OpenAI processing refused'
-                    : responseSummaryLoading
-                    ? 'Let me think...'
-                    : responseSummary
-                    ? 'Already summarized'
-                    : undefined
-            }
-            icon={<IconSparkles />}
-        >
-            {responseSummaryLoading ? (
-                <>
-                    Let me think...
-                    <Spinner />
-                </>
-            ) : (
-                <>Summarize responses</>
-            )}
-        </LemonButton>
-    )
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
-            {surveyDataProcessingAccepted ? (
-                summarizeButton
-            ) : (
-                <Popover
-                    overlay={
-                        <div className="mx-1.5 my 0.5 flex flex-col gap-1">
-                            <div className="flex justify-end">
-                                <LemonButton size="small" icon={<IconX />} onClick={() => setPopOverClosed(true)} />
-                            </div>
-                            <div>
-                                <p className="font-medium text-pretty mb-1.5">
-                                    Uses OpenAI services to analyze your survey responses,
-                                    <br />
-                                    This <em>can</em> include personal data of your users,
-                                    <br />
-                                    if they include it in their responses.
-                                    <br />
-                                    <em>Your data won't be used for training models.</em>
-                                </p>
-                            </div>
-                            <LemonButton type="secondary" size="small" onClick={() => acceptSurveyDataProcessing()}>
-                                Got it, I accept OpenAI processing survey data
-                            </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={() => refuseSurveyDataProcessing()}>
-                                No thanks, I don't want OpenAI processing survey data
-                            </LemonButton>
-                        </div>
+            <AIConsentPopoverWrapper showArrow>
+                <LemonButton
+                    type="secondary"
+                    data-attr="summarize-survey"
+                    onClick={() => summarize({ questionIndex })}
+                    disabledReason={
+                        !dataProcessingAccepted
+                            ? dataProcessingApprovalDisabledReason || 'Data processing not accepted'
+                            : responseSummaryLoading
+                            ? 'Let me think...'
+                            : responseSummary
+                            ? 'Already summarized'
+                            : undefined
                     }
-                    middleware={[offset(-12)]}
-                    showArrow
-                    visible={!popOverClosed && !surveyDataProcessingAccepted && !surveyDataProcessingRefused}
+                    icon={<IconSparkles />}
+                    loading={responseSummaryLoading}
                 >
-                    {summarizeButton}
-                </Popover>
-            )}
+                    {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
+                </LemonButton>
+            </AIConsentPopoverWrapper>
         </FlaggedFeature>
     )
 }

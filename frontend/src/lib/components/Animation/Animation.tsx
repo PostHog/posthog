@@ -21,7 +21,7 @@ export function Animation({
     className,
     style,
     delay = 300,
-    type = AnimationType.LaptopHog,
+    type = AnimationType.MusicHog,
     size = 'large',
 }: AnimationProps): JSX.Element {
     const [visible, setVisible] = useState(delay === 0)
