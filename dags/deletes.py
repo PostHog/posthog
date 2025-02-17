@@ -21,8 +21,9 @@ from posthog.clickhouse.cluster import (
     MutationRunner,
     NodeRole,
 )
-from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
 class DeleteConfig(Config):
@@ -247,13 +248,32 @@ class PendingDeletesDictionary:
 
 
 @op
+def get_oldest_person_override_timestamp(
+    cluster: ResourceParam[ClickhouseCluster],
+) -> datetime:
+    """Get the oldest person override timestamp from the person_distinct_id_overrides table."""
+
+    query = f"""
+    SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
+    """
+    [[result]] = cluster.any_host_by_role(lambda client: client.execute(query), NodeRole.WORKER).result()
+    return result
+
+
+@op
 def create_pending_person_deletions_table(
     config: DeleteConfig,
     cluster: ResourceParam[ClickhouseCluster],
+    oldest_person_override_timestamp: datetime,
 ) -> PendingPersonEventDeletesTable:
-    """Create a merge tree table in ClickHouse to store pending deletes."""
+    """
+    Create a merge tree table in ClickHouse to store pending deletes.
+
+    Important to note: we only get pending deletions for requests that happened before the oldest person override timestamp.
+    """
+
     table = PendingPersonEventDeletesTable(
-        timestamp=config.parsed_timestamp,
+        timestamp=oldest_person_override_timestamp,
         team_id=config.team_id,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
@@ -428,6 +448,7 @@ def delete_person_events(
             .items()
         )
     }
+
     return (load_and_verify_deletes_dictionary, shard_mutations)
 
 
@@ -484,8 +505,9 @@ def cleanup_delete_assets(
 @job
 def deletes_job():
     """Job that handles deletion of person events."""
+    oldest_override_timestamp = get_oldest_person_override_timestamp()
     report_person_table = create_reporting_pending_person_deletions_table()
-    person_table = create_pending_person_deletions_table()
+    person_table = create_pending_person_deletions_table(oldest_override_timestamp)
     loaded_person_table = load_pending_person_deletions(person_table)
     create_deletes_dict_op = create_deletes_dict(loaded_person_table)
     load_dict = load_and_verify_deletes_dictionary(create_deletes_dict_op)
