@@ -286,7 +286,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 const top = inBounds(MARGIN, desiredY, windowHeight)
                 const left = inBounds(
                     MARGIN + menu.clientWidth * 0.5,
-                    desiredX,
+                    desiredX - 40,
                     windowWidth - menu.clientWidth * 0.5 - MARGIN
                 )
 
