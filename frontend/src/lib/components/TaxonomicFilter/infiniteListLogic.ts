@@ -114,7 +114,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         isExpanded,
                         remoteEndpoint,
                         scopedRemoteEndpoint,
-                        intelligentQuery,
+                        swappedInQuery,
                         excludedProperties,
                         listGroupType,
                         propertyAllowList,
@@ -122,11 +122,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     if (!remoteEndpoint) {
                         // should not have been here in the first place!
-                        return createEmptyListStorage(intelligentQuery)
+                        return createEmptyListStorage(swappedInQuery)
                     }
 
                     const searchParams = {
-                        [`${values.group?.searchAlias || 'search'}`]: intelligentQuery,
+                        [`${values.group?.searchAlias || 'search'}`]: swappedInQuery,
                         limit,
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
@@ -156,7 +156,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ])
                     breakpoint()
 
-                    const queryChanged = values.remoteItems.searchQuery !== intelligentQuery
+                    const queryChanged = values.remoteItems.searchQuery !== swappedInQuery
 
                     await captureTimeToSeeData(values.currentTeamId, {
                         type: 'properties_load',
@@ -175,7 +175,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             response.results || response,
                             offset
                         ),
-                        searchQuery: values.intelligentQuery,
+                        searchQuery: values.swappedInQuery,
                         originalQuery: values.searchQuery,
                         queryChanged,
                         count:
@@ -198,7 +198,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        intelligentQuery: [
+        /**
+         * In some circumstances we want to swap out the query that is sent to the backend.
+         * The canonical example is if you search for a URL, then we swap in $current URL,
+         * since that's almost certainly what you want
+         */
+        swappedInQuery: [
             '',
             {
                 setSearchQuery: (_, { searchQuery }) => {
@@ -310,8 +315,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         localItems: [
-            (s) => [s.rawLocalItems, s.searchQuery, s.intelligentQuery, s.fuse],
-            (rawLocalItems, searchQuery, intelligentQuery, fuse): ListStorage => {
+            (s) => [s.rawLocalItems, s.searchQuery, s.swappedInQuery, s.fuse],
+            (rawLocalItems, searchQuery, swappedInQuery, fuse): ListStorage => {
                 if (rawLocalItems) {
                     const filteredItems = searchQuery
                         ? fuse.search(searchQuery).map((result) => result.item.item)
@@ -320,7 +325,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return {
                         results: filteredItems,
                         count: filteredItems.length,
-                        searchQuery: intelligentQuery,
+                        searchQuery: swappedInQuery,
                         originalQuery: searchQuery,
                     }
                 }
