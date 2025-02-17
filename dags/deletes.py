@@ -251,7 +251,7 @@ class PendingDeletesDictionary:
 def get_oldest_person_override_timestamp(
     cluster: ResourceParam[ClickhouseCluster],
 ) -> datetime:
-    """Get the oldest person override timestamp from the person_distinct_id_overrides_snapshot table."""
+    """Get the oldest person override timestamp from the person_distinct_id_overrides table."""
 
     query = f"""
     SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
