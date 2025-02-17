@@ -64,9 +64,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                           .search(searchTerm)
                           .map(({ item }) => item)
                     : allExperiments
-                return [...filteredExperiments].sort((a, b) =>
-                    (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')
-                )
+                return [...filteredExperiments]
             },
         ],
         experimentCount: [(s) => [s.allExperiments], (allExperiments) => allExperiments.length],
