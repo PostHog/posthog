@@ -1,5 +1,5 @@
 {
-    "name": "@posthog-products/messaging",
+    "name": "@posthog/products-messaging",
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",

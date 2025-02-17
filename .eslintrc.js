@@ -12,7 +12,7 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server', 'rust', 'livestream'],
+    ignorePatterns: ['node_modules', 'plugin-server', 'rust', 'livestream', 'common/hogvm/typescript', 'common/plugin_transpiler'],
     env,
     settings: {
         react: {

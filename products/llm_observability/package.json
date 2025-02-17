@@ -1,5 +1,5 @@
 {
-    "name": "@posthog-products/llm-observability",
+    "name": "@posthog/products-llm-observability",
     "scripts": {},
     "dependencies": {
         "eslint-plugin-posthog": "workspace:*"

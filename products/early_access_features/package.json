@@ -1,5 +1,5 @@
 {
-    "name": "@posthog-products/early-access-features",
+    "name": "@posthog/products-early-access-features",
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/react": "*",
