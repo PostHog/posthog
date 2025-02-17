@@ -20,7 +20,6 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_count_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_all_event_metrics_in_period,
-    get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_query_metric,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_rows_synced_in_period,
