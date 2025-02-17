@@ -1,5 +1,4 @@
 import { expect, test } from '../utils/playwright-test-base'
-import { Navigation } from '../utils/navigation'
 
 test.describe('Annotations', () => {
     test.beforeEach(async ({ page }) => {
