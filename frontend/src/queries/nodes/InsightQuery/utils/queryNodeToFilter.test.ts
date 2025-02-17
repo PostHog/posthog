@@ -93,6 +93,7 @@ describe('queryNodeToFilter', () => {
                 showLabelsOnSeries: true,
                 showPercentStackView: true,
                 yAxisScaleType: 'log10',
+                showMultipleYAxes: false,
                 hiddenLegendIndexes: [1, 2],
             },
             compareFilter: {
@@ -127,6 +128,7 @@ describe('queryNodeToFilter', () => {
             show_legend: true,
             show_values_on_series: true,
             y_axis_scale_type: 'log10',
+            show_multiple_y_axes: false,
         }
         expect(result).toEqual(filters)
     })

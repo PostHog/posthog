@@ -5,7 +5,11 @@ import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema'
+import {
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaField,
+    DatabaseSchemaTable,
+} from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, DataWarehouseViewLink } from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
@@ -32,7 +36,7 @@ const isViewTable = (
 }
 
 const isJoined = (field: DatabaseSchemaField): boolean => {
-    return field.type === 'view'
+    return field.type === 'view' || field.type === 'lazy_table'
 }
 
 export const editorSceneLogic = kea<editorSceneLogicType>([

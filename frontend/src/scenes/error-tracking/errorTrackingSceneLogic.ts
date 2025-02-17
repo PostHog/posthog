@@ -5,7 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema'
+import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import {
     DEFAULT_ERROR_TRACKING_DATE_RANGE,
@@ -31,6 +31,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     actions({
         setOrderBy: (orderBy: ErrorTrackingQuery['orderBy']) => ({ orderBy }),
+        setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
         setSelectedIssueIds: (ids: string[]) => ({ ids }),
     }),
 
@@ -40,6 +41,13 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
+            },
+        ],
+        status: [
+            'active' as ErrorTrackingQuery['status'],
+            { persist: true },
+            {
+                setStatus: (_, { status }) => status,
             },
         ],
         selectedIssueIds: [
@@ -52,16 +60,17 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     selectors(({ values }) => ({
         query: [
-            (s) => [s.orderBy, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.searchQuery],
-            (orderBy, dateRange, assignee, filterTestAccounts, filterGroup, searchQuery): DataTableNode =>
+            (s) => [s.orderBy, s.status, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.searchQuery],
+            (orderBy, status, dateRange, assignee, filterTestAccounts, filterGroup, searchQuery): DataTableNode =>
                 errorTrackingQuery({
                     orderBy,
+                    status,
                     dateRange,
                     assignee,
                     filterTestAccounts,
                     filterGroup,
                     // we do not want to recompute the query when then sparkline selection changes
-                    // because we have already fetched the alternative option (1d, 1m, custom)
+                    // because we have already fetched the alternative option (24h, 30d, custom)
                     customVolume: values.customSparklineConfig,
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
@@ -84,6 +93,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         ] => {
             const searchParams: Params = {
                 orderBy: values.orderBy,
+                status: values.status,
                 filterTestAccounts: values.filterTestAccounts,
             }
 
@@ -111,6 +121,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
         return {
             setOrderBy: () => buildURL(),
+            setStatus: () => buildURL(),
             setDateRange: () => buildURL(),
             setFilterGroup: () => buildURL(),
             setSearchQuery: () => buildURL(),
@@ -122,6 +133,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         const urlToAction = (_: any, params: Params): void => {
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
+            }
+            if (params.status && !equal(params.status, values.status)) {
+                actions.setStatus(params.status)
             }
             if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
                 actions.setDateRange(params.dateRange)

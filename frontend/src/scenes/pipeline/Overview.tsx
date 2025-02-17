@@ -9,9 +9,8 @@ import { urls } from 'scenes/urls'
 
 import { PipelineStage, PipelineTab } from '~/types'
 
-import { DESTINATION_TYPES } from './destinations/constants'
+import { DESTINATION_TYPES, TRANSFORMATION_TYPES } from './destinations/constants'
 import { DestinationsTable } from './destinations/Destinations'
-import { TransformationsTable } from './Transformations'
 
 export function Overview(): JSX.Element {
     const menuItems = [
@@ -24,7 +23,7 @@ export function Overview(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <div className="shrink-0 flex items-center m-2">
+                    <div className="flex items-center m-2 shrink-0">
                         <LemonMenu items={menuItems}>
                             <LemonButton
                                 data-attr="new-pipeline-button"
@@ -63,7 +62,11 @@ export function Overview(): JSX.Element {
                         Modify and enrich your incoming data. Only active transformations are shown here.{' '}
                         <Link to={urls.pipeline(PipelineTab.Transformations)}>See all.</Link>
                     </p>
-                    <TransformationsTable inOverview={true} />
+                    <DestinationsTable
+                        types={TRANSFORMATION_TYPES}
+                        hideFeedback={true}
+                        hideAddDestinationButton={false}
+                    />
                 </div>
                 <div>
                     <Link to={urls.pipeline(PipelineTab.Destinations)}>

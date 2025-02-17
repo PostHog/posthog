@@ -17,14 +17,15 @@ import {
     WebOverviewItemKind,
     WebOverviewQuery,
     WebOverviewQueryResponse,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
 
-const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-bg-light rounded min-w-[${OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS}rem] h-30 flex flex-col items-center text-center justify-between`
+// Keep min-w-[10rem] in sync with OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS
+const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
 
 let uniqueNode = 0
 export function WebOverview(props: {

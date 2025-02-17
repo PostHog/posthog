@@ -15,8 +15,8 @@ export function QuestionInput(): JSX.Element {
     const isFloating = threadGrouped.length > 0
 
     useEffect(() => {
-        if (!threadLoading) {
-            textAreaRef.current?.focus() // Auto focus, both on mount and when Max finishes thinking
+        if (threadLoading) {
+            textAreaRef.current?.focus() // Focus after submit
         }
     }, [threadLoading])
 
@@ -25,7 +25,7 @@ export function QuestionInput(): JSX.Element {
             className={clsx(
                 !isFloating
                     ? 'w-[min(44rem,100%)] relative'
-                    : 'w-full max-w-[43rem] sticky z-10 self-center p-1 mx-4 mb-3 bottom-3 border border-[var(--glass-border-3000)] rounded-lg backdrop-blur bg-[var(--glass-bg-3000)]'
+                    : 'w-full max-w-[43rem] sticky z-10 self-center p-1 mx-4 mb-3 bottom-3 border border-[var(--border-primary)] rounded-lg backdrop-blur bg-[var(--glass-bg-3000)]'
             )}
         >
             <LemonTextArea
@@ -34,7 +34,7 @@ export function QuestionInput(): JSX.Element {
                 onChange={(value) => setQuestion(value)}
                 placeholder={threadLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : 'Ask away'}
                 onPressEnter={() => {
-                    if (question) {
+                    if (question && !submissionDisabledReason) {
                         askMax(question)
                     }
                 }}
@@ -42,6 +42,7 @@ export function QuestionInput(): JSX.Element {
                 minRows={1}
                 maxRows={10}
                 className={clsx('p-3', isFloating && 'border-border-bold')}
+                autoFocus
             />
             <div className={clsx('absolute top-0 bottom-0 flex items-center', isFloating ? 'right-3' : 'right-2')}>
                 <LemonButton

@@ -61,7 +61,7 @@ function SetPlaybackSpeed(): JSX.Element {
                 active: speed === speedToggle && speedToggle !== 1,
                 status: speed === speedToggle ? 'danger' : 'default',
             }))}
-            label={`${speed}x`}
+            label={`Speed ${speed}x`}
         />
     )
 }
@@ -254,7 +254,7 @@ export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
 
     return (
-        <div className="bg-bg-light flex flex-col select-none">
+        <div className="bg-surface-primary flex flex-col select-none">
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-center">
                 <div className="absolute left-2">

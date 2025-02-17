@@ -33,6 +33,7 @@ from posthog.models.utils import (
     UUIDClassicModel,
     generate_random_token_project,
     sane_repr,
+    validate_rate_limit,
 )
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -236,6 +237,7 @@ class Team(UUIDClassicModel):
     anonymize_ips = models.BooleanField(default=False)
     completed_snippet_onboarding = models.BooleanField(default=False)
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
+    onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
     autocapture_opt_out = models.BooleanField(null=True, blank=True)
     autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
@@ -345,6 +347,14 @@ class Team(UUIDClassicModel):
     event_properties_numerical = models.JSONField(default=list, blank=True)
     external_data_workspace_id = models.CharField(max_length=400, null=True, blank=True)
     external_data_workspace_last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    api_query_rate_limit = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        help_text="Custom rate limit for HogQL API queries in #requests/{sec,min,hour,day}",
+        validators=[validate_rate_limit],
+    )
 
     objects: TeamManager = TeamManager()
 

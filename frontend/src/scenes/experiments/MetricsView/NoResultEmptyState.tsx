@@ -5,7 +5,7 @@ import { combineUrl } from 'kea-router/lib/utils'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityTab, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -90,7 +90,7 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
                 {value === false ? (
                     <span className="flex items-center space-x-2">
                         <IconCheck className="text-success" fontSize={16} />
-                        <span className="text-muted">{successText[errorCode]}</span>
+                        <span className="text-secondary">{successText[errorCode]}</span>
                     </span>
                 ) : (
                     <span className="flex items-center space-x-2">

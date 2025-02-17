@@ -8,6 +8,8 @@ import {
     LemonSelect,
     LemonSelectProps,
     LemonTable,
+    LemonTag,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -53,12 +55,13 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                     <AccessControlObjectDefaults />
                 </div>
 
-                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS} className="space-y-6">
                     <AccessControlObjectUsers />
-                </PayGateMini>
 
-                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                    <AccessControlObjectRoles />
+                    {/* Put this inside of Advanced Permissions so two aren't shown at once */}
+                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                        <AccessControlObjectRoles />
+                    </PayGateMini>
                 </PayGateMini>
             </div>
         </BindLogic>
@@ -126,7 +129,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                                 ? `${member(ac)?.user.first_name} (you)`
                                 : member(ac)?.user.first_name}
                         </p>
-                        <p className="text-muted-alt mb-0">{member(ac)?.user.email}</p>
+                        <p className="text-secondary mb-0">{member(ac)?.user.email}</p>
                     </div>
                 </div>
             ),
@@ -136,8 +139,12 @@ function AccessControlObjectUsers(): JSX.Element | null {
             key: 'level',
             title: 'Level',
             width: 0,
-            render: function LevelRender(_, { access_level, organization_member }) {
-                return (
+            render: function LevelRender(_, { access_level, organization_member, resource }) {
+                return resource === 'organization' ? (
+                    <Tooltip title="Organization owners and admins have access to all resources in the organization">
+                        <LemonTag type="muted">Organization admin</LemonTag>
+                    </Tooltip>
+                ) : (
                     <div className="my-1">
                         <SimplLevelComponent
                             size="small"
@@ -154,8 +161,8 @@ function AccessControlObjectUsers(): JSX.Element | null {
         {
             key: 'remove',
             width: 0,
-            render: (_, { organization_member }) => {
-                return (
+            render: (_, { organization_member, resource }) => {
+                return resource === 'organization' ? null : (
                     <RemoveAccessButton
                         subject="member"
                         onConfirm={() =>

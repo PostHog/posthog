@@ -7,7 +7,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
-import { DatabaseSchemaQueryResponse } from '~/queries/schema'
+import { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 
 import { ingestionWarningsResponse } from './ingestion-warnings/__mocks__/ingestion-warnings-response'
 

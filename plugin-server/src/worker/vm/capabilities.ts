@@ -1,7 +1,13 @@
 import { PluginCapabilities, PluginMethods, PluginTask, PluginTaskType } from '../../types'
 import { PluginServerCapabilities } from './../../types'
 
-const PROCESS_EVENT_CAPABILITIES = new Set(['ingestion', 'ingestionOverflow', 'ingestionHistorical'])
+const PROCESS_EVENT_CAPABILITIES = new Set<keyof PluginServerCapabilities>([
+    'ingestion',
+    'ingestionOverflow',
+    'ingestionHistorical',
+    'ingestionV2',
+    'ingestionV2Combined',
+])
 
 export function getVMPluginCapabilities(
     methods: PluginMethods,

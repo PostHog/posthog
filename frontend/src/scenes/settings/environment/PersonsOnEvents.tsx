@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQueryModifiers } from '~/queries/schema'
+import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
 
 type PoEMode = NonNullable<HogQLQueryModifiers['personsOnEventsMode']>
 

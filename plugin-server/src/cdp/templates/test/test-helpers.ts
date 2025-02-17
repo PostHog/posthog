@@ -4,6 +4,7 @@ import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
 import { Hub } from '../../../types'
+import { cleanNullValues, createGeoipLookup } from '../../hog-transformations/transformation-functions'
 import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
 import {
     HogFunctionInputType,
@@ -162,25 +163,16 @@ export class TemplateTester {
             enabled: true,
             mappings: this.template.mappings || null,
             created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            deleted: false,
         }
 
         const globalsWithInputs = buildGlobalsWithInputs(globals, hogFunction.inputs)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {
-            geoipLookup: (ipAddress: unknown) => {
-                if (typeof ipAddress !== 'string') {
-                    return null
-                }
-                if (!this.mockHub.mmdb) {
-                    return null
-                }
-                try {
-                    return this.mockHub.mmdb.city(ipAddress)
-                } catch {
-                    return null
-                }
-            },
+            geoipLookup: createGeoipLookup(this.mockHub.mmdb),
+            cleanNullValues,
         }
 
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}

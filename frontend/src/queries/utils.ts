@@ -287,7 +287,14 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
 
 export const getFormula = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formula
+        return query.trendsFilter?.formulas?.[0] || query.trendsFilter?.formula
+    }
+    return undefined
+}
+
+export const getFormulas = (query: InsightQueryNode): string[] | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.formulas || (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
     }
     return undefined
 }
@@ -352,6 +359,15 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
 export const getYAxisScaleType = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.yAxisScaleType
+    }
+    return undefined
+}
+
+export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showMultipleYAxes
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.showMultipleYAxes
     }
     return undefined
 }

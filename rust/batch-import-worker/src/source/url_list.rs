@@ -3,12 +3,14 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Error;
 use async_trait::async_trait;
 use reqwest::Client;
+use tracing::warn;
 
 use super::DataSource;
 
 pub struct UrlList {
     pub urls: Vec<String>,
     pub client: Client,
+    pub retries: usize,
 }
 
 impl UrlList {
@@ -16,6 +18,7 @@ impl UrlList {
         urls: Vec<String>,
         allow_internal_ips: bool,
         timeout: Duration,
+        retries: usize,
     ) -> Result<Self, Error> {
         let resolver = Arc::new(common_dns::PublicIPv4Resolver {});
 
@@ -27,7 +30,11 @@ impl UrlList {
 
         let client = client.build()?;
 
-        let source = Self { urls, client };
+        let source = Self {
+            urls,
+            client,
+            retries,
+        };
 
         // Validate the passed urls, and assert they all support range requests
         for url in &source.urls {
@@ -74,6 +81,31 @@ impl UrlList {
 
         Ok(())
     }
+
+    async fn get_chunk_inner(
+        &self,
+        key: &str,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<u8>, Error> {
+        // Ensure the passed key is in our list of URLs
+        if !self.urls.contains(&key.to_string()) {
+            return Err(Error::msg("Key not found"));
+        }
+
+        let response = self
+            .client
+            .get(key)
+            .header("Range", format!("bytes={}-{}", offset, offset + size - 1))
+            .send()
+            .await?
+            .error_for_status();
+
+        match response {
+            Ok(response) => Ok(response.bytes().await.map(|bytes| bytes.to_vec())?),
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 #[async_trait]
@@ -112,22 +144,22 @@ impl DataSource for UrlList {
     }
 
     async fn get_chunk(&self, key: &str, offset: usize, size: usize) -> Result<Vec<u8>, Error> {
-        // Ensure the passed key is in our list of URLs
-        if !self.urls.contains(&key.to_string()) {
-            return Err(Error::msg("Key not found"));
-        }
-
-        let response = self
-            .client
-            .get(key)
-            .header("Range", format!("bytes={}-{}", offset, offset + size - 1))
-            .send()
-            .await?
-            .error_for_status();
-
-        match response {
-            Ok(response) => Ok(response.bytes().await.map(|bytes| bytes.to_vec())?),
-            Err(e) => Err(e.into()),
+        let mut retries = self.retries;
+        loop {
+            match self.get_chunk_inner(key, offset, size).await {
+                Ok(chunk) => return Ok(chunk),
+                Err(e) => {
+                    if retries == 0 {
+                        return Err(e);
+                    }
+                    warn!(
+                        "Encountered error when fetching chunk: {:?}, remaining retries: {}",
+                        e, retries
+                    );
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    retries -= 1;
+                }
+            }
         }
     }
 }
@@ -155,7 +187,7 @@ mod test {
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
         let url_count = urls.len();
-        let source = UrlList::new(urls, true, Duration::from_secs(10))
+        let source = UrlList::new(urls, true, Duration::from_secs(10), 1)
             .await
             .unwrap();
         let keys = source.keys().await.unwrap();
@@ -175,7 +207,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10)).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
 
         assert!(source_res.is_err());
     }
@@ -190,7 +222,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10)).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
 
         assert!(source_res.is_err());
     }
@@ -204,7 +236,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10)).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
 
         assert!(source_res.is_err());
     }
@@ -220,7 +252,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10)).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
 
         assert!(source_res.is_err());
     }
@@ -236,7 +268,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10))
+        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10), 0)
             .await
             .unwrap();
         let size = source.size(&urls[0]).await.unwrap();
@@ -262,7 +294,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10))
+        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10), 0)
             .await
             .unwrap();
         let chunk = source.get_chunk(&urls[0], 0, 100).await.unwrap();

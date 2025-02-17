@@ -115,7 +115,7 @@ def test_person_overrides_dict():
 
     The dictionary should always favor the latest version after every reload.
     """
-    sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL)
+    sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL())
     sync_execute(PERSON_OVERRIDES_CREATE_DICTIONARY_SQL)
 
     values: PersonOverrideValues = {
@@ -128,7 +128,11 @@ def test_person_overrides_dict():
         "version": 1,
     }
 
-    sync_execute("INSERT INTO person_overrides (*) VALUES", [values])
+    insert_query = (
+        "INSERT INTO person_overrides (team_id, old_person_id, override_person_id, merged_at, oldest_event, created_at, version) "
+        "VALUES (%(team_id)s, %(old_person_id)s, %(override_person_id)s, %(merged_at)s, %(oldest_event)s, %(created_at)s, %(version)s)"
+    )
+    sync_execute(insert_query, values)
     sync_execute("SYSTEM RELOAD DICTIONARY person_overrides_dict")
     results = sync_execute(
         "SELECT dictGet(person_overrides_dict, 'override_person_id', (%(team_id)s, %(old_person_id)s))",
@@ -141,7 +145,7 @@ def test_person_overrides_dict():
     values["version"] = 2
     values["override_person_id"] = uuid4()
 
-    sync_execute("INSERT INTO person_overrides (*) VALUES", [values])
+    sync_execute(insert_query, values)
     sync_execute("SYSTEM RELOAD DICTIONARY person_overrides_dict")
     new_results = sync_execute(
         "SELECT dictGet(person_overrides_dict, 'override_person_id', (%(team_id)s, %(old_person_id)s))",

@@ -139,6 +139,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 loadAlerts()
                                 push(urls.insightAlerts(insight.short_id as InsightShortId))
                             }}
+                            insightLogicProps={insightLogicProps}
                         />
                     )}
                     <NewDashboardModal />
@@ -262,14 +263,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 data-attr="edit-insight-sql"
                                                 onClick={() => {
                                                     router.actions.push(
-                                                        urls.insightNew(undefined, undefined, {
-                                                            kind: NodeKind.DataTableNode,
-                                                            source: {
-                                                                kind: NodeKind.HogQLQuery,
-                                                                query: hogQL,
-                                                            },
-                                                            full: true,
-                                                        } as DataTableNode)
+                                                        urls.insightNew({
+                                                            query: {
+                                                                kind: NodeKind.DataTableNode,
+                                                                source: {
+                                                                    kind: NodeKind.HogQLQuery,
+                                                                    query: hogQL,
+                                                                },
+                                                                full: true,
+                                                            } as DataTableNode,
+                                                        })
                                                     )
                                                 }}
                                                 fullWidth

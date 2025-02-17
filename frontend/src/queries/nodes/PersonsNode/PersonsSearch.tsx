@@ -3,7 +3,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
-import { ActorsQuery, PersonsNode } from '~/queries/schema'
+import { ActorsQuery, PersonsNode } from '~/queries/schema/schema-general'
 import { isQueryForGroup } from '~/queries/utils'
 
 type ActorType = 'person' | 'group'
@@ -49,7 +49,7 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
                 onChange={onChange}
             />
             <Tooltip title={labels[target].description}>
-                <IconInfo className="text-2xl text-muted-alt shrink-0" />
+                <IconInfo className="text-2xl text-secondary shrink-0" />
             </Tooltip>
         </div>
     )

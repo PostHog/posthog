@@ -9,6 +9,7 @@ class InsightVariable(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         NUMBER = "Number", "Number"
         BOOLEAN = "Boolean", "Boolean"
         LIST = "List", "List"
+        DATE = "Date", "Date"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)

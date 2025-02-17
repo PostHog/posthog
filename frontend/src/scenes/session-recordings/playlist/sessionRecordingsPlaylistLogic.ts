@@ -18,6 +18,7 @@ import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import {
     EntityTypes,
@@ -97,6 +98,56 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
 
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+}
+
+/**
+ * Checks if the filters are valid.
+ * @param filters - The filters to check.
+ * @returns True if the filters are valid, false otherwise.
+ */
+export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters>): boolean {
+    if (!filters || typeof filters !== 'object') {
+        return false
+    }
+
+    if ('date_from' in filters && filters.date_from !== null && typeof filters.date_from !== 'string') {
+        return false
+    }
+    if ('date_to' in filters && filters.date_to !== null && typeof filters.date_to !== 'string') {
+        return false
+    }
+
+    if ('filter_test_accounts' in filters && typeof filters.filter_test_accounts !== 'boolean') {
+        return false
+    }
+
+    if ('duration' in filters) {
+        if (!Array.isArray(filters.duration)) {
+            return false
+        }
+        if (
+            filters.duration.length > 0 &&
+            (!filters.duration[0]?.type || !filters.duration[0]?.key || !filters.duration[0]?.operator)
+        ) {
+            return false
+        }
+    }
+
+    if ('filter_group' in filters) {
+        const group = filters.filter_group
+        if (!group || typeof group !== 'object') {
+            return false
+        }
+        if (!('type' in group) || !('values' in group) || !Array.isArray(group.values)) {
+            return false
+        }
+    }
+
+    if ('order' in filters && typeof filters.order !== 'string') {
+        return false
+    }
+
+    return true
 }
 
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
@@ -261,7 +312,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         (props: SessionRecordingPlaylistLogicProps) =>
             `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
-
     connect({
         actions: [
             eventUsageLogic,
@@ -418,6 +468,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
                 setFilters: (state, { filters }) => {
+                    if (!isValidRecordingFilters(filters)) {
+                        console.error('Invalid filters provided:', filters)
+                        return state
+                    }
                     return {
                         ...state,
                         ...filters,
@@ -532,6 +586,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (recordingIndex === values.sessionRecordings.length - 1) {
                 actions.maybeLoadSessionRecordings('older')
             }
+
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
         },
     })),
     selectors({

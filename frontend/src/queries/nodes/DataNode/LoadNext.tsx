@@ -3,7 +3,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useMemo } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode } from '~/queries/schema'
+import { DataNode } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
@@ -27,6 +27,11 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
                 }
                 // If the number of rows is greater than the default page size, it's handled by pagination component
                 return ''
+            }
+            if (numberOfRows && numberOfRows < dataLimit) {
+                return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${
+                    numberOfRows === 1 ? 'entry' : 'entries'
+                }`
             }
             return `Default limit of ${dataLimit} rows reached`
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
@@ -64,10 +69,6 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
 
 export function LoadPreviewText(): JSX.Element {
     const { numberOfRows, hasMoreData } = useValues(dataNodeLogic)
-
-    if (!hasMoreData) {
-        return <></>
-    }
 
     return (
         <>

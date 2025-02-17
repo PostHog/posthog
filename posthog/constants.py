@@ -299,10 +299,12 @@ class EventDefinitionType(StrEnum):
 class FlagRequestType(StrEnum):
     DECIDE = "decide"
     LOCAL_EVALUATION = "local-evaluation"
+    REMOTE_CONFIG = "remote-config"
 
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
+DATA_WAREHOUSE_COMPACTION_TASK_QUEUE = "data-warehouse-compaction-task-queue"
 BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
 SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"

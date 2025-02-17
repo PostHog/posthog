@@ -4,6 +4,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
+import { ChatCompletionUserMessageParam } from 'openai/resources/chat/completions'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -14,6 +15,9 @@ import {
     DashboardFilter,
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
+    ErrorTrackingRelationalIssue,
+    FileSystemEntry,
+    FileSystemType,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -21,17 +25,19 @@ import {
     RecordingsQuery,
     RecordingsQueryResponse,
     RefreshType,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     ActionType,
     ActivityScope,
     AppMetricsTotalsV2Response,
     AppMetricsV2RequestParams,
     AppMetricsV2Response,
+    BatchExportBackfill,
     BatchExportConfiguration,
     BatchExportRun,
     CohortType,
     CommentType,
+    CoreMemory,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
@@ -95,6 +101,7 @@ import {
     PropertyDefinitionType,
     QueryBasedInsightModel,
     RawAnnotationType,
+    RawBatchExportBackfill,
     RawBatchExportRun,
     RoleMemberType,
     RolesListParams,
@@ -361,6 +368,21 @@ class ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
+    // # File System
+    public fileSystem(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('file_system')
+    }
+    public fileSystemUnfiled(type?: FileSystemType, teamId?: TeamType['id']): ApiRequest {
+        const path = this.projectsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
+        if (type) {
+            path.withQueryString({ type })
+        }
+        return path
+    }
+    public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent(id)
+    }
+
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
         return this.organizationsDetail(orgId).addPathComponent('plugins')
@@ -383,7 +405,7 @@ class ApiRequest {
     }
 
     public hogFunctions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('hog_functions')
+        return this.environmentsDetail(teamId).addPathComponent('hog_functions')
     }
 
     public hogFunction(id: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -935,12 +957,24 @@ class ApiRequest {
         return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
     }
 
+    public batchExportBackfills(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id).addPathComponent('backfills')
+    }
+
     public batchExportRun(
         id: BatchExportConfiguration['id'],
         runId: BatchExportRun['id'],
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.batchExportRuns(id, teamId).addPathComponent(runId)
+    }
+
+    public batchExportBackfill(
+        id: BatchExportConfiguration['id'],
+        backfillId: BatchExportBackfill['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.batchExportBackfills(id, teamId).addPathComponent(backfillId)
     }
 
     // External Data Source
@@ -1018,6 +1052,15 @@ class ApiRequest {
 
     public addProductIntent(): ApiRequest {
         return this.environments().current().addPathComponent('add_product_intent')
+    }
+
+    // Max Core Memory
+    public coreMemory(): ApiRequest {
+        return this.environmentsDetail().addPathComponent('core_memory')
+    }
+
+    public coreMemoryDetail(id: CoreMemory['id']): ApiRequest {
+        return this.coreMemory().addPathComponent(id)
     }
 }
 
@@ -1134,6 +1177,24 @@ const api = {
             featureFlagId: FeatureFlagType['id']
         ): Promise<FeatureFlagStatusResponse> {
             return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
+        },
+    },
+
+    fileSystem: {
+        async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystem().get()
+        },
+        async unfiled(type?: FileSystemType): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystemUnfiled(type).get()
+        },
+        async create(data: FileSystemEntry): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystem().create({ data })
+        },
+        async update(id: NonNullable<FileSystemEntry['id']>, data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemDetail(id).update({ data })
+        },
+        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemDetail(id).delete()
         },
     },
 
@@ -1866,15 +1927,18 @@ const api = {
         },
     },
     hogFunctions: {
-        async list(
-            filters?: any,
-            type?: HogFunctionTypeType | HogFunctionTypeType[]
-        ): Promise<PaginatedResponse<HogFunctionType>> {
+        async list({
+            filters,
+            types,
+        }: {
+            filters?: any
+            types?: HogFunctionTypeType[]
+        }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
-                    filters: filters,
-                    ...(type ? (Array.isArray(type) ? { types: type.join(',') } : { type }) : {}),
+                    filters,
+                    ...(types ? { types: types.join(',') } : {}),
                 })
                 .get()
         },
@@ -1969,10 +2033,14 @@ const api = {
     },
 
     errorTracking: {
+        async getIssue(id: ErrorTrackingIssue['id'], fingerprint?: string): Promise<ErrorTrackingRelationalIssue> {
+            return await new ApiRequest().errorTrackingIssue(id).withQueryString(toParams({ fingerprint })).get()
+        },
+
         async updateIssue(
             id: ErrorTrackingIssue['id'],
             data: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>
-        ): Promise<ErrorTrackingIssue> {
+        ): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
 
@@ -2159,6 +2227,14 @@ const api = {
                 .withAction(session_recording_id)
                 .delete()
         },
+
+        async aiFilters(messages: ChatCompletionUserMessageParam[]): Promise<{ result: string; data: any }> {
+            return await new ApiRequest().recordings().withAction('ai/filters').create({ data: { messages } })
+        },
+
+        async aiRegex(regex: string): Promise<{ result: string; data: any }> {
+            return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
+        },
     },
 
     notebooks: {
@@ -2257,6 +2333,19 @@ const api = {
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+        },
+        async listBackfills(
+            id: BatchExportConfiguration['id'],
+            params: Record<string, any> = {}
+        ): Promise<PaginatedResponse<RawBatchExportBackfill>> {
+            return await new ApiRequest().batchExportBackfills(id).withQueryString(toParams(params)).get()
+        },
+        async cancelBackfill(
+            id: BatchExportConfiguration['id'],
+            backfillId: BatchExportBackfill['id'],
+            teamId?: TeamType['id']
+        ): Promise<BatchExportBackfill> {
+            return await new ApiRequest().batchExportBackfill(id, backfillId, teamId).withAction('cancel').create()
         },
         async retryRun(
             id: BatchExportConfiguration['id'],
@@ -2663,9 +2752,24 @@ const api = {
             return await new ApiRequest().dataColorTheme(id).update({ data })
         },
     },
+
     productIntents: {
         async update(data: ProductIntentProperties): Promise<TeamType> {
             return await new ApiRequest().addProductIntent().update({ data })
+        },
+    },
+
+    coreMemory: {
+        async list(): Promise<PaginatedResponse<CoreMemory>> {
+            return await new ApiRequest().coreMemory().get()
+        },
+        async create(coreMemory: Pick<CoreMemory, 'text'>): Promise<CoreMemory> {
+            return await new ApiRequest().coreMemory().create({
+                data: coreMemory,
+            })
+        },
+        async update(coreMemoryId: CoreMemory['id'], coreMemory: Pick<CoreMemory, 'text'>): Promise<CoreMemory> {
+            return await new ApiRequest().coreMemoryDetail(coreMemoryId).update({ data: coreMemory })
         },
     },
 

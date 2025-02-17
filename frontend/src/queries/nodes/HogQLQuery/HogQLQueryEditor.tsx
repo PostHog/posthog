@@ -20,7 +20,7 @@ import { useEffect, useRef, useState } from 'react'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery } from '~/queries/schema'
+import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 
@@ -345,8 +345,8 @@ function QueryTab({ model, active, onClear, onClick }: QueryTabProps): JSX.Eleme
         <button
             onClick={() => onClick?.(model)}
             className={clsx(
-                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-light)] cursor-pointer',
-                active ? 'bg-[var(--bg-light)] border' : 'bg-bg-3000',
+                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-surface-primary)] cursor-pointer',
+                active ? 'bg-[var(--bg-surface-primary)] border' : 'bg-primary',
                 onClear ? 'pl-3 pr-2' : 'px-4'
             )}
         >

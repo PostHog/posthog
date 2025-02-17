@@ -65,6 +65,7 @@ export const ProductIntroduction = ({
                     <div>
                         <LemonButton
                             icon={<IconX />}
+                            size="small"
                             onClick={() => {
                                 productKey && updateHasSeenProductIntroFor(productKey, true)
                             }}
@@ -72,9 +73,9 @@ export const ProductIntroduction = ({
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-8 w-full justify-center flex-wrap">
+            <div className="flex items-center gap-8 w-full justify-center">
                 <div>
-                    <div className="w-50 mx-auto mb-4">
+                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
                         {CustomHog ? (
                             <CustomHog className="w-full h-full" />
                         ) : actionable ? (

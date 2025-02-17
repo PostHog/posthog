@@ -107,7 +107,8 @@ export function DestinationsTable({
     const { toggleNode, deleteNode, openReorderTransformationsModal } = useActions(pipelineDestinationsLogic({ types }))
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
 
-    const showFrequencyHistory = types.includes('destination')
+    const showMetricsHistory = types.includes('destination') || types.includes('transformation')
+    const showFrequencyInterval = types.includes('destination')
     const simpleName =
         types.includes('destination') || types.includes('site_destination')
             ? 'destination'
@@ -231,7 +232,7 @@ export function DestinationsTable({
                             )
                         },
                     },
-                    ...(showFrequencyHistory
+                    ...(showFrequencyInterval
                         ? [
                               {
                                   title: 'Frequency',
@@ -242,7 +243,7 @@ export function DestinationsTable({
                               } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
                           ]
                         : []),
-                    ...(showFrequencyHistory
+                    ...(showMetricsHistory
                         ? [
                               {
                                   title: 'Last 7 days',
@@ -335,7 +336,7 @@ export function DestinationsTable({
             />
 
             {hiddenDestinations.length > 0 && (
-                <div className="text-muted-alt">
+                <div className="text-secondary">
                     {hiddenDestinations.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
                 </div>
             )}

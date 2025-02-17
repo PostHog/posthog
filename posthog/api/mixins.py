@@ -3,7 +3,7 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from rest_framework.exceptions import ParseError
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 T = TypeVar("T", bound=BaseModel)
 

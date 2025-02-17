@@ -1,11 +1,15 @@
 import './SurveyView.scss'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -15,6 +19,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { SurveyAnswerFilters } from 'scenes/surveys/SurveyAnswerFilters'
+import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -34,6 +40,26 @@ import {
     SingleChoiceQuestionPieChart,
     Summary,
 } from './surveyViewViz'
+
+function SurveyResultsFilters(): JSX.Element {
+    const { propertyFilters } = useValues(surveyLogic)
+    const { setPropertyFilters } = useActions(surveyLogic)
+
+    return (
+        <div className="space-y-2">
+            <h3 className="text-base">Filter survey results</h3>
+            <SurveyAnswerFilters />
+            <div className="w-fit">
+                <PropertyFilters
+                    propertyFilters={propertyFilters}
+                    onChange={setPropertyFilters}
+                    pageKey="survey-results"
+                    buttonText="More filters"
+                />
+            </div>
+        </div>
+    )
+}
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
@@ -97,7 +123,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         LemonDialog.open({
                                                             title: 'Archive this survey?',
                                                             content: (
-                                                                <div className="text-sm text-muted">
+                                                                <div className="text-sm text-secondary">
                                                                     This action will remove the survey from your active
                                                                     surveys list. It can be restored at any time.
                                                                 </div>
@@ -128,7 +154,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     LemonDialog.open({
                                                         title: 'Delete this survey?',
                                                         content: (
-                                                            <div className="text-sm text-muted">
+                                                            <div className="text-sm text-secondary">
                                                                 This action cannot be undone. All survey data will be
                                                                 permanently removed.
                                                             </div>
@@ -161,7 +187,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Launch this survey?',
                                                 content: (
-                                                    <div className="text-sm text-muted">
+                                                    <div className="text-sm text-secondary">
                                                         The survey will immediately start displaying to users matching
                                                         the display conditions.
                                                     </div>
@@ -189,7 +215,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Resume this survey?',
                                                 content: (
-                                                    <div className="text-sm text-muted">
+                                                    <div className="text-sm text-secondary">
                                                         Once resumed, the survey will be visible to your users again.
                                                     </div>
                                                 ),
@@ -219,7 +245,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 LemonDialog.open({
                                                     title: 'Stop this survey?',
                                                     content: (
-                                                        <div className="text-sm text-muted">
+                                                        <div className="text-sm text-secondary">
                                                             The survey will no longer be displayed to users.
                                                         </div>
                                                     ),
@@ -471,80 +497,84 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResultsReady,
         surveyNPSScore,
         surveyAsInsightURL,
+        isAnyResultsLoading,
     } = useValues(surveyLogic)
 
     return (
-        <>
-            <>
-                <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
-                {survey.questions.map((question, i) => {
-                    if (question.type === SurveyQuestionType.Rating) {
-                        return (
-                            <>
-                                {question.scale === 10 && (
-                                    <>
-                                        <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                        <div className="mb-2 font-semibold text-muted-alt">Latest NPS Score</div>
-                                        <SurveyNPSResults survey={survey as Survey} />
-                                    </>
-                                )}
-
-                                <RatingQuestionBarChart
-                                    key={`survey-q-${i}`}
-                                    surveyRatingResults={surveyRatingResults}
-                                    surveyRatingResultsReady={surveyRatingResultsReady}
+        <div className="space-y-4">
+            <SurveyResultsFilters />
+            {isAnyResultsLoading && (
+                <div className="flex gap-1">
+                    <span className="text-sm text-secondary">Loading results...</span>
+                    <Spinner />
+                </div>
+            )}
+            <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+            {survey.questions.map((question, i) => {
+                if (question.type === SurveyQuestionType.Rating) {
+                    return (
+                        <div key={`survey-q-${i}`} className="space-y-2">
+                            {question.scale === 10 && (
+                                <SurveyNPSResults
+                                    survey={survey as Survey}
+                                    surveyNPSScore={surveyNPSScore}
                                     questionIndex={i}
-                                    iteration={survey.current_iteration}
                                 />
+                            )}
 
-                                {survey.iteration_count &&
-                                    survey.iteration_count > 0 &&
-                                    survey.current_iteration &&
-                                    survey.current_iteration > 1 &&
-                                    survey.iteration_start_dates &&
-                                    survey.iteration_start_dates.length > 0 && (
-                                        <NPSSurveyResultsBarChart
-                                            key={`nps-survey-results-q-${i}`}
-                                            surveyRecurringNPSResults={surveyRecurringNPSResults}
-                                            surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
-                                            iterationStartDates={survey.iteration_start_dates}
-                                            currentIteration={survey.current_iteration}
-                                            questionIndex={i}
-                                        />
-                                    )}
-                            </>
-                        )
-                    } else if (question.type === SurveyQuestionType.SingleChoice) {
-                        return (
-                            <SingleChoiceQuestionPieChart
-                                key={`survey-q-${i}`}
-                                surveySingleChoiceResults={surveySingleChoiceResults}
-                                surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
+                            <RatingQuestionBarChart
+                                surveyRatingResults={surveyRatingResults}
+                                surveyRatingResultsReady={surveyRatingResultsReady}
                                 questionIndex={i}
                             />
-                        )
-                    } else if (question.type === SurveyQuestionType.MultipleChoice) {
-                        return (
-                            <MultipleChoiceQuestionBarChart
-                                key={`survey-q-${i}`}
-                                surveyMultipleChoiceResults={surveyMultipleChoiceResults}
-                                surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
-                                questionIndex={i}
-                            />
-                        )
-                    } else if (question.type === SurveyQuestionType.Open) {
-                        return (
-                            <OpenTextViz
-                                key={`survey-q-${i}`}
-                                surveyOpenTextResults={surveyOpenTextResults}
-                                surveyOpenTextResultsReady={surveyOpenTextResultsReady}
-                                questionIndex={i}
-                            />
-                        )
-                    }
-                })}
-            </>
-            <div className="mb-4 max-w-40">
+
+                            {survey.iteration_count &&
+                                survey.iteration_count > 0 &&
+                                survey.current_iteration &&
+                                survey.current_iteration > 1 &&
+                                survey.iteration_start_dates &&
+                                survey.iteration_start_dates.length > 0 && (
+                                    <NPSSurveyResultsBarChart
+                                        key={`nps-survey-results-q-${i}`}
+                                        surveyRecurringNPSResults={surveyRecurringNPSResults}
+                                        surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
+                                        iterationStartDates={survey.iteration_start_dates}
+                                        currentIteration={survey.current_iteration}
+                                        questionIndex={i}
+                                    />
+                                )}
+                        </div>
+                    )
+                } else if (question.type === SurveyQuestionType.SingleChoice) {
+                    return (
+                        <SingleChoiceQuestionPieChart
+                            key={`survey-q-${i}`}
+                            surveySingleChoiceResults={surveySingleChoiceResults}
+                            surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
+                            questionIndex={i}
+                        />
+                    )
+                } else if (question.type === SurveyQuestionType.MultipleChoice) {
+                    return (
+                        <MultipleChoiceQuestionBarChart
+                            key={`survey-q-${i}`}
+                            surveyMultipleChoiceResults={surveyMultipleChoiceResults}
+                            surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
+                            questionIndex={i}
+                        />
+                    )
+                } else if (question.type === SurveyQuestionType.Open) {
+                    return (
+                        <OpenTextViz
+                            key={`survey-q-${i}`}
+                            surveyOpenTextResults={surveyOpenTextResults}
+                            surveyOpenTextResultsReady={surveyOpenTextResultsReady}
+                            questionIndex={i}
+                        />
+                    )
+                }
+            })}
+            <div className="max-w-40">
                 <LemonButton
                     type="primary"
                     data-attr="survey-results-explore"
@@ -555,87 +585,127 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                 </LemonButton>
             </div>
             {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
-        </>
+        </div>
     )
 }
 
-function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
+function SurveyNPSResults({
+    survey,
+    surveyNPSScore,
+    questionIndex,
+}: {
+    survey: Survey
+    surveyNPSScore?: string
+    questionIndex: number
+}): JSX.Element {
+    const { dateRange, interval, compareFilter, defaultInterval } = useValues(surveyLogic)
+    const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
+
     return (
-        <>
-            <Query
-                query={{
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        dateRange: {
-                            date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
-                            date_to: survey.end_date
-                                ? dayjs(survey.end_date).format('YYYY-MM-DD')
-                                : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+        <div>
+            <div className="text-4xl font-bold">{surveyNPSScore}</div>
+            <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
+            <div className="space-y-2 bg-surface-primary p-2 rounded">
+                <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-lg font-semibold">NPS Trend</h4>
+                    <div className="flex items-center gap-2">
+                        <DateFilter
+                            dateFrom={dateRange?.date_from ?? undefined}
+                            dateTo={dateRange?.date_to ?? undefined}
+                            onChange={(fromDate, toDate) =>
+                                setDateRange({
+                                    date_from: fromDate,
+                                    date_to: toDate,
+                                })
+                            }
+                        />
+                        <span>grouped by</span>
+                        <IntervalFilterStandalone
+                            interval={interval ?? defaultInterval}
+                            onIntervalChange={setInterval}
+                            options={[
+                                { value: 'hour', label: 'Hour' },
+                                { value: 'day', label: 'Day' },
+                                { value: 'week', label: 'Week' },
+                                { value: 'month', label: 'Month' },
+                            ]}
+                        />
+                        <CompareFilter
+                            compareFilter={compareFilter}
+                            updateCompareFilter={(compareFilter) => setCompareFilter(compareFilter)}
+                        />
+                    </div>
+                </div>
+                <Query
+                    query={{
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            interval: interval ?? defaultInterval,
+                            compareFilter: compareFilter,
+                            dateRange: dateRange ?? {
+                                date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
+                                date_to: survey.end_date
+                                    ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                                    : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+                            },
+                            series: [
+                                {
+                                    event: SURVEY_EVENT_NAME,
+                                    kind: NodeKind.EventsNode,
+                                    custom_name: 'Promoters',
+                                    properties: [
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: getSurveyResponseKey(questionIndex),
+                                            operator: PropertyOperator.Exact,
+                                            value: ['9', '10'],
+                                        },
+                                    ],
+                                },
+                                {
+                                    event: SURVEY_EVENT_NAME,
+                                    kind: NodeKind.EventsNode,
+                                    custom_name: 'Passives',
+                                    properties: [
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: getSurveyResponseKey(questionIndex),
+                                            operator: PropertyOperator.Exact,
+                                            value: ['7', '8'],
+                                        },
+                                    ],
+                                },
+                                {
+                                    event: SURVEY_EVENT_NAME,
+                                    kind: NodeKind.EventsNode,
+                                    custom_name: 'Detractors',
+                                    properties: [
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: getSurveyResponseKey(questionIndex),
+                                            operator: PropertyOperator.Exact,
+                                            value: ['0', '1', '2', '3', '4', '5', '6'],
+                                        },
+                                    ],
+                                },
+                            ],
+                            properties: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$survey_id',
+                                    operator: PropertyOperator.Exact,
+                                    value: survey.id,
+                                },
+                            ],
+                            trendsFilter: {
+                                formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
+                                display: 'ActionsBar',
+                            },
                         },
-                        series: [
-                            {
-                                event: SURVEY_EVENT_NAME,
-                                kind: NodeKind.EventsNode,
-                                custom_name: 'Promoters',
-                                properties: [
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_response',
-                                        operator: PropertyOperator.Exact,
-                                        value: ['9', '10'],
-                                    },
-                                ],
-                            },
-                            {
-                                event: SURVEY_EVENT_NAME,
-                                kind: NodeKind.EventsNode,
-                                custom_name: 'Passives',
-                                properties: [
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_response',
-                                        operator: PropertyOperator.Exact,
-                                        value: ['7', '8'],
-                                    },
-                                ],
-                            },
-                            {
-                                event: SURVEY_EVENT_NAME,
-                                kind: NodeKind.EventsNode,
-                                custom_name: 'Detractors',
-                                properties: [
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_response',
-                                        operator: PropertyOperator.Exact,
-                                        value: ['0', '1', '2', '3', '4', '5', '6'],
-                                    },
-                                ],
-                            },
-                        ],
-                        properties: [
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$survey_id',
-                                operator: PropertyOperator.Exact,
-                                value: survey.id,
-                            },
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$survey_iteration',
-                                operator: PropertyOperator.Exact,
-                                value: survey.current_iteration,
-                            },
-                        ],
-                        trendsFilter: {
-                            formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
-                            display: 'ActionsBar',
-                        },
-                    },
-                }}
-                readOnly={true}
-            />
-        </>
+                    }}
+                />
+            </div>
+        </div>
     )
 }

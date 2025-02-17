@@ -60,7 +60,7 @@ describe('Trends', () => {
             .type(
                 '{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}avg(1042) * 2048'
             )
-        cy.contains('Update HogQL expression').click()
+        cy.contains('Update SQL expression').click()
 
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Table').click()

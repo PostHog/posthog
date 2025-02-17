@@ -29,6 +29,7 @@ export type SettingSectionId =
     | 'environment-access-control'
     | 'environment-role-based-access-control'
     | 'environment-danger-zone'
+    | 'environment-max'
     | 'project-details'
     | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-product-analytics' // TODO: This section is for backward compat – remove when Environments are rolled out
@@ -39,8 +40,10 @@ export type SettingSectionId =
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-role-based-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-danger-zone'
+    | 'organization-ai-consent'
     | 'organization-details'
     | 'organization-members'
+    | 'organization-billing'
     | 'organization-authentication'
     | 'organization-roles'
     | 'organization-proxy'
@@ -86,16 +89,17 @@ export type SettingId =
     | 'environment-role-based-access-control'
     | 'environment-delete'
     | 'project-delete'
+    | 'project-move'
     | 'organization-logo'
     | 'organization-display-name'
     | 'invites'
     | 'members'
     | 'email-members'
     | 'authentication-domains'
+    | 'organization-ai-consent'
     | 'organization-roles'
     | 'organization-delete'
     | 'organization-proxy'
-    | 'product-description'
     | 'details'
     | 'change-password'
     | '2fa'
@@ -116,6 +120,7 @@ export type SettingId =
     | 'cookieless-server-hash-mode'
     | 'user-groups'
     | 'web-revenue-events'
+    | 'core-memory'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -140,7 +145,9 @@ export type Setting = {
 
 export interface SettingSection extends Pick<Setting, 'flag'> {
     id: SettingSectionId
+    to?: string
     title: JSX.Element | string
+    hideSelfHost?: boolean
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel

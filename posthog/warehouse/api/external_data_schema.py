@@ -107,7 +107,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
     def get_sync_frequency(self, schema: ExternalDataSchema):
-        return sync_frequency_interval_to_sync_frequency(schema)
+        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
 
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.context["request"].data
