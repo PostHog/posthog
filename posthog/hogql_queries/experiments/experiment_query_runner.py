@@ -283,6 +283,7 @@ class ExperimentQueryRunner(QueryRunner):
                                 op=ast.CompareOperationOp.GtEq,
                             ),
                             event_filter,
+                            *test_accounts_filter,
                             *metric_property_filters,
                         ],
                     ),

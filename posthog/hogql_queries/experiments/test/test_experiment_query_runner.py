@@ -796,6 +796,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric=ExperimentMetric(
                 metric_type=ExperimentMetricType.FUNNEL,
                 metric_config=ExperimentEventMetricConfig(event="purchase"),
+                filterTestAccounts=True,
             ),
         )
 
