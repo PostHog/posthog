@@ -42,7 +42,7 @@ jobs:
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
-              run: pnpm i -w -D chromatic
+              run: pnpm install -w -D chromatic
 
             - name: Publish to Chromatic
               uses: chromaui/action@v11
@@ -131,7 +131,7 @@ jobs:
               run: |
                   retries=3
                   while [ $retries -gt 0 ]; do
-                      pnpm exec http-server storybook-static --port 6006 --silent &
+                      pnpm exec http-server frontend/storybook-static --port 6006 --silent &
                       if pnpm wait-on http://127.0.0.1:6006 --timeout 15; then
                           break
                       fi
