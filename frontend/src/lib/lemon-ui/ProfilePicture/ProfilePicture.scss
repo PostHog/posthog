@@ -77,7 +77,7 @@
     align-items: center;
 
     > * {
-        outline: 0.125rem solid var(--bg-light);
+        outline: 0.125rem solid var(--bg-surface-primary);
     }
 
     > :not(:first-child) {

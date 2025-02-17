@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 
 import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
 
@@ -9,11 +8,10 @@ import { Hub, PipelineEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
+import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
-import { cloneObject } from '../../../utils/utils'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
-import { compareToHogTransformStep } from './compareToHogTransformStep'
 import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
@@ -33,6 +31,7 @@ import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
 import { transformEventStep } from './transformEventStep'
+
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
     // contains the Kafka producer ACKs and message promises, to avoid blocking after every message.
@@ -141,7 +140,7 @@ export class EventPipelineRunner {
                 }
             } else {
                 // Otherwise rethrow, which leads to Kafka offsets not getting committed and retries
-                Sentry.captureException(error, {
+                captureException(error, {
                     tags: { pipeline_step: 'outside' },
                     extra: { originalEvent: this.originalEvent },
                 })
@@ -232,30 +231,7 @@ export class EventPipelineRunner {
             return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
         }
 
-        // Setup a cloned event so we can compare the post-plugins event to the pre-plugins event
-        let clonedSourceEvent: PluginEvent | null = null
-
-        try {
-            const shouldCompareToHogFunctions =
-                this.hogTransformer && Math.random() < (this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE ?? 0)
-
-            if (shouldCompareToHogFunctions) {
-                clonedSourceEvent = cloneObject(postCookielessEvent)
-            }
-        } catch (error) {
-            status.error('🔔', 'Error cloning event for hog transform comparison', { error })
-        }
-
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
-
-        if (clonedSourceEvent) {
-            // NOTE: We don't use the step process here as we don't want it to interfere with other metrics
-            try {
-                await compareToHogTransformStep(this.hogTransformer, clonedSourceEvent, processedEvent)
-            } catch (error) {
-                status.error('🔔', 'Error comparing to hog transform', { error })
-            }
-        }
 
         if (processedEvent == null) {
             // A plugin dropped the event.
@@ -264,7 +240,7 @@ export class EventPipelineRunner {
 
         const { event: transformedEvent, messagePromises } = await this.runStep(
             transformEventStep,
-            [processedEvent, this.hub.HOG_TRANSFORMATIONS_ENABLED ? this.hogTransformer : null],
+            [processedEvent, this.hogTransformer],
             event.team_id
         )
 
@@ -390,7 +366,7 @@ export class EventPipelineRunner {
 
     private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
         status.error('🔔', 'step_failed', { currentStepName, err })
-        Sentry.captureException(err, {
+        captureException(err, {
             tags: { team_id: teamId, pipeline_step: currentStepName },
             extra: { currentArgs, originalEvent: this.originalEvent },
         })
@@ -415,7 +391,7 @@ export class EventPipelineRunner {
                 await this.hub.db.kafkaProducer.queueMessages(message)
             } catch (dlqError) {
                 status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
-                Sentry.captureException(dlqError, {
+                captureException(dlqError, {
                     tags: { team_id: teamId },
                     extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },
                 })

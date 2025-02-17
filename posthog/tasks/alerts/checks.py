@@ -9,9 +9,10 @@ from celery import shared_task
 from celery.canvas import chain
 from django.db import transaction
 import structlog
-from sentry_sdk import capture_exception, set_tag
+from sentry_sdk import set_tag
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )

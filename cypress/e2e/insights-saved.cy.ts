@@ -13,7 +13,8 @@ describe('Insights - saved', () => {
         })
         cy.task('resetInsightCache').then(() => {
             cy.visit(urls.insightView(newInsightId)) // Full refresh
-            cy.get('.insight-empty-state').should('exist') // There should be a loading state for a moment
+
+            cy.get('[data-attr="insight-empty-state"]').should('exist') // There should be a loading state for a moment
             cy.wait('@getInsightsRefreshAsync').then(() => {
                 cy.get('[data-attr=trend-line-graph]').should('exist')
             })

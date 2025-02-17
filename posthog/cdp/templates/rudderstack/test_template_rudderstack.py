@@ -76,6 +76,24 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
             )
         )
 
+    def test_accepts_wrong_url(self):
+        self.run_function(
+            inputs=self._inputs(host="https://hosted.rudderlabs.com/v1/batch"),
+            globals={
+                "event": {
+                    "uuid": "96a04bdc-6021-4120-a3e3-f1988f59ba5f",
+                    "timestamp": "2024-08-29T13:40:22.713Z",
+                    "distinct_id": "85bcd2e4-d10d-4a99-9dc8-43789b7226a1",
+                    "event": "$pageview",
+                    "properties": {"$current_url": "https://example.com", "$browser": "Chrome"},
+                },
+                "person": {"uuid": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0"},
+            },
+        )
+
+        res = self.get_mock_fetch_calls()[0]
+        assert res[0] == "https://hosted.rudderlabs.com/v1/batch"
+
     def test_automatic_action_mapping(self):
         for event_name, expected_action in [
             ("$identify", "identify"),

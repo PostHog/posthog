@@ -192,6 +192,21 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        validated_data = serializer.validated_data
+
+        credential_data = validated_data.pop("credential", None)
+        if credential_data:
+            credential = instance.credential
+            credential.access_key = credential_data.get("access_key", credential.access_key)
+            credential.access_secret = credential_data.get("access_secret", credential.access_secret)
+            credential.save()
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         updates = request.data.get("updates", None)

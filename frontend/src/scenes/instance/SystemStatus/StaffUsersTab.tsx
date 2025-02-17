@@ -161,7 +161,7 @@ const StaffUsersRemovalModal = ({
                 {myself?.uuid === user?.uuid ? (
                     <>
                         Please confirm you want to <b>remove yourself</b> as a staff user.
-                        <div className="font-normal text-muted-alt">
+                        <div className="font-normal text-secondary">
                             Only another staff user will be able to add you again.
                         </div>
                     </>

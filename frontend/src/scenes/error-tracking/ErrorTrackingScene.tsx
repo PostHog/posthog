@@ -1,5 +1,12 @@
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonSegmentedButton,
+    LemonSkeleton,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
@@ -8,21 +15,23 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
+import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
-import ErrorTrackingFilters from './ErrorTrackingFilters'
+import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { sparklineLabels, sparklineLabelsDay, sparklineLabelsMonth } from './utils'
@@ -46,7 +55,7 @@ export function ErrorTrackingScene(): JSX.Element {
                 render: CustomGroupTitleColumn,
             },
             occurrences: { align: 'center', render: CountColumn },
-            sessions: { align: 'center', render: SessionCountColumn },
+            sessions: { align: 'center', render: CountColumn },
             users: { align: 'center', render: CountColumn },
             volume: { renderTitle: VolumeColumnHeader, render: VolumeColumn },
             assignee: { render: AssigneeColumn },
@@ -62,24 +71,22 @@ export function ErrorTrackingScene(): JSX.Element {
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-                <ErrorTrackingFilters.FilterGroup>
-                    <ErrorTrackingFilters.UniversalSearch />
-                </ErrorTrackingFilters.FilterGroup>
+                <ErrorTrackingFilters />
                 <LemonDivider className="mt-2" />
-                {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
+                {selectedIssueIds.length === 0 ? <ErrorTrackingListOptions /> : <ErrorTrackingListActions />}
                 <Query query={query} context={context} />
             </BindLogic>
         </AlphaAccessScenePrompt>
     )
 }
 
-const ErrorTrackingActions = (): JSX.Element => {
+const ErrorTrackingListActions = (): JSX.Element => {
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
     const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
 
     return (
-        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-bg-3000 flex space-x-1">
+        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary flex space-x-1">
             <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
                 Unselect all
             </LemonButton>
@@ -103,26 +110,35 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
     const record = props.record as ErrorTrackingIssue
 
+    if (!record.aggregations) {
+        return null
+    }
+
     const [data, labels] =
         sparklineSelectedPeriod === '24h'
-            ? [record.volumeDay, sparklineLabelsDay]
-            : sparklineSelectedPeriod === '1m'
-            ? [record.volumeMonth, sparklineLabelsMonth]
+            ? [record.aggregations.volumeDay, sparklineLabelsDay]
+            : sparklineSelectedPeriod === '30d'
+            ? [record.aggregations.volumeMonth, sparklineLabelsMonth]
             : customSparklineConfig
-            ? [record.customVolume, sparklineLabels(customSparklineConfig)]
+            ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]
             : [null, null]
 
     return data ? <Sparkline className="h-8" data={data} labels={labels} /> : null
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
-    const { sparklineSelectedPeriod: period, sparklineOptions: options } = useValues(errorTrackingLogic)
+    const { sparklineSelectedPeriod, sparklineOptions } = useValues(errorTrackingLogic)
     const { setSparklineSelectedPeriod: onChange } = useActions(errorTrackingLogic)
 
-    return period ? (
+    return sparklineSelectedPeriod && sparklineOptions ? (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
-            <LemonSegmentedButton size="xsmall" value={period} options={options} onChange={onChange} />
+            <LemonSegmentedButton
+                size="xsmall"
+                value={sparklineSelectedPeriod}
+                options={Object.values(sparklineOptions)}
+                onChange={onChange}
+            />
         </div>
     ) : null
 }
@@ -156,7 +172,11 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         <div className="space-x-1">
                             <TZLabel time={record.first_seen} className="border-dotted border-b" />
                             <span>|</span>
-                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                            {record.last_seen ? (
+                                <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                            ) : (
+                                <LemonSkeleton />
+                            )}
                         </div>
                     </div>
                 }
@@ -172,19 +192,17 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     )
 }
 
-const SessionCountColumn: QueryContextColumnComponent = ({ children, ...props }) => {
-    const count = props.value as number
-    return count === 0 ? (
+const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
+    const aggregations = (record as ErrorTrackingIssue).aggregations as ErrorTrackingIssueAggregations
+    const count = aggregations[columnName as 'occurrences' | 'sessions' | 'users']
+
+    return columnName === 'sessions' && count === 0 ? (
         <Tooltip title="No $session_id was set for any event in this issue" delayMs={0}>
             -
         </Tooltip>
     ) : (
-        <CountColumn {...props} />
+        <>{humanFriendlyLargeNumber(count)}</>
     )
-}
-
-const CountColumn: QueryContextColumnComponent = ({ value }) => {
-    return <>{humanFriendlyLargeNumber(value as number)}</>
 }
 
 const AssigneeColumn: QueryContextColumnComponent = (props) => {
@@ -209,7 +227,7 @@ const Header = (): JSX.Element => {
                     {user?.is_staff ? (
                         <LemonButton
                             onClick={() => {
-                                throw Error('Oh my!')
+                                posthog.captureException(new Error('Oh my!'))
                             }}
                         >
                             Send an exception

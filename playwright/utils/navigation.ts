@@ -9,7 +9,7 @@ type LowercaseEnum<T> = {
 /** Derive possible identifiers from the Scene enum. Not all of them are
  * actually nav items. This will help keep e2e tests up-to-date when
  * refactoring scenes though. */
-type Identifier = LowercaseEnum<typeof Scene>
+export type Identifier = LowercaseEnum<typeof Scene>
 
 export class Navigation {
     readonly page: Page

@@ -146,12 +146,12 @@ export const FEATURE_FLAGS = {
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
-    QUERY_ASYNC: 'query-async', // owner: @webjunkie
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
     PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
+    SESSIONS_BATCH_EXPORTS: 'sessions-batch-exports', // owner: @tomasfarias
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
@@ -197,7 +197,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
     INSIGHT_FUNNELS_USE_UDF: 'insight-funnels-use-udf', // owner: @aspicer #team-product-analytics
     INSIGHT_FUNNELS_USE_UDF_TRENDS: 'insight-funnels-use-udf-trends', // owner: @aspicer #team-product-analytics
-    FIRST_TIME_FOR_USER_MATH: 'first-time-for-user-math', // owner: @skoob13 #team-product-analytics
     MULTITAB_EDITOR: 'multitab-editor', // owner: @EDsCODE #team-data-warehouse
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
@@ -221,7 +220,6 @@ export const FEATURE_FLAGS = {
     REMOTE_CONFIG: 'remote-config', // owner: @benjackwhite
     SITE_DESTINATIONS: 'site-destinations', // owner: @mariusandra #team-cdp
     SITE_APP_FUNCTIONS: 'site-app-functions', // owner: @mariusandra #team-cdp
-    HOG_TRANSFORMATIONS: 'hog-transformations', // owner: #team-cdp
     HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED: 'hog-transformation-custom-hog-code', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
@@ -243,6 +241,13 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     EXPERIMENT_P_VALUE: 'experiment-p-value', // owner: @jurajmajerik #team-experiments
     WEB_ANALYTICS_IMPROVED_PATH_CLEANING: 'web-analytics-improved-path-cleaning', // owner: @rafaeelaudibert #team-web-analytics
+    ONBOARDING_NEW_PLANS_STEP: 'onboarding-new-plans-step', // owner: @joshsny #team-growth
+    EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
+    RECORDINGS_AI_FILTER: 'recordings-ai-filter', // owner: @veryayskiy #team-replay
+    TREE_VIEW: 'tree-view', // owner: @mariusandra #team-devex
+    EXPERIMENTS_NEW_QUERY_RUNNER: 'experiments-new-query-runner', // owner: #team-experiments
+    RECORDINGS_AI_REGEX: 'recordings-ai-regex', // owner: @veryayskiy #team-replay
+    PATH_CLEANING_AI_REGEX: 'path-cleaning-ai-regex', // owner: @rafaeelaudibert #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

@@ -71,6 +71,8 @@ def to_dict(query: BaseModel) -> dict:
                                 "showLabelsOnSeries",
                                 "showMean",
                                 "yAxisScaleType",
+                                "showMultipleYAxes",
+                                "goalLines",
                             ]
                         }
 

@@ -2,8 +2,7 @@ import { PubSub, Topic } from '@google-cloud/pubsub'
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 
 type PubSubMeta = LegacyDestinationPluginMeta & {
     global: {
@@ -92,11 +91,4 @@ export async function onEvent(fullEvent: ProcessedPluginEvent, { global, config,
         logger.error(`Error publishing ${fullEvent.uuid} to ${config.topicId}: `, error)
         throw new RetryError(`Error publishing to Pub/Sub! ${JSON.stringify(error.errors)}`)
     }
-}
-
-export const pubsubPlugin: LegacyDestinationPlugin = {
-    id: 'pubsub-plugin',
-    metadata: metadata as any,
-    setupPlugin: setupPlugin as any,
-    onEvent,
 }

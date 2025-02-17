@@ -2,7 +2,7 @@ import json
 from typing import TYPE_CHECKING, Optional
 
 from django.core.cache import cache
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

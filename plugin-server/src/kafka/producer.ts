@@ -131,7 +131,10 @@ export class KafkaProducerWrapper {
             produceTimer()
         } catch (error) {
             kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
-            status.error('⚠️', 'kafka_produce_error', { error: error, topic: topic })
+            status.error('⚠️', 'kafka_produce_error', {
+                error: typeof error?.message === 'string' ? error.message : JSON.stringify(error),
+                topic: topic,
+            })
 
             if ((error as LibrdKafkaError).isRetriable) {
                 // If we get a retriable error, bubble that up so that the

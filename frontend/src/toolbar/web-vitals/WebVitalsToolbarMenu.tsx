@@ -1,7 +1,6 @@
-import { Link, Spinner, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import {
@@ -10,9 +9,10 @@ import {
     METRIC_DESCRIPTION,
     WEB_VITALS_THRESHOLDS,
 } from '~/queries/nodes/WebVitals/definitions'
-import { WebVitalsMetric } from '~/queries/schema'
+import { WebVitalsMetric } from '~/queries/schema/schema-general'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 
+import { toolbarConfigLogic } from '../toolbarConfigLogic'
 import { WebVitalsMetrics, webVitalsToolbarLogic } from './webVitalsToolbarLogic'
 
 // Same order as in the Web Vitals report
@@ -20,11 +20,19 @@ const ALL_METRICS: WebVitalsMetric[] = ['INP', 'LCP', 'FCP', 'CLS']
 
 export const WebVitalsToolbarMenu = (): JSX.Element => {
     const { localWebVitals, remoteWebVitals } = useValues(webVitalsToolbarLogic)
+    const { posthog } = useValues(toolbarConfigLogic)
 
     return (
         <ToolbarMenu>
             <ToolbarMenu.Body>
                 <div className="flex flex-col gap-2">
+                    {!posthog?.webVitalsAutocapture?.isEnabled && !inStorybookTestRunner() && !inStorybook() && (
+                        <LemonBanner type="warning">
+                            Web vitals are not enabled for this project so you won't see any data here. Enable it on the{' '}
+                            <Link to={urls.settings()}>settings page</Link> to start capturing web vitals.
+                        </LemonBanner>
+                    )}
+
                     <MetricCards
                         metrics={localWebVitals}
                         label={<span className="text-sm font-bold">Metrics for the current page load</span>}
@@ -117,7 +125,11 @@ const MetricCard = ({ metric, value }: { metric: WebVitalsMetric; value: number 
             >
                 {metric}:
             </DottedTooltip>
-            <span className={clsx('text-sm', `text-${color}`)}>
+            <span
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ color }}
+                className="text-sm"
+            >
                 {' '}
                 {value === undefined ? <WebVitalsToolbarSpinner /> : value === null ? 'N/A' : `${valueWithUnit}${unit}`}
             </span>
@@ -128,13 +140,16 @@ const MetricCard = ({ metric, value }: { metric: WebVitalsMetric; value: number 
 const DottedTooltip = ({ children, title }: { children: React.ReactNode; title: React.ReactNode }): JSX.Element => {
     return (
         <Tooltip title={<div className="text-sm min-w-80">{title}</div>} interactive>
-            <span className="text-sm font-bold border-b border-dotted border-primary cursor-help">{children}</span>
+            <span className="text-sm font-bold border-b border-dotted border-accent-primary cursor-help">
+                {children}
+            </span>
         </Tooltip>
     )
 }
 
 const WebVitalsToolbarSpinner = (): JSX.Element => {
-    // Avoid showing a spinner in Storybook Test Runner, because tests won't ever finish waiting for them to disappear
+    // Avoid showing a spinner in Storybook Test Runner,
+    // because tests won't ever finish waiting for them to disappear
     if (inStorybookTestRunner()) {
         return <></>
     }

@@ -23,7 +23,7 @@ exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 3`] 
       "level": "debug",
       "log_source": "hog_function",
       "log_source_id": "<REPLACED-UUID-2>",
-      "message": "Executing plugin posthog-intercom-plugin",
+      "message": "Executing plugin plugin-posthog-intercom-plugin",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
     },

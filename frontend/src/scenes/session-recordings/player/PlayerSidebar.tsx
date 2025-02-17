@@ -67,7 +67,7 @@ export function PlayerSidebar(): JSX.Element {
             />
             {sidebarOpen && (
                 <>
-                    <div className="flex bg-bg-light">
+                    <div className="flex bg-surface-primary">
                         <div className="w-2.5 border-b shrink-0" />
                         <LemonTabs
                             activeKey={activeTab}
@@ -76,7 +76,7 @@ export function PlayerSidebar(): JSX.Element {
                                 key: tabId,
                                 label: capitalizeFirstLetter(tabId),
                             }))}
-                            barClassName="mb-0"
+                            barClassName="!mb-0"
                             size="small"
                         />
                         <div className="flex flex-1 border-b shrink-0" />

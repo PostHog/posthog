@@ -180,8 +180,10 @@ export function HogFunctionConfiguration({
         )
     const canEditSource =
         displayOptions.canEditSource ??
-        ((['destination', 'email', 'site_destination', 'site_app'].includes(type) && !isLegacyPlugin) ||
-            (type === 'transformation' && canEditTransformationHogCode))
+        // Never allow editing for legacy plugins
+        (!isLegacyPlugin &&
+            (['destination', 'email', 'site_destination', 'site_app'].includes(type) ||
+                (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
         displayOptions.showTesting ??
@@ -215,7 +217,7 @@ export function HogFunctionConfiguration({
                 >
                     <div className="flex flex-wrap items-start gap-4">
                         <div className="flex flex-col flex-1 gap-4 min-w-100">
-                            <div className="p-3 space-y-2 border rounded bg-bg-light">
+                            <div className="p-3 space-y-2 border rounded bg-surface-primary">
                                 <div className="flex flex-row items-center gap-2 min-h-16">
                                     <LemonField name="icon_url">
                                         {({ value, onChange }) => (
@@ -291,7 +293,7 @@ export function HogFunctionConfiguration({
                                             </div>
                                         }
                                     >
-                                        <div className="text-xs border border-dashed rounded text-muted-alt">
+                                        <div className="text-xs border border-dashed rounded text-secondary">
                                             <Link subtle className="flex flex-wrap items-center gap-1 p-2">
                                                 Built from template:
                                                 <span className="font-semibold">{hogFunction?.template.name}</span>
@@ -308,7 +310,7 @@ export function HogFunctionConfiguration({
                             {showFilters && <HogFunctionFilters />}
 
                             {showPersonsCount && (
-                                <div className="relative p-3 space-y-2 border rounded bg-bg-light">
+                                <div className="relative p-3 space-y-2 border rounded bg-surface-primary">
                                     <div>
                                         <LemonLabel>Matching persons</LemonLabel>
                                     </div>
@@ -341,7 +343,7 @@ export function HogFunctionConfiguration({
                         </div>
 
                         <div className="space-y-4 flex-2 min-w-100">
-                            <div className="p-3 space-y-2 border rounded bg-bg-light">
+                            <div className="p-3 space-y-2 border rounded bg-surface-primary">
                                 <div className="space-y-2">
                                     {usesGroups && !hasGroupsAddon ? (
                                         <LemonBanner type="warning">
@@ -391,7 +393,7 @@ export function HogFunctionConfiguration({
                                 <div
                                     className={clsx(
                                         'border rounded p-3 space-y-2',
-                                        showSource ? 'bg-bg-light' : 'bg-accent-3000'
+                                        showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
                                     )}
                                 >
                                     <div className="flex items-center justify-end gap-2">
@@ -428,7 +430,7 @@ export function HogFunctionConfiguration({
                                             {({ value, onChange }) => (
                                                 <>
                                                     {!type.startsWith('site_') ? (
-                                                        <span className="text-xs text-muted-alt">
+                                                        <span className="text-xs text-secondary">
                                                             This is the underlying Hog code that will run whenever the
                                                             filters match.{' '}
                                                             <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}

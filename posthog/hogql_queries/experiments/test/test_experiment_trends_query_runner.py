@@ -2040,7 +2040,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         feature_flag_property = f"$feature/{feature_flag.key}"
-
         self.team.test_account_filters = [
             {
                 "key": "email",
@@ -2180,7 +2179,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             materialized_columns = get_enabled_materialized_columns("events")
             self.assertIn("mat_pp_email", [col.name for col in materialized_columns.values()])
             # Assert the expected email where statement in the clickhouse SQL
-            expected_email_where_statement = "ifNull(notILike(e__events.poe___properties___email, %(hogql_val_25)s), 1)"
+            expected_email_where_statement = "notILike(toString(e__events.poe___properties___email), %(hogql_val_25)s"
             self.assertIn(
                 expected_email_where_statement,
                 str(response.clickhouse),

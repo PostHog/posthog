@@ -5,7 +5,7 @@ import { fullName } from 'lib/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userGroupsLogic } from 'scenes/settings/environment/userGroupsLogic'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { OrganizationMemberType, UserGroup } from '~/types'
 
 import type { assigneeSelectLogicType } from './assigneeSelectLogicType'
@@ -30,7 +30,7 @@ const userDisplay = (member: OrganizationMemberType): AssigneeDisplayType => ({
 
 const unassignedUser = {
     id: 'unassigned',
-    icon: <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />,
+    icon: <IconPerson className="rounded-full border border-dashed border-muted text-secondary p-0.5" />,
 }
 
 export const assigneeSelectLogic = kea<assigneeSelectLogicType>([

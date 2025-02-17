@@ -40,7 +40,7 @@ describe('Insights', () => {
 
             it('can open a new funnels insight', () => {
                 insight.clickTab('FUNNELS')
-                cy.get('.funnels-empty-state__title').should('exist')
+                cy.get('[data-attr="insight-empty-state"]').find('h2').should('exist')
             })
 
             it('can open a new retention insight', () => {

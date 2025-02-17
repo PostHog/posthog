@@ -37,6 +37,8 @@ class HogQLContext:
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
+    # Apply a FORMAT clause to output data in given format.
+    output_format: str | None = None
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
 
