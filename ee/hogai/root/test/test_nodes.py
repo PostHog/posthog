@@ -178,6 +178,52 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ],
         )
 
+    def test_node_filters_tool_calls_without_responses(self):
+        node = RootNode(self.team)
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="Hello"),
+                AssistantMessage(
+                    content="Welcome!",
+                    tool_calls=[
+                        # This tool call has a response
+                        {
+                            "id": "xyz1",
+                            "name": "create_and_query_insight",
+                            "args": {},
+                        },
+                        # This tool call has no response and should be filtered out
+                        {
+                            "id": "xyz2",
+                            "name": "create_and_query_insight",
+                            "args": {},
+                        },
+                    ],
+                ),
+                AssistantToolCallMessage(content="Answer for xyz1", tool_call_id="xyz1"),
+            ]
+        )
+        messages = node._construct_messages(state)
+
+        # Verify we get exactly 3 messages
+        self.assertEqual(len(messages), 3)
+
+        # Verify the messages are in correct order and format
+        self.assertEqual(messages[0], LangchainHumanMessage(content="Hello"))
+
+        # Verify the assistant message only includes the tool call that has a response
+        assistant_message = messages[1]
+        self.assertIsInstance(assistant_message, LangchainAIMessage)
+        self.assertEqual(assistant_message.content, "Welcome!")
+        self.assertEqual(len(assistant_message.tool_calls), 1)
+        self.assertEqual(assistant_message.tool_calls[0]["id"], "xyz1")
+
+        # Verify the tool response is included
+        tool_message = messages[2]
+        self.assertIsInstance(tool_message, LangchainToolMessage)
+        self.assertEqual(tool_message.content, "Answer for xyz1")
+        self.assertEqual(tool_message.tool_call_id, "xyz1")
+
     def test_hard_limit_removes_tools(self):
         with patch(
             "ee.hogai.root.nodes.ChatOpenAI",

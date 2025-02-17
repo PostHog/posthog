@@ -1,5 +1,6 @@
 import json
 from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
@@ -19,6 +20,7 @@ from ee.hogai.retention.nodes import RetentionGeneratorNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import TrendsGeneratorNode
 from ee.hogai.utils.asgi import SyncIterableToAsync
+from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -124,39 +126,47 @@ class Assistant:
             state, config=config, stream_mode=["messages", "values", "updates", "debug"]
         )
 
-        # Assign the conversation id to the client.
-        if self._is_new_conversation:
-            yield self._serialize_conversation()
+        with self._lock_conversation():
+            # Assign the conversation id to the client.
+            if self._is_new_conversation:
+                yield self._serialize_conversation()
 
-        # Send the last message with the initialized id.
-        yield self._serialize_message(self._latest_message)
+            # Send the last message with the initialized id.
+            yield self._serialize_message(self._latest_message)
 
-        try:
-            last_viz_message = None
-            for update in generator:
-                if message := self._process_update(update):
-                    if isinstance(message, VisualizationMessage):
-                        last_viz_message = message
-                    yield self._serialize_message(message)
+            try:
+                last_viz_message = None
+                for update in generator:
+                    if message := self._process_update(update):
+                        if isinstance(message, VisualizationMessage):
+                            last_viz_message = message
+                        yield self._serialize_message(message)
 
-            # Check if the assistant has requested help.
-            state = self._graph.get_state(config)
-            if state.next:
-                interrupt_value = state.tasks[0].interrupts[0].value
-                feedback_message = (
-                    AssistantMessage(content=interrupt_value, id=str(uuid4()))
-                    if isinstance(interrupt_value, str)
-                    else interrupt_value
-                )
-                self._graph.update_state(config, PartialAssistantState(messages=[feedback_message]))
-                yield self._serialize_message(feedback_message)
-            else:
-                self._report_conversation_state(last_viz_message)
-        except Exception as e:
-            logger.exception("Error in assistant stream", error=e)
-            # This is an unhandled error, so we just stop further generation at this point
-            yield self._serialize_message(FailureMessage())
-            raise  # Re-raise, so that the error is printed or goes into Sentry
+                # Check if the assistant has requested help.
+                state = self._graph.get_state(config)
+                if state.next:
+                    interrupt_messages = []
+                    for task in state.tasks:
+                        for interrupt in task.interrupts:
+                            interrupt_message = (
+                                AssistantMessage(content=interrupt.value, id=str(uuid4()))
+                                if isinstance(interrupt.value, str)
+                                else interrupt.value
+                            )
+                            interrupt_messages.append(interrupt_message)
+                            yield self._serialize_message(interrupt_message)
+
+                    if interrupt_messages:
+                        self._graph.update_state(config, PartialAssistantState(messages=interrupt_messages))
+                else:
+                    self._report_conversation_state(last_viz_message)
+            except GenerationCanceled:
+                pass
+            except Exception as e:
+                logger.exception("Error in assistant stream", error=e)
+                # This is an unhandled error, so we just stop further generation at this point
+                yield self._serialize_message(FailureMessage())
+                raise  # Re-raise, so that the error is printed or goes into Sentry
 
     @property
     def _initial_state(self) -> AssistantState:
@@ -174,13 +184,23 @@ class Assistant:
     def _init_or_update_state(self):
         config = self._get_config()
         snapshot = self._graph.get_state(config)
-        if snapshot.next:
-            saved_state = validate_state_update(snapshot.values)
-            self._state = saved_state
-            self._graph.update_state(config, PartialAssistantState(messages=[self._latest_message], resumed=True))
-
-            return None
         initial_state = self._initial_state
+
+        if snapshot.next:
+            # In case the graph was interrupted, we resume from the point of interruption.
+            if next((task.interrupts for task in snapshot.tasks if task.interrupts), None):
+                saved_state = validate_state_update(snapshot.values)
+                self._state = saved_state
+                self._graph.update_state(config, PartialAssistantState(messages=[self._latest_message], resumed=True))
+                # Return None to indicate that we want to continue the execution from the interrupted point.
+                return None
+
+            # The graph had an exception or was cancelled.
+            # Reset the state to start from the beginning.
+            initial_state = initial_state.model_copy(
+                update=PartialAssistantState.get_reset_state().model_dump(exclude_none=True, exclude_unset=True)
+            )
+
         self._state = initial_state
         return initial_state
 
@@ -317,3 +337,13 @@ class Assistant:
                 "chat with ai",
                 {"prompt": human_message.content, "response": message.model_dump_json(exclude_none=True)},
             )
+
+    @contextmanager
+    def _lock_conversation(self):
+        try:
+            self._conversation.status = Conversation.Status.IN_PROGRESS
+            self._conversation.save()
+            yield
+        finally:
+            self._conversation.status = Conversation.Status.NOT_STARTED
+            self._conversation.save()
