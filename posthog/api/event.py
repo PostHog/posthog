@@ -318,10 +318,12 @@ class EventViewSet(
                     property_key = param_key.replace("properties_", "", 1)
                     try:
                         # Expect properly encoded JSON from frontend
-                        property_values = json.loads(param_value)
+                        property_values = (
+                            json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
+                        )
                         if isinstance(property_values, list):
                             # Convert all values to strings for consistent comparison
-                            value_conditions = [
+                            value_conditions: list[ast.Expr] = [
                                 ast.CompareOperation(
                                     op=ast.CompareOperationOp.Eq,
                                     left=ast.Call(
