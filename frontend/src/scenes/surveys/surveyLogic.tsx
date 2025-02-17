@@ -36,7 +36,7 @@ import {
 import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
-import { sanitizeHTML, sanitizeSurveyAppearance, validateColor } from './utils'
+import { getSurveyResponseKey, sanitizeHTML, sanitizeSurveyAppearance, validateColor } from './utils'
 
 const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: PropertyOperator }> = {
     [SurveyQuestionType.Open]: {
@@ -219,7 +219,10 @@ export const surveyLogic = kea<surveyLogicType>([
         resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
-        setAnswerFilters: (filters: EventPropertyFilter[], reloadResults?: boolean) => ({ filters, reloadResults }),
+        setAnswerFilters: (filters: EventPropertyFilter[], reloadResults: boolean = true) => ({
+            filters,
+            reloadResults,
+        }),
         setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
@@ -239,7 +242,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         // Initialize answer filters for all questions
                         actions.setAnswerFilters(
                             survey.questions.map((question, index) => ({
-                                key: index === 0 ? '$survey_response' : `$survey_response_${index}`,
+                                key: getSurveyResponseKey(index),
                                 operator: DEFAULT_OPERATORS[question.type].value,
                                 type: PropertyFilterType.Event as const,
                                 value: [],

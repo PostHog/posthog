@@ -66,7 +66,7 @@ export function SurveyAnswerFilters(): JSX.Element {
                 [field]: value,
             })
         }
-        setAnswerFilters(newFilters, true)
+        setAnswerFilters(newFilters)
     }
 
     const getFilterForQuestion = (questionIndex: number): EventPropertyFilter | undefined => {
