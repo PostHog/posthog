@@ -149,7 +149,7 @@ export function HogFunctionTest(): JSX.Element {
         testResultMode,
         sortedTestsResult,
         jsonError,
-        isGlobalLoadingCancelled,
+        fetchCancelled,
     } = useValues(hogFunctionTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -175,7 +175,7 @@ export function HogFunctionTest(): JSX.Element {
                     <div className="flex-1 space-y-2">
                         <h2 className="flex items-center gap-2 mb-0">
                             <span>Testing</span>
-                            {sampleGlobalsLoading ? <Spinner /> : null}
+                            {sampleGlobalsLoading && !fetchCancelled ? <Spinner /> : null}
                         </h2>
                         {!expanded && <p>Click here to test your function with an example event</p>}
                     </div>
@@ -231,7 +231,7 @@ export function HogFunctionTest(): JSX.Element {
                                                 <LemonButton
                                                     fullWidth
                                                     onClick={loadSampleGlobals}
-                                                    loading={sampleGlobalsLoading}
+                                                    loading={sampleGlobalsLoading && !fetchCancelled}
                                                     tooltip="Find the last event matching filters, and use it to populate the globals below."
                                                 >
                                                     Fetch new event
@@ -420,7 +420,7 @@ export function HogFunctionTest(): JSX.Element {
                                                         ? 'The provider will be tested with this sample data:'
                                                         : 'Here are all the global variables you can use in your code:'}
                                                 </div>
-                                                {sampleGlobalsLoading && !isGlobalLoadingCancelled && (
+                                                {sampleGlobalsLoading && !fetchCancelled && (
                                                     <div className="flex items-center gap-2 text-muted">
                                                         <Spinner />
                                                         <span>Fetching new event...</span>
@@ -440,7 +440,7 @@ export function HogFunctionTest(): JSX.Element {
                                             <HogFunctionTestEditor
                                                 value={value}
                                                 onChange={onChange}
-                                                readOnly={sampleGlobalsLoading && !isGlobalLoadingCancelled}
+                                                readOnly={sampleGlobalsLoading}
                                             />
                                         </>
                                     )}
