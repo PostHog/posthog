@@ -165,6 +165,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         (storage_ptr, content_hash) = upload_symbol_set(minified, source_map, self.team_id)
         symbol_set.storage_ptr = storage_ptr
         symbol_set.content_hash = content_hash
+        symbol_set.failure_reason = None
         symbol_set.save()
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)

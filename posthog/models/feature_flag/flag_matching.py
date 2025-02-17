@@ -24,6 +24,7 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
 from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models.team.team import Team
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 from posthog.database_healthcheck import (
@@ -31,6 +32,7 @@ from posthog.database_healthcheck import (
     DATABASE_FOR_FLAG_MATCHING,
 )
 from posthog.utils import label_for_team_id_to_track
+from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payload
 
 from .feature_flag import (
     FeatureFlag,
@@ -109,8 +111,8 @@ class FeatureFlagMatch:
 
 
 class FlagsMatcherCache:
-    def __init__(self, team_id: int):
-        self.team_id = team_id
+    def __init__(self, project_id: int):
+        self.project_id = project_id
         self.failed_to_fetch_flags = False
 
     @cached_property
@@ -120,7 +122,7 @@ class FlagsMatcherCache:
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING):
                 group_type_mapping_rows = GroupTypeMapping.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                    team_id=self.team_id
+                    project_id=self.project_id
                 )
                 return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
         except DatabaseError:
@@ -137,6 +139,8 @@ class FeatureFlagMatcher:
 
     def __init__(
         self,
+        team_id: int,
+        project_id: int,
         feature_flags: list[FeatureFlag],
         distinct_id: str,
         groups: Optional[dict[GroupTypeName, str]] = None,
@@ -155,10 +159,12 @@ class FeatureFlagMatcher:
             hash_key_overrides = {}
         if groups is None:
             groups = {}
+        self.team_id = team_id
+        self.project_id = project_id
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
         self.groups = groups
-        self.cache = cache or FlagsMatcherCache(self.feature_flags[0].team_id)
+        self.cache = cache or FlagsMatcherCache(project_id)
         self.hash_key_overrides = hash_key_overrides
         self.property_value_overrides = property_value_overrides
         self.group_property_value_overrides = group_property_value_overrides
@@ -313,7 +319,11 @@ class FeatureFlagMatcher:
             if match_variant:
                 return feature_flag.get_payload(match_variant)
             else:
-                return feature_flag.get_payload("true")
+                return (
+                    feature_flag.get_payload("true")
+                    if not feature_flag.has_encrypted_payloads
+                    else get_decrypted_flag_payload(feature_flag.get_payload("true"), should_decrypt=False)
+                )
         else:
             return None
 
@@ -470,14 +480,13 @@ class FeatureFlagMatcher:
             # and not just the database query.
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
                 all_conditions: dict = {}
-                team_id = self.feature_flags[0].team_id
                 person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                    team_id=team_id,
+                    team_id=self.team_id,
                     persondistinctid__distinct_id=self.distinct_id,
-                    persondistinctid__team_id=team_id,
+                    persondistinctid__team_id=self.team_id,
                 )
                 basic_group_query: QuerySet = Group.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                    team_id=team_id
+                    team_id=self.team_id
                 )
                 group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
@@ -509,14 +518,13 @@ class FeatureFlagMatcher:
                         all_conditions[f"{ENTITY_EXISTS_PREFIX}{existence_condition_key}"] = group_exists
 
                 def condition_eval(key, condition):
-                    team_id = self.feature_flags[0].team_id
                     expr = None
                     annotate_query = True
                     nonlocal person_query
 
                     property_list = Filter(data=condition).property_groups.flat
                     properties_with_math_operators = get_all_properties_with_math_operators(
-                        property_list, self.cohorts_cache, team_id
+                        property_list, self.cohorts_cache, self.project_id
                     )
 
                     if len(condition.get("properties", {})) > 0:
@@ -532,7 +540,7 @@ class FeatureFlagMatcher:
                                 )
 
                         expr = properties_to_Q(
-                            team_id,
+                            self.project_id,
                             property_list,
                             override_property_values=target_properties,
                             cohorts_cache=self.cohorts_cache,
@@ -602,7 +610,7 @@ class FeatureFlagMatcher:
                     all_cohorts = {
                         cohort.pk: cohort
                         for cohort in Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
-                            team_id=team_id, deleted=False
+                            team__project_id=self.project_id, deleted=False
                         )
                     }
                     self.cohorts_cache.update(all_cohorts)
@@ -782,6 +790,7 @@ def get_feature_flag_hash_key_overrides(
 def _get_all_feature_flags(
     feature_flags: list[FeatureFlag],
     team_id: int,
+    project_id: int,
     distinct_id: str,
     person_overrides: Optional[dict[str, str]] = None,
     groups: Optional[dict[GroupTypeName, str]] = None,
@@ -795,10 +804,12 @@ def _get_all_feature_flags(
         property_value_overrides = {}
     if groups is None:
         groups = {}
-    cache = FlagsMatcherCache(team_id)
+    cache = FlagsMatcherCache(project_id)
 
     if feature_flags:
         return FeatureFlagMatcher(
+            team_id,
+            project_id,
             feature_flags,
             distinct_id,
             groups,
@@ -814,7 +825,7 @@ def _get_all_feature_flags(
 
 # Return feature flags
 def get_all_feature_flags(
-    team_id: int,
+    team: Team,
     distinct_id: str,
     groups: Optional[dict[GroupTypeName, str]] = None,
     hash_key_override: Optional[str] = None,
@@ -830,14 +841,14 @@ def get_all_feature_flags(
     property_value_overrides, group_property_value_overrides = add_local_person_and_group_properties(
         distinct_id, groups, property_value_overrides, group_property_value_overrides
     )
-    all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
+    all_feature_flags = get_feature_flags_for_team_in_cache(team.project_id)
     cache_hit = True
 
     if all_feature_flags is None:
         cache_hit = False
-        all_feature_flags = set_feature_flags_for_team_in_cache(team_id)
+        all_feature_flags = set_feature_flags_for_team_in_cache(team.project_id)
 
-    FLAG_CACHE_HIT_COUNTER.labels(team_id=label_for_team_id_to_track(team_id), cache_hit=cache_hit).inc()
+    FLAG_CACHE_HIT_COUNTER.labels(team_id=label_for_team_id_to_track(team.id), cache_hit=cache_hit).inc()
 
     flags_have_experience_continuity_enabled = any(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
@@ -849,7 +860,8 @@ def get_all_feature_flags(
         if not is_database_alive or not flags_have_experience_continuity_enabled:
             return _get_all_feature_flags(
                 all_feature_flags,
-                team_id,
+                team.id,
+                team.project_id,
                 distinct_id,
                 groups=groups,
                 property_value_overrides=property_value_overrides,
@@ -882,12 +894,15 @@ def get_all_feature_flags(
                             SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
                             WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
                         )
-                        SELECT key FROM posthog_featureflag WHERE team_id = %(team_id)s AND ensure_experience_continuity = TRUE AND active = TRUE AND deleted = FALSE
+                        SELECT key FROM posthog_featureflag flag
+                        JOIN posthog_team team ON flag.team_id = team.id
+                        WHERE team.project_id = %(project_id)s
+                            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
                             AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
                     """
                     cursor.execute(
                         query,
-                        {"team_id": team_id, "distinct_ids": distinct_ids},
+                        {"team_id": team.id, "project_id": team.project_id, "distinct_ids": distinct_ids},
                     )
                     flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
                     should_write_hash_key_override = len(flags_with_no_overrides) > 0
@@ -909,9 +924,9 @@ def get_all_feature_flags(
                     # https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/db.ts (updateCohortsAndFeatureFlagsForMerge)
 
                     writing_hash_key_override = set_feature_flag_hash_key_overrides(
-                        team_id, [distinct_id, hash_key_override], hash_key_override
+                        team, [distinct_id, hash_key_override], hash_key_override
                     )
-                    team_id_label = label_for_team_id_to_track(team_id)
+                    team_id_label = label_for_team_id_to_track(team.id)
                     FLAG_HASH_KEY_WRITES_COUNTER.labels(
                         team_id=team_id_label,
                         successful_write=writing_hash_key_override,
@@ -940,7 +955,7 @@ def get_all_feature_flags(
                 target_distinct_ids = [distinct_id]
                 if hash_key_override is not None:
                     target_distinct_ids.append(str(hash_key_override))
-                person_overrides = get_feature_flag_hash_key_overrides(team_id, target_distinct_ids, using_database)
+                person_overrides = get_feature_flag_hash_key_overrides(team.id, target_distinct_ids, using_database)
 
         except Exception as e:
             handle_feature_flag_exception(
@@ -953,7 +968,8 @@ def get_all_feature_flags(
             # This automatically sets 'errorsWhileComputingFlags' to True.
             return _get_all_feature_flags(
                 all_feature_flags,
-                team_id,
+                team.id,
+                team.project_id,
                 distinct_id,
                 groups=groups,
                 property_value_overrides=property_value_overrides,
@@ -963,7 +979,8 @@ def get_all_feature_flags(
 
     return _get_all_feature_flags(
         all_feature_flags,
-        team_id,
+        team.id,
+        team.project_id,
         distinct_id,
         person_overrides,
         groups=groups,
@@ -972,7 +989,7 @@ def get_all_feature_flags(
     )
 
 
-def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], hash_key_override: str) -> bool:
+def set_feature_flag_hash_key_overrides(team: Team, distinct_ids: list[str], hash_key_override: str) -> bool:
     # As a product decision, the first override wins, i.e consistency matters for the first walkthrough.
     # Thus, we don't need to do upserts here.
 
@@ -996,8 +1013,11 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], h
                         WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
                     ),
                     flags_to_override AS (
-                        SELECT key FROM posthog_featureflag WHERE team_id = %(team_id)s AND ensure_experience_continuity = TRUE AND active = TRUE AND deleted = FALSE
-                        AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+                        SELECT key FROM posthog_featureflag flag
+                        JOIN posthog_team team ON flag.team_id = team.id
+                        WHERE team.project_id = %(project_id)s
+                            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
+                            AND flag.key NOT IN (SELECT feature_flag_key FROM existing_overrides)
                     )
                     INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
                         SELECT team_id, person_id, key, %(hash_key_override)s
@@ -1017,7 +1037,8 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], h
                 cursor.execute(
                     query,
                     {
-                        "team_id": team_id,
+                        "team_id": team.id,
+                        "project_id": team.project_id,
                         "distinct_ids": distinct_ids,
                         "hash_key_override": hash_key_override,
                     },
@@ -1083,7 +1104,7 @@ def key_and_field_for_property(property: Property) -> tuple[str, str]:
 
 
 def get_all_properties_with_math_operators(
-    properties: list[Property], cohorts_cache: dict[int, CohortOrEmpty], team_id: int
+    properties: list[Property], cohorts_cache: dict[int, CohortOrEmpty], project_id: int
 ) -> list[tuple[str, str]]:
     all_keys_and_fields = []
 
@@ -1093,7 +1114,7 @@ def get_all_properties_with_math_operators(
             if cohorts_cache.get(cohort_id) is None:
                 queried_cohort = (
                     Cohort.objects.db_manager(DATABASE_FOR_FLAG_MATCHING)
-                    .filter(pk=cohort_id, team_id=team_id, deleted=False)
+                    .filter(pk=cohort_id, team__project_id=project_id, deleted=False)
                     .first()
                 )
                 cohorts_cache[cohort_id] = queried_cohort or ""
@@ -1101,7 +1122,7 @@ def get_all_properties_with_math_operators(
             cohort = cohorts_cache[cohort_id]
             if cohort:
                 all_keys_and_fields.extend(
-                    get_all_properties_with_math_operators(cohort.properties.flat, cohorts_cache, team_id)
+                    get_all_properties_with_math_operators(cohort.properties.flat, cohorts_cache, project_id)
                 )
         elif prop.operator in ["gt", "lt", "gte", "lte"] and prop.type in ("person", "group"):
             all_keys_and_fields.append(key_and_field_for_property(prop))
@@ -1130,7 +1151,7 @@ def check_pure_is_not_operator_condition(condition: dict) -> bool:
     return False
 
 
-def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int) -> bool:
+def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int) -> bool:
     # TRICKY: There are some cases where the regex is valid re2 syntax, but postgresql doesn't like it.
     # This function tries to validate such cases. See `test_cant_create_flag_with_data_that_fails_to_query` for an example.
     # It however doesn't catch all cases, like when the property doesn't exist on any person, which shortcircuits regex evaluation
@@ -1146,9 +1167,9 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int) -
     group_type_index = feature_flag.aggregation_group_type_index
 
     base_query: QuerySet = (
-        Person.objects.filter(team_id=team_id)
+        Person.objects.filter(team__project_id=project_id)
         if group_type_index is None
-        else Group.objects.filter(team_id=team_id, group_type_index=group_type_index)
+        else Group.objects.filter(team__project_id=project_id, group_type_index=group_type_index)
     )
     query_fields = []
 
@@ -1156,10 +1177,10 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int) -
         key = f"flag_0_condition_{index}"
         property_list = Filter(data=condition).property_groups.flat
         expr = properties_to_Q(
-            team_id,
+            project_id,
             property_list,
         )
-        properties_with_math_operators = get_all_properties_with_math_operators(property_list, {}, team_id)
+        properties_with_math_operators = get_all_properties_with_math_operators(property_list, {}, project_id)
         type_property_annotations = _get_property_type_annotations(properties_with_math_operators)
         base_query = base_query.annotate(
             **type_property_annotations,

@@ -1,15 +1,16 @@
 use std::{future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
-use common_kafka::kafka_consumer::RecvErr;
+use common_kafka::{kafka_consumer::RecvErr, kafka_producer::KafkaProduceError};
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::ClickHouseEvent;
 use cymbal::{
     app_context::AppContext,
     config::Config,
     handle_event,
-    metric_consts::{ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
+    metric_consts::{DROPPED_EVENTS, ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
 };
+use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -116,13 +117,43 @@ async fn main() {
             offsets.push(offset);
         }
 
-        txn.send_keyed_iter_to_kafka(
-            &context.config.events_topic,
-            |ev| Some(ev.uuid.to_string()),
-            &output,
-        )
-        .await
-        .expect("Failed to send event to Kafka");
+        let results = txn
+            .send_keyed_iter_to_kafka(
+                &context.config.events_topic,
+                |ev| Some(ev.uuid.to_string()),
+                &output,
+            )
+            .await;
+
+        for (result, offset) in results.into_iter().zip(offsets.iter()) {
+            match result {
+                Ok(_) => {}
+                Err(KafkaProduceError::KafkaProduceError { error })
+                    if matches!(
+                        error.rdkafka_error_code(),
+                        Some(RDKafkaErrorCode::MessageSizeTooLarge)
+                    ) =>
+                {
+                    // If we got a message too large error, just commit the offset anyway and drop the exception, there's
+                    // nothing else we can do.
+                    error!(
+                        "Dropping exception at offset {:?} due to {:?}",
+                        offset, error
+                    );
+                    metrics::counter!(DROPPED_EVENTS, "cause" => "message_too_large").increment(1);
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to send event to kafka: {:?}, related to offset {:?}",
+                        e, offset
+                    );
+                    panic!(
+                        "Failed to send event to kafka: {:?}, related to offset {:?}",
+                        e, offset
+                    );
+                }
+            }
+        }
 
         let metadata = context.kafka_consumer.metadata();
 

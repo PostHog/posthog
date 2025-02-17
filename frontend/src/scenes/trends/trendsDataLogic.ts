@@ -18,7 +18,7 @@ import {
     MathType,
     TrendsFilter,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { isValidBreakdown } from '~/queries/utils'
 import {
     ChartDisplayType,

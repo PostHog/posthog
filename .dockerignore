@@ -5,6 +5,8 @@
 !babel.config.js
 !bin
 !common/hogvm
+!common/esbuilder
+!common/eslint_rules
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !dags

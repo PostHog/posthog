@@ -5,6 +5,7 @@ import {
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 } from 'openai/resources/chat/completions'
+import posthog from 'posthog-js'
 
 import { RecordingUniversalFilters } from '~/types'
 
@@ -14,6 +15,13 @@ export interface AiFilterLogicProps {
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     resetFilters: () => void
 }
+
+interface AiFilterResponse {
+    result: 'filter' | 'question'
+    data: any
+}
+
+const TIMEOUT_LIMIT = 10000
 
 export const aiFilterLogic = kea<aiFilterLogicType>([
     path(['lib', 'components', 'AiFilter', 'aiFilterLogicType']),
@@ -60,6 +68,7 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         handleSend: () => {
+            posthog.capture('ai_filter_send')
             const newMessages = [
                 ...values.messages,
                 {
@@ -74,19 +83,37 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
         handleAi: async ({ newMessages }) => {
             actions.setIsLoading(true)
 
-            const content = await api.recordings.aiFilters(newMessages as ChatCompletionUserMessageParam[])
+            try {
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Request timed out')), TIMEOUT_LIMIT)
+                })
 
-            if (content.hasOwnProperty('result') && content.result === 'filter') {
-                props.setFilters(content.data)
-            }
-            if (content.hasOwnProperty('result') && content.result === 'question') {
+                const contentPromise = api.recordings.aiFilters(newMessages as ChatCompletionUserMessageParam[])
+                const content = (await Promise.race([contentPromise, timeoutPromise])) as AiFilterResponse
+
+                if (content.hasOwnProperty('result')) {
+                    if (content.result === 'filter') {
+                        props.setFilters(content.data)
+                        posthog.capture('ai_filter_success')
+                    }
+
+                    actions.setMessages([
+                        ...newMessages,
+                        {
+                            role: 'assistant',
+                            content: content.result === 'filter' ? JSON.stringify(content.data) : content.data.question,
+                        } as ChatCompletionAssistantMessageParam,
+                    ])
+                }
+            } catch (error) {
                 actions.setMessages([
                     ...newMessages,
                     {
                         role: 'assistant',
-                        content: content.data.question ?? '',
+                        content: 'Sorry, I was unable to process your request. Please try again.',
                     } as ChatCompletionAssistantMessageParam,
                 ])
+                posthog.capture('ai_filter_error')
             }
 
             actions.setIsLoading(false)
@@ -94,6 +121,7 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
         handleReset: () => {
             actions.setMessages([])
             props.resetFilters()
+            posthog.capture('ai_filter_reset')
         },
     })),
 ])

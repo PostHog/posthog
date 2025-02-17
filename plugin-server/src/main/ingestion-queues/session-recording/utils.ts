@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata } from 'node-rdkafka'
 import path from 'path'
@@ -6,6 +5,7 @@ import { Counter } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
+import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
