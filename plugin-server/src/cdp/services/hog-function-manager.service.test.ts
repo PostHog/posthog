@@ -1,3 +1,6 @@
+import { DurationLike } from 'luxon'
+import { DateTime } from 'luxon'
+
 import { createTeam, resetTestDatabase } from '../../_tests/helpers/sql'
 import { fetchTeam } from '../../services/team-manager'
 import { Hub } from '../../types'
@@ -89,8 +92,6 @@ describe('HogFunctionManager', () => {
                 },
             })
         )
-
-        await manager.start(['destination'])
     })
 
     afterEach(async () => {
@@ -99,6 +100,7 @@ describe('HogFunctionManager', () => {
     })
 
     it('returns the hog functions', async () => {
+        await manager.start(['destination'])
         let items = manager.getTeamHogFunctions(teamId1)
 
         expect(items).toEqual([
@@ -139,13 +141,13 @@ describe('HogFunctionManager', () => {
 
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET name='Test Hog Function team 1 updated' WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET name='Test Hog Function team 1 updated', updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
 
         // This is normally dispatched by django
-        await manager.reloadHogFunctions(teamId1, [hogFunctions[0].id])
+        await manager.reloadAllHogFunctions()
 
         items = manager.getTeamHogFunctions(teamId1)
 
@@ -157,20 +159,29 @@ describe('HogFunctionManager', () => {
         ])
     })
 
-    it('filters hog functions by type', async () => {
-        manager['hogTypes'] = ['transformation']
-        await manager.reloadAllHogFunctions()
-        expect(manager.getTeamHogFunctions(teamId1).length).toEqual(1)
-        expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('transformation')
+    describe('filters hog functions by type', () => {
+        it('for just transformations', async () => {
+            await manager.start(['transformation'])
+            expect(manager.getTeamHogFunctions(teamId1).length).toEqual(1)
+            expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('transformation')
+        })
 
-        manager['hogTypes'] = ['transformation', 'destination']
-        await manager.reloadAllHogFunctions()
-        expect(manager.getTeamHogFunctions(teamId1).length).toEqual(2)
-        expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('destination')
-        expect(manager.getTeamHogFunctions(teamId1)[1].type).toEqual('transformation')
+        it('for just destinations', async () => {
+            await manager.start(['destination'])
+            expect(manager.getTeamHogFunctions(teamId1).length).toEqual(1)
+            expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('destination')
+        })
+
+        it('for both', async () => {
+            await manager.start(['destination', 'transformation'])
+            expect(manager.getTeamHogFunctions(teamId1).length).toEqual(2)
+            expect(manager.getTeamHogFunctions(teamId1)[0].type).toEqual('destination')
+            expect(manager.getTeamHogFunctions(teamId1)[1].type).toEqual('transformation')
+        })
     })
 
     it('removes disabled functions', async () => {
+        await manager.start(['destination'])
         let items = manager.getTeamHogFunctions(teamId1)
 
         expect(items).toMatchObject([
@@ -181,20 +192,21 @@ describe('HogFunctionManager', () => {
 
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET enabled=false WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET enabled=false, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
 
         // This is normally dispatched by django
-        await manager.reloadHogFunctions(teamId1, [hogFunctions[0].id])
+        await manager.reloadAllHogFunctions()
 
         items = manager.getTeamHogFunctions(teamId1)
 
         expect(items).toEqual([])
     })
 
-    it('enriches integration inputs if found and belonging to the team', () => {
+    it('enriches integration inputs if found and belonging to the team', async () => {
+        await manager.start(['destination'])
         const function1Inputs = manager.getTeamHogFunctions(teamId1)[0].inputs
         const function2Inputs = manager.getTeamHogFunctions(teamId2)[0].inputs
 
@@ -229,10 +241,20 @@ describe('Hogfunction Manager - Execution Order', () => {
     let hogFunctions: HogFunctionType[]
     let teamId: number
     let teamId2: number
+
+    let time: DateTime
+
+    const advanceTime = (duration: DurationLike) => {
+        time = time.plus(duration)
+        jest.setSystemTime(time.toJSDate())
+    }
+
     beforeEach(async () => {
         // Setup fake timers but exclude nextTick and setImmediate
         // faking them can cause tests to hang or timeout
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] })
+        time = DateTime.now()
+        jest.setSystemTime(time.toJSDate())
 
         hub = await createHub()
         await resetTestDatabase()
@@ -292,7 +314,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         // Update fn2's to be last
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 3, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[1].id],
             'testKey'
         )
@@ -300,12 +322,12 @@ describe('Hogfunction Manager - Execution Order', () => {
         // therefore fn3's execution order should be 2
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 2, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[2].id],
             'testKey'
         )
 
-        await manager.reloadHogFunctions(teamId, [hogFunctions[1].id, hogFunctions[2].id])
+        await manager.reloadAllHogFunctions()
         teamFunctions = manager.getTeamHogFunctions(teamId)
         expect(teamFunctions).toHaveLength(3)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
@@ -317,26 +339,26 @@ describe('Hogfunction Manager - Execution Order', () => {
         // change fn1 to be last
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 3, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
         // change fn3 to be first
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 1 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 1, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[2].id],
             'testKey'
         )
         // change fn2 to be second
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET execution_order = 2, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[1].id],
             'testKey'
         )
 
-        await manager.reloadHogFunctions(teamId, [hogFunctions[0].id, hogFunctions[1].id, hogFunctions[2].id])
+        await manager.reloadAllHogFunctions()
         teamFunctions = manager.getTeamHogFunctions(teamId)
         expect(teamFunctions).toHaveLength(3)
         expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
@@ -347,24 +369,21 @@ describe('Hogfunction Manager - Execution Order', () => {
     })
 
     it('should handle null/undefined execution orders and created_at ordering', async () => {
-        // Set initial time
-        jest.setSystemTime(new Date('2024-01-01T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
             execution_order: undefined,
             type: 'transformation',
         })
 
-        // Advance time by 1 day
-        jest.setSystemTime(new Date('2024-01-02T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
             execution_order: 1,
             type: 'transformation',
         })
 
-        // Advance time by another day
-        jest.setSystemTime(new Date('2024-01-03T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn3',
             execution_order: 1,
@@ -384,34 +403,32 @@ describe('Hogfunction Manager - Execution Order', () => {
 
     it('should maintain order with mixed execution orders and timestamps', async () => {
         // Create functions with different timestamps and execution orders
-        jest.setSystemTime(new Date('2024-01-01T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
             execution_order: 2,
             type: 'transformation',
         })
 
-        jest.setSystemTime(new Date('2024-01-02T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
             execution_order: undefined,
             type: 'transformation',
         })
 
-        jest.setSystemTime(new Date('2024-01-03T00:00:00Z'))
+        advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn3',
             execution_order: 1,
             type: 'transformation',
         })
 
-        jest.setSystemTime(new Date('2024-01-04T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn4',
             execution_order: 1,
             type: 'transformation',
         })
-
         await manager.reloadAllHogFunctions()
         const teamFunctions = manager.getTeamHogFunctions(teamId2)
 

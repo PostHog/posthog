@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, MessageHeader, PartitionMetadata } from 'node-rdkafka'
 import path from 'path'
@@ -8,6 +7,7 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PipelineEvent, RawEventMessage, RRWebEvent, TeamIDWithConfig } from '../../types'
 import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { eventDroppedCounter } from '../../utils/metrics'
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
 
@@ -256,7 +256,7 @@ export const parseKafkaMessage = async (
         return dropMessage('invalid_json', { error, team_id: teamIdWithConfig.teamId })
     }
 
-    const { $snapshot_items, $session_id, $window_id, $snapshot_source } = event.properties || {}
+    const { $snapshot_items, $session_id, $window_id, $snapshot_source, $lib } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
@@ -298,6 +298,7 @@ export const parseKafkaMessage = async (
             end: events[events.length - 1].timestamp,
         },
         snapshot_source: $snapshot_source,
+        snapshot_library: $lib ?? null,
     }
 }
 

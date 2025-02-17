@@ -1,9 +1,9 @@
-import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
 
 import { Config, RedisPool } from '../../../types'
+import { captureException } from '../../../utils/posthog'
 import { createRedis } from '../../../utils/redis'
 import { status } from '../../../utils/status'
 import { timeoutGuard } from '../../event-pipeline-runner/utils/utils'
@@ -53,7 +53,7 @@ export class RealtimeManager extends EventEmitter {
                 const subMessage = JSON.parse(message) as { team_id: number; session_id: string }
                 this.emitSubscriptionEvent(subMessage.team_id, subMessage.session_id)
             } catch (e) {
-                captureException('Failed to parse message from redis pubsub', e)
+                captureException(e)
             }
         })
     }

@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/node'
 import { Counter } from 'prom-client'
 
 import { KAFKA_LOG_ENTRIES } from '../../../config/kafka-topics'
@@ -6,6 +5,7 @@ import { findOffsetsToCommit } from '../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../kafka/error-handling'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { eventDroppedCounter } from '../../../utils/metrics'
+import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
 import { IncomingRecordingMessage } from '../types'

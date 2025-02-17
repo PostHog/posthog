@@ -23,6 +23,7 @@ import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { groupsModel } from '~/models/groupsModel'
@@ -104,6 +105,8 @@ const NEW_FLAG: FeatureFlagType = {
     user_access_level: 'editor',
     tags: [],
     is_remote_configuration: false,
+    has_encrypted_payloads: false,
+    status: 'ACTIVE',
 }
 const NEW_VARIANT = {
     key: '',
@@ -278,6 +281,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
+        resetEncryptedPayload: () => ({}),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
@@ -375,6 +379,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return {
                         ...state,
                         is_remote_configuration: enabled,
+                    }
+                },
+                resetEncryptedPayload: (state) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            payloads: { true: '' },
+                        },
+                        has_encrypted_payloads: false,
                     }
                 },
                 addVariant: (state) => {
@@ -592,6 +610,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
                         })
                     } else {
+                        const cachedFlag = featureFlagsLogic
+                            .findMounted()
+                            ?.values.featureFlags.results.find((flag) => flag.id === props.id)
+
+                        // If we've got a cached flag and the filters have changed, we've updated the release conditions
+                        if (
+                            cachedFlag &&
+                            JSON.stringify(cachedFlag?.filters) !== JSON.stringify(values.featureFlag.filters)
+                        ) {
+                            activationLogic
+                                .findMounted()
+                                ?.actions.markTaskAsCompleted(ActivationTask.UpdateFeatureFlagReleaseConditions)
+                        }
+
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
                             preparedFlag
@@ -792,6 +824,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        experiment: {
+            loadExperiment: async () => {
+                if (values.featureFlag.experiment_set) {
+                    return await api.experiments.get(values.featureFlag.experiment_set[0])
+                }
+            },
+        },
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -825,6 +864,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
         },
         saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Release conditions updated')
@@ -872,6 +912,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadFeatureFlagSuccess: async () => {
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
+            actions.loadExperiment()
         },
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
@@ -987,6 +1028,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     ? 'multivariate'
                     : 'boolean',
         ],
+        flagTypeString: [
+            (s) => [s.featureFlag],
+            (featureFlag) =>
+                featureFlag?.is_remote_configuration
+                    ? 'Remote configuration (single payload)'
+                    : featureFlag?.filters.multivariate
+                    ? 'Multiple variants with rollout percentages (A/B/n test)'
+                    : 'Release toggle (boolean)',
+        ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
@@ -1092,6 +1142,34 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag) => {
                 return featureFlag?.surveys && featureFlag.surveys.length > 0
+            },
+        ],
+        hasEncryptedPayloadBeenSaved: [
+            (s) => [s.featureFlag, s.props],
+            (featureFlag, props) => {
+                if (!featureFlag.has_encrypted_payloads) {
+                    return false
+                }
+                const savedFlag = featureFlagsLogic
+                    .findMounted()
+                    ?.values.featureFlags.results.find((flag) => flag.id === props.id)
+                return savedFlag?.has_encrypted_payloads
+            },
+        ],
+        hasExperiment: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag?.experiment_set && featureFlag.experiment_set.length > 0
+            },
+        ],
+        isDraftExperiment: [
+            (s) => [s.experiment],
+            (experiment) => {
+                // Treat as launched experiment if not yet loaded.
+                if (!experiment) {
+                    return false
+                }
+                return !experiment?.start_date
             },
         ],
     }),

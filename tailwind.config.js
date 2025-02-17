@@ -165,11 +165,6 @@ const deprecatedColors = {
     'lifecycle-resurrecting-hover': 'var(--lifecycle-resurrecting-hover)',
     'lifecycle-dormant-hover': 'var(--lifecycle-dormant-hover)',
 
-    // Funnels
-    // TODO: unify with lib/colors.ts, getGraphColors()
-    'funnel-axis': 'var(--funnel-axis)',
-    'funnel-grid': 'var(--funnel-grid)',
-
     // Z-indexes
     'z-bottom-notice': 'var(--z-bottom-notice)',
     'z-command-palette': 'var(--z-command-palette)',
@@ -648,8 +643,8 @@ const config = {
                 'fill-primary': 'var(--bg-fill-primary)',
                 'fill-secondary': 'var(--bg-fill-secondary)',
                 'fill-tertiary': 'var(--bg-fill-tertiary)',
+                'fill-primary-highlight': 'var(--bg-fill-primary-highlight)',
                 'fill-info-secondary': 'var(--bg-fill-info-secondary)',
-                'fill-input': 'var(--bg-fill-input)',
                 'fill-info-tertiary': 'var(--bg-fill-info-tertiary)',
                 'fill-info-highlight': 'var(--bg-fill-info-highlight)',
                 'fill-warning-secondary': 'var(--bg-fill-warning-secondary)',
@@ -661,6 +656,9 @@ const config = {
                 'fill-success-secondary': 'var(--bg-fill-success-secondary)',
                 'fill-success-tertiary': 'var(--bg-fill-success-tertiary)',
                 'fill-success-highlight': 'var(--bg-fill-success-highlight)',
+                'fill-input': 'var(--bg-fill-input)',
+                'fill-switch': 'var(--bg-fill-switch)',
+                'fill-slider-rail': 'var(--bg-fill-slider-rail)',
             },
             textColor: {
                 ...commonColors,

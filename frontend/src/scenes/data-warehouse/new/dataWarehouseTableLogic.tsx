@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode } from '~/queries/schema'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
@@ -71,6 +71,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         updateTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} updated</>)
             actions.editingTable(false)
+            actions.loadDatabase()
             router.actions.replace(urls.dataWarehouse())
         },
     })),
@@ -92,6 +93,13 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         table: {
             defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
             errors: ({ name, url_pattern, credential, format }) => {
+                const HOGQL_TABLE_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+                if (!HOGQL_TABLE_NAME_REGEX.test(name)) {
+                    return {
+                        name: 'Invalid table name. Table names must start with a letter or underscore and contain only alphanumeric characters or underscores.',
+                    }
+                }
+
                 if (url_pattern?.startsWith('s3://')) {
                     return {
                         url_pattern:
@@ -123,6 +131,11 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
                     actions.createTable(tablePayload)
                 }
             },
+        },
+    })),
+    events(({ actions }) => ({
+        propsChanged: () => {
+            actions.loadTable()
         },
     })),
 ])

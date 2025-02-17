@@ -11,7 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
 import { SharedMetric } from './sharedMetricLogic'
@@ -39,6 +39,7 @@ export function SharedMetrics(): JSX.Element {
                     />
                 )
             },
+            sorter: (a, b) => a.name.localeCompare(b.name),
         },
         {
             key: 'description',
@@ -59,8 +60,12 @@ export function SharedMetrics(): JSX.Element {
         {
             title: 'Type',
             key: 'type',
-            render: (_, metric: SharedMetric) =>
-                metric.query.kind === NodeKind.ExperimentTrendsQuery ? 'Trend' : 'Funnel',
+            render: (_, metric: SharedMetric) => {
+                if (metric.query.kind === NodeKind.ExperimentMetric) {
+                    return metric.query.metric_type
+                }
+                return metric.query.kind === NodeKind.ExperimentTrendsQuery ? 'Trend' : 'Funnel'
+            },
         },
         createdByColumn<SharedMetric>() as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
         createdAtColumn<SharedMetric>() as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,

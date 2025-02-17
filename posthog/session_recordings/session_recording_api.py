@@ -6,7 +6,9 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
-from typing import Any, Optional, cast
+from typing import Any, Optional, cast, Literal
+
+from posthoganalytics.ai.openai import OpenAI
 from urllib.parse import urlparse
 
 import posthoganalytics
@@ -17,12 +19,13 @@ from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
 from prometheus_client import Counter, Histogram
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel
 from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+from rest_framework.request import Request
 
 import posthog.session_recordings.queries.session_recording_list_from_query
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
@@ -51,6 +54,18 @@ from posthog.session_recordings.realtime_snapshots import (
     publish_subscription,
 )
 from posthog.storage import object_storage
+from posthog.session_recordings.ai_data.ai_filter_schema import AiFilterSchema
+from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
+from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
+from posthog.session_recordings.ai_data.ai_filter_prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
+from posthog.settings.session_replay import SESSION_REPLAY_AI_DEFAULT_MODEL, SESSION_REPLAY_AI_REGEX_MODEL
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+    ChatCompletionAssistantMessageParam,
+)
+from posthog.session_recordings.utils import clean_prompt_whitespace
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -78,6 +93,20 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
 )
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+    def to_openai_message(self) -> ChatCompletionUserMessageParam | ChatCompletionAssistantMessageParam:
+        if self.role == "user":
+            return ChatCompletionUserMessageParam(role="user", content=self.content)
+        return ChatCompletionAssistantMessageParam(role="assistant", content=self.content)
+
+
+class AiFilterRequest(BaseModel):
+    messages: list[ChatMessage]
 
 
 class SurrogatePairSafeJSONEncoder(JSONEncoder):
@@ -823,6 +852,91 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         else:
             raise exceptions.ValidationError(f"Invalid version: {version}")
 
+    @extend_schema(
+        description="Generate session recording filters using AI. This is in development and likely to change, you should not depend on this API."
+    )
+    @action(methods=["POST"], detail=False, url_path="ai/filters")
+    def ai_filters(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        try:
+            # Validate request data against schema
+            request_data = AiFilterRequest(messages=[ChatMessage(**msg) for msg in request.data.get("messages", [])])
+        except ValidationError:
+            raise exceptions.ValidationError(
+                "Invalid message format. Messages must be a list of objects with 'role' (either 'user' or 'assistant') and 'content' fields."
+            )
+
+        # Create system prompt by combining the initial and properties prompts
+        system_message = ChatCompletionSystemMessageParam(
+            role="system", content=clean_prompt_whitespace(AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT)
+        )
+
+        # Convert messages to OpenAI format and combine with system message
+        messages: list[ChatCompletionMessageParam] = [system_message]
+        for msg in request_data.messages:
+            if msg.role == "user":
+                messages.append(
+                    ChatCompletionUserMessageParam(role="user", content=clean_prompt_whitespace(msg.content))
+                )
+            else:
+                messages.append(
+                    ChatCompletionAssistantMessageParam(role="assistant", content=clean_prompt_whitespace(msg.content))
+                )
+
+        client = _get_openai_client()
+
+        completion = client.beta.chat.completions.parse(
+            model=SESSION_REPLAY_AI_DEFAULT_MODEL,
+            messages=messages,
+            response_format=AiFilterSchema,
+        )
+
+        if not completion.choices or not completion.choices[0].message.content:
+            raise exceptions.ValidationError("Invalid response from OpenAI")
+
+        try:
+            response_data = json.loads(completion.choices[0].message.content)
+        except JSONDecodeError:
+            raise exceptions.ValidationError("Invalid JSON response from OpenAI")
+
+        return Response(response_data)
+
+    @extend_schema(
+        description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API."
+    )
+    @action(methods=["POST"], detail=False, url_path="ai/regex")
+    def ai_regex(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        if "regex" not in request.data:
+            raise exceptions.ValidationError("Missing required field: regex")
+
+        messages = create_openai_messages(
+            system_content=clean_prompt_whitespace(AI_REGEX_PROMPTS),
+            user_content=clean_prompt_whitespace(request.data["regex"]),
+        )
+
+        client = _get_openai_client()
+
+        completion = client.beta.chat.completions.parse(
+            model=SESSION_REPLAY_AI_REGEX_MODEL,
+            messages=messages,
+            response_format=AiRegexSchema,
+        )
+
+        if not completion.choices or not completion.choices[0].message.content:
+            raise exceptions.ValidationError("Invalid response from OpenAI")
+
+        try:
+            response_data = json.loads(completion.choices[0].message.content)
+        except JSONDecodeError:
+            raise exceptions.ValidationError("Invalid JSON response from OpenAI")
+
+        return Response(response_data)
+
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
@@ -960,3 +1074,26 @@ def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimi
         hogql_timings_dict[new_key] = value[1] * 1000
     all_timings = {**timings_dict, **hogql_timings_dict}
     return all_timings
+
+
+def _get_openai_client() -> OpenAI:
+    """Get configured OpenAI client or raise appropriate error."""
+    if not settings.DEBUG and not is_cloud():
+        raise exceptions.ValidationError("AI features are only available in PostHog Cloud")
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise exceptions.ValidationError("OpenAI API key is not configured")
+
+    client = posthoganalytics.default_client
+    if not client:
+        raise exceptions.ValidationError("PostHog analytics client is not configured")
+
+    return OpenAI(posthog_client=client)
+
+
+def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:
+    """Helper function to create properly typed OpenAI messages."""
+    return [
+        ChatCompletionSystemMessageParam(role="system", content=system_content),
+        ChatCompletionUserMessageParam(role="user", content=user_content),
+    ]

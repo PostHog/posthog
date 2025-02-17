@@ -1,9 +1,9 @@
-import { captureException } from '@sentry/node'
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
 import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
 import { Config } from '../types'
+import { captureException } from '../utils/posthog'
 import { createRedisClient } from '../utils/redis'
 import { status } from '../utils/status'
 

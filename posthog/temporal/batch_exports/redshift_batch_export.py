@@ -16,10 +16,9 @@ from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
     BatchExportModel,
-    BatchExportSchema,
     RedshiftBatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -44,6 +43,7 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
+    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
@@ -92,16 +92,16 @@ class RedshiftClient(PostgreSQLClient):
         finally:
             self.connection.cursor_factory = current_factory
 
-    async def amerge_identical_tables(
+    async def amerge_mutable_tables(
         self,
         final_table_name: str,
         stage_table_name: str,
         schema: str,
         merge_key: Fields,
-        person_version_key: str = "person_version",
-        person_distinct_id_version_key: str = "person_distinct_id_version",
+        update_key: Fields,
+        update_when_matched: Fields = (),
     ) -> None:
-        """Merge two identical tables in PostgreSQL."""
+        """Merge two tables in Redshift."""
         if schema:
             final_table_identifier = sql.Identifier(schema, final_table_name)
             stage_table_identifier = sql.Identifier(schema, stage_table_name)
@@ -131,22 +131,27 @@ class RedshiftClient(PostgreSQLClient):
             for field in merge_key
         )
 
+        or_separator = sql.SQL(" OR ")
+        delete_extra_conditions = or_separator.join(
+            sql.SQL("{stage_field} < {final_field}").format(
+                final_field=sql.Identifier("final", field[0]),
+                stage_field=sql.Identifier(schema, stage_table_name, field[0]),
+            )
+            for field in update_key
+        )
+
         delete_query = sql.SQL(
             """\
         DELETE FROM {stage_table}
         USING {final_table} AS final
         WHERE {merge_condition}
-        AND {stage_table}.{stage_person_version_key} < final.{final_person_version_key}
-        AND {stage_table}.{stage_person_distinct_id_version_key} < final.{final_person_distinct_id_version_key};
+        AND ({delete_extra_conditions})
         """
         ).format(
             final_table=final_table_identifier,
             stage_table=stage_table_identifier,
             merge_condition=delete_condition,
-            stage_person_version_key=sql.Identifier(person_version_key),
-            final_person_version_key=sql.Identifier(person_version_key),
-            stage_person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
-            final_person_distinct_id_version_key=sql.Identifier(person_distinct_id_version_key),
+            delete_extra_conditions=delete_extra_conditions,
         )
 
         merge_query = sql.SQL(
@@ -237,8 +242,11 @@ def get_redshift_fields_from_record_schema(
             else:
                 pg_type = "TIMESTAMP"
 
+        elif pa.types.is_list(pa_field.type) and pa.types.is_string(pa_field.type.value_type):
+            pg_type = "SUPER"
+
         else:
-            raise TypeError(f"Unsupported type: {pa_field.type}")
+            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
 
         pg_schema.append((name, pg_type))
 
@@ -313,7 +321,7 @@ class RedshiftConsumer(Consumer):
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class RedshiftInsertInputs(PostgresInsertInputs):
     """Inputs for Redshift insert activity.
 
@@ -363,27 +371,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
 
         done_ranges: list[DateRange] = details.done_ranges
 
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None and "batch_export_model" in {
-            field.name for field in dataclasses.fields(inputs)
-        }:
-            model = inputs.batch_export_model
-            if model is not None:
-                model_name = model.name
-                extra_query_parameters = model.schema["values"] if model.schema is not None else None
-                fields = model.schema["fields"] if model.schema is not None else None
-                filters = model.filters
-            else:
-                model_name = "events"
-                extra_query_parameters = None
-                fields = None
-                filters = None
-        else:
-            model = inputs.batch_export_schema
-            model_name = "custom"
-            extra_query_parameters = model["values"] if model is not None else {}
-            fields = model["fields"] if model is not None else None
-            filters = None
+        model, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+            inputs.team_id, inputs.is_backfill, inputs.batch_export_model, inputs.batch_export_schema
+        )
 
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -392,11 +382,12 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer()
+        producer = Producer(record_batch_model)
         producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
-            is_backfill=inputs.is_backfill,
+            is_backfill=inputs.get_is_backfill(),
+            backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
@@ -443,20 +434,40 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 record_batch_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
             )
 
-        requires_merge = (
-            isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
-        )
+        requires_merge = False
+        merge_key: Fields = []
+        update_key: Fields = []
+        primary_key: Fields | None = None
+        if isinstance(inputs.batch_export_model, BatchExportModel):
+            if inputs.batch_export_model.name == "persons":
+                requires_merge = True
+                merge_key = [
+                    ("team_id", "INT"),
+                    ("distinct_id", "TEXT"),
+                ]
+                update_key = [
+                    ("person_version", "INT"),
+                    ("person_distinct_id_version", "INT"),
+                ]
+                primary_key = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
+
+            elif inputs.batch_export_model.name == "sessions":
+                requires_merge = True
+                merge_key = [
+                    ("team_id", "INT"),
+                    ("session_id", "TEXT"),
+                ]
+                update_key = [
+                    ("end_timestamp", "TIMESTAMP"),
+                ]
+                primary_key = (("team_id", "INTEGER"), ("session_id", "TEXT"))
+
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stagle_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
             if requires_merge
             else inputs.table_name
         )
-
-        if requires_merge:
-            primary_key: Fields | None = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
-        else:
-            primary_key = None
 
         async with RedshiftClient.from_inputs(inputs).connect() as redshift_client:
             # filter out fields that are not in the destination table
@@ -508,15 +519,12 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 )
 
                 if requires_merge:
-                    merge_key: Fields = (
-                        ("team_id", "INT"),
-                        ("distinct_id", "TEXT"),
-                    )
-                    await redshift_client.amerge_identical_tables(
+                    await redshift_client.amerge_mutable_tables(
                         final_table_name=redshift_table,
                         stage_table_name=redshift_stage_table,
                         schema=inputs.schema,
                         merge_key=merge_key,
+                        update_key=update_key,
                     )
 
                 return details.records_completed
@@ -541,8 +549,10 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: RedshiftBatchExportInputs):
         """Workflow implementation to export data to Redshift."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -551,7 +561,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -588,7 +598,8 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             properties_data_type=inputs.properties_data_type,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
         )

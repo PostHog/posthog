@@ -28,7 +28,7 @@ export const firstTimeEventTrackerPlugin: LegacyTransformationPlugin = {
             {
                 key: 'legacy_plugin_config_id',
                 label: 'Legacy plugin config ID',
-                description: 'The ID of the legacy plugin config that this was migrated from',
+                description: 'The ID of the legacy plugin config that this was migrated from. (DO NOT MODIFY THIS)',
                 type: 'string',
                 default: '',
                 required: true,

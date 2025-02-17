@@ -1,7 +1,7 @@
-import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
 
 import { Config } from '../types'
+import { captureException } from './posthog'
 import { createRedis } from './redis'
 import { status } from './status'
 

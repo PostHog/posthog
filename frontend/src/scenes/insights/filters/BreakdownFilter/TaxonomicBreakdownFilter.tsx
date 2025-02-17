@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { LemonButton } from '~/lib/lemon-ui/LemonButton'
 import { LemonLabel } from '~/lib/lemon-ui/LemonLabel'
 import { Popover } from '~/lib/lemon-ui/Popover'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { EditableBreakdownTag } from './BreakdownTag'

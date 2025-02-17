@@ -1,8 +1,8 @@
-import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
 import { TopicPartition } from 'node-rdkafka'
 
 import { RedisPool } from '../../../types'
+import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 import { timeoutGuard } from '../../event-pipeline-runner/utils/utils'
 

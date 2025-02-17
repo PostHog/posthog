@@ -2,9 +2,8 @@ import './WebVitalsTab.scss'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 
-import { WebVitalsMetric } from '~/queries/schema'
+import { WebVitalsMetric } from '~/queries/schema/schema-general'
 
 import { getThresholdColor, getValueWithUnit, LONG_METRIC_NAME, METRIC_DESCRIPTION } from './definitions'
 import { WebVitalsProgressBar } from './WebVitalsProgressBar'
@@ -20,7 +19,7 @@ export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabPr
     const label = LONG_METRIC_NAME[metric]
 
     const { value: parsedValue, unit } = getValueWithUnit(value, metric)
-    const thresholdColor = getThresholdColor(value, metric)
+    const color = getThresholdColor(value, metric)
 
     return (
         <div
@@ -39,7 +38,11 @@ export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabPr
             </span>
 
             <div className="flex flex-row items-end">
-                <span className={clsx('text-2xl', `text-${thresholdColor}`)}>
+                <span
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ color }}
+                    className="text-2xl"
+                >
                     {parsedValue || <LemonSkeleton fade className="w-20 h-8" />}
                 </span>
                 <span className="text-xs ml-1 mb-1">{unit}</span>

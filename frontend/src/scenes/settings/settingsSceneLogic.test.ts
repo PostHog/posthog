@@ -3,6 +3,12 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+// Mock the survey preview functions
+jest.mock('posthog-js/dist/surveys-preview', () => ({
+    renderFeedbackWidgetPreview: jest.fn(),
+    renderSurveysPreview: jest.fn(),
+}))
+
 import { initKeaTests } from '~/test/init'
 
 import { settingsSceneLogic } from './settingsSceneLogic'

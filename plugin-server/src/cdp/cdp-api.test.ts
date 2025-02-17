@@ -3,6 +3,7 @@ import '../_tests/helpers/producer.mock'
 import express from 'express'
 import supertest from 'supertest'
 
+import { forSnapshot } from '../_tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../_tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/hub'
@@ -479,16 +480,25 @@ describe('CDP API', () => {
                 ]
             `)
 
-            expect(res.body.result).toMatchInlineSnapshot(`
+            expect(forSnapshot(res.body.result)).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "123",
+                  "elements_chain": "",
                   "event": "$pageview",
+                  "ip": null,
+                  "now": "",
                   "properties": {
                     "$lib_version": "1.0.0",
+                    "$transformations_failed": [],
+                    "$transformations_succeeded": [
+                      "Filter Out Plugin (<REPLACED-UUID-1>)",
+                    ],
                   },
+                  "site_url": "http://localhost:8000/project/2",
                   "team_id": 2,
                   "timestamp": "2021-09-28T14:00:00Z",
-                  "uuid": "b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                  "url": "https://example.com/events/<REPLACED-UUID-1>/2021-09-28T14:00:00Z",
+                  "uuid": "<REPLACED-UUID-0>",
                 }
             `)
         })

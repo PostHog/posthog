@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { DatabaseSchemaViewTable } from '~/queries/schema'
+import { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
@@ -58,7 +58,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     return values.dataWarehouseSavedQueries.filter((view) => view.id !== viewId)
                 },
                 updateDataWarehouseSavedQuery: async (
-                    view: Partial<DatabaseSchemaViewTable> & { id: string; types: string[][] }
+                    view: Partial<DatabaseSchemaViewTable> & { id: string; types: string[][]; sync_frequency?: string }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {

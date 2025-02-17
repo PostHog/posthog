@@ -1,14 +1,13 @@
-import * as Sentry from '@sentry/node'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { PersonsDB } from '~/src/ingestion/event-pipeline-runner/utils/persons-db'
-
+import { PersonsDB } from '../../../ingestion/event-pipeline-runner/utils/persons-db'
 import { TopicMessage } from '../../../kafka/producer'
 import { Hub, InternalPerson, Person, PluginEvent, Properties, PropertyUpdateOperation } from '../../../types'
 import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
 import { PostgresUse, TransactionClient } from '../../../utils/postgres'
+import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
 import { status } from '../../../utils/status'
 import { uuidFromDistinctId } from './person-uuid'
@@ -428,7 +427,7 @@ export class PersonState {
                 )
             }
         } catch (e) {
-            Sentry.captureException(e, {
+            captureException(e, {
                 tags: { team_id: this.teamId, pipeline_step: 'processPersonsStep' },
                 extra: {
                     location: 'handleIdentifyOrAlias',

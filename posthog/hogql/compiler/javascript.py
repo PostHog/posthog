@@ -547,6 +547,8 @@ class JavaScriptCompiler(Visitor):
             expr_code = self.visit(
                 ast.Block(declarations=[ast.ExprStatement(expr=node.expr.expr), ast.ReturnStatement(expr=None)])
             )
+        elif isinstance(node.expr, ast.Dict):
+            expr_code = f"({self.visit(node.expr)})"
         else:
             expr_code = self.visit(node.expr)
         self._end_scope()

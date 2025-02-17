@@ -113,6 +113,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'customRRWebEvents',
                 'fullyLoaded',
                 'wasMarkedViewed',
+                'trackedWindow',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMouseTail'],
@@ -188,8 +189,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
+        setMaskWindow: (shouldMaskWindow: boolean) => ({ shouldMaskWindow }),
     }),
     reducers(() => ({
+        maskingWindow: [
+            false,
+            {
+                setMaskWindow: (_, { shouldMaskWindow }) => shouldMaskWindow,
+            },
+        ],
         playNextAnimationInterrupted: [
             false,
             {
@@ -962,6 +970,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setEndReached()
                 }
                 return
+            }
+
+            if (
+                values.trackedWindow &&
+                values.currentSegment &&
+                values.currentSegment.windowId !== values.trackedWindow
+            ) {
+                actions.setSkippingInactivity(true)
+                actions.setMaskWindow(true)
+            } else {
+                actions.setMaskWindow(false)
             }
 
             // The normal loop. Progress the player position and continue the loop

@@ -1,5 +1,6 @@
-import * as Sentry from '@sentry/node'
 import { Counter } from 'prom-client'
+
+import { captureException } from '~/src/utils/posthog'
 
 import { defaultConfig } from '../../../config/config'
 import { KAFKA_PERSON } from '../../../config/kafka-topics'
@@ -18,7 +19,7 @@ export function timeoutGuard(
         const ctx = typeof context === 'function' ? context() : context
         status.warn('⌛', message, ctx)
         if (sendToSentry) {
-            Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
+            captureException(message, ctx ? { extra: ctx } : undefined)
         }
     }, timeout)
 }

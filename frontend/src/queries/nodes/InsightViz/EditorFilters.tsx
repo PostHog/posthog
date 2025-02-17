@@ -1,5 +1,3 @@
-import './EditorFilters.scss'
-
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -10,6 +8,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { GoalLines } from 'scenes/insights/EditorFilters/GoalLines'
 import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
 import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
@@ -24,7 +23,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
-import { InsightQueryNode } from '~/queries/schema'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 import {
     AvailableFeature,
     ChartDisplayType,
@@ -61,7 +60,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isStickiness,
         isTrendsLike,
         display,
-        breakdownFilter,
         pathsFilter,
         querySource,
         shouldShowSessionAnalysisWarning,
@@ -80,22 +78,30 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel || isTrendsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
+    const isLineGraph =
+        isTrends &&
+        display &&
+        [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
 
-    const editorFilters: InsightEditorFilterGroup[] = [
+    const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
             title: 'General',
             editorFilters: filterFalsy([
-                ...(isRetention
-                    ? [
-                          {
-                              key: 'retention-config',
-                              label: 'Retention Summary',
-                              component: RetentionSummary,
-                          },
-                      ]
-                    : []),
+                isRetention
+                    ? {
+                          key: 'retention-config',
+                          label: 'Retention Summary',
+                          component: RetentionSummary,
+                      }
+                    : null,
+                isFunnels
+                    ? {
+                          key: 'query-steps',
+                          component: FunnelsQuerySteps,
+                      }
+                    : null,
                 ...(isPaths
-                    ? filterFalsy([
+                    ? [
                           {
                               key: 'event-types',
                               label: 'Event Types',
@@ -103,7 +109,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           },
                           hasPathsHogQL && {
                               key: 'hogql',
-                              label: 'HogQL Expression',
+                              label: 'SQL Expression',
                               component: PathsHogQL,
                           },
                           hasPathsAdvanced && {
@@ -130,15 +136,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               label: 'Ends at',
                               component: PathsTargetEnd,
                           },
-                      ])
-                    : []),
-                ...(isFunnels
-                    ? filterFalsy([
-                          {
-                              key: 'query-steps',
-                              component: FunnelsQuerySteps,
-                          },
-                      ])
+                      ]
                     : []),
             ]),
         },
@@ -160,13 +158,28 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             ]),
         },
         {
+            title: 'Advanced Options',
+            editorFilters: filterFalsy([
+                isPaths && {
+                    key: 'paths-advanced',
+                    component: PathsAdvanced,
+                },
+                isFunnels && {
+                    key: 'funnels-advanced',
+                    component: FunnelsAdvanced,
+                },
+            ]),
+        },
+    ]
+
+    const rightEditorFilterGroups: InsightEditorFilterGroup[] = [
+        {
             title: 'Filters',
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
                           key: 'toggles',
                           label: 'Lifecycle Toggles',
-                          position: 'right',
                           component: LifecycleToggles as (props: EditorFilterProps) => JSX.Element | null,
                       }
                     : null,
@@ -191,26 +204,22 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   </Tooltip>
                               </div>
                           ),
-                          position: 'right',
                           component: StickinessCriteria as (props: EditorFilterProps) => JSX.Element | null,
                       }
                     : null,
                 {
                     key: 'properties',
                     label: 'Filters',
-                    position: 'right',
                     component: GlobalAndOrFilters as (props: EditorFilterProps) => JSX.Element | null,
                 },
             ]),
         },
         {
             title: 'Breakdown',
-            count: breakdownFilter?.breakdowns?.length || (breakdownFilter?.breakdown ? 1 : 0),
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {
                           key: 'breakdown',
-                          position: 'right',
                           component: Breakdown,
                       }
                     : null,
@@ -265,7 +274,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   </Tooltip>
                               </div>
                           ),
-                          position: 'right',
                           component: Attribution,
                       }
                     : null,
@@ -277,7 +285,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 isPaths && {
                     key: 'paths-exclusions',
                     label: 'Exclusions',
-                    position: 'right',
                     tooltip: (
                         <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
                     ),
@@ -287,78 +294,59 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Advanced Options',
-            editorFilters: filterFalsy([
-                isPaths && {
-                    key: 'paths-advanced',
-                    position: 'left',
-                    component: PathsAdvanced,
-                },
-                isFunnels && {
-                    key: 'funnels-advanced',
-                    position: 'left',
-                    component: FunnelsAdvanced,
-                },
-            ]),
-        },
-        {
-            title: 'PoE Override',
+            defaultExpanded: false,
             editorFilters: filterFalsy([
                 {
                     key: 'poe',
-                    position: 'right',
                     component: PoeFilter,
                 },
-            ]),
-        },
-        {
-            title: 'Sampling',
-            editorFilters: filterFalsy([
                 {
                     key: 'sampling',
-                    position: 'right',
                     component: SamplingFilter,
                 },
+                isTrends &&
+                    isLineGraph && {
+                        key: 'goal-lines',
+                        label: 'Goal lines',
+                        tooltip: (
+                            <>
+                                Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits
+                                (Web Vitals, etc.)
+                            </>
+                        ),
+                        component: GoalLines,
+                    },
             ]),
         },
     ]
 
-    let editorFilterGroups: InsightEditorFilterGroup[] = []
-
-    const leftFilters = editorFilters.reduce(
-        (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
-        [] as InsightEditorFilter[]
-    )
-    const rightFilters = editorFilters.reduce(
-        (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
-        [] as InsightEditorFilter[]
-    )
-
-    editorFilterGroups = [
-        {
-            title: 'left',
-            editorFilters: leftFilters,
-        },
+    const filterGroupsGroups = [
+        { title: 'left', editorFilterGroups: leftEditorFilterGroups.filter((group) => group.editorFilters.length > 0) },
         {
             title: 'right',
-            editorFilters: rightFilters,
+            editorFilterGroups: rightEditorFilterGroups.filter((group) => group.editorFilters.length > 0),
         },
     ]
 
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
-            <div
-                className={clsx('EditorFiltersWrapper', {
-                    'EditorFiltersWrapper--embedded': embedded,
-                })}
-            >
-                <div className="EditorFilters">
-                    {editorFilterGroups.map((editorFilterGroup) => (
-                        <EditorFilterGroup
-                            key={editorFilterGroup.title}
-                            editorFilterGroup={editorFilterGroup}
-                            insightProps={insightProps}
-                            query={query}
-                        />
+            <>
+                <div
+                    className={clsx('EditorFiltersWrapper flex flex-row flex-wrap gap-8 shrink-0 bg-surface-primary', {
+                        'p-4 rounded border': !embedded,
+                    })}
+                >
+                    {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                        <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                            {editorFilterGroups.map((editorFilterGroup) => (
+                                <EditorFilterGroup
+                                    key={editorFilterGroup.title}
+                                    editorFilterGroup={editorFilterGroup}
+                                    insightProps={insightProps}
+                                    query={query}
+                                />
+                            ))}
+                        </div>
                     ))}
                 </div>
 
@@ -369,7 +357,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
                     </LemonBanner>
                 ) : null}
-            </div>
+            </>
         </CSSTransition>
     )
 }

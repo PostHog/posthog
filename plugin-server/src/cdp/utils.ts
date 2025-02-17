@@ -1,12 +1,12 @@
 import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
 import { Bytecodes } from '@posthog/hogvm'
-import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
 import { safeClickhouseString } from '../ingestion/event-pipeline-runner/utils/utils'
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
+import { captureException } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import { CdpInternalEvent } from './schema'

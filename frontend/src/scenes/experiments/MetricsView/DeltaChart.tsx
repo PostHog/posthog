@@ -133,14 +133,15 @@ export function DeltaChart({
         credibleIntervalForVariant,
         conversionRateForVariant,
         experimentId,
+        experiment,
         countDataForVariant,
         exposureCountDataForVariant,
         metricResultsLoading,
         secondaryMetricResultsLoading,
         featureFlags,
+        primaryMetricsLengthWithSharedMetrics,
     } = useValues(experimentLogic)
 
-    const { experiment } = useValues(experimentLogic)
     const {
         openPrimaryMetricModal,
         openSecondaryMetricModal,
@@ -346,7 +347,7 @@ export function DeltaChart({
                         <div className="absolute top-2 left-2" style={{ zIndex: 102 }}>
                             <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
                         </div>
-                        {(isSecondary || (!isSecondary && experiment.metrics.length > 1)) && (
+                        {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                             <div
                                 className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)]"
                                 // Chart is z-index 100, so we need to be above it
@@ -844,9 +845,12 @@ export function DeltaChart({
                     </LemonButton>
                 }
             >
-                <div className="flex justify-end">
-                    <ExploreButton result={result} />
-                </div>
+                {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                {result && (result.kind === 'ExperimentTrendsQuery' || result.kind === 'ExperimentFunnelsQuery') && (
+                    <div className="flex justify-end">
+                        <ExploreButton result={result} />
+                    </div>
+                )}
                 <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
                         <WinningVariantText result={result} experimentId={experimentId} />
@@ -854,7 +858,10 @@ export function DeltaChart({
                     </div>
                 </LemonBanner>
                 <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
-                <ResultsQuery result={result} showTable={true} />
+                {/* TODO: Only show results query if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                {result && (result.kind === 'ExperimentTrendsQuery' || result.kind === 'ExperimentFunnelsQuery') && (
+                    <ResultsQuery result={result} showTable={true} />
+                )}
             </LemonModal>
         </div>
     )

@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
@@ -10,6 +9,7 @@ import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { runInstrumentedFunction } from '../utils/instrument'
 import { eventDroppedCounter } from '../utils/metrics'
 import { setupMmdb } from '../utils/mmdb'
+import { captureException } from '../utils/posthog'
 import { status } from '../utils/status'
 import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 import { normalizeEvent } from './event-pipeline-runner/utils/event-utils'

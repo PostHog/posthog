@@ -15,6 +15,7 @@ describe('session recording process event', () => {
     const sessionReplayEventTestCases: {
         testDescription?: string
         snapshotData: { events_summary: RRWebEvent[] }
+        $lib: string | null
         snapshotSource?: string
         expected: Pick<
             SummarizedSessionRecordingEvent,
@@ -33,6 +34,7 @@ describe('session recording process event', () => {
             | 'message_count'
             | 'snapshot_source'
             | 'urls'
+            | 'snapshot_library'
         >
     }[] = [
         {
@@ -53,6 +55,7 @@ describe('session recording process event', () => {
                     { timestamp: 1682449093469, type: 3, data: { source: 1 }, windowId: '1' },
                 ],
             },
+            $lib: 'web',
             expected: {
                 click_count: 4,
                 keypress_count: 0,
@@ -69,6 +72,45 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
                 urls: [],
+                snapshot_library: 'web',
+            },
+        },
+        {
+            testDescription: 'snapshot lib max length',
+            snapshotData: {
+                events_summary: [
+                    // click
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
+                    // dbl click
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 4 }, windowId: '1' },
+                    // touch end
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 9 }, windowId: '1' },
+                    // right click
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 3 }, windowId: '1' },
+                    // touch move - mouse activity but not click activity
+                    { timestamp: 1682449093469, type: 3, data: { source: 6 }, windowId: '1' },
+                    // mouse move - mouse activity but not click activity
+                    { timestamp: 1682449093469, type: 3, data: { source: 1 }, windowId: '1' },
+                ],
+            },
+            $lib: 'a'.repeat(1010),
+            expected: {
+                click_count: 4,
+                keypress_count: 0,
+                mouse_activity_count: 6,
+                first_url: null,
+                first_timestamp: '2023-04-25 18:58:13.469',
+                last_timestamp: '2023-04-25 18:58:13.469',
+                active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
+                console_log_count: 0,
+                console_warn_count: 0,
+                console_error_count: 0,
+                size: 469,
+                event_count: 6,
+                message_count: 1,
+                snapshot_source: 'web',
+                urls: [],
+                snapshot_library: 'a'.repeat(1000),
             },
         },
         {
@@ -77,6 +119,7 @@ describe('session recording process event', () => {
                 // keyboard press
                 events_summary: [{ timestamp: 1682449093469, type: 3, data: { source: 5 }, windowId: '1' }],
             },
+            $lib: null,
             expected: {
                 click_count: 0,
                 keypress_count: 1,
@@ -93,6 +136,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
                 urls: [],
+                snapshot_library: null,
             },
         },
         {
@@ -166,6 +210,7 @@ describe('session recording process event', () => {
                     },
                 ],
             },
+            $lib: 'web',
             expected: {
                 click_count: 0,
                 keypress_count: 1,
@@ -182,6 +227,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
                 urls: [],
+                snapshot_library: 'web',
             },
         },
         {
@@ -204,6 +250,7 @@ describe('session recording process event', () => {
                     },
                 ],
             },
+            $lib: 'web',
             expected: {
                 click_count: 0,
                 keypress_count: 0,
@@ -220,6 +267,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
                 urls: ['http://127.0.0.1:8000/the/url'],
+                snapshot_library: 'web',
             },
         },
         {
@@ -246,6 +294,7 @@ describe('session recording process event', () => {
                     },
                 ],
             },
+            $lib: 'web',
             expected: {
                 click_count: 0,
                 keypress_count: 0,
@@ -262,6 +311,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
                 urls: ['http://127.0.0.1:8000/home', 'http://127.0.0.1:8000/second/url'],
+                snapshot_library: 'web',
             },
         },
         {
@@ -292,6 +342,7 @@ describe('session recording process event', () => {
                     },
                 ],
             },
+            $lib: 'web',
             expected: {
                 click_count: 0,
                 keypress_count: 0,
@@ -308,6 +359,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
                 urls: ['http://127.0.0.1:8000/my-spa'],
+                snapshot_library: 'web',
             },
         },
         {
@@ -321,6 +373,7 @@ describe('session recording process event', () => {
                     { timestamp: -922167545571, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
                 ],
             },
+            $lib: 'web',
             expected: {
                 click_count: 3,
                 keypress_count: 0,
@@ -337,6 +390,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
                 urls: [],
+                snapshot_library: 'web',
             },
         },
         {
@@ -353,6 +407,7 @@ describe('session recording process event', () => {
                     { timestamp: 1682449099000, type: 3, data: { source: 2, type: 2 }, windowId: '3' },
                 ],
             },
+            $lib: 'web',
             expected: {
                 click_count: 6,
                 keypress_count: 0,
@@ -369,6 +424,7 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
                 urls: [],
+                snapshot_library: 'web',
             },
         },
         {
@@ -377,6 +433,7 @@ describe('session recording process event', () => {
                 events_summary: [{ timestamp: 1682449093000, type: 3, data: { source: 2, type: 2 }, windowId: '1' }],
             },
             snapshotSource: 'mobile',
+            $lib: 'react-native',
             expected: {
                 active_milliseconds: 1,
                 click_count: 1,
@@ -393,6 +450,7 @@ describe('session recording process event', () => {
                 size: 82,
                 snapshot_source: 'mobile',
                 urls: [],
+                snapshot_library: 'react-native',
             },
         },
         {
@@ -404,6 +462,7 @@ describe('session recording process event', () => {
                 ],
             },
             snapshotSource: 'web',
+            $lib: 'web',
             expected: {
                 active_milliseconds: 1,
                 click_count: 1,
@@ -420,6 +479,7 @@ describe('session recording process event', () => {
                 size: 169,
                 snapshot_source: 'web',
                 urls: [],
+                snapshot_library: 'web',
             },
         },
         {
@@ -472,6 +532,7 @@ describe('session recording process event', () => {
                     },
                 ],
             },
+            $lib: 'web',
             expected: {
                 click_count: 0,
                 keypress_count: 0,
@@ -488,20 +549,22 @@ describe('session recording process event', () => {
                 message_count: 1,
                 snapshot_source: 'web',
                 urls: ['http://127.0.0.1:8000/my-spa', 'http://127.0.0.1:8000/my-spa/1'],
+                snapshot_library: 'web',
             },
         },
     ]
 
     it.each(sessionReplayEventTestCases)(
         'session replay event generation - $testDescription',
-        ({ snapshotData, snapshotSource, expected }) => {
+        ({ snapshotData, $lib, snapshotSource, expected }) => {
             const { event: data } = createSessionReplayEvent(
                 'some-id',
                 12345,
                 '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
                 'abcf-efg',
                 snapshotData.events_summary,
-                snapshotSource || null
+                snapshotSource || null,
+                $lib
             )
 
             const expectedEvent: SummarizedSessionRecordingEvent = {
@@ -523,6 +586,7 @@ describe('session recording process event', () => {
                 '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
                 'abcf-efg',
                 [],
+                null,
                 null
             )
         }).toThrowError()
@@ -552,6 +616,7 @@ describe('session recording process event', () => {
                         },
                     },
                 ] as any[],
+                null,
                 null
             )
         }).toThrowError()

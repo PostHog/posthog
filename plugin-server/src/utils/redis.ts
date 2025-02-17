@@ -1,8 +1,8 @@
-import * as Sentry from '@sentry/node'
 import { createPool } from 'generic-pool'
 import Redis, { RedisOptions } from 'ioredis'
 
 import { Config, RedisPool } from '../types'
+import { captureException } from './posthog'
 import { status } from './status'
 import { killGracefully } from './utils'
 
@@ -73,7 +73,7 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
     redis
         .on('error', (error) => {
             errorCounter++
-            Sentry.captureException(error)
+            captureException(error)
             if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
                 status.error('😡', 'Redis error encountered! Enough of this, I quit!\n', error)
                 killGracefully()

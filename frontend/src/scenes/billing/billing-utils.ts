@@ -102,8 +102,8 @@ export const convertAmountToUsage = (
         let totalAmount = parseFloat(tier.unit_amount_usd)
         let flatFee = parseFloat(tier.flat_amount_usd || '0')
         for (const addonTiers of allAddonsTiers) {
-            totalAmount += parseFloat(addonTiers[index].unit_amount_usd)
-            flatFee += parseFloat(addonTiers[index].flat_amount_usd || '0')
+            totalAmount += parseFloat(addonTiers[index]?.unit_amount_usd || '0')
+            flatFee += parseFloat(addonTiers[index]?.flat_amount_usd || '0')
         }
         return {
             ...tier,

@@ -198,6 +198,7 @@ pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
 #[derive(Debug)]
 pub struct ProcessingContext {
     pub lib_version: Option<String>,
+    pub user_agent: Option<String>,
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
     pub now: String,

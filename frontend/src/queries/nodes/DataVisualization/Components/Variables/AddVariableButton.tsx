@@ -44,6 +44,10 @@ export const AddVariableButton = (): JSX.Element => {
                                 label: 'List',
                                 onClick: () => openNewVariableModal('List'),
                             },
+                            {
+                                label: 'Date',
+                                onClick: () => openNewVariableModal('Date'),
+                            },
                         ],
                     },
                     {
@@ -56,7 +60,12 @@ export const AddVariableButton = (): JSX.Element => {
                                   },
                               ]
                             : variables.map((n) => ({
-                                  label: n.name,
+                                  label: (
+                                      <span className="flex items-center gap-2">
+                                          <span>{n.name}</span>
+                                          <span className="text-xs text-muted-alt">{n.type}</span>
+                                      </span>
+                                  ),
                                   onClick: () => addVariable({ variableId: n.id, code_name: n.code_name }),
                               })),
                     },
