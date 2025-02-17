@@ -33,7 +33,7 @@ COPY common/esbuilder/ common/esbuilder/
 COPY common/eslint_rules/ common/eslint_rules/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && pnpm --version && \
-    pnpm --filter=@posthog/frontend install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
+    pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
 
 COPY frontend/ frontend/
 COPY products/ products/
@@ -73,8 +73,8 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm --filter=@posthog/plugin-transpiler install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     pnpm --filter=@posthog/plugin-transpiler build
 
 WORKDIR /code/plugin-server
@@ -87,10 +87,10 @@ COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
 
 # Build cyclotron first with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm run build:cyclotron
+RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter=@posthog/plugin-server run build:cyclotron
 
 # Then build the plugin server with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm build
+RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter=@posthog/plugin-server build
 
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
