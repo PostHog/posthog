@@ -1,5 +1,4 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { Summary } from 'prom-client'
@@ -22,6 +21,7 @@ import {
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
+import { captureException } from '../../utils/posthog'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 import { TeamManager } from './team-manager'

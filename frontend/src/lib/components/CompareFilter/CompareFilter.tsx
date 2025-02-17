@@ -4,7 +4,7 @@ import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRan
 import { dateFromToText } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
-import { CompareFilter as CompareFilterType } from '~/queries/schema'
+import { CompareFilter as CompareFilterType } from '~/queries/schema/schema-general'
 
 type CompareFilterProps = {
     compareFilter?: CompareFilterType | null

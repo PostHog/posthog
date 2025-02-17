@@ -8,7 +8,7 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignee,
     ErrorTrackingSparklineConfig,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'

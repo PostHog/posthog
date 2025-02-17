@@ -51,13 +51,13 @@
     }
 
     &--embedded {
-        background: none;
+        background: none !important;
         border: none;
         border-radius: 0;
     }
 
     &--stealth {
-        background: none;
+        background: none !important;
 
         .LemonTable__content > table {
             > thead {
