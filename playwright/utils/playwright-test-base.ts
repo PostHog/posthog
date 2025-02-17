@@ -3,6 +3,8 @@ import { urls } from 'scenes/urls'
 
 import { AppContext } from '~/types'
 
+import { Identifier, Navigation } from './navigation'
+
 export const LOGIN_USERNAME = process.env.LOGIN_USERNAME || 'test@posthog.com'
 export const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || '12345678'
 
@@ -13,6 +15,7 @@ export type WindowWithPostHog = typeof globalThis & {
 declare module '@playwright/test' {
     interface Page {
         setAppContext<K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void>
+        goToMenuItem(name: Identifier): Promise<void>
         // resetCapturedEvents(): Promise<void>
         //
         // capturedEvents(): Promise<CaptureResult[]>
@@ -38,6 +41,9 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
                 },
                 [key, value]
             )
+        }
+        page.goToMenuItem = async function (name: Identifier): Promise<void> {
+            await new Navigation(page).openMenuItem(name)
         }
         // page.resetCapturedEvents = async function () {
         //     await this.evaluate(() => {

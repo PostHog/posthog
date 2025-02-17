@@ -1,3 +1,5 @@
+// PD - migrated to playwright
+
 describe('Auth', () => {
     beforeEach(() => {
         cy.get('[data-attr=menu-item-me]').click()

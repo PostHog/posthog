@@ -19,20 +19,15 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 
-import { FileSystemEntry, FileSystemType } from '~/queries/schema'
+import { FileSystemEntry, FileSystemType } from '~/queries/schema/schema-general'
 import { InsightType, PipelineStage, ReplayTabs } from '~/types'
 
 import type { projectTreeLogicType } from './projectTreeLogicType'
@@ -264,24 +259,9 @@ export function iconForType(type?: FileSystemType): JSX.Element {
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
-    connect(() => ({
-        values: [
-            featureFlagsLogic,
-            ['featureFlags'],
-            savedInsightsLogic,
-            ['insights'],
-            experimentsLogic,
-            ['experiments'],
-            dashboardsLogic,
-            ['dashboards'],
-            notebooksTableLogic,
-            ['notebooks'],
-        ],
-        actions: [notebooksTableLogic, ['loadNotebooks']],
-    })),
     actions({
         loadSavedItems: true,
-        loadUnfiledItems: true,
+        loadUnfiledItems: (type?: FileSystemType) => ({ type }),
         addFolder: (folder: string) => ({ folder }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
@@ -298,16 +278,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {
                 loadSavedItems: async () => {
                     const response = await api.fileSystem.list()
-                    return response.results
+                    return [...values.savedItems, ...response.results]
                 },
             },
         ],
         allUnfiledItems: [
             [] as FileSystemEntry[],
             {
-                loadUnfiledItems: async () => {
-                    const response = await api.fileSystem.unfiled()
-                    return response.results
+                loadUnfiledItems: async ({ type }) => {
+                    const response = await api.fileSystem.unfiled(type)
+                    return [...values.allUnfiledItems, ...response.results]
                 },
             },
         ],
@@ -339,6 +319,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     })),
     reducers({
+        unfiledLoadingCount: [
+            0,
+            {
+                loadUnfiledItems: (state) => state + 1,
+                loadUnfiledItemsSuccess: (state) => state - 1,
+                loadUnfiledItemsFailure: (state) => state - 1,
+            },
+        ],
         pendingActions: [
             [] as ProjectTreeAction[],
             {
@@ -357,6 +345,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     selectors({
+        unfiledLoading: [(s) => [s.unfiledLoadingCount], (unfiledLoadingCount) => unfiledLoadingCount > 0],
         unfiledItems: [
             // Remove from unfiledItems the ones that are in "savedItems"
             (s) => [s.savedItems, s.allUnfiledItems],
@@ -424,10 +413,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         loadingPaths: [
             // Paths that are currently being loaded
-            (s) => [s.allUnfiledItemsLoading, s.savedItemsLoading, s.pendingLoaderLoading, s.pendingActions],
-            (allUnfiledItemsLoading, savedItemsLoading, pendingLoaderLoading, pendingActions) => {
+            (s) => [s.unfiledLoading, s.savedItemsLoading, s.pendingLoaderLoading, s.pendingActions],
+            (unfiledLoading, savedItemsLoading, pendingLoaderLoading, pendingActions) => {
                 const loadingPaths: Record<string, boolean> = {}
-                if (allUnfiledItemsLoading) {
+                if (unfiledLoading) {
                     loadingPaths['Unfiled'] = true
                     loadingPaths[''] = true
                 }
@@ -591,7 +580,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSavedItems()
-        actions.loadUnfiledItems()
-        actions.loadNotebooks()
+        actions.loadUnfiledItems('feature_flag')
+        actions.loadUnfiledItems('experiment')
+        actions.loadUnfiledItems('insight')
+        actions.loadUnfiledItems('dashboard')
+        actions.loadUnfiledItems('notebook')
     }),
 ])

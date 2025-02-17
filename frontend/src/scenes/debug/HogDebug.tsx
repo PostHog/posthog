@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { HogQuery, HogQueryResponse } from '~/queries/schema'
+import { HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
 
 export interface HogQueryEditorProps {
     query: HogQuery

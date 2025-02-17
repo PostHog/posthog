@@ -23,7 +23,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
-import { InsightQueryNode } from '~/queries/schema'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 import {
     AvailableFeature,
     ChartDisplayType,
@@ -337,7 +337,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     })}
                 >
                     {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                        <div key={title} className="flex-1 flex flex-col gap-4">
+                        <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
                             {editorFilterGroups.map((editorFilterGroup) => (
                                 <EditorFilterGroup
                                     key={editorFilterGroup.title}

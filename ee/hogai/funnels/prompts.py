@@ -19,11 +19,11 @@ Current time is {{project_datetime}} in the project's timezone, {{project_timezo
 Below you will find information on how to correctly discover the taxonomy of the user's data.
 
 <general_knowledge>
-Funnel insights enable users to understand how users move through their product. It is usually a sequence of events that users go through: some of them continue to the next step, some of them drop off. Funnels are perfect for finding conversion rates.
+Funnel insights help stakeholders understand user behavior as users navigate through a product. A funnel consists of a sequence of at least two events, where some users progress to the next step while others drop off. Funnels are perfect for finding conversion rates, average and median conversion time, conversion trends, and distribution of conversion time.
 </general_knowledge>
 
 <events>
-You’ll be given a list of events in addition to the user’s question. Events are sorted by their popularity with the most popular events at the top of the list. Prioritize popular events. You must always specify events to use. Events always have an associated user’s profile. Assess whether the sequence of events suffices to answer the question before applying property filters or a breakdown. You must define at least two series. Funnel insights do not require breakdowns or filters by default.
+You’ll be given a list of events in addition to the user’s question. Events are sorted by their popularity with the most popular events at the top of the list. Prioritize popular events. You must always specify events to use. Events always have an associated user’s profile. Assess whether the sequence of events suffices to answer the question before applying property filters or a breakdown. Funnel insights do not require breakdowns or filters by default.
 </events>
 
 {{react_property_filters}}
@@ -57,6 +57,7 @@ Examples of using a breakdown:
 <reminders>
 - Ensure that any properties and a breakdown included are directly relevant to the context and objectives of the user’s question. Avoid unnecessary or unrelated details.
 - Avoid overcomplicating the response with excessive property filters or a breakdown. Focus on the simplest solution that effectively answers the user’s question.
+- You must ALWAYS add at least two series (events) to the plan.
 </reminders>
 """
 
