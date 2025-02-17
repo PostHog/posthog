@@ -164,6 +164,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setPollResponse: (status: QueryStatus | null) => ({ status }),
         setLocalCache: (response: Record<string, any>) => response,
         setLoadingTime: (seconds: number) => ({ seconds }),
+        resetLoadingTimer: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -721,18 +722,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
         loadData: () => {
             actions.collectionNodeLoadData(props.key)
-            if (cache.loadingTimer) {
-                window.clearInterval(cache.loadingTimer)
-                cache.loadingTimer = null
-            }
-
-            if (values.dataLoading) {
-                const startTime = Date.now()
-                cache.loadingTimer = window.setInterval(() => {
-                    const seconds = Math.floor((Date.now() - startTime) / 1000)
-                    actions.setLoadingTime(seconds)
-                }, 1000)
-            }
+            actions.resetLoadingTimer()
         },
         loadDataSuccess: ({ response }) => {
             props.onData?.(response)
@@ -749,6 +739,20 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
         loadNextDataSuccess: ({ response }) => {
             props.onData?.(response)
+        },
+        resetLoadingTimer: () => {
+            if (cache.loadingTimer) {
+                window.clearInterval(cache.loadingTimer)
+                cache.loadingTimer = null
+            }
+
+            if (values.dataLoading) {
+                const startTime = Date.now()
+                cache.loadingTimer = window.setInterval(() => {
+                    const seconds = Math.floor((Date.now() - startTime) / 1000)
+                    actions.setLoadingTime(seconds)
+                }, 1000)
+            }
         },
     })),
     subscriptions(({ actions, cache, values }) => ({
