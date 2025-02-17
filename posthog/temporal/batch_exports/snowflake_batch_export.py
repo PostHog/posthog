@@ -700,7 +700,7 @@ def get_snowflake_fields_from_record_schema(
             snowflake_type = "FLOAT"
 
         elif pa.types.is_boolean(pa_field.type):
-            snowflake_type = "BOOL"
+            snowflake_type = "BOOLEAN"
 
         elif pa.types.is_timestamp(pa_field.type):
             snowflake_type = "TIMESTAMP"
@@ -768,7 +768,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
-            use_latest_schema=True,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)

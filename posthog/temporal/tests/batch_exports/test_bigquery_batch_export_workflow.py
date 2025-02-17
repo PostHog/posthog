@@ -39,12 +39,17 @@ from posthog.temporal.batch_exports.bigquery_batch_export import (
     get_bigquery_fields_from_record_schema,
     insert_into_bigquery_activity,
 )
-from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, SessionsRecordBatchModel
-from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import get_record_batch_from_queue, mocked_start_batch_export_run
-from posthog.temporal.tests.utils.events import (
-    generate_test_events_in_clickhouse,
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    SessionsRecordBatchModel,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import (
+    get_record_batch_from_queue,
+    mocked_start_batch_export_run,
+)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -73,6 +78,7 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "person_distinct_id_version",
     "created_at",
     "_inserted_at",
+    "is_deleted",
 ]
 
 
@@ -185,7 +191,6 @@ async def assert_clickhouse_records_in_bigquery(
             is_backfill=backfill_details is not None,
             backfill_details=backfill_details,
             extra_query_parameters=extra_query_parameters,
-            use_latest_schema=True,
         )
 
         while True:
@@ -1001,7 +1006,7 @@ async def test_insert_into_bigquery_activity_handles_person_schema_changes(
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
-        # this time we don't expected there to be a created_at column
+        # this time we don't expect there to be a created_at column
         expected_fields = [field for field in EXPECTED_PERSONS_BATCH_EXPORT_FIELDS if field != "created_at"]
         await assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,

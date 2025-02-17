@@ -6,11 +6,9 @@ from random import randint
 import pytest
 from django.test import override_settings
 
-from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.batch_exports.batch_exports import (
     generate_query_ranges,
     get_data_interval,
-    iter_model_records,
     iter_records,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
@@ -234,64 +232,6 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
         ]
 
     assert_records_match_events(records, events)
-
-
-@pytest.mark.parametrize(
-    "field",
-    [
-        {"expression": "event", "alias": "event_name"},
-        {"expression": "team_id", "alias": "team"},
-        {"expression": "timestamp", "alias": "time_the_stamp"},
-        {"expression": "created_at", "alias": "creation_time"},
-    ],
-)
-async def test_iter_records_with_single_field_and_alias(clickhouse_client, field):
-    """Test iter_records can return a single aliased field."""
-    team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    data_interval_start = data_interval_end - dt.timedelta(hours=1)
-
-    (events, _, _) = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=10,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-        properties={"$browser": "Chrome", "$os": "Mac OS X"},
-    )
-
-    records = [
-        record
-        async for record_batch in iter_model_records(
-            client=clickhouse_client,
-            model=BatchExportModel(name="events", schema={"fields": [field], "values": {}}),
-            team_id=team_id,
-            backfill_details=None,
-            interval_start=data_interval_start.isoformat(),
-            interval_end=data_interval_end.isoformat(),
-        )
-        for record in record_batch.to_pylist()
-    ]
-
-    all_expected = sorted(events, key=operator.itemgetter(field["expression"]))
-    all_record = sorted(records, key=operator.itemgetter(field["alias"]))
-
-    for expected, record in zip(all_expected, all_record):
-        assert len(record) == 2
-        # Always set for progress tracking
-        assert record.get("_inserted_at", None) is not None
-
-        result = record[field["alias"]]
-        expected_value = expected[field["expression"]]
-
-        if isinstance(result, dt.datetime):
-            # Event generation function returns datetimes as strings.
-            expected_value = dt.datetime.fromisoformat(expected_value).replace(tzinfo=dt.UTC)
-
-        assert result == expected_value
 
 
 async def test_iter_records_can_flatten_properties(clickhouse_client):
