@@ -5,7 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 export function WeekStartConfig(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
 
     return (
         <LemonSelect
@@ -16,7 +16,7 @@ export function WeekStartConfig(): JSX.Element {
                     description: 'Queries grouped by week will need to be recalculated.',
                     primaryButton: {
                         children: 'Change week definition',
-                        onClick: () => updateCurrentTeam({ week_start_day: value }),
+                        onClick: () => updateCurrentTeamConfig({ week_start_day: value }),
                     },
                     secondaryButton: {
                         children: 'Cancel',

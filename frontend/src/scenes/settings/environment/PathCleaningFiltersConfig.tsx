@@ -24,7 +24,7 @@ const cleanPathWithRegexes = (path: string, filters: PathCleaningFilter[]): stri
 export function PathCleaningFiltersConfig(): JSX.Element | null {
     const [testValue, setTestValue] = useState('')
 
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
@@ -79,7 +79,7 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
             </p>
             <PathCleanFilters
                 filters={currentTeam.path_cleaning_filters}
-                setFilters={(filters) => updateCurrentTeam({ path_cleaning_filters: filters })}
+                setFilters={(filters) => updateCurrentTeamConfig({ path_cleaning_filters: filters })}
             />
 
             <p className="mt-4">Wanna test what your cleaned path will look like? Try them out here.</p>

@@ -220,7 +220,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     props({} as AuthorizedUrlListLogicProps),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
-        actions: [teamLogic, ['updateCurrentTeam']],
+        actions: [teamLogic, ['updateCurrentTeamConfig']],
     }),
     actions(() => ({
         setAuthorizedUrls: (authorizedUrls: string[]) => ({ authorizedUrls }),
@@ -375,9 +375,9 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     sharedListeners(({ values, props }) => ({
         saveUrls: async () => {
             if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
-                await teamLogic.asyncActions.updateCurrentTeam({ recording_domains: values.authorizedUrls })
+                await teamLogic.asyncActions.updateCurrentTeamConfig({ recording_domains: values.authorizedUrls })
             } else {
-                await teamLogic.asyncActions.updateCurrentTeam({ app_urls: values.authorizedUrls })
+                await teamLogic.asyncActions.updateCurrentTeamConfig({ app_urls: values.authorizedUrls })
             }
         },
     })),

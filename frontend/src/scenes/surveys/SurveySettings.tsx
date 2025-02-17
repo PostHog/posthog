@@ -16,7 +16,7 @@ import { Customization } from './SurveyCustomization'
 
 export function SurveySettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { globalSurveyAppearanceConfigAvailable } = useValues(surveysLogic)
     const [validationErrors, setValidationErrors] = useState<DeepPartialMap<
         SurveyAppearance,
@@ -56,7 +56,7 @@ export function SurveySettings(): JSX.Element {
         }
 
         // If no errors, proceed with the update
-        updateCurrentTeam({
+        updateCurrentTeamConfig({
             survey_config: {
                 ...currentTeam?.survey_config,
                 appearance: sanitizedAppearance,

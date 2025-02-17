@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 export function PersonDisplayNameProperties(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const [value, setValue] = useState([] as string[])
 
     useEffect(
@@ -38,7 +38,7 @@ export function PersonDisplayNameProperties(): JSX.Element {
                 <LemonButton
                     type="primary"
                     onClick={() =>
-                        updateCurrentTeam({
+                        updateCurrentTeamConfig({
                             person_display_name_properties: value.map((s) => s.trim()).filter((a) => a) || [],
                         })
                     }

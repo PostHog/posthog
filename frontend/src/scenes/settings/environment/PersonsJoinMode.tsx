@@ -33,7 +33,7 @@ const personsJoinOptions: LemonRadioOption<PersonsJoinMode>[] = [
 ]
 
 export function PersonsJoinMode(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { reportPersonsJoinModeUpdated } = useActions(eventUsageLogic)
 
@@ -42,7 +42,7 @@ export function PersonsJoinMode(): JSX.Element {
     const [personsJoinMode, setPersonsJoinMode] = useState<PersonsJoinMode>(savedPersonsJoinMode)
 
     const handleChange = (mode: PersonsJoinMode): void => {
-        updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, personsJoinMode: mode } })
+        updateCurrentTeamConfig({ modifiers: { ...currentTeam?.modifiers, personsJoinMode: mode } })
         reportPersonsJoinModeUpdated(mode)
     }
 

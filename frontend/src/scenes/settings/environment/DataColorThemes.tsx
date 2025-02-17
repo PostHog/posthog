@@ -15,7 +15,7 @@ export function DataColorThemes(): JSX.Element {
     const { selectTheme } = useActions(dataColorThemesLogic)
 
     const { currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
 
     const themes = _themes || []
 
@@ -67,7 +67,7 @@ export function DataColorThemes(): JSX.Element {
                             description: 'This changes the default colors used when visualizing data in insights.',
                             primaryButton: {
                                 children: 'Change default theme',
-                                onClick: () => updateCurrentTeam({ default_data_theme: value! }),
+                                onClick: () => updateCurrentTeamConfig({ default_data_theme: value! }),
                             },
                             secondaryButton: {
                                 children: 'Cancel',

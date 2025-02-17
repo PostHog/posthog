@@ -42,7 +42,7 @@ export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>([
             null,
             {
                 removeWebhook: () => {
-                    teamLogic.actions.updateCurrentTeam({ slack_incoming_webhook: '' })
+                    teamLogic.actions.updateCurrentTeamConfig({ slack_incoming_webhook: '' })
                     return null
                 },
             },
@@ -57,7 +57,7 @@ export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>([
     listeners(() => ({
         testWebhookSuccess: ({ testedWebhook }) => {
             if (testedWebhook) {
-                teamLogic.actions.updateCurrentTeam({ slack_incoming_webhook: testedWebhook })
+                teamLogic.actions.updateCurrentTeamConfig({ slack_incoming_webhook: testedWebhook })
             }
         },
         testWebhookFailure: ({ error }) => {

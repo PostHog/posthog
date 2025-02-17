@@ -49,7 +49,7 @@ const POE_OPTIONS: LemonRadioOption<PoEMode>[] = [
 ]
 
 export function PersonsOnEvents(): JSX.Element {
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { reportPoEModeUpdated } = useActions(eventUsageLogic)
     const { currentTeam } = useValues(teamLogic)
     const savedPoEMode: PoEMode =
@@ -57,7 +57,7 @@ export function PersonsOnEvents(): JSX.Element {
     const [poeMode, setPoeMode] = useState<PoEMode>(savedPoEMode)
 
     const handleChange = (mode: PoEMode): void => {
-        updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, personsOnEventsMode: mode } })
+        updateCurrentTeamConfig({ modifiers: { ...currentTeam?.modifiers, personsOnEventsMode: mode } })
         posthog.capture('user changed personsOnEventsMode setting', { personsOnEventsMode: mode })
         reportPoEModeUpdated(mode)
     }

@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMetrics }): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
 
     return (
         <LemonSwitch
@@ -36,11 +36,11 @@ function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMe
                     currentTeam?.autocapture_web_vitals_allowed_metrics || ['FCP', 'CLS', 'INP', 'LCP']
                 )?.filter((allowedMetric) => allowedMetric !== metric)
                 if (checked) {
-                    updateCurrentTeam({
+                    updateCurrentTeamConfig({
                         autocapture_web_vitals_allowed_metrics: [...without, metric],
                     })
                 } else {
-                    updateCurrentTeam({
+                    updateCurrentTeamConfig({
                         autocapture_web_vitals_allowed_metrics: [...without],
                     })
                 }
@@ -52,7 +52,7 @@ function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMe
 export function AutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { reportAutocaptureToggled } = useActions(eventUsageLogic)
 
     return (
@@ -79,7 +79,7 @@ export function AutocaptureSettings(): JSX.Element {
                 <LemonSwitch
                     id="posthog-autocapture-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({
+                        updateCurrentTeamConfig({
                             autocapture_opt_out: !checked,
                         })
                         reportAutocaptureToggled(!checked)
@@ -97,7 +97,7 @@ export function AutocaptureSettings(): JSX.Element {
 export function ExceptionAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
 
     return (
@@ -116,7 +116,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
             <LemonSwitch
                 id="posthog-autocapture-exceptions-switch"
                 onChange={(checked) => {
-                    updateCurrentTeam({
+                    updateCurrentTeamConfig({
                         autocapture_exceptions_opt_in: checked,
                     })
                     reportAutocaptureExceptionsToggled(checked)
@@ -137,7 +137,7 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
 export function WebVitalsAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeamConfig } = useActions(teamLogic)
 
     return (
         <>
@@ -152,7 +152,7 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
             <LemonSwitch
                 id="posthog-autocapture-web-vitals-switch"
                 onChange={(checked) => {
-                    updateCurrentTeam({
+                    updateCurrentTeamConfig({
                         autocapture_web_vitals_opt_in: checked,
                     })
                 }}

@@ -189,12 +189,12 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
     })),
     sharedListeners(({ values }) => ({
         saveUrlTriggers: async () => {
-            await teamLogic.asyncActions.updateCurrentTeam({
+            await teamLogic.asyncActions.updateCurrentTeamConfig({
                 session_recording_url_trigger_config: values.urlTriggerConfig ?? [],
             })
         },
         saveUrlBlocklists: async () => {
-            await teamLogic.asyncActions.updateCurrentTeam({
+            await teamLogic.asyncActions.updateCurrentTeamConfig({
                 session_recording_url_blocklist_config: values.urlBlocklistConfig ?? [],
             })
         },
@@ -225,7 +225,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         },
         updateEventTriggerConfig: async ({ eventTriggerConfig }) => {
             actions.setEventTriggerConfig(eventTriggerConfig)
-            await teamLogic.asyncActions.updateCurrentTeam({
+            await teamLogic.asyncActions.updateCurrentTeamConfig({
                 session_recording_event_trigger_config: eventTriggerConfig,
             })
         },
