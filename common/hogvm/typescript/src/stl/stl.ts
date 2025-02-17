@@ -320,7 +320,7 @@ function substringFn([s, start, optionalLength]: any[]): string {
         return ''
     }
     const startIdx = start - 1
-    const length = Number.isNaN(optionalLength + 1) ? s.length - startIdx : optionalLength
+    const length = typeof optionalLength === 'number' ? optionalLength : s.length - startIdx
     if (startIdx < 0 || length < 0) {
         return ''
     }

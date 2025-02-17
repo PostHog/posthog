@@ -64,7 +64,7 @@ function toDate (input) { return __toDate(input) }
 function substring(s, start, optionalLength) {
     if (typeof s !== 'string') return '';
     const startIdx = start - 1;
-    const length = Number.isNaN(optionalLength + 1) ? s.length - startIdx : optionalLength
+    const length = typeof optionalLength === 'number' ? optionalLength : s.length - startIdx;
     if (startIdx < 0 || length < 0) return '';
     const endIdx = startIdx + length;
     return startIdx < s.length ? s.slice(startIdx, endIdx) : '';
