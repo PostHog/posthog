@@ -64,7 +64,7 @@ export function PropertyGroupFilters({
                         </div>
 
                         <LemonButton
-                            data-attr={`${pageKey}-add-filter-group`}
+                            data-attr={`${pageKey}-add-filter-group-inline`}
                             type="secondary"
                             onClick={addFilterGroup}
                             icon={<IconPlusSmall color="var(--accent-primary)" />}
