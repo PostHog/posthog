@@ -1,7 +1,6 @@
 import datetime
 import itertools
 from collections.abc import Iterator
-from dataclasses import dataclass
 from functools import reduce
 from typing import ClassVar
 
@@ -99,20 +98,6 @@ class MaterializeColumnConfig(dagster.Config):
         }
 
 
-@dataclass
-class MaterializeColumnInPartitionTask:
-    table: str
-    column: str
-    partition: str
-
-    def run(self, client: Client) -> None:
-        MutationRunner(
-            self.table,
-            f"MATERIALIZE COLUMN {self.column} IN PARTITION %(partition)s",
-            {"partition": self.partition},
-        ).enqueue(client).wait(client)
-
-
 @dagster.op
 def run_materialize_mutations(
     context: dagster.OpExecutionContext,
@@ -141,7 +126,11 @@ def run_materialize_mutations(
     # materialized.
     for partition in sorted(remaining_partitions, reverse=True):
         shard_tasks = {
-            shard_num: MaterializeColumnInPartitionTask(config.table, config.column, partition).run
+            shard_num: MutationRunner(
+                config.table,
+                f"MATERIALIZE COLUMN {config.column} IN PARTITION %(partition)s",
+                {"partition": partition},
+            )
             for shard_num, remaining_partitions_for_shard in remaining_partitions_by_shard.items()
             if partition in remaining_partitions_for_shard
         }

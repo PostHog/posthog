@@ -7,7 +7,7 @@ import { aiFilterLogic } from './aiFilterLogic'
 import { AiFilterSuggestions } from './AiFilterSuggestions'
 import { AiFilterThread } from './AiFilterThread'
 
-export function AiFilter(): JSX.Element {
+export function AiFilter({ isExpanded }: { isExpanded: boolean }): JSX.Element {
     const mountedLogic = useMountedLogic(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters } = useActions(mountedLogic)
     const filterLogic = aiFilterLogic({ setFilters, resetFilters })
@@ -17,7 +17,7 @@ export function AiFilter(): JSX.Element {
         <div className="relative flex flex-col gap-3 px-4 items-center grow justify-center">
             {messages.length === 0 && <AiFilterIntro />}
             <AiFilterThread />
-            <AiFilterInput />
+            {isExpanded && <AiFilterInput />}
             {messages.length === 0 && <AiFilterSuggestions />}
         </div>
     )
