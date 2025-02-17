@@ -1,3 +1,4 @@
+import os
 from typing import TYPE_CHECKING, Optional
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
@@ -14,7 +15,7 @@ from .query import create_default_modifiers_for_team
 if TYPE_CHECKING:
     from posthog.models import User, Team
 
-openai_client = OpenAI(posthog_client=posthoganalytics)
+openai_client = OpenAI(posthog_client=posthoganalytics) if os.getenv("OPENAI_API_KEY") else None
 
 UNCLEAR_PREFIX = "UNCLEAR:"
 
@@ -150,6 +151,9 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
 
 
 def hit_openai(messages, user) -> tuple[str, int, int]:
+    if not openai_client:
+        raise ValueError("OPENAI_API_KEY environment variable not set")
+
     result = openai_client.chat.completions.create(
         model="gpt-4o-mini",
         temperature=0,

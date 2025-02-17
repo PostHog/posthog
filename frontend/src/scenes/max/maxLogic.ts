@@ -136,9 +136,7 @@ export const maxLogic = kea<maxLogicType>([
     }),
     listeners(({ actions, values }) => ({
         [maxSettingsLogic.actionTypes.updateCoreMemorySuccess]: ({ payload }) => {
-            // Load suggestions anew after product description is changed on the project
-            // Most important when description is set for the first time, but also when updated,
-            // which is why we always want to load fresh suggestions here
+            // Load suggestions anew if core memory was changed manually on the project
             if (payload?.text) {
                 actions.loadSuggestions({ refresh: 'blocking' })
             }
@@ -354,7 +352,7 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
     afterMount(({ actions, values }) => {
-        // We only load suggestions on mount if core mmemory is populated
+        // We only load suggestions on mount if core memory is populated
         if (values.coreMemory?.text) {
             // In this case we're fine with even really old cached values
             actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
