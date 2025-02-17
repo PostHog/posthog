@@ -29,6 +29,7 @@ if (inputs.debug) {
             "description": "The path of the Zapier webhook. You can create your own or use our native Zapier integration https://zapier.com/apps/posthog/integrations",
             "secret": False,
             "required": True,
+            "hidden": False,
         },
         {
             "key": "body",
@@ -53,6 +54,7 @@ if (inputs.debug) {
             },
             "secret": False,
             "required": False,
+            "hidden": False,
         },
         {
             "key": "debug",
@@ -62,6 +64,7 @@ if (inputs.debug) {
             "secret": False,
             "required": False,
             "default": False,
+            "hidden": False,
         },
     ],
 )
