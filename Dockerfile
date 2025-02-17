@@ -60,6 +60,7 @@ WORKDIR /code
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY ./patches ./patches
 COPY ./rust ./rust
+COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
