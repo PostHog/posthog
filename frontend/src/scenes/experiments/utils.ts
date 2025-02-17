@@ -29,6 +29,7 @@ import {
     FunnelVizType,
     InsightType,
     PropertyFilterType,
+    PropertyMathType,
     PropertyOperator,
     type QueryBasedInsightModel,
     TrendResult,
@@ -448,4 +449,48 @@ export function filterToMetricConfig(
             }
         }
     }
+}
+
+export function metricToQuery(metric: ExperimentMetric): TrendsQuery | undefined {
+    const commonTrendsQueryProps: Partial<TrendsQuery> = {
+        kind: NodeKind.TrendsQuery,
+        interval: 'day',
+        dateRange: {
+            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+            explicitDate: true,
+        },
+        trendsFilter: {
+            display: ChartDisplayType.ActionsLineGraph,
+        },
+        filterTestAccounts: !!metric.filterTestAccounts,
+    }
+
+    if (metric.metric_type === ExperimentMetricType.COUNT) {
+        return {
+            ...commonTrendsQueryProps,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: (metric.metric_config as ExperimentEventMetricConfig).name,
+                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                },
+            ],
+        } as TrendsQuery
+    } else if (metric.metric_type === ExperimentMetricType.CONTINUOUS) {
+        return {
+            ...commonTrendsQueryProps,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                    name: (metric.metric_config as ExperimentEventMetricConfig).name,
+                    math: PropertyMathType.Sum,
+                    math_property: (metric.metric_config as ExperimentEventMetricConfig).math_property,
+                },
+            ],
+        } as TrendsQuery
+    }
+
+    return undefined
 }

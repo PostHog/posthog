@@ -3,11 +3,12 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { ExperimentMetricType } from '~/queries/schema/schema-general'
+import { Query } from '~/queries/Query/Query'
+import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 import { commonActionFilterProps } from '../Metrics/Selectors'
-import { filterToMetricConfig, metricConfigToFilter } from '../utils'
+import { filterToMetricConfig, metricConfigToFilter, metricToQuery } from '../utils'
 import { sharedMetricLogic } from './sharedMetricLogic'
 
 export function SharedExperimentMetricForm(): JSX.Element {
@@ -19,8 +20,8 @@ export function SharedExperimentMetricForm(): JSX.Element {
     }
 
     return (
-        <>
-            <div className="mb-4">
+        <div className="space-y-4">
+            <div>
                 <h4 className="mb-2">Metric type</h4>
                 <LemonRadio
                     data-attr="metrics-selector"
@@ -35,8 +36,17 @@ export function SharedExperimentMetricForm(): JSX.Element {
                         })
                     }}
                     options={[
-                        { value: ExperimentMetricType.COUNT, label: 'Count' },
-                        { value: ExperimentMetricType.CONTINUOUS, label: 'Continuous' },
+                        {
+                            value: ExperimentMetricType.COUNT,
+                            label: 'Count',
+                            description:
+                                'Tracks how many times an event happens, useful for click counts or page views.',
+                        },
+                        {
+                            value: ExperimentMetricType.CONTINUOUS,
+                            label: 'Continuous',
+                            description: 'Measures numerical values like revenue or session length.',
+                        },
                     ]}
                 />
             </div>
@@ -66,6 +76,16 @@ export function SharedExperimentMetricForm(): JSX.Element {
                 mathAvailability={MathAvailability.All}
                 {...commonActionFilterProps}
             />
-        </>
+            <Query
+                query={{
+                    kind: NodeKind.InsightVizNode,
+                    source: metricToQuery(sharedMetric.query as ExperimentMetric),
+                    showTable: false,
+                    showLastComputation: true,
+                    showLastComputationRefresh: false,
+                }}
+                readOnly
+            />
+        </div>
     )
 }
