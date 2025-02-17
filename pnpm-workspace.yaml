@@ -1,6 +1,7 @@
 packages:
     - '.'
-    - plugin-server
-    - common/plugin_transpiler
+    - common/esbuilder
     - common/hogvm/typescript
+    - common/plugin_transpiler
+    - plugin-server
     - rust/cyclotron-node
