@@ -1,5 +1,4 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import { Counter } from 'prom-client'
 
 import { TopicMessage } from '~/src/kafka/producer'
@@ -17,6 +16,7 @@ import {
 } from '../../types'
 import { status } from '../../utils/status'
 import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
+import { captureException } from '../posthog'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
     return {
@@ -50,7 +50,7 @@ export function timeoutGuard(
         const ctx = typeof context === 'function' ? context() : context
         status.warn('⌛', message, ctx)
         if (sendToSentry) {
-            Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
+            captureException(message, ctx ? { extra: ctx } : undefined)
         }
     }, timeout)
 }

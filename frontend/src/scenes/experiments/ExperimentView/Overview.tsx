@@ -1,6 +1,10 @@
 import { useValues } from 'kea'
 
-import { CachedExperimentFunnelsQueryResponse, CachedExperimentTrendsQueryResponse } from '~/queries/schema'
+import {
+    CachedExperimentFunnelsQueryResponse,
+    CachedExperimentQueryResponse,
+    CachedExperimentTrendsQueryResponse,
+} from '~/queries/schema/schema-general'
 import { ExperimentIdType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -10,7 +14,7 @@ export function WinningVariantText({
     result,
     experimentId,
 }: {
-    result: CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
+    result: CachedExperimentQueryResponse | CachedExperimentFunnelsQueryResponse | CachedExperimentTrendsQueryResponse
     experimentId: ExperimentIdType
 }): JSX.Element {
     const { getIndexForVariant, getHighestProbabilityVariant } = useValues(experimentLogic)

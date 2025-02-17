@@ -9,7 +9,7 @@ import {
     METRIC_DESCRIPTION,
     WEB_VITALS_THRESHOLDS,
 } from '~/queries/nodes/WebVitals/definitions'
-import { WebVitalsMetric } from '~/queries/schema'
+import { WebVitalsMetric } from '~/queries/schema/schema-general'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'

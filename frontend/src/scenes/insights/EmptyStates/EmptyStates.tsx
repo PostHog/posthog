@@ -24,12 +24,13 @@ import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema'
+import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema/schema-general'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
+import { insightVizDataLogic } from '../insightVizDataLogic'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -245,6 +246,64 @@ export function StatelessInsightLoadingState({
     )
 }
 
+export function SlowQuerySuggestions({
+    insightProps,
+    suggestedSamplingPercentage,
+    samplingPercentage,
+    loadingTimeSeconds = 0,
+}: {
+    insightProps: InsightLogicProps
+    suggestedSamplingPercentage?: number | null
+    samplingPercentage?: number | null
+    loadingTimeSeconds?: number | null
+}): JSX.Element | null {
+    const { slowQueryPossibilities } = useValues(insightVizDataLogic(insightProps))
+
+    const paragraphText = 'Need to speed things up? Steps to optimize this query:'
+    const codeClassName = 'border border-1 border-border-bold rounded-sm text-xs px-1 py-0.5'
+
+    return loadingTimeSeconds && loadingTimeSeconds > 7 ? (
+        <div>
+            <p data-attr="insight-loading-waiting-message" className="mb-2">
+                {paragraphText}
+            </p>
+            <ul className="mb-4 list-disc list-inside ml-4">
+                {slowQueryPossibilities.includes('all_events') ? (
+                    <li>
+                        Don't use the <code className={codeClassName}>All events</code> event type. Use a specific event
+                        instead.
+                    </li>
+                ) : null}
+                {slowQueryPossibilities.includes('first_time_for_user') ? (
+                    <li>
+                        When possible, avoid <code className={codeClassName}>First time for user</code> metric types.
+                    </li>
+                ) : null}
+                {slowQueryPossibilities.includes('strict_funnel') ? (
+                    <li>
+                        When possible, use <code className={codeClassName}>Sequential</code> step order rather than{' '}
+                        <code className={codeClassName}>Strict</code>.
+                    </li>
+                ) : null}
+                <li>Reduce the date range.</li>
+                {loadingTimeSeconds && loadingTimeSeconds > 12 && suggestedSamplingPercentage ? (
+                    <li>
+                        {samplingPercentage ? (
+                            <>
+                                Reduce volume further with <SamplingLink insightProps={insightProps} />.
+                            </>
+                        ) : (
+                            <>
+                                Turn on <SamplingLink insightProps={insightProps} />.
+                            </>
+                        )}
+                    </li>
+                ) : null}
+            </ul>
+        </div>
+    ) : null
+}
+
 export function InsightLoadingState({
     queryId,
     insightProps,
@@ -253,7 +312,7 @@ export function InsightLoadingState({
     insightProps: InsightLogicProps
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse } = useValues(insightDataLogic(insightProps))
+    const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
 
     const personsOnEventsMode =
@@ -273,24 +332,12 @@ export function InsightLoadingState({
                             </p>
                         </>
                     ) : (
-                        <>
-                            <p className="text-xs m-0">
-                                {suggestedSamplingPercentage && !samplingPercentage ? (
-                                    <span data-attr="insight-loading-waiting-message">
-                                        Need to speed things up? Try reducing the date range, removing breakdowns, or
-                                        turning on <SamplingLink insightProps={insightProps} />.
-                                    </span>
-                                ) : suggestedSamplingPercentage && samplingPercentage ? (
-                                    <>
-                                        Still waiting around? You must have lots of data! Kick it up a notch with{' '}
-                                        <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
-                                        removing breakdowns.
-                                    </>
-                                ) : (
-                                    <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
-                                )}
-                            </p>
-                        </>
+                        <SlowQuerySuggestions
+                            insightProps={insightProps}
+                            suggestedSamplingPercentage={suggestedSamplingPercentage}
+                            samplingPercentage={samplingPercentage}
+                            loadingTimeSeconds={insightLoadingTimeSeconds}
+                        />
                     )}
                 </div>
             }

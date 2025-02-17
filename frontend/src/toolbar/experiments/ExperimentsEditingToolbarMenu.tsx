@@ -49,10 +49,10 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
             >
                 <ToolbarMenu.Header className="border-b">
                     {selectedExperimentId === 'new' ? (
-                        <div className="w-full p-4">
+                        <div className="w-full px-2 pb-4 pt-2">
                             <LemonLabel>Experiment name</LemonLabel>
                             <LemonInput
-                                className="w-2/3"
+                                className="w-2/3 mt-1"
                                 placeholder="Example: Pricing page conversion"
                                 onChange={(newName: string) => {
                                     setExperimentFormValue('name', newName)

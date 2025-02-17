@@ -15,7 +15,7 @@ import { countryTitleFrom } from 'scenes/session-recordings/player/playerMetaLog
 import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { RecordingsQuery } from '~/queries/schema'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'

@@ -1,4 +1,4 @@
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
+import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 
 export type DataWarehouseTableForInsight = DatabaseSchemaDataWarehouseTable & {
     id_field?: string
