@@ -189,7 +189,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     : null,
                                 Object.keys(setProperties).length > 0
                                     ? {
-                                          key: '$set properties',
+                                          key: '$set_properties',
                                           label: 'Person properties',
                                           content: (
                                               <SimpleKeyValueList
@@ -208,7 +208,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     : null,
                                 Object.keys(setOnceProperties).length > 0
                                     ? {
-                                          key: '$set_once properties',
+                                          key: '$set_once_properties',
                                           label: 'Set once person properties',
                                           content: (
                                               <SimpleKeyValueList
