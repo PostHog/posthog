@@ -130,12 +130,12 @@ export const LOADING_MESSAGES = [
 ]
 
 export const DELAYED_LOADING_MESSAGES = [
-    'Preparing hedgehogs for your signal…',
-    'Readying our spiky analysts…',
-    'Positioning data hogs at the start…',
-    'Gathering hedgehogs at attention…',
-    'Aligning our prickly processors…',
-    'Queueing up the quills...',
+    'Waiting for changes...',
+    'Waiting for changes...',
+    'Waiting for changes...',
+    'Waiting for changes...',
+    'Waiting for changes...',
+    'Waiting for changes...',
 ]
 
 export function StatelessInsightLoadingState({
