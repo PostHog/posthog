@@ -2,6 +2,9 @@ from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.warehouse.models import QueryTabState
+from rest_framework.response import Response
+from rest_framework.decorators import action
+from posthog.models.user import User
 
 
 class QueryTabStateSerializer(serializers.ModelSerializer):
@@ -29,3 +32,20 @@ class QueryTabStateViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         return queryset.exclude(deleted=True)
+
+    @action(detail=False, methods=["get"])
+    def user(self, request, *args, **kwargs):
+        user_id = request.query_params.get("user_id")
+        if not user_id:
+            return Response({"error": "user_id is required"}, status=400)
+
+        try:
+            user = User.objects.get(uuid=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+        try:
+            query_tab_state = self.get_queryset().get(created_by=user, team_id=self.team_id)
+            return Response(self.get_serializer(query_tab_state).data)
+        except QueryTabState.DoesNotExist:
+            return Response({"error": "Query tab state not found"}, status=404)
