@@ -3,7 +3,6 @@ from uuid import UUID
 
 import pytest
 from clickhouse_driver import Client
-from django.conf import settings
 
 from dags.deletes import (
     deletes_job,
@@ -11,7 +10,7 @@ from dags.deletes import (
     PendingDeletesDictionary,
 )
 
-from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
