@@ -89,9 +89,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isRetention
                     ? {
-                          key: 'retention-config',
-                          label: 'Retention Summary',
-                          component: RetentionSummary,
+                          key: 'retention-condition',
+                          label: 'Retention Condition',
+                          component: RetentionCondition,
                       }
                     : null,
                 isFunnels
