@@ -107,8 +107,8 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'When a user loads a screen in a mobile app.',
         },
         $set: {
-            label: 'Set',
-            description: 'Setting person properties.',
+            label: 'Set person properties',
+            description: 'Setting person properties. Sent as `$set`',
         },
         $opt_in: {
             label: 'Opt In',
@@ -314,12 +314,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The content that was selected when the user copied or cut.',
         },
         $set: {
-            label: 'Set',
-            description: 'Person properties to be set',
+            label: 'Set person properties',
+            description: 'Person properties to be set. Sent as `$set`',
         },
         $set_once: {
-            label: 'Set Once',
-            description: 'Person properties to be set if not set already (i.e. first-touch)',
+            label: 'Set person properties once',
+            description: 'Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`',
         },
         $pageview_id: {
             label: 'Pageview ID',
