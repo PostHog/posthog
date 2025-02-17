@@ -75,17 +75,6 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             "type": "web",
             "created_by": self.context["request"].user,
             "variants": validated_data.get("variants", None),
-            "filters": {
-                "events": [{"type": "events", "id": "$pageview", "order": 0, "name": "$pageview"}],
-                "layout": "horizontal",
-                "date_to": "2024-09-05T23:59",
-                "insight": "FUNNELS",
-                "interval": "day",
-                "date_from": "2024-08-22T10:44",
-                "entity_type": "events",
-                "funnel_viz_type": "steps",
-                "filter_test_accounts": True,
-            },
         }
 
         filters = {
