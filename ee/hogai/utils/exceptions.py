@@ -1,2 +1,2 @@
-class ConversationCancelled(Exception):
+class GenerationCanceled(Exception):
     pass

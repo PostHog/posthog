@@ -49,7 +49,7 @@ export const maxLogic = kea<maxLogicType>([
         values: [projectLogic, ['currentProject'], maxGlobalLogic, ['dataProcessingAccepted']],
     }),
     actions({
-        askMax: (prompt: string) => ({ prompt }),
+        askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
         stopGeneration: true,
         setThreadLoaded: (testOnlyOverride = false) => ({ testOnlyOverride }),
         addMessage: (message: ThreadMessage) => ({ message }),
@@ -167,8 +167,11 @@ export const maxLogic = kea<maxLogicType>([
                 allSuggestionsWithoutCurrentlyVisible.slice(0, 3).sort((a, b) => a.length - b.length)
             )
         },
-        askMax: async ({ prompt }) => {
-            actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
+        askMax: async ({ prompt, generationAttempt }, breakpoint) => {
+            if (generationAttempt === 0) {
+                actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
+            }
+
             try {
                 // Generate a trace ID for the conversation run
                 const traceId = uuid()
@@ -247,6 +250,13 @@ export const maxLogic = kea<maxLogicType>([
             } catch (e) {
                 // Exclude AbortController exceptions
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
+                    // Prevents parallel generation attempts. Total wait time is: 21 seconds.
+                    if (e instanceof ApiError && e.status === 409 && generationAttempt < 6) {
+                        await breakpoint(1000 * (generationAttempt + 1))
+                        actions.askMax(prompt, generationAttempt + 1)
+                        return
+                    }
+
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
                     if (e instanceof ApiError && e.status === 429) {
                         relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
@@ -262,8 +272,8 @@ export const maxLogic = kea<maxLogicType>([
                 }
             }
 
-            cache.generationController = undefined
             actions.setThreadLoaded()
+            cache.generationController = undefined
         },
         stopGeneration: async () => {
             if (!values.conversation?.id) {

@@ -5,7 +5,7 @@ from uuid import UUID
 from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.exceptions import ConversationCancelled
+from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 
@@ -24,7 +24,7 @@ class AssistantNode(ABC):
         """
         thread_id = config["configurable"]["thread_id"]
         if self._is_conversation_cancelled(thread_id):
-            raise ConversationCancelled
+            raise GenerationCanceled
         return self.run(state, config)
 
     @abstractmethod

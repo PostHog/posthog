@@ -20,7 +20,7 @@ from ee.hogai.retention.nodes import RetentionGeneratorNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
 from ee.hogai.trends.nodes import TrendsGeneratorNode
 from ee.hogai.utils.asgi import SyncIterableToAsync
-from ee.hogai.utils.exceptions import ConversationCancelled
+from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -160,7 +160,7 @@ class Assistant:
                         self._graph.update_state(config, PartialAssistantState(messages=interrupt_messages))
                 else:
                     self._report_conversation_state(last_viz_message)
-            except ConversationCancelled:
+            except GenerationCanceled:
                 pass
             except Exception as e:
                 logger.exception("Error in assistant stream", error=e)

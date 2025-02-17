@@ -13,6 +13,7 @@ from rest_framework.viewsets import GenericViewSet
 from ee.hogai.assistant import Assistant
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.schema import HumanMessage
@@ -67,6 +68,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             conversation = self.get_object()
         else:
             conversation = self.get_queryset().create(user=request.user, team=self.team)
+        if conversation.is_locked:
+            raise Conflict("Conversation is locked.")
         assistant = Assistant(
             self.team,
             conversation,
