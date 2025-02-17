@@ -221,6 +221,42 @@ importers:
         specifier: ~4.9.5
         version: 4.9.5
 
+  ee/frontend:
+    dependencies:
+      '@posthog/rrweb-types':
+        specifier: '*'
+        version: 0.0.8
+      '@sentry/react':
+        specifier: '*'
+        version: 7.112.1(react@18.2.0)
+      ajv:
+        specifier: '*'
+        version: 8.12.0
+      classnames:
+        specifier: '*'
+        version: 2.5.1
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      eslint:
+        specifier: '*'
+        version: 8.57.0
+      eslint-plugin-posthog:
+        specifier: workspace:*
+        version: link:../../common/eslint_rules
+      prettier:
+        specifier: '*'
+        version: 3.4.2
+      react:
+        specifier: '*'
+        version: 18.2.0
+      stylelint:
+        specifier: '*'
+        version: 15.11.0(typescript@4.9.5)
+      typescript:
+        specifier: ~4.9.5
+        version: 4.9.5
+
   frontend:
     dependencies:
       '@babel/runtime':
@@ -12748,10 +12784,6 @@ packages:
 
   punycode@1.4.1:
     resolution: {integrity: sha512-jmYNElW7yvO7TV33CjSmvSiE2yco3bV2czu/OzDKdMNVZQWfxCblURLhf+47syQRBntjfLdd/H0egrzIG+oaFQ==}
-
-  punycode@2.1.1:
-    resolution: {integrity: sha512-XRsRjdf+j5ml+y/6GKHPZbrF/8p2Yga0JPtdqTIY2Xe5ohJPD9saDJJLPvp9+NSBprVvevdXZybnj2cv8OEd0A==}
-    engines: {node: '>=6'}
 
   punycode@2.3.0:
     resolution: {integrity: sha512-rRV+zQD8tVFys26lAGR9WUuS4iUAngJScM+ZRSKtvl5tKeZ2t5bvdNFdNHBW9FWR4guGHlgmsZ1G7BSm2wTbuA==}
@@ -30111,8 +30143,6 @@ snapshots:
 
   punycode@1.4.1: {}
 
-  punycode@2.1.1: {}
-
   punycode@2.3.0: {}
 
   puppeteer-core@2.1.1:
@@ -32435,7 +32465,7 @@ snapshots:
 
   uri-js@4.4.1:
     dependencies:
-      punycode: 2.1.1
+      punycode: 2.3.0
 
   url-parse@1.5.10:
     dependencies:

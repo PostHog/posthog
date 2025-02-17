@@ -1,0 +1,26 @@
+{
+    "name": "@posthog/ee",
+    "scripts": {
+        "test": "jest",
+        "prettier": "prettier --write \"{frontend,products,common}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "prettier:check": "prettier --check \"{frontend,products,common}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
+        "lint": "eslint --cache frontend"
+    },
+    "dependencies": {
+        "eslint-plugin-posthog": "workspace:*"
+    },
+    "peerDependencies": {
+        "@posthog/rrweb-types": "*",
+        "@sentry/react": "*",
+        "ajv": "*",
+        "classnames": "*",
+        "clsx": "*",
+        "eslint": "*",
+        "eslint-plugin-posthog": "*",
+        "prettier": "*",
+        "react": "*",
+        "stylelint": "*",
+        "typescript": "*"
+    }
+}
