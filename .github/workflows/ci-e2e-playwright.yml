@@ -114,11 +114,11 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
 
             - name: Install playwright and dependencies
               if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm exec playwright install --with-deps
+              run: pnpm --filter=@posthog/frontend exec playwright install --with-deps
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
@@ -200,7 +200,7 @@ jobs:
             - name: Playwright run
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm exec playwright test
+              run: pnpm --filter=@posthog/frontend exec playwright test
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0
