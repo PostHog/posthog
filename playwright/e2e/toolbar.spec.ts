@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Toolbar', () => {
     test('Toolbar loads', async ({ page }) => {
