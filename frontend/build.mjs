@@ -17,7 +17,7 @@ startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
 writeIndexHtml()
 writeExporterHtml()
-gatherProductManifests()
+gatherProductManifests(__dirname)
 
 const common = {
     absWorkingDir: __dirname,
