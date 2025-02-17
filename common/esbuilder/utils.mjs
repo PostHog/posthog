@@ -184,12 +184,12 @@ function getChunks(result) {
             continue
         }
         const importStatements = output.imports.filter(
-            (i) => i.kind === 'import-statement' && i.path.startsWith('frontend/dist/chunk-')
+            (i) => i.kind === 'import-statement' && i.path.startsWith('dist/chunk-')
         )
         const exports = output.exports.filter((e) => e !== 'default' && e !== 'scene')
-        if (importStatements.length > 0 && (exports.length > 0 || output.entryPoint === 'frontend/src/index.tsx')) {
+        if (importStatements.length > 0 && (exports.length > 0 || output.entryPoint === 'src/index.tsx')) {
             chunks[exports[0] || 'index'] = importStatements.map((i) =>
-                i.path.replace('frontend/dist/chunk-', '').replace('.js', '')
+                i.path.replace('dist/chunk-', '').replace('.js', '')
             )
         }
     }
@@ -281,6 +281,7 @@ export async function buildOrWatch(config) {
         onBuildStart?.(config)
         buildPromise = runBuild()
         const buildResponse = await buildPromise
+        debugger
         buildPromise = null
         await onBuildComplete?.(config, buildResponse)
         buildsInProgress--
@@ -510,10 +511,7 @@ export function gatherProductUrls(products, __dirname) {
 
     const urls = []
 
-    console.log({ sourceFiles })
-
     for (const sourceFile of program.getSourceFiles()) {
-        console.log(sourceFile.fileName)
         if (!sourceFiles.includes(sourceFile.fileName)) {
             continue
         }
