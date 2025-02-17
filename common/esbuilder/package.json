@@ -1,0 +1,11 @@
+{
+    "name": "@posthog/esbuilder",
+    "version": "0.0.0",
+    "main": "utils.mjs",
+    "dependencies": {
+        "esbuild": "^0.25.0",
+        "esbuild-plugin-less": "^1.3.17",
+        "esbuild-plugin-polyfill-node": "^0.3.0",
+        "esbuild-sass-plugin": "3.0.0"
+    }
+}

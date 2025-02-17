@@ -7,12 +7,12 @@ import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { Events } from './issue/Events'
 import { Metadata } from './issue/Metadata'
 import { SparklinePanel } from './issue/Sparkline'
@@ -42,7 +42,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     }, [])
 
     return (
-        <AlphaAccessScenePrompt>
+        <ErrorTrackingSetupPrompt>
             <>
                 <PageHeader
                     buttons={
@@ -100,6 +100,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <Spinner />
                 )}
             </>
-        </AlphaAccessScenePrompt>
+        </ErrorTrackingSetupPrompt>
     )
 }

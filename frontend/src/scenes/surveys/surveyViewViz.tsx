@@ -23,9 +23,9 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
-import { GraphType } from '~/types'
-import { InsightLogicProps, SurveyQuestionType } from '~/types'
+import { GraphType, InsightLogicProps, SurveyQuestionType } from '~/types'
 
 import {
     QuestionResultsReady,
@@ -86,7 +86,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
     return (
         <>
             {total > 0 && (
-                <div className="mb-8">
+                <div>
                     <div className="relative w-full mx-auto h-10 mb-4">
                         {[
                             {
@@ -169,7 +169,7 @@ export function Summary({
     surveyUserStatsLoading: boolean
 }): JSX.Element {
     return (
-        <div className="mb-4 mt-2">
+        <div>
             {surveyUserStatsLoading ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : (
@@ -190,7 +190,6 @@ export function RatingQuestionBarChart({
     questionIndex,
     surveyRatingResults,
     surveyRatingResultsReady,
-    iteration,
 }: {
     questionIndex: number
     surveyRatingResults: SurveyRatingResults
@@ -201,22 +200,21 @@ export function RatingQuestionBarChart({
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
     const question = survey.questions[questionIndex]
+    useEffect(() => {
+        loadSurveyRatingResults({ questionIndex })
+    }, [questionIndex, loadSurveyRatingResults])
     if (question.type !== SurveyQuestionType.Rating) {
         throw new Error(`Question type must be ${SurveyQuestionType.Rating}`)
     }
-    useEffect(() => {
-        loadSurveyRatingResults({ questionIndex, iteration })
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyRatingResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyRatingResults[questionIndex]?.total ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">{`${
                         question.scale === 10
                             ? '0 - 10'
@@ -305,13 +303,13 @@ export function NPSSurveyResultsBarChart({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyRecurringNPSResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyRecurringNPSResults[questionIndex]?.total ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">{`${
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
@@ -402,13 +400,13 @@ export function SingleChoiceQuestionPieChart({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveySingleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveySingleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
-                <div className="mb-8">
+                <div>
                     <div className="font-semibold text-secondary">Single choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
                     <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
@@ -513,7 +511,7 @@ export function MultipleChoiceQuestionBarChart({
     }, [surveyMultipleChoiceResults])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyMultipleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyMultipleChoiceResults[questionIndex]?.data.length ? (
@@ -577,7 +575,7 @@ export function OpenTextViz({
 }): JSX.Element {
     const { loadSurveyOpenTextResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
-    const surveyResponseField = questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+    const surveyResponseKey = getSurveyResponseKey(questionIndex)
 
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.Open) {
@@ -590,7 +588,7 @@ export function OpenTextViz({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyOpenTextResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
@@ -620,9 +618,9 @@ export function OpenTextViz({
                             return (
                                 <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
                                     <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
-                                        {typeof event.properties[surveyResponseField] !== 'string'
-                                            ? JSON.stringify(event.properties[surveyResponseField])
-                                            : event.properties[surveyResponseField]}
+                                        {typeof event.properties[surveyResponseKey] !== 'string'
+                                            ? JSON.stringify(event.properties[surveyResponseKey])
+                                            : event.properties[surveyResponseKey]}
                                     </div>
                                     <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay

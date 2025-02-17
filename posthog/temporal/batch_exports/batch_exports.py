@@ -645,13 +645,12 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.backfill_id,
     )
 
-    # TODO - add backfill_id to the model
-
     run = await database_sync_to_async(create_batch_export_run)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         status=BatchExportRun.Status.STARTING,
+        backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
     )
 
     return str(run.id)

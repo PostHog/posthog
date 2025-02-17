@@ -7,6 +7,8 @@ import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransform } from '~/toolbar/types'
 
+import { SelectorEditor } from './SelectorEditor'
+
 interface WebExperimentTransformHeaderProps {
     variant: string
     transformIndex: number
@@ -33,7 +35,12 @@ export function WebExperimentTransformHeader({
                 )}
             </div>
 
-            {transform.selector && <SelectorCount selector={transform.selector} />}
+            {transform.selector && (
+                <div className="float-right flex items-center gap-2">
+                    <SelectorCount selector={transform.selector} />
+                    <SelectorEditor selector={transform.selector} variant={variant} transformIndex={transformIndex} />
+                </div>
+            )}
 
             {experimentForm?.variants && (
                 <LemonButton
@@ -42,6 +49,7 @@ export function WebExperimentTransformHeader({
                     className="shrink"
                     noPadding
                     status="danger"
+                    tooltip="Remove transformation"
                     onClick={(e) => {
                         e.stopPropagation()
                         removeElement(variant, transformIndex)

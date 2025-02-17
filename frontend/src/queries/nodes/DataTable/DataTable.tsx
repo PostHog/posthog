@@ -51,7 +51,7 @@ import {
     PersonsNode,
     SessionAttributionExplorerQuery,
     TracesQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
     isActorsQuery,

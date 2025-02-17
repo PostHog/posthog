@@ -137,7 +137,9 @@ class TableLoader:
             if self.connect_args:
                 for stmt in self.connect_args:
                     conn.execute(text(stmt))
-            result = conn.execution_options(yield_per=self.chunk_size).execute(query)
+            result = conn.execution_options(
+                yield_per=self.chunk_size, max_row_buffer=DEFAULT_CHUNK_SIZE * 2, stream_results=True
+            ).execute(query)
             # NOTE: cursor returns not normalized column names! may be quite useful in case of Oracle dialect
             # that normalizes columns
             # columns = [c[0] for c in result.cursor.description]

@@ -95,7 +95,7 @@ Use the tool `ask_user_for_help` to ask the user.
 """.strip()
 
 REACT_FORMAT_REMINDER_PROMPT = """
-Reminder that you must ALWAYS respond with a valid JSON blob of a single action with a valid tool. Format is Thought, Action:```$JSON_BLOB```, then Observation.
+Reminder that you must ALWAYS respond with a valid JSON blob of a single action with a valid tool. Format is Thought: "Your thoughts here", Action:```$JSON_BLOB```, then Observation: "The user-provided observation".
 """.strip()
 
 REACT_DEFINITIONS_PROMPT = """
@@ -142,6 +142,11 @@ The action input you previously provided didn't pass the validation and raised a
 
 You must fix the exception and try again.
 """
+
+REACT_HELP_REQUEST_PROMPT = """
+The agent has requested help from the user:
+{request}
+""".strip()
 
 CORE_MEMORY_INSTRUCTIONS = """
 You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product. Use the core memory to answer the user's question.

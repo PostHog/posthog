@@ -52,7 +52,7 @@ function UrlConfigForm({
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
-                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
+                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_REGEX}>
                         <AiRegexHelper
                             onApply={(regex) => {
                                 try {

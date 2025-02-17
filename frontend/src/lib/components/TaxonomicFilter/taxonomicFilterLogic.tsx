@@ -488,11 +488,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: getPropertyDefinitionIcon,
                     },
                     {
-                        name: 'HogQL expression',
+                        name: 'SQL expression',
                         searchPlaceholder: null,
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
-                        getPopoverHeader: () => 'HogQL expression',
+                        getPopoverHeader: () => 'SQL expression',
                         componentProps: { metadataSource },
                     },
                     {

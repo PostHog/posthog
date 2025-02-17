@@ -3,7 +3,7 @@ import { LogicWrapper } from 'kea'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 import {
     ActionType,
     CohortType,

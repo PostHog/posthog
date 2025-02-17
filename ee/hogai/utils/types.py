@@ -10,18 +10,24 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import (
     AssistantMessage,
+    AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
-    RouterMessage,
     VisualizationMessage,
 )
 
-AIMessageUnion = Union[AssistantMessage, VisualizationMessage, FailureMessage, RouterMessage, ReasoningMessage]
+AIMessageUnion = Union[
+    AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
+]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
 
 class _SharedAssistantState(BaseModel):
+    """
+    The state of the root node.
+    """
+
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
     start_id: Optional[str] = Field(default=None)
     """
@@ -40,14 +46,36 @@ class _SharedAssistantState(BaseModel):
     """
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
+    root_tool_call_id: Optional[str] = Field(default=None)
+    """
+    The ID of the tool call from the root node.
+    """
+    root_tool_insight_plan: Optional[str] = Field(default=None)
+    """
+    The insight plan to generate.
+    """
+    root_tool_insight_type: Optional[str] = Field(default=None)
+    """
+    The type of insight to generate.
+    """
+    root_tool_calls_count: Optional[int] = Field(default=None)
+    """
+    Tracks the number of tool calls made by the root node to terminate the loop.
+    """
 
 
 class AssistantState(_SharedAssistantState):
     messages: Annotated[Sequence[AssistantMessageUnion], operator.add]
+    """
+    Messages exposed to the user.
+    """
 
 
 class PartialAssistantState(_SharedAssistantState):
     messages: Optional[Sequence[AssistantMessageUnion]] = Field(default=None)
+    """
+    Messages exposed to the user.
+    """
 
 
 class AssistantNodeName(StrEnum):
@@ -57,6 +85,7 @@ class AssistantNodeName(StrEnum):
     MEMORY_INITIALIZER = "memory_initializer"
     MEMORY_INITIALIZER_INTERRUPT = "memory_initializer_interrupt"
     ROOT = "root"
+    ROOT_TOOLS = "root_tools"
     TRENDS_PLANNER = "trends_planner"
     TRENDS_PLANNER_TOOLS = "trends_planner_tools"
     TRENDS_GENERATOR = "trends_generator"

@@ -5,7 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema'
+import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import {
     DEFAULT_ERROR_TRACKING_DATE_RANGE,
@@ -70,7 +70,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     filterTestAccounts,
                     filterGroup,
                     // we do not want to recompute the query when then sparkline selection changes
-                    // because we have already fetched the alternative option (1d, 1m, custom)
+                    // because we have already fetched the alternative option (24h, 30d, custom)
                     customVolume: values.customSparklineConfig,
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],

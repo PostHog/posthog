@@ -16,6 +16,8 @@ import {
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
+    FileSystemEntry,
+    FileSystemType,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -23,7 +25,7 @@ import {
     RecordingsQuery,
     RecordingsQueryResponse,
     RefreshType,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     ActionType,
     ActivityScope,
@@ -366,6 +368,21 @@ class ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
+    // # File System
+    public fileSystem(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('file_system')
+    }
+    public fileSystemUnfiled(type?: FileSystemType, teamId?: TeamType['id']): ApiRequest {
+        const path = this.projectsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
+        if (type) {
+            path.withQueryString({ type })
+        }
+        return path
+    }
+    public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystem(teamId).addPathComponent(id)
+    }
+
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
         return this.organizationsDetail(orgId).addPathComponent('plugins')
@@ -388,7 +405,7 @@ class ApiRequest {
     }
 
     public hogFunctions(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('hog_functions')
+        return this.environmentsDetail(teamId).addPathComponent('hog_functions')
     }
 
     public hogFunction(id: HogFunctionType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1163,6 +1180,24 @@ const api = {
         },
     },
 
+    fileSystem: {
+        async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystem().get()
+        },
+        async unfiled(type?: FileSystemType): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystemUnfiled(type).get()
+        },
+        async create(data: FileSystemEntry): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystem().create({ data })
+        },
+        async update(id: NonNullable<FileSystemEntry['id']>, data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemDetail(id).update({ data })
+        },
+        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemDetail(id).delete()
+        },
+    },
+
     organizationFeatureFlags: {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
@@ -1892,15 +1927,18 @@ const api = {
         },
     },
     hogFunctions: {
-        async list(
-            filters?: any,
-            type?: HogFunctionTypeType | HogFunctionTypeType[]
-        ): Promise<PaginatedResponse<HogFunctionType>> {
+        async list({
+            filters,
+            types,
+        }: {
+            filters?: any
+            types?: HogFunctionTypeType[]
+        }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
-                    filters: filters,
-                    ...(type ? (Array.isArray(type) ? { types: type.join(',') } : { type }) : {}),
+                    filters,
+                    ...(types ? { types: types.join(',') } : {}),
                 })
                 .get()
         },

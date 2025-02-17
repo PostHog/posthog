@@ -32,6 +32,9 @@ export type HogTransformationEvent = {
 const convertToTransformationEvent = (result: any): HogTransformationEvent => {
     const properties = result.properties ?? {}
     properties.$ip = properties.$ip ?? '89.160.20.129'
+    // We don't want to use these values given they will change in the test invocation
+    delete properties.$transformations_failed
+    delete properties.$transformations_succeeded
     return {
         event: result.event,
         uuid: result.uuid,
@@ -42,6 +45,8 @@ const convertToTransformationEvent = (result: any): HogTransformationEvent => {
 }
 
 const convertFromTransformationEvent = (result: HogTransformationEvent): Record<string, any> => {
+    delete result.properties.$transformations_failed
+    delete result.properties.$transformations_succeeded
     return {
         event: result.event,
         uuid: result.uuid,
@@ -96,6 +101,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
             ({ value, editor, decorations } as CodeEditorValidation),
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
+        cancelSampleGlobalsLoading: true,
     }),
     reducers({
         expanded: [
@@ -142,10 +148,21 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 setJsonError: () => [], // Clear decorations when error state changes
             },
         ],
+
+        fetchCancelled: [
+            false as boolean,
+            {
+                loadSampleGlobals: () => false,
+                cancelSampleGlobalsLoading: () => true,
+                toggleExpanded: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
-            actions.receiveExampleGlobals(values.sampleGlobals)
+            if (values.expanded && !values.fetchCancelled && values.sampleGlobals) {
+                actions.receiveExampleGlobals(values.sampleGlobals)
+            }
         },
         setSampleGlobals: ({ sampleGlobals }) => {
             actions.receiveExampleGlobals(sampleGlobals)
@@ -209,6 +226,46 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 // Scroll to error
                 editor.revealLineInCenter(pos.lineNumber)
             }
+        },
+
+        setTestResult: ({ result }) => {
+            if (result) {
+                setTimeout(() => {
+                    // First try to scroll the test results container into view
+                    const testResults = document.querySelector('[data-attr="test-results"]')
+                    if (testResults) {
+                        testResults.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }
+
+                    // Find the Monaco editor and scroll to the first difference
+                    const editors = document.querySelectorAll('[data-attr="test-results"] .monaco-editor')
+                    if (editors.length > 0 && values.sortedTestsResult?.hasDiff) {
+                        const lastEditor = editors[editors.length - 1]
+                        const monacoEditor = lastEditor.querySelector('.monaco-scrollable-element')
+                        if (monacoEditor) {
+                            const inputLines = values.sortedTestsResult.input.split('\n')
+                            const outputLines = values.sortedTestsResult.output.split('\n')
+
+                            // Find the first line that differs
+                            let diffLineIndex = 0
+                            for (let i = 0; i < Math.max(inputLines.length, outputLines.length); i++) {
+                                if (inputLines[i] !== outputLines[i]) {
+                                    diffLineIndex = i
+                                    break
+                                }
+                            }
+
+                            // Calculate approximate scroll position for the diff, showing 2 lines of context above
+                            const lineHeight = 19 // Default Monaco line height
+                            monacoEditor.scrollTop = Math.max(0, (diffLineIndex - 2) * lineHeight)
+                        }
+                    }
+                }, 100)
+            }
+        },
+
+        cancelSampleGlobalsLoading: () => {
+            // Just mark as cancelled - we'll ignore any results that come back
         },
     })),
 
@@ -294,8 +351,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        if (values.type === 'transformation') {
-            actions.receiveExampleGlobals(values.exampleInvocationGlobals)
-        }
+        actions.receiveExampleGlobals(values.exampleInvocationGlobals)
     }),
 ])
