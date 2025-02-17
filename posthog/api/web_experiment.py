@@ -28,7 +28,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WebExperiment
-        fields = ["id", "name", "feature_flag_key", "variants"]
+        fields = ["id", "name", "created_at", "feature_flag_key", "variants"]
 
     # Validates that the `variants` property in the request follows this known object format.
     # {
@@ -73,18 +73,8 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             "name": validated_data.get("name", ""),
             "description": "",
             "type": "web",
+            "created_by": self.context["request"].user,
             "variants": validated_data.get("variants", None),
-            "filters": {
-                "events": [{"type": "events", "id": "$pageview", "order": 0, "name": "$pageview"}],
-                "layout": "horizontal",
-                "date_to": "2024-09-05T23:59",
-                "insight": "FUNNELS",
-                "interval": "day",
-                "date_from": "2024-08-22T10:44",
-                "entity_type": "events",
-                "funnel_viz_type": "steps",
-                "filter_test_accounts": True,
-            },
         }
 
         filters = {
@@ -151,7 +141,7 @@ class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
     authentication_classes = [TemporaryTokenAuthentication]
-    queryset = WebExperiment.objects.select_related("feature_flag").all()
+    queryset = WebExperiment.objects.select_related("feature_flag", "created_by").order_by("-created_at").all()
 
 
 @csrf_exempt
@@ -190,7 +180,8 @@ def web_experiments(request: Request):
             WebExperiment.objects.filter(team_id=team.id)
             .exclude(archived=True)
             .exclude(end_date__isnull=False)
-            .select_related("feature_flag"),
+            .select_related("feature_flag", "created_by")
+            .order_by("-created_at"),
             many=True,
         ).data
 
