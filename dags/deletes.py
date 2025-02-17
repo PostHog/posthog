@@ -256,7 +256,7 @@ def get_oldest_person_override_timestamp(
     query = f"""
     SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
     """
-    [[result]] = cluster.any_host_by_role(lambda client: client.execute(query), NodeRole.WORKER).result()
+    [[result]] = cluster.any_host_by_role(lambda client: client.execute(query), NodeRole.DATA).result()
     return result
 
 
