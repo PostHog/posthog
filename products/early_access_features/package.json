@@ -1,0 +1,12 @@
+{
+    "name": "@posthog-products/early-access-features",
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "clsx": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "react": "*"
+    }
+}

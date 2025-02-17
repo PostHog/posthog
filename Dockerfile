@@ -26,6 +26,8 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY frontend/package.json frontend/tailwind.config.js frontend/
+COPY frontend/bin/ frontend/bin/
 COPY patches/ patches/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/eslint_rules/ common/eslint_rules/
@@ -37,8 +39,8 @@ COPY frontend/ frontend/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
-COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN pnpm build
+COPY babel.config.js tsconfig.json webpack.config.js ./
+RUN pnpm --filter=@posthog/frontend build
 
 #
 # ---------------------------------------------------------

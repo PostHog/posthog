@@ -4,5 +4,7 @@ packages:
     - common/eslint_rules
     - common/hogvm/typescript
     - common/plugin_transpiler
+    - frontend
     - plugin-server
+    - products/*
     - rust/cyclotron-node

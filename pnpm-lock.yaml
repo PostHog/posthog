@@ -1221,6 +1221,96 @@ importers:
         specifier: ^10.9.1
         version: 10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)
 
+  products/early_access_features:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-forms:
+        specifier: '*'
+        version: 3.2.0(kea@3.1.5(react@18.2.0))
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/llm_observability:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      classnames:
+        specifier: '*'
+        version: 2.5.1
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      eslint:
+        specifier: '*'
+        version: 8.57.0
+      eslint-plugin-posthog:
+        specifier: workspace:*
+        version: link:../../common/eslint_rules
+      jest:
+        specifier: '*'
+        version: 29.7.0(@types/node@18.11.9)(ts-node@10.9.1(@swc/core@1.3.93(@swc/helpers@0.5.15))(@types/node@18.11.9)(typescript@4.9.5))
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      prettier:
+        specifier: '*'
+        version: 3.4.2
+      react:
+        specifier: '*'
+        version: 18.2.0
+      stylelint:
+        specifier: '*'
+        version: 15.11.0(typescript@4.9.5)
+      typescript:
+        specifier: ~4.9.5
+        version: 4.9.5
+
+  products/messaging:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
   rust/cyclotron-node:
     devDependencies:
       '@types/node':

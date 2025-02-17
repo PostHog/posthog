@@ -1,0 +1,12 @@
+{
+    "name": "@posthog-products/messaging",
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "clsx": "*",
+        "fuse.js": "*",
+        "kea": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "react": "*"
+    }
+}
