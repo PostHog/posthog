@@ -219,7 +219,7 @@ export const surveyLogic = kea<surveyLogicType>([
         resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
-        setAnswerFilters: (filters: EventPropertyFilter[]) => ({ filters }),
+        setAnswerFilters: (filters: EventPropertyFilter[], reloadResults?: boolean) => ({ filters, reloadResults }),
         setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
@@ -243,7 +243,8 @@ export const surveyLogic = kea<surveyLogicType>([
                                 operator: DEFAULT_OPERATORS[question.type].value,
                                 type: PropertyFilterType.Event as const,
                                 value: [],
-                            }))
+                            })),
+                            false
                         )
                         return survey
                     } catch (error: any) {
@@ -775,8 +776,10 @@ export const surveyLogic = kea<surveyLogicType>([
             setPropertyFilters: () => {
                 reloadAllSurveyResults()
             },
-            setAnswerFilters: () => {
-                reloadAllSurveyResults()
+            setAnswerFilters: ({ reloadResults }) => {
+                if (reloadResults) {
+                    reloadAllSurveyResults()
+                }
             },
         }
     }),

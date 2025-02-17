@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { allOperatorsMapping } from 'lib/utils'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { EventPropertyFilter, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
 
@@ -46,9 +47,8 @@ export function SurveyAnswerFilters(): JSX.Element {
 
     const handleUpdateFilter = (questionIndex: number, field: 'operator' | 'value', value: any): void => {
         const newFilters = [...answerFilters]
-        const filterIndex = newFilters.findIndex(
-            (f) => f.key === (questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`)
-        )
+        const filterIndex = newFilters.findIndex((f) => f.key === getSurveyResponseKey(questionIndex))
+
         if (filterIndex >= 0) {
             // Ensure we're working with an EventPropertyFilter
             const existingFilter = newFilters[filterIndex]
@@ -60,19 +60,17 @@ export function SurveyAnswerFilters(): JSX.Element {
         } else {
             // Create new filter if one doesn't exist
             newFilters.push({
-                key: questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`,
+                key: getSurveyResponseKey(questionIndex),
                 type: PropertyFilterType.Event,
                 operator: PropertyOperator.Exact,
                 [field]: value,
             })
         }
-        setAnswerFilters(newFilters)
+        setAnswerFilters(newFilters, true)
     }
 
     const getFilterForQuestion = (questionIndex: number): EventPropertyFilter | undefined => {
-        const filter = answerFilters.find(
-            (f) => f.key === (questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`)
-        )
+        const filter = answerFilters.find((f) => f.key === getSurveyResponseKey(questionIndex))
         return filter
     }
 
@@ -128,6 +126,7 @@ export function SurveyAnswerFilters(): JSX.Element {
                                                         ? 'Enter a number'
                                                         : 'Enter text to match'
                                                 }
+                                                eventNames={['survey sent']}
                                             />
                                         )}
                                 </div>
