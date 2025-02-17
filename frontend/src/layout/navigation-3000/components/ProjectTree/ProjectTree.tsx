@@ -14,8 +14,8 @@ import { ReactNode, useRef } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import { navigation3000Logic } from '../navigationLogic'
-import { NavbarBottom } from './NavbarBottom'
+import { navigation3000Logic } from '../../navigationLogic'
+import { NavbarBottom } from '../NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
 
 // TODO: Swap out for a better DnD approach
@@ -41,7 +41,7 @@ export function Droppable(props: { id: string; children: ReactNode }): JSX.Eleme
     return <div ref={setNodeRef}>{props.children}</div>
 }
 
-export function TreeView(): JSX.Element {
+export function ProjectTree(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
@@ -66,8 +66,10 @@ export function TreeView(): JSX.Element {
                                 // TODO: clicking on expandable folders does not work as we can't control
                                 // the open/closed state of the tree - only files work.
                                 const item = viableItems.find((i) => i.path === oldPath)
-                                if (item && item.href) {
-                                    router.actions.push(item.href)
+                                if (item) {
+                                    if (item.href) {
+                                        router.actions.push(item.href)
+                                    }
                                 }
                             } else if (folder === '') {
                                 const oldSplit = oldPath.split('/')
