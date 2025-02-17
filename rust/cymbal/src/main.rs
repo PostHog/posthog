@@ -8,9 +8,7 @@ use cymbal::{
     app_context::AppContext,
     config::Config,
     handle_event,
-    metric_consts::{
-        DROPPED_EVENTS, ERRORS, EVENT_BATCH_SIZE, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME,
-    },
+    metric_consts::{DROPPED_EVENTS, ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
 };
 use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
@@ -73,8 +71,6 @@ async fn main() {
             .json_recv_batch(batch_size, batch_wait_time)
             .await;
 
-        metrics::gauge!(EVENT_BATCH_SIZE).set(received.len() as f64);
-
         let mut output = Vec::with_capacity(received.len());
         let mut offsets = Vec::with_capacity(received.len());
 
@@ -87,8 +83,6 @@ async fn main() {
                 panic!("Failed to start kafka transaction: {:?}", e);
             }
         };
-
-        let mut handles = Vec::with_capacity(received.len());
 
         for message in received {
             let (event, offset) = match message {
@@ -106,13 +100,9 @@ async fn main() {
             };
 
             metrics::counter!(EVENT_RECEIVED).increment(1);
-            handles.push(tokio::spawn(handle_event(context.clone(), event)));
-            offsets.push(offset);
-        }
 
-        for (handle, offset) in handles.into_iter().zip(offsets.iter()) {
-            match handle.await.expect("Spawn/join will not fail") {
-                Ok(e) => output.push(e),
+            let event = match handle_event(context.clone(), event).await {
+                Ok(e) => e,
                 Err(e) => {
                     error!("Error handling event: {:?}; offset: {:?}", e, offset);
                     // If we get an unhandled error, it means we have some logical error in the code, or a
@@ -120,7 +110,11 @@ async fn main() {
                     panic!("Unhandled error: {:?}; offset: {:?}", e, offset);
                 }
             };
+
             metrics::counter!(EVENT_PROCESSED).increment(1);
+
+            output.push(event);
+            offsets.push(offset);
         }
 
         let results = txn
