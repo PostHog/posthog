@@ -59,7 +59,7 @@ class ConversationHistory:
             history = cls()
         return history
 
-    def save_to_cache(self, session_id: str, timeout: int = 300):  # 5 minutes default
+    def save_to_cache(self, session_id: str, timeout: int = 3600):  # 1 hour default
         """Save conversation history to cache"""
         cache = caches["default"]
         key = f"max_conversation_{session_id}"

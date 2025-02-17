@@ -134,7 +134,7 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
                                 const retryPeriod = (error as any).data?.retry_after || 180
                                 actions.retryAfter(message, retryPeriod)
                                 await breakpoint(100)
-                            } else if ([500, 524, 529].includes(error.status)) {
+                            } else if ([500, 504, 524, 529].includes(error.status)) {
                                 actions.setServerError(true)
                                 await breakpoint(100)
                                 actions.setSearchingThinking(false)
