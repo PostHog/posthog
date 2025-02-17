@@ -2,7 +2,7 @@ from zoneinfo import ZoneInfo
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.trends_statistics import (
@@ -27,10 +27,12 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.action.action import Action
 from posthog.models.experiment import Experiment
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
     ExperimentMetricType,
@@ -224,7 +226,22 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                 )
 
-            case ExperimentEventMetricConfig() as metric_config:
+            case (ExperimentEventMetricConfig() | ExperimentActionMetricConfig()) as metric_config:
+                if isinstance(metric_config, ExperimentActionMetricConfig):
+                    try:
+                        action = Action.objects.get(
+                            pk=int(self.metric.metric_config.action), team__project_id=self.team.project_id
+                        )
+                        event_filter = action_to_expr(action)
+                    except Action.DoesNotExist:
+                        # If an action doesn't exist, we want to return no events
+                        event_filter = parse_expr("1 = 2")
+                else:
+                    event_filter = ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=metric_config.event),
+                        op=ast.CompareOperationOp.Eq,
+                    )
                 # Events after exposure query: One row per PostHog event after exposure
                 # Columns: timestamp, distinct_id, variant, event, value
                 # Finds all matching events that occurred after a user was exposed to a variant
@@ -260,11 +277,7 @@ class ExperimentQueryRunner(QueryRunner):
                                 right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
                                 op=ast.CompareOperationOp.GtEq,
                             ),
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["event"]),
-                                right=ast.Constant(value=metric_config.event),
-                                op=ast.CompareOperationOp.Eq,
-                            ),
+                            event_filter,
                             *metric_property_filters,
                         ],
                     ),

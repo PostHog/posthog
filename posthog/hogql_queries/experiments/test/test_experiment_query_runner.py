@@ -2,6 +2,7 @@ from typing import cast
 from django.test import override_settings
 import pytest
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -15,6 +16,7 @@ from posthog.settings import (
 )
 from posthog.schema import (
     EventPropertyFilter,
+    ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
     ExperimentMetric,
@@ -569,6 +571,70 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.count, 8)
         self.assertEqual(control_variant.absolute_exposure, 11)
         self.assertEqual(test_variant.absolute_exposure, 11)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_using_action(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        action = Action.objects.create(name="purchase", team=self.team, steps_json=[{"event": "purchase"}])
+        action.save()
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_config=ExperimentActionMetricConfig(action=action.id),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        self.create_standard_test_events(feature_flag)
+
+        # Extraneous events that shouldn't be included
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=f"user_random_1",
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=f"user_random_1",
+            timestamp="2020-01-02T12:01:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=f"user_random_2",
+            timestamp="2020-01-02T12:01:00Z",
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.count, 6)
+        self.assertEqual(test_variant.count, 8)
+        self.assertEqual(control_variant.absolute_exposure, 10)
+        self.assertEqual(test_variant.absolute_exposure, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
