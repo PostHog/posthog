@@ -12,6 +12,8 @@
     },
     "peerDependencies": {
         "@posthog/icons": "*",
+        "@storybook/react": "*",
+        "@types/react": "*",
         "classnames": "*",
         "clsx": "*",
         "eslint": "*",

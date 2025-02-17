@@ -325,6 +325,7 @@ const config = {
         '../products/**/frontend/**/*.{ts,tsx}',
         '../common/**/src/**/*.{ts,tsx}',
         '../common/**/frontend/**/*.{ts,tsx}',
+        '!./src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
     important: true,

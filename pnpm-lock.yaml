@@ -1315,6 +1315,12 @@ importers:
       '@posthog/icons':
         specifier: '*'
         version: 0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
       clsx:
         specifier: '*'
         version: 1.2.1
@@ -1339,6 +1345,12 @@ importers:
       '@posthog/icons':
         specifier: '*'
         version: 0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
       classnames:
         specifier: '*'
         version: 2.5.1
@@ -1381,6 +1393,9 @@ importers:
       '@posthog/icons':
         specifier: '*'
         version: 0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
       clsx:
         specifier: '*'
         version: 1.2.1
