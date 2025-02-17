@@ -232,6 +232,12 @@ export const parseEncodedSnapshots = async (
             if (typeof l === 'string') {
                 // is loaded from blob or realtime storage
                 snapshotLine = JSON.parse(l) as EncodedRecordingSnapshot
+                if (Array.isArray(snapshotLine)) {
+                    snapshotLine = {
+                        windowId: snapshotLine[0],
+                        data: [snapshotLine[1]],
+                    }
+                }
             } else {
                 // is loaded from file export
                 snapshotLine = l
@@ -543,7 +549,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             {
                 loadSnapshotSources: async () => {
                     const response = await api.recordings.listSnapshotSources(props.sessionRecordingId)
-                    return response.sources ?? []
+                    if (!response.sources) {
+                        return []
+                    }
+                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
+                        return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
+                    }
+                    return response.sources.filter((s) => s.source !== SnapshotSourceType.blob_v2)
                 },
             },
         ],
@@ -560,6 +572,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         params = { blob_key: source.blob_key, source: 'blob' }
                     } else if (source.source === SnapshotSourceType.realtime) {
                         params = { source: 'realtime', version: '2024-04-30' }
+                    } else if (source.source === SnapshotSourceType.blob_v2) {
+                        params = { source: 'blob_v2', blob_key: source.blob_key }
                     } else {
                         throw new Error(`Unsupported source: ${source.source}`)
                     }
