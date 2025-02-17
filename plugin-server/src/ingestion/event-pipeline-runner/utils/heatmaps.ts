@@ -1,11 +1,10 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { URL } from 'url'
 
-import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
+import { PluginEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
+import { eventDroppedCounter } from '../../../utils/metrics'
 import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
-import { isDistinctIdIllegal } from '../../../worker/ingestion/person-state'
+import { isDistinctIdIllegal } from './person-state'
 
 // This represents the scale factor for the heatmap data. Essentially how much we are reducing the resolution by.
 const SCALE_FACTOR = 16

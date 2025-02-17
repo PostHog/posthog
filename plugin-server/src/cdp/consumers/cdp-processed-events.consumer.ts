@@ -10,7 +10,7 @@ import {
     serializeHogFunctionInvocation,
 } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
-import { runInstrumentedFunction } from '../../main/utils'
+import { runInstrumentedFunction } from '../../utils/instrument'
 import { status } from '../../utils/status'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'

@@ -1,4 +1,3 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
@@ -6,22 +5,19 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
-import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../../main/utils'
-import { CookielessServerHashMode, PluginsServerConfig } from '../../types'
+import { TeamManager } from '../../services/team-manager'
+import { Config, CookielessServerHashMode, PluginEvent, Properties } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
-import { RedisOperationError } from '../../utils/db/error'
-import { now } from '../../utils/now'
+import { RedisOperationError } from '../../utils/errors'
+import { runInstrumentedFunction } from '../../utils/instrument'
+import { eventDroppedCounter } from '../../utils/metrics'
 import {
     base64StringToUint32ArrayLE,
     createRandomUint32x4,
     uint32ArrayLEToBase64String,
     UUID7,
 } from '../../utils/utils'
-import { TeamManager } from '../../worker/ingestion/team-manager'
-import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { RedisHelpers } from './redis-helpers'
-
 /* ---------------------------------------------------------------------
  * This pipeline step is used to get the distinct id and session id for events that are using the cookieless server hash mode.
  * At the most basic level, the new distinct id is hash(daily_salt + team_id + ip + root_domain + user_agent).
@@ -75,6 +71,24 @@ export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cookieless_extra'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
 
+const cookielessCacheHitCounter = new Counter({
+    name: 'cookieless_salt_cache_hit',
+    help: 'Number of local cache hits for cookieless salt',
+    labelNames: ['operation', 'day'],
+})
+
+const cookielessCacheMissCounter = new Counter({
+    name: 'cookieless_salt_cache_miss',
+    help: 'Number of local cache misses for cookieless salt',
+    labelNames: ['operation', 'day'],
+})
+
+export const cookielessRedisErrorCounter = new Counter({
+    name: 'cookieless_redis_error',
+    help: 'Count redis errors.',
+    labelNames: ['operation'],
+})
+
 interface CookielessConfig {
     disabled: boolean
     forceStatelessMode: boolean
@@ -93,7 +107,7 @@ export class CookielessManager {
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    constructor(config: PluginsServerConfig, redis: GenericPool<Redis.Redis>, private teamManager: TeamManager) {
+    constructor(config: Config, redis: GenericPool<Redis.Redis>, private teamManager: TeamManager) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
             forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
@@ -111,6 +125,10 @@ export class CookielessManager {
         this.cleanupInterval = setInterval(this.deleteExpiredLocalSalts, this.config.deleteExpiredLocalSaltsIntervalMs)
         // Call unref on the timer object, so that it doesn't prevent node from exiting.
         this.cleanupInterval.unref()
+    }
+
+    public get disabled(): boolean {
+        return this.config.disabled
     }
 
     getSaltForDay(yyyymmdd: string, timestampMs: number): Promise<Uint32Array> {
@@ -532,7 +550,7 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
     const utcDate = new Date(`${yyyymmdd}T00:00:00Z`)
 
     // Current time in UTC
-    const nowUTC = new Date(now())
+    const nowUTC = new Date(Date.now())
 
     // Define the range of the calendar day in UTC
     const startOfDayMinus12 = new Date(utcDate)
@@ -660,14 +678,29 @@ export function sessionStateToBuffer({ sessionId, lastActivityTimestamp }: Sessi
     return buffer
 }
 
-const cookielessCacheHitCounter = new Counter({
-    name: 'cookieless_salt_cache_hit',
-    help: 'Number of local cache hits for cookieless salt',
-    labelNames: ['operation', 'day'],
-})
+export function toYearMonthDayInTimezone(
+    timestamp: number,
+    timeZone: string
+): { year: number; month: number; day: number } {
+    const parts = new Intl.DateTimeFormat('en', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(new Date(timestamp))
+    const year = parts.find((part) => part.type === 'year')?.value
+    const month = parts.find((part) => part.type === 'month')?.value
+    const day = parts.find((part) => part.type === 'day')?.value
+    if (!year || !month || !day) {
+        throw new Error('Failed to get year, month, or day')
+    }
+    return { year: Number(year), month: Number(month), day: Number(day) }
+}
 
-const cookielessCacheMissCounter = new Counter({
-    name: 'cookieless_salt_cache_miss',
-    help: 'Number of local cache misses for cookieless salt',
-    labelNames: ['operation', 'day'],
-})
+export function toStartOfDayInTimezone(timestamp: number, timeZone: string): Date {
+    const { year, month, day } = toYearMonthDayInTimezone(timestamp, timeZone)
+    return DateTime.fromObject(
+        { year, month, day, hour: 0, minute: 0, second: 0, millisecond: 0 },
+        { zone: timeZone }
+    ).toJSDate()
+}

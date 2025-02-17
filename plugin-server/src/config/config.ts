@@ -1,6 +1,5 @@
-import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
+import { Config, LogLevel, stringToPluginServerMode, ValueMatcher } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
-import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_JSON,
@@ -14,7 +13,7 @@ export const DEFAULT_HTTP_SERVER_PORT = 6738
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
-export function getDefaultConfig(): PluginsServerConfig {
+export function getDefaultConfig(): Config {
     return {
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
@@ -22,23 +21,14 @@ export function getDefaultConfig(): PluginsServerConfig {
             ? 'postgres://posthog:posthog@localhost:5432/posthog'
             : '',
         DATABASE_READONLY_URL: '',
-        PLUGIN_STORAGE_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
         POSTHOG_DB_PASSWORD: '',
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
-        CLICKHOUSE_HOST: 'localhost',
-        CLICKHOUSE_OFFLINE_CLUSTER_HOST: null,
-        CLICKHOUSE_DATABASE: isTestEnv() ? 'posthog_test' : 'default',
-        CLICKHOUSE_USER: 'default',
-        CLICKHOUSE_PASSWORD: null,
-        CLICKHOUSE_CA: null,
-        CLICKHOUSE_SECURE: false,
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
-        SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
@@ -62,8 +52,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_TOPIC_CREATION_TIMEOUT_MS: isDevEnv() ? 30_000 : 5_000, // rdkafka default is 5s, increased in devenv to resist to slow kafka
         KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: undefined,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
-        APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
-        APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
         KAFKA_PRODUCER_LINGER_MS: 20, // rdkafka default is 5ms
         KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
         KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
@@ -74,44 +62,20 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
         BASE_DIR: '.',
-        PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
         TASK_TIMEOUT: 30,
-        TASKS_PER_WORKER: 10,
-        INGESTION_CONCURRENCY: 10,
-        INGESTION_BATCH_SIZE: 500,
-        INGESTION_OVERFLOW_ENABLED: false,
-        INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
-        PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
+        KAFKA_CONSUMPTION_BATCH_SIZE: 500,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
         SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
-        SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
         DISABLE_MMDB: isTestEnv(),
-        DISTINCT_ID_LRU_SIZE: 10000,
-        EVENT_PROPERTY_LRU_SIZE: 10000,
-        JOB_QUEUES: 'graphile',
-        JOB_QUEUE_GRAPHILE_URL: '',
-        JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
-        JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: false,
-        JOB_QUEUE_GRAPHILE_CONCURRENCY: 1,
-        JOB_QUEUE_S3_AWS_ACCESS_KEY: '',
-        JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: '',
-        JOB_QUEUE_S3_AWS_REGION: 'us-west-1',
-        JOB_QUEUE_S3_BUCKET_NAME: '',
-        JOB_QUEUE_S3_PREFIX: '',
-        CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
-        HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: null,
-        KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
-        PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
-        KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
         OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
         OBJECT_STORAGE_REGION: 'us-east-1',
@@ -119,22 +83,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
-        PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
-        PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
-        MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
-        USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         DROP_EVENTS_BY_TOKEN: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
-        PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
-        RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
-        RUSTY_HOOK_FOR_TEAMS: '',
-        RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
-        RUSTY_HOOK_URL: '',
-        HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
@@ -239,10 +193,7 @@ export function getDefaultConfig(): PluginsServerConfig {
     }
 }
 
-export function overrideWithEnv(
-    config: PluginsServerConfig,
-    env: Record<string, string | undefined> = process.env
-): PluginsServerConfig {
+export function overrideWithEnv(config: Config, env: Record<string, string | undefined> = process.env): Config {
     const defaultConfig = getDefaultConfig() as any // to make typechecker happy to use defaultConfig[key]
 
     const tmpConfig: any = { ...config }
@@ -264,7 +215,7 @@ export function overrideWithEnv(
             }
         }
     }
-    const newConfig: PluginsServerConfig = { ...tmpConfig }
+    const newConfig: Config = { ...tmpConfig }
 
     if (!newConfig.DATABASE_URL && !newConfig.POSTHOG_DB_NAME) {
         throw Error(
@@ -278,17 +229,6 @@ export function overrideWithEnv(
         newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
     }
 
-    if (!newConfig.JOB_QUEUE_GRAPHILE_URL) {
-        newConfig.JOB_QUEUE_GRAPHILE_URL = newConfig.DATABASE_URL
-    }
-
-    if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {
-        throw Error(
-            `Invalid KAFKAJS_LOG_LEVEL ${newConfig.KAFKAJS_LOG_LEVEL}. Valid: ${Object.keys(
-                KAFKAJS_LOG_LEVEL_MAPPING
-            ).join(', ')}`
-        )
-    }
     return newConfig
 }
 

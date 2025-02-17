@@ -1,5 +1,4 @@
 import { Reader } from '@maxmind/geoip2-node'
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { readFileSync } from 'fs'
 import { DateTime } from 'luxon'
 import { join } from 'path'
@@ -9,12 +8,11 @@ import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transfo
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
-import { createHogFunction, insertHogFunction } from '../../../tests/cdp/fixtures'
-import { getProducedKafkaMessages } from '../../../tests/helpers/mocks/producer.mock'
-import { forSnapshot } from '../../../tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { Hub } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
+import { forSnapshot } from '../../_tests/helpers/snapshots'
+import { getFirstTeam, resetTestDatabase } from '../../_tests/helpers/sql'
+import { Hub, PluginEvent } from '../../types'
+import { closeHub, createHub } from '../../utils/hub'
+import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogFunctionTemplate } from '../templates/types'
@@ -50,7 +48,7 @@ describe('HogTransformer', () => {
     let hogTransformer: HogTransformerService
     let teamId: number
 
-    const mmdbBrotliContents = readFileSync(join(__dirname, '../../../tests/assets/GeoLite2-City-Test.mmdb.br'))
+    const mmdbBrotliContents = readFileSync(join(__dirname, '../../_tests/assets/GeoLite2-City-Test.mmdb.br'))
 
     beforeEach(async () => {
         hub = await createHub()
@@ -88,7 +86,7 @@ describe('HogTransformer', () => {
                 execution_order: 1,
                 id: 'd77e792e-0f35-431b-a983-097534aa4767',
             })
-            await insertHogFunction(hub.db.postgres, teamId, geoIpFunction)
+            await insertHogFunction(hub.postgres, teamId, geoIpFunction)
 
             // Start the transformer after inserting functions because it is
             // starting the hogfunction manager which updates the cache
@@ -250,9 +248,9 @@ describe('HogTransformer', () => {
                 execution_order: 3,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, testTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, defaultTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, geoIpTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, testTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, defaultTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, geoIpTransformationFunction)
 
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
@@ -343,8 +341,8 @@ describe('HogTransformer', () => {
                 execution_order: 2,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, deletingTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, addingTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, deletingTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, addingTransformationFunction)
 
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
@@ -446,9 +444,9 @@ describe('HogTransformer', () => {
                 execution_order: undefined,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, thirdTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, secondTransformationFunction)
-            await insertHogFunction(hub.db.postgres, teamId, firstTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, thirdTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, secondTransformationFunction)
+            await insertHogFunction(hub.postgres, teamId, firstTransformationFunction)
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
@@ -526,8 +524,8 @@ describe('HogTransformer', () => {
                 execution_order: 2,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, successFunction)
-            await insertHogFunction(hub.db.postgres, teamId, failFunction)
+            await insertHogFunction(hub.postgres, teamId, successFunction)
+            await insertHogFunction(hub.postgres, teamId, failFunction)
 
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
@@ -595,7 +593,7 @@ describe('HogTransformer', () => {
                 execution_order: 1,
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, successFunction)
+            await insertHogFunction(hub.postgres, teamId, successFunction)
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event = createPluginEvent(
@@ -640,7 +638,7 @@ describe('HogTransformer', () => {
                 id: 'c342e9ae-9f76-4379-a465-d33b4826bc05',
             })
 
-            await insertHogFunction(hub.db.postgres, teamId, filterOutPlugin)
+            await insertHogFunction(hub.postgres, teamId, filterOutPlugin)
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             // Set up the spy after hogTransformer is initialized

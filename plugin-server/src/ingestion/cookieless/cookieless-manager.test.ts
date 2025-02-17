@@ -1,18 +1,17 @@
-import type { PluginEvent } from '@posthog/plugin-scaffold'
-
-import { createOrganization, createTeam } from '~/tests/helpers/sql'
-
-import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
-import { CookielessServerHashMode, Hub } from '../../types'
-import { RedisOperationError } from '../../utils/db/error'
-import { closeHub, createHub } from '../../utils/db/hub'
-import { PostgresUse } from '../../utils/db/postgres'
+import { createOrganization, createTeam } from '../../_tests/helpers/sql'
+import { CookielessServerHashMode, Hub, PluginEvent } from '../../types'
+import { RedisOperationError } from '../../utils/errors'
+import { closeHub, createHub } from '../../utils/hub'
+import { PostgresUse } from '../../utils/postgres'
 import { UUID7 } from '../../utils/utils'
 import {
     bufferToSessionState,
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
+    cookielessRedisErrorCounter,
     sessionStateToBuffer,
+    toStartOfDayInTimezone,
+    toYearMonthDayInTimezone,
     toYYYYMMDDInTimezoneSafe,
 } from './cookieless-manager'
 
@@ -128,7 +127,7 @@ describe('CookielessManager', () => {
 
         beforeAll(async () => {
             hub = await createHub({})
-            organizationId = await createOrganization(hub.db.postgres)
+            organizationId = await createOrganization(hub.postgres)
 
             jest.useFakeTimers({
                 now,
@@ -142,7 +141,7 @@ describe('CookielessManager', () => {
         })
 
         const setModeForTeam = async (mode: CookielessServerHashMode, teamId: number) => {
-            await hub.db.postgres.query(
+            await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [mode, teamId],
@@ -151,13 +150,13 @@ describe('CookielessManager', () => {
         }
 
         const clearRedis = async () => {
-            const client = await hub.db.redisPool.acquire()
+            const client = await hub.redisPool.acquire()
             await client.flushall()
-            await hub.db.redisPool.release(client)
+            await hub.redisPool.release(client)
         }
 
         beforeEach(async () => {
-            teamId = await createTeam(hub.db.postgres, organizationId)
+            teamId = await createTeam(hub.postgres, organizationId)
             await clearRedis()
             hub.cookielessManager.deleteAllLocalSalts()
             event = deepFreeze({
@@ -483,5 +482,89 @@ describe('CookielessManager', () => {
                 expect(actual1).toBe(nonCookielessEvent)
             })
         })
+    })
+})
+
+describe('toStartOfDayInTimezone', () => {
+    it('returns the start of the day in the correct timezone', () => {
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T10:00:00.000Z').getTime(), 'Europe/London')).toEqual(
+            new Date('2024-12-13T00:00:00Z')
+        )
+
+        // would be the following day in Asia/Tokyo, but should be the same day (just earlier) in UTC
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T23:00:00.000Z').getTime(), 'Asia/Tokyo')).toEqual(
+            new Date('2024-12-13T15:00:00Z')
+        )
+
+        // would be the same day in Asia/Tokyo, but back in UTC time it should be the previous day (but later in the day)
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T01:00:00.000Z').getTime(), 'Asia/Tokyo')).toEqual(
+            new Date('2024-12-12T15:00:00Z')
+        )
+
+        // would be the same day in America/Los_Angeles, but earlier in the day when converted to UTC
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T23:00:00.000Z').getTime(), 'America/Los_Angeles')).toEqual(
+            new Date('2024-12-13T08:00:00Z')
+        )
+
+        // would be the previous day in America/Los_Angeles, and when converted to UTC it should stay the previous day
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T01:00:00.000Z').getTime(), 'America/Los_Angeles')).toEqual(
+            new Date('2024-12-12T08:00:00Z')
+        )
+
+        // should be the same day due to no DST
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T00:00:00.000Z').getTime(), 'Europe/London')).toEqual(
+            new Date('2024-12-13T00:00:00Z')
+        )
+
+        // should be a different day due to DST (british summer time)
+        expect(toStartOfDayInTimezone(new Date('2024-06-13T00:00:00.000Z').getTime(), 'Europe/London')).toEqual(
+            new Date('2024-06-12T23:00:00Z')
+        )
+    })
+})
+
+describe('toYearMonthDateInTimezone', () => {
+    it('returns the correct date in the correct timezone', () => {
+        expect(toYearMonthDayInTimezone(new Date('2024-12-13T10:00:00.000Z').getTime(), 'Europe/London')).toEqual({
+            year: 2024,
+            month: 12,
+            day: 13,
+        })
+
+        // should be a day ahead due to time zones
+        expect(toYearMonthDayInTimezone(new Date('2024-12-13T23:00:00.000Z').getTime(), 'Asia/Tokyo')).toEqual({
+            year: 2024,
+            month: 12,
+            day: 14,
+        })
+
+        // should be a day behind due to time zones
+        expect(toYearMonthDayInTimezone(new Date('2024-12-13T01:00:00.000Z').getTime(), 'America/Los_Angeles')).toEqual(
+            {
+                year: 2024,
+                month: 12,
+                day: 12,
+            }
+        )
+
+        // should be the same day due to no DST
+        expect(toYearMonthDayInTimezone(new Date('2024-12-13T00:00:00.000Z').getTime(), 'Europe/London')).toEqual({
+            year: 2024,
+            month: 12,
+            day: 13,
+        })
+
+        // should be a different day due to DST (british summer time)
+        expect(toYearMonthDayInTimezone(new Date('2024-06-13T23:00:00.000Z').getTime(), 'Europe/London')).toEqual({
+            year: 2024,
+            month: 6,
+            day: 14,
+        })
+    })
+
+    it('should throw on invalid timezone', () => {
+        expect(() => toYearMonthDayInTimezone(new Date().getTime(), 'Invalid/Timezone')).toThrowError(
+            'Invalid time zone'
+        )
     })
 })

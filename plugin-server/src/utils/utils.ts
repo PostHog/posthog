@@ -1,19 +1,10 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
 
-import {
-    ClickHouseTimestamp,
-    ClickHouseTimestampSecondPrecision,
-    ISOTimestamp,
-    Plugin,
-    PluginConfigId,
-    PluginsServerConfig,
-    TimestampFormat,
-} from '../types'
+import { ClickHouseTimestamp, ClickHouseTimestampSecondPrecision, ISOTimestamp, TimestampFormat } from '../types'
 import { captureException } from './posthog'
 import { status } from './status'
 
@@ -362,12 +353,6 @@ export function clickHouseTimestampToISO(timestamp: ClickHouseTimestamp): ISOTim
     return clickHouseTimestampToDateTime(timestamp).toISO() as ISOTimestamp
 }
 
-export function clickHouseTimestampSecondPrecisionToISO(timestamp: ClickHouseTimestamp): ISOTimestamp {
-    return DateTime.fromFormat(timestamp, DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION, {
-        zone: 'UTC',
-    }).toISO() as ISOTimestamp
-}
-
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms)
@@ -406,21 +391,6 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
     }
 }
 
-export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {
-    if (typeof plugin === 'number') {
-        return `plugin ID ${plugin} (unknown)`
-    }
-    const extras = []
-    if (teamId) {
-        extras.push(`team ID ${teamId}`)
-    }
-    extras.push(`organization ID ${plugin.organization_id}`)
-    if (plugin.is_global) {
-        extras.push('global')
-    }
-    return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
-}
-
 export function createPostgresPool(
     connectionString: string,
     poolSize: number,
@@ -449,38 +419,6 @@ export function createPostgresPool(
     pgPool.on('error', handleError)
 
     return pgPool
-}
-
-export function pluginConfigIdFromStack(
-    stack: string,
-    pluginConfigSecretLookup: Map<string, PluginConfigId>
-): PluginConfigId | void {
-    // This matches `pluginConfigIdentifier` from worker/vm/vm.ts
-    // For example: "at __asyncGuard__PluginConfig_39_3af03d... (vm.js:11..."
-    const regexp = /at __[a-zA-Z0-9]+__PluginConfig_([0-9]+)_([0-9a-f]+) \(vm\.js\:/
-    const [, id, hash] =
-        stack
-            .split('\n')
-            .map((l) => l.match(regexp))
-            .filter((a) => a)
-            .pop() || [] // using pop() to get the lowest matching stack entry, avoiding higher user-defined functions
-
-    if (id && hash) {
-        const secretId = pluginConfigSecretLookup.get(hash)
-        if (secretId === parseInt(id)) {
-            return secretId
-        }
-    }
-}
-
-export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
-    captureException(error)
-    if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
-        status.error('🔴', message)
-        throw error
-    } else {
-        status.info('🟡', message)
-    }
 }
 
 export function groupBy<T extends Record<string, any>, K extends keyof T>(
@@ -599,104 +537,8 @@ export class RaceConditionError extends Error {
     name = 'RaceConditionError'
 }
 
-/** Get a value from a properties object by its path. This allows accessing nested properties. */
-export function getPropertyValueByPath(properties: Properties, [firstKey, ...nestedKeys]: string[]): any {
-    if (firstKey === undefined) {
-        throw new Error('No path to property was provided')
-    }
-    let value = properties[firstKey]
-    for (const key of nestedKeys) {
-        if (value === undefined) {
-            return undefined
-        }
-        value = value[key]
-    }
-    return value
-}
-
 export async function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-// Values of the $lib property that have been seen in the wild
-export const KNOWN_LIB_VALUES = new Set([
-    'web',
-    'posthog-python',
-    '',
-    'js',
-    'posthog-node',
-    'posthog-react-native',
-    'posthog-ruby',
-    'posthog-ios',
-    'posthog-android',
-    'Segment',
-    'posthog-go',
-    'analytics-node',
-    'RudderLabs JavaScript SDK',
-    'mobile',
-    'posthog-php',
-    'zapier',
-    'Webflow',
-    'posthog-flutter',
-    'com.rudderstack.android.sdk.core',
-    'rudder-analytics-python',
-    'rudder-ios-library',
-    'rudder-analytics-php',
-    'macos',
-    'service_data',
-    'flow',
-    'PROD',
-    'unknown',
-    'api',
-    'unbounce',
-    'backend',
-    'analytics-python',
-    'windows',
-    'cf-analytics-go',
-    'server',
-    'core',
-    'Marketing',
-    'Product',
-    'com.rudderstack.android.sdk',
-    'net-gibraltar',
-    'posthog-java',
-    'rudderanalytics-ruby',
-    'GSHEETS_AIRBYTE',
-    'posthog-plugin-server',
-    'DotPostHog',
-    'analytics-go',
-    'serverless',
-    'wordpress',
-    'hog_function',
-    'http',
-    'desktop',
-    'elixir',
-    'DEV',
-    'RudderAnalytics.NET',
-    'PR',
-    'railway',
-    'HTTP',
-    'extension',
-    'cyclotron-testing',
-    'RudderStack Shopify Cloud',
-    'GSHEETS_MONITOR',
-    'Rudder',
-    'API',
-    'rudder-sdk-ruby-sync',
-    'curl',
-])
-
-export const getKnownLibValueOrSentinel = (lib: string): string => {
-    if (lib === '') {
-        return '$empty'
-    }
-    if (!lib) {
-        return '$nil'
-    }
-    if (KNOWN_LIB_VALUES.has(lib)) {
-        return lib
-    }
-    return '$other'
 }
 
 // Check if 2 maps with primitive values are equal

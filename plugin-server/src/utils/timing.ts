@@ -1,4 +1,4 @@
-import { timeoutGuard } from './db/utils'
+import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
 
 export async function asyncTimeoutGuard(
     options: {

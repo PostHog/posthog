@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/src/types'
 
 import { processAiEvent } from './process-ai-event'
 

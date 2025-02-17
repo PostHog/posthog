@@ -1,17 +1,27 @@
 import { City } from '@maxmind/geoip2-node'
-import { createPageview, resetMeta } from '@posthog/plugin-scaffold/test/utils'
+
+import { PluginEvent } from '~/src/types'
 
 import { loadTestMMDB } from '../../../templates/test/test-helpers'
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 
+const createPageview = (): PluginEvent =>
+    ({
+        distinctId: '123',
+        event: 'pageview',
+        properties: {},
+        timestamp: new Date(),
+    } as any)
+
 describe('posthog-plugin-geoip', () => {
     const mmdb = loadTestMMDB()
+    let meta: LegacyTransformationPluginMeta = {} as any
 
     function resetMetaWithMmdb(
         transformResult = (res: City) => res as Record<string, any>
     ): LegacyTransformationPluginMeta {
-        return resetMeta({
+        meta = {
             geoip: {
                 locate: (ipAddress: string) => {
                     const res = mmdb.city(ipAddress)
@@ -22,7 +32,8 @@ describe('posthog-plugin-geoip', () => {
                 log: jest.fn(),
                 error: jest.fn(),
             },
-        }) as LegacyTransformationPluginMeta
+        } as unknown as LegacyTransformationPluginMeta
+        return meta
     }
 
     test('event is enriched with IP location', () => {

@@ -1,7 +1,7 @@
 import * as schedule from 'node-schedule'
 
 import { Hub, Team } from '../../types'
-import { PostgresUse } from '../../utils/db/postgres'
+import { PostgresUse } from '../../utils/postgres'
 import { captureException } from '../../utils/posthog'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'

@@ -1,28 +1,12 @@
-import { Meta, PluginAttachment, PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/src/types'
 
 import { LegacyTransformationPluginMeta } from '../../types'
-
 export interface Filter {
     property: string
     type: 'string' | 'number' | 'boolean'
     operator: string
     value: string | number | boolean
 }
-
-export type PluginMeta = Meta<{
-    config: {
-        eventsToDrop?: string
-        keepUndefinedProperties?: 'Yes' | 'No'
-    }
-    global: {
-        filters: Filter[][] | Filter[]
-        eventsToDrop: string[]
-        keepUndefinedProperties?: boolean
-    }
-    attachments: {
-        filters?: PluginAttachment
-    }
-}>
 
 const operations: Record<Filter['type'], Record<string, (a: any, b: any) => boolean>> = {
     string: {

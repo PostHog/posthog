@@ -1,27 +1,24 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
-import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../../main/utils'
-import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
+import { MessageSizeTooLarge } from '../../kafka/producer'
+import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../services/group-type-manager'
+import { Hub, Person, PersonMode, PipelineEvent, PluginEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { processAiEvent } from '../../utils/ai-costs/process-ai-event'
-import { MessageSizeTooLarge } from '../../utils/db/error'
-import { safeClickhouseString, sanitizeEventName, sanitizeString } from '../../utils/db/utils'
-import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
+import { captureIngestionWarning } from '../../utils/ingestion-warnings'
+import { eventDroppedCounter } from '../../utils/metrics'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
-import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../worker/ingestion/group-type-manager'
-import { PersonState } from '../../worker/ingestion/person-state'
-import { upsertGroup } from '../../worker/ingestion/properties-updater'
-import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { runProcessEvent } from '../../worker/plugins/run'
-import { getElementsChain } from './utils/event-utils'
+import { getElementsChain, normalizeEvent, normalizeProcessPerson } from './utils/event-utils'
+import { upsertGroup } from './utils/groups-updater'
 import { extractHeatmapData } from './utils/heatmaps'
+import { PersonState } from './utils/person-state'
+import { PersonsDB } from './utils/persons-db'
+import { parseEventTimestamp } from './utils/timestamps'
+import { safeClickhouseString, sanitizeEventName, sanitizeString } from './utils/utils'
 
 export class EventDroppedError extends Error {
     public doNotSendToDLQ: boolean = false
@@ -55,7 +52,12 @@ export class EventPipelineRunnerV2 {
     private person?: Person
     private groupTypeManager: GroupTypeManager
 
-    constructor(private hub: Hub, private originalEvent: PipelineEvent, private hogTransformer: HogTransformerService) {
+    constructor(
+        private hub: Hub,
+        private originalEvent: PipelineEvent,
+        private db: PersonsDB,
+        private hogTransformer: HogTransformerService
+    ) {
         this.event = {
             ...this.originalEvent,
             properties: {
@@ -166,13 +168,6 @@ export class EventPipelineRunnerV2 {
             return
         }
 
-        const pluginProcessed = await this.processPlugins()
-        if (!pluginProcessed) {
-            droppedEventFromTransformationsCounter.inc()
-            // NOTE: In this case we just return as it is expected, not an ingestion error
-            return
-        }
-
         const result = await this.hogTransformer.transformEventAndProduceMessages(this.event)
 
         if (!result.event) {
@@ -264,22 +259,6 @@ export class EventPipelineRunnerV2 {
         }
     }
 
-    private async processPlugins(): Promise<boolean> {
-        const processedEvent = await runInstrumentedFunction({
-            timeoutContext: () => ({ event: JSON.stringify(this.event) }),
-            func: () => runProcessEvent(this.hub, this.event),
-            statsKey: 'kafka_queue.single_event',
-            timeoutMessage: 'Still running plugins on event. Timeout warning after 30 sec!',
-            teamId: this.event.team_id,
-        })
-
-        if (processedEvent) {
-            this.event = processedEvent
-            return true
-        }
-        return false
-    }
-
     private normalizeEvent() {
         this.event.event = sanitizeEventName(this.event.event)
         this.event = normalizeEvent(this.event)
@@ -308,12 +287,13 @@ export class EventPipelineRunnerV2 {
     private async processPerson() {
         // NOTE: PersonState could derive so much of this stuff instead of it all being passed in
         const [person, kafkaAck] = await new PersonState(
+            this.hub,
+            this.db,
             this.event,
             this.event.team_id,
             String(this.event.distinct_id),
             this.timestamp!,
-            this.shouldProcessPerson,
-            this.hub.db
+            this.shouldProcessPerson
         ).update()
 
         this.person = person
@@ -356,7 +336,7 @@ export class EventPipelineRunnerV2 {
 
             if (groupTypeIndex !== null) {
                 await upsertGroup(
-                    this.hub.db,
+                    this.hub,
                     this.team!.id,
                     this.team!.project_id,
                     groupTypeIndex,

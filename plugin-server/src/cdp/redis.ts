@@ -1,12 +1,10 @@
-// NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
-import { PluginsServerConfig } from '../types'
-import { createRedisClient } from '../utils/db/redis'
-import { timeoutGuard } from '../utils/db/utils'
+import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
+import { Config } from '../types'
 import { captureException } from '../utils/posthog'
+import { createRedisClient } from '../utils/redis'
 import { status } from '../utils/status'
 
 type WithCheckRateLimit<T> = {
@@ -86,7 +84,7 @@ redis.call('expire', key, expiry)
 return currentTokens
 `
 
-export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
+export const createCdpRedisPool = (config: Config): CdpRedis => {
     const pool = createPool<CdpRedisClient>(
         {
             create: async () => {

@@ -1,19 +1,15 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { createPageview, resetMeta } from '@posthog/plugin-scaffold/test/utils'
+import { PluginEvent } from '~/src/types'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 
-const defaultMeta = {
-    config: {
-        discardIp: 'true',
-        discardLibs: 'posthog-node',
-    },
-    logger: {
-        log: jest.fn(),
-        warn: jest.fn(),
-    },
-}
+const createPageview = (): PluginEvent =>
+    ({
+        distinctId: '123',
+        event: 'pageview',
+        properties: {},
+        timestamp: new Date(),
+    } as any)
 
 const createGeoIPPageview = (): PluginEvent => {
     const event = createPageview()
@@ -101,24 +97,34 @@ const helperVerifyGeoIPIsEmpty = (event: PluginEvent): void => {
 }
 
 describe('plugin-advanced-geoip', () => {
+    const createMeta = (config: Partial<LegacyTransformationPluginMeta['config']> = {}) => {
+        return {
+            config: {
+                discardIp: 'true',
+                discardLibs: 'posthog-node',
+                ...config,
+            },
+            logger: {
+                log: jest.fn(),
+                warn: jest.fn(),
+            },
+        } as unknown as LegacyTransformationPluginMeta
+    }
+
     describe('discard IP', () => {
         test('IP is discarded', () => {
-            const meta = resetMeta(defaultMeta) as LegacyTransformationPluginMeta
-            const event = processEvent(createGeoIPPageview(), meta)
+            const event = processEvent(createGeoIPPageview(), createMeta())
             expect(event?.ip).toEqual(null)
             expect(event?.properties?.$ip).toEqual(undefined)
         })
         test('IP is not discarded if not enabled', () => {
-            const meta = resetMeta({
-                ...defaultMeta,
-                config: { ...defaultMeta.config, discardIp: 'false' },
-            }) as LegacyTransformationPluginMeta
+            const meta = createMeta({ discardIp: 'false' })
             const event = processEvent(createGeoIPPageview(), meta)
             expect(event?.ip).toEqual('13.106.122.3')
             expect(event?.properties?.$ip).toEqual('13.106.122.3')
         })
         test('IP is not discarded if GeoIP not processed', () => {
-            const meta = resetMeta(defaultMeta) as LegacyTransformationPluginMeta
+            const meta = createMeta()
             const preprocessedEvent = createGeoIPPageview()
             preprocessedEvent.properties = {
                 ...preprocessedEvent.properties,
@@ -132,7 +138,7 @@ describe('plugin-advanced-geoip', () => {
 
     describe('$lib ignore', () => {
         test('ignores GeoIP from $lib', () => {
-            const meta = resetMeta(defaultMeta) as LegacyTransformationPluginMeta
+            const meta = createMeta()
             const event = processEvent(createGeoIPPageview(), meta)
             helperVerifyGeoIPIsEmpty(event!)
             expect(Object.keys(event!.$set!).length).toEqual(0) // Ensure this is not sending properties even as undefined (that overwrites the user properties)
@@ -140,16 +146,18 @@ describe('plugin-advanced-geoip', () => {
         })
 
         test('ignores GeoIP from $lib CSV', () => {
-            const meta = resetMeta({
-                ...defaultMeta,
-                config: { ...defaultMeta.config, discardLibs: 'posthog-ios,posthog-android,posthog-node' },
-            }) as LegacyTransformationPluginMeta
+            const meta = createMeta({
+                config: {
+                    ...createMeta().config,
+                    discardLibs: 'posthog-ios,posthog-android,posthog-node',
+                },
+            })
             const event = processEvent(createGeoIPPageview(), meta)
             helperVerifyGeoIPIsEmpty(event!)
         })
 
         test('keeps GeoIP if $lib is not on ignore list', () => {
-            const meta = resetMeta(defaultMeta) as LegacyTransformationPluginMeta
+            const meta = createMeta()
             const preprocessedEvent = createGeoIPPageview()
             preprocessedEvent.properties!.$lib = 'posthog-swift'
             const event = processEvent(preprocessedEvent, meta)
