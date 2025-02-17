@@ -19,6 +19,7 @@ export function QuestionSuggestions(): JSX.Element {
                 size="xsmall"
                 type="primary"
                 sideIcon={<IconOpenSidebar />}
+                center
                 className="relative"
                 onClick={() => {
                     openSettingsPanel({ settingId: 'core-memory' })

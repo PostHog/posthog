@@ -5,6 +5,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { uuid } from 'lib/utils'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { isAssistantMessage, isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -164,7 +165,11 @@ export const maxLogic = kea<maxLogicType>([
             )
         },
         askMax: async ({ prompt }) => {
-            actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
+            actions.addMessage({
+                type: AssistantMessageType.Human,
+                content: prompt,
+                status: 'completed',
+            })
             try {
                 // Generate a trace ID for the conversation run
                 const traceId = uuid()
@@ -352,6 +357,7 @@ export const maxLogic = kea<maxLogicType>([
             actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
         }
     }),
+    permanentlyMount(), // Prevent state from being reset when Max is unmounted, especially key in the side panel
 ])
 
 /**
