@@ -25,6 +25,18 @@ import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
 
+function getMathDisplayName(math?: string): string {
+    if (!math) {
+        return 'Total'
+    }
+    // Capitalize first letter and add spaces before capital letters
+    return math
+        .toString()
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim()
+}
+
 function formatTickValue(value: number): string {
     if (value === 0) {
         return '0%'
@@ -49,6 +61,14 @@ function formatTickValue(value: number): string {
 const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
     if (metric.name) {
         return <span className="truncate">{metric.name}</span>
+    }
+
+    if (metric.kind === 'ExperimentMetric') {
+        if (metric.metric_config?.kind === 'ExperimentEventMetricConfig') {
+            const mathName = getMathDisplayName(metric.metric_config.math)
+            const eventName = metric.metric_config.event
+            return <span className="truncate">{`${mathName} ${eventName}`}</span>
+        }
     }
 
     if (metricType === InsightType.TRENDS && metric.count_query?.series?.[0]?.name) {
