@@ -63,8 +63,8 @@ importers:
         specifier: ^1.0.67
         version: 1.0.67(luxon@3.5.0)
       '@posthog/icons':
-        specifier: 0.11.1
-        version: 0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.10.1
+        version: 0.10.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -4396,8 +4396,8 @@ packages:
     peerDependencies:
       luxon: ^3.4.4
 
-  '@posthog/icons@0.11.1':
-    resolution: {integrity: sha512-usNM3nAk1EuWut577qu2enGedfhrQLcRR0nLPYt0U3wt3YV7fKR9VSFbX/J2mcbF+bqdY89lAi6OQnHj6ZJo1A==}
+  '@posthog/icons@0.10.1':
+    resolution: {integrity: sha512-HV9J+ySm+Q4/cbLwdfAMtqE3RSAAGACATjQN0ifq9GfoQNopC+g28XyjqbVcyIJ52ne60EPBXeveRtFQqmcmUA==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -21046,7 +21046,7 @@ snapshots:
     dependencies:
       luxon: 3.5.0
 
-  '@posthog/icons@0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/icons@0.10.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)

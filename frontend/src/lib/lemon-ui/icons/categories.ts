@@ -174,6 +174,7 @@ export const ELEMENTS = {
         'IconX',
         'IconEllipsis',
         'IconHide',
+        'IconStopFilled',
     ],
     'Arrows & Shapes': [
         'IconArrowLeft',
