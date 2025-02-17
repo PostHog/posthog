@@ -229,9 +229,7 @@ class ExperimentQueryRunner(QueryRunner):
             case (ExperimentEventMetricConfig() | ExperimentActionMetricConfig()) as metric_config:
                 if isinstance(metric_config, ExperimentActionMetricConfig):
                     try:
-                        action = Action.objects.get(
-                            pk=int(self.metric.metric_config.action), team__project_id=self.team.project_id
-                        )
+                        action = Action.objects.get(pk=int(metric_config.action), team__project_id=self.team.project_id)
                         event_filter = action_to_expr(action)
                     except Action.DoesNotExist:
                         # If an action doesn't exist, we want to return no events

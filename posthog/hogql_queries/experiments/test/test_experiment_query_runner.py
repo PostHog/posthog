@@ -625,10 +625,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result.variants), 2)
 
         control_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
         )
         test_variant = cast(
-            ExperimentVariantFunnelsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
         )
 
         self.assertEqual(control_variant.count, 6)
