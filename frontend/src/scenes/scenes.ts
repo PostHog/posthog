@@ -70,7 +70,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.ErrorTrackingConfiguration]: {
         projectBased: true,
-        name: 'Error tracking configuration',
+        name: 'Configuration',
     },
     [Scene.ErrorTrackingAlert]: {
         projectBased: true,
@@ -78,7 +78,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.ErrorTrackingIssue]: {
         projectBased: true,
-        name: 'Error tracking issue',
+        name: 'Issue',
     },
     [Scene.Insight]: {
         projectBased: true,

@@ -183,7 +183,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             <LemonDivider className="my-6" />
             <div className="flex flex-wrap">
                 {isEvent && definition.created_at && (
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex flex-col flex-1">
                         <h5>First seen</h5>
                         <b>
                             <TZLabel time={definition.created_at} />
@@ -191,7 +191,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     </div>
                 )}
                 {isEvent && definition.last_seen_at && (
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex flex-col flex-1">
                         <h5>Last seen</h5>
                         <b>
                             <TZLabel time={definition.last_seen_at} />
@@ -200,7 +200,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 )}
 
                 {isProperty && (
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex flex-col flex-1">
                         <h5>Property type</h5>
                         <b>{(definition as PropertyDefinition).property_type ?? '-'}</b>
                     </div>
@@ -218,6 +218,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
 
                     <LinkedHogFunctions
+                        logicKey="event-definitions"
                         type="destination"
                         filters={{
                             events: [

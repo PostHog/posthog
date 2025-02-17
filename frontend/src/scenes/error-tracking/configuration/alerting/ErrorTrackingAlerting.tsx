@@ -1,5 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
+import { DestinationsTable } from 'scenes/pipeline/destinations/Destinations'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { urls } from 'scenes/urls'
 
 export function ErrorTrackingAlerting(): JSX.Element {
@@ -13,10 +15,10 @@ export function ErrorTrackingAlerting(): JSX.Element {
                 }
             />
 
-            {/* <LinkedHogFunctions
+            <LinkedHogFunctions
                 logicKey="error-tracking-alerts"
                 type="internal_destination"
-                subTemplateId="errors"
+                subTemplateId="error-tracking"
                 filters={{
                     events: [
                         {
@@ -26,7 +28,7 @@ export function ErrorTrackingAlerting(): JSX.Element {
                     ],
                 }}
             />
-            <DestinationsTable types={['error_tracking_alert']} hideKind hideFeedback /> */}
+            <DestinationsTable types={['internal_destination']} hideKind hideFeedback />
         </>
     )
 }

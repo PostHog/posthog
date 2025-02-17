@@ -26,6 +26,7 @@ export type HogFunctionListFilters = {
 }
 
 export type HogFunctionListLogicProps = {
+    logicKey?: string
     type: HogFunctionTypeType
     defaultFilters?: HogFunctionListFilters
     forceFilters?: HogFunctionListFilters
@@ -44,7 +45,7 @@ export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserT
 
 export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
     props({} as HogFunctionListLogicProps),
-    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default')),
+    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default') + (props.logicKey || props.type)),
     path((id) => ['scenes', 'pipeline', 'hogFunctionListLogic', id]),
     connect({
         values: [

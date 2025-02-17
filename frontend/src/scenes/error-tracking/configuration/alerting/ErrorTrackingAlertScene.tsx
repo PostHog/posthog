@@ -1,11 +1,11 @@
 import { kea, path, props, selectors } from 'kea'
-// import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
+import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { errorTrackingAlertSceneLogicType } from './ErrorTrackingAlertType'
+import type { errorTrackingAlertSceneLogicType } from './ErrorTrackingAlertSceneType'
 
 export const errorTrackingAlertSceneLogic = kea<errorTrackingAlertSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingAlertSceneLogic', key]),
@@ -40,6 +40,5 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingAlertScene(): JSX.Element | null {
-    return null
-    // return <HogFunctionConfiguration id={null} templateId="template-error-tracking-alert" />
+    return <HogFunctionConfiguration id={null} templateId="template-error-tracking-alert" />
 }

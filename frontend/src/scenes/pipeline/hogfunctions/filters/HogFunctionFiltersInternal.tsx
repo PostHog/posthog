@@ -11,6 +11,14 @@ const FILTER_OPTIONS = [
         label: 'Team activity',
         value: '$activity_log_entry_created',
     },
+    {
+        label: 'New issue created',
+        value: '$error_tracking_issue_created',
+    },
+    {
+        label: 'Resolved issue reopened',
+        value: '$error_tracking_issue_reopened',
+    },
 ]
 
 const getSimpleFilterValue = (value?: HogFunctionFiltersType): string | undefined => {
