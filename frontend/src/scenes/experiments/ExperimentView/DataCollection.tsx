@@ -1,9 +1,8 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { humanFriendlyNumber } from 'lib/utils'
 
 import { Experiment, InsightType } from '~/types'
@@ -220,7 +219,7 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
         >
             {isInsightLoading ? (
                 <div className="flex flex-col flex-1 justify-center items-center mb-6">
-                    <Animation type={AnimationType.LaptopHog} />
+                    <LoadingBar />
                     <div className="text-xs text-secondary w-60">
                         <span className="mr-1">Fetching past events for the estimation</span>
                         <EllipsisAnimation />

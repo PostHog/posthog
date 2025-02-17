@@ -39,7 +39,9 @@ export type UniversalFiltersLogicProps = {
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
     path((key) => ['lib', 'components', 'UniversalFilters', 'universalFiltersLogic', key]),
     props({} as UniversalFiltersLogicProps),
-    key((props) => props.rootKey),
+    key((props) => {
+        return `${props.rootKey}-${JSON.stringify(props.group)}`
+    }),
 
     connect(() => ({
         values: [propertyDefinitionsModel, ['describeProperty']],

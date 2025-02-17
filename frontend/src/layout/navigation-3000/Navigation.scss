@@ -223,6 +223,7 @@
 
     .LemonInput--type-search {
         max-width: none;
+        height: 100%;
         border-color: transparent; // Only show border on focus here
         border-radius: 0;
         transition: none;
@@ -386,7 +387,6 @@
     padding: 0 var(--sidebar-horizontal-padding);
     cursor: pointer;
     user-select: none;
-    background: var(--accordion-header-background);
     border-bottom-width: 1px;
 
     &:hover {
@@ -444,7 +444,6 @@
     padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
     cursor: pointer;
     user-select: none;
-    background: var(--accordion-header-background);
     border-bottom-width: 1px;
 
     &:hover {

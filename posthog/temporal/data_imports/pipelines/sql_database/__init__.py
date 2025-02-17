@@ -91,7 +91,7 @@ def sql_source_for_type(
 
     if source_type == ExternalDataSource.Type.POSTGRES:
         credentials = ConnectionStringCredentials(
-            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
+            f"postgresql+psycopg://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
         )
     elif source_type == ExternalDataSource.Type.MYSQL:
         query_params = ""
@@ -311,8 +311,7 @@ def sql_database(
         reflection_level = reflection_level or "minimal"
 
     # set up alchemy engine
-    engine = engine_from_credentials(credentials)
-    engine.execution_options(stream_results=True, max_row_buffer=2 * chunk_size)
+    engine = engine_from_credentials(credentials).execution_options(stream_results=True, max_row_buffer=2 * chunk_size)
     metadata = metadata or MetaData(schema=schema)
 
     # use provided tables or all tables
@@ -370,7 +369,7 @@ def sql_table(
     metadata: Optional[MetaData] = None,
     incremental: Optional[dlt.sources.incremental[Any]] = None,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
-    backend: TableBackend = "sqlalchemy",
+    backend: TableBackend = "pyarrow",
     detect_precision_hints: Optional[bool] = None,
     reflection_level: Optional[ReflectionLevel] = "full",
     defer_table_reflect: Optional[bool] = None,
@@ -422,8 +421,9 @@ def sql_table(
     else:
         reflection_level = reflection_level or "minimal"
 
-    engine = engine_from_credentials(credentials, may_dispose_after_use=True)
-    engine.execution_options(stream_results=True, max_row_buffer=2 * chunk_size)
+    engine = engine_from_credentials(credentials, may_dispose_after_use=True).execution_options(
+        stream_results=True, max_row_buffer=2 * chunk_size
+    )
     metadata = metadata or MetaData(schema=schema)
 
     table_obj: Table | None = metadata.tables.get("table")

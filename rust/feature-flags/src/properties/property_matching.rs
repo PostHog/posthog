@@ -266,11 +266,12 @@ fn is_truthy_property_value(value: &Value) -> bool {
 fn parse_date_string(date_str: &str) -> Option<DateTime<Utc>> {
     // Try parsing common date formats
     let formats = [
-        "%Y-%m-%d",               // 2024-03-21
-        "%Y-%m-%dT%H:%M:%S",      // 2024-03-21T13:45:30
-        "%Y-%m-%dT%H:%M:%S%.3f",  // 2024-03-21T13:45:30.123
-        "%Y-%m-%dT%H:%M:%S%.3fZ", // 2024-03-21T13:45:30.123Z
-        "%Y-%m-%dT%H:%M:%SZ",     // 2024-03-21T13:45:30Z
+        "%Y-%m-%d",                 // 2024-03-21
+        "%Y-%m-%dT%H:%M:%S",        // 2024-03-21T13:45:30
+        "%Y-%m-%dT%H:%M:%S%.3f",    // 2024-03-21T13:45:30.123
+        "%Y-%m-%dT%H:%M:%S%.3fZ",   // 2024-03-21T13:45:30.123Z
+        "%Y-%m-%dT%H:%M:%SZ",       // 2024-03-21T13:45:30Z
+        "%Y-%m-%dT%H:%M:%S%.6f%:z", // 2024-03-21T13:45:30.123+00:00
     ];
 
     for format in formats {
@@ -1433,6 +1434,38 @@ mod test_match_properties {
             false
         )
         .expect("Expected no errors with full props mode"));
+
+        // Test IsDateAfter with different date formats
+        let property_is_date_after = PropertyFilter {
+            key: "joined_at".to_string(),
+            value: json!("2023-06-04"), // Simple date format in filter
+            operator: Some(OperatorType::IsDateAfter),
+            prop_type: "person".to_string(),
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Test with ISO8601 format in person properties
+        assert!(match_property(
+            &property_is_date_after,
+            &HashMap::from([(
+                "joined_at".to_string(),
+                json!("2025-01-24T23:20:24.865148+00:00")
+            )]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Test with a date before the filter date (should not match)
+        assert!(!match_property(
+            &property_is_date_after,
+            &HashMap::from([(
+                "joined_at".to_string(),
+                json!("2023-01-24T23:20:24.865148+00:00")
+            )]),
+            true
+        )
+        .expect("expected match to exist"));
     }
 
     #[test]

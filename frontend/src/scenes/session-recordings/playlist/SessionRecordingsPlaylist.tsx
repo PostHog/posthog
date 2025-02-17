@@ -1,6 +1,7 @@
 import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -11,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
+import { AiFilter } from '../components/AiFilter/AiFilter'
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
@@ -44,8 +46,9 @@ export function SessionRecordingsPlaylist({
         hasNext,
         allowFlagsFilters,
         allowHogQLFilters,
+        totalFiltersCount,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters } = useActions(logic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -103,6 +106,9 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+            <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
+                <AiFilter />
+            </FlaggedFeature>
             <div className="h-full space-y-2">
                 <Playlist
                     data-attr="session-recordings-playlist"
@@ -114,8 +120,10 @@ export function SessionRecordingsPlaylist({
                     filterActions={
                         notebookNode ? null : (
                             <RecordingsUniversalFilters
+                                resetFilters={resetFilters}
                                 filters={filters}
                                 setFilters={setFilters}
+                                totalFiltersCount={totalFiltersCount}
                                 className="border-b"
                                 allowReplayHogQLFilters={allowHogQLFilters}
                                 allowReplayFlagsFilters={allowFlagsFilters}

@@ -241,3 +241,7 @@ return fibonacci(6);"""
             '"left": {"__hx_ast": "Field", "chain": ["a", "id"]}, "right": {"__hx_ast": "Field", "chain": ["b", "id"]}, "op": "=="}, '
             '"constraint_type": "ON"}}}}',
         )
+
+    def test_lambda_dict_literal(self):
+        code = to_js_expr("x -> {'key': x}")
+        assert code == '__lambda((x) => ({"key": x}))'

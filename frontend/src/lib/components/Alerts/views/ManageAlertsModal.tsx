@@ -78,7 +78,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
         <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">
             <LemonModal.Header>
                 <div className="flex items-center gap-2">
-                    <h3 className="m-0">Manage Alerts</h3>
+                    <h3 className="!m-0">Manage Alerts</h3>
                     <LemonTag type="warning">ALPHA</LemonTag>
                 </div>
             </LemonModal.Header>

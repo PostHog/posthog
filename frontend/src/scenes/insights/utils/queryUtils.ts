@@ -1,6 +1,6 @@
 import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
 
-import { DataNode, InsightQueryNode, Node } from '~/queries/schema'
+import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     filterKeyForQuery,
@@ -148,6 +148,7 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             hiddenLegendBreakdowns: undefined,
             resultCustomizations: undefined,
             resultCustomizationBy: undefined,
+            goalLines: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

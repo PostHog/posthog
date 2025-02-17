@@ -37,7 +37,7 @@ import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { QuerySchema } from '~/queries/schema'
+import { QuerySchema } from '~/queries/schema/schema-general'
 import { AvailableFeature, ProductKey, PropertyMathType } from '~/types'
 
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
@@ -440,7 +440,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
-                    <div className="flex flex-row space-between justify-center">
+                    <div className="flex flex-row">
                         {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
                             <div className="flex-1">
                                 <LemonTabs<ProductTab>

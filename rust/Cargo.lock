@@ -1026,6 +1026,8 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
  "axum 0.7.5",
  "base64 0.22.0",
  "chrono",

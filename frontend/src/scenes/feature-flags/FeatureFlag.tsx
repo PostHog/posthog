@@ -280,7 +280,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
+                        {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                             <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. Edit settings here only for advanced
                                 functionality. If unsure, go back to{' '}
@@ -742,6 +742,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         recordingFilterForFlag,
         flagStatus,
         flagType,
+        flagTypeString,
+        hasEncryptedPayloadBeenSaved,
+        hasExperiment,
+        isDraftExperiment,
     } = useValues(featureFlagLogic)
     const {
         distributeVariantsEqually,
@@ -751,6 +755,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         setFeatureFlag,
         saveFeatureFlag,
         setRemoteConfigEnabled,
+        resetEncryptedPayload,
     } = useActions(featureFlagLogic)
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
@@ -773,6 +778,24 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         })
     }
 
+    const confirmEncryptedPayloadReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset payload?',
+            description: 'The existing payload will not be reset until the feature flag is saved.',
+            primaryButton: {
+                children: 'Reset',
+                onClick: resetEncryptedPayload,
+                size: 'small',
+                status: 'danger',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
     const reportViewRecordingsClicked = (variantKey?: string): void => {
         const properties: Record<string, string> = {
             multivariate: multivariateEnabled.toString(),
@@ -781,6 +804,16 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             properties.variant_key = variantKey
         }
         posthog.capture('viewed recordings from feature flag', properties)
+    }
+
+    const canEditVariant = (index: number): boolean => {
+        if (hasExperiment && !isDraftExperiment) {
+            return false
+        }
+        if (hasExperiment && isDraftExperiment && index === 0) {
+            return false
+        }
+        return true
     }
 
     return (
@@ -855,11 +888,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 )}
                             </div>
                             <div className="col-span-6">
-                                <span className="mt-1">
-                                    {featureFlag.filters.multivariate
-                                        ? 'Multiple variants with rollout percentages (A/B/n test)'
-                                        : 'Release toggle (boolean)'}
-                                </span>
+                                <span className="mt-1">{flagTypeString}</span>
                             </div>
                         </div>
 
@@ -956,10 +985,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 {
                                     label: 'Release toggle (boolean)',
                                     value: 'boolean',
-                                    disabledReason:
-                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                            ? 'This feature flag is associated with an experiment.'
-                                            : undefined,
+                                    disabledReason: hasExperiment
+                                        ? 'This feature flag is associated with an experiment.'
+                                        : undefined,
                                 },
                                 {
                                     label: <span>Multiple variants with rollout percentages (A/B/n test)</span>,
@@ -968,10 +996,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 {
                                     label: <span>Remote config (single payload)</span>,
                                     value: 'remote_config',
-                                    disabledReason:
-                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                            ? 'This feature flag is associated with an experiment.'
-                                            : undefined,
+                                    disabledReason: hasExperiment
+                                        ? 'This feature flag is associated with an experiment.'
+                                        : undefined,
                                 },
                             ]}
                             onChange={(value) => {
@@ -1037,19 +1064,60 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         </>
                                     )}
                                 </div>
-                                <Group name={['filters', 'payloads']}>
-                                    <LemonField name="true">
-                                        <JSONEditorInput
-                                            readOnly={readOnly}
-                                            placeholder='Examples: "A string", 2500, {"key": "value"}'
-                                        />
+                                {featureFlag.is_remote_configuration && (
+                                    <LemonField name="has_encrypted_payloads">
+                                        {({ value, onChange }) => (
+                                            <div className="border rounded mb-4 p-4">
+                                                <LemonCheckbox
+                                                    id="flag-payload-encrypted-checkbox"
+                                                    label="Encrypt remote configuration payload"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    dataAttr="feature-flag-payload-encrypted-checkbox"
+                                                    disabledReason={
+                                                        hasEncryptedPayloadBeenSaved &&
+                                                        'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
+                                                    }
+                                                />
+                                            </div>
+                                        )}
                                     </LemonField>
-                                </Group>
+                                )}
+                                <div className="flex gap-2">
+                                    <Group name={['filters', 'payloads']}>
+                                        <LemonField name="true" className="grow">
+                                            <JSONEditorInput
+                                                readOnly={
+                                                    readOnly ||
+                                                    (featureFlag.has_encrypted_payloads &&
+                                                        Boolean(featureFlag.filters?.payloads?.['true']))
+                                                }
+                                                placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                            />
+                                        </LemonField>
+                                    </Group>
+                                    {featureFlag.has_encrypted_payloads && (
+                                        <LemonButton
+                                            className="grow-0"
+                                            icon={<IconTrash />}
+                                            type="secondary"
+                                            size="small"
+                                            status="danger"
+                                            onClick={confirmEncryptedPayloadReset}
+                                        >
+                                            Reset
+                                        </LemonButton>
+                                    )}
+                                </div>
                                 {featureFlag.is_remote_configuration && (
                                     <div className="text-sm text-secondary mt-4">
                                         Note: remote config flags must be accessed through payloads, e.g.{' '}
-                                        <span className="font-mono font-bold">getFeatureFlagPayload</span>. Using
-                                        standard SDK methods such as{' '}
+                                        <span className="font-mono font-bold">
+                                            {featureFlag.has_encrypted_payloads
+                                                ? 'getDecryptedFeatureFlagPayload'
+                                                : 'getFeatureFlagPayload'}
+                                        </span>
+                                        . Using standard SDK methods such as{' '}
                                         <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
                                         <span className="font-mono font-bold">isFeatureEnabled</span> will always return{' '}
                                         <span className="font-mono font-bold">true</span>
@@ -1123,12 +1191,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 autoCapitalize="off"
                                                 autoCorrect="off"
                                                 spellCheck={false}
-                                                disabled={
-                                                    !!(
-                                                        featureFlag.experiment_set &&
-                                                        featureFlag.experiment_set?.length > 0
-                                                    )
-                                                }
+                                                disabled={!canEditVariant(index)}
                                             />
                                         </LemonField>
                                     </div>
@@ -1211,8 +1274,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 noPadding
                                                 onClick={() => removeVariant(index)}
                                                 disabledReason={
-                                                    featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                                        ? 'Cannot delete variants from a feature flag that is part of an experiment'
+                                                    !canEditVariant(index)
+                                                        ? isDraftExperiment
+                                                            ? 'Cannot delete the control variant from an experiment.'
+                                                            : 'Cannot delete variants from a feature flag that is part of a launched experiment.'
                                                         : undefined
                                                 }
                                                 tooltipPlacement="top-end"
@@ -1237,8 +1302,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             }}
                             icon={<IconPlus />}
                             disabledReason={
-                                featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                    ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
+                                hasExperiment && !isDraftExperiment
+                                    ? 'Cannot add variants to a feature flag that is part of a launched experiment. To update variants, reset the experiment to draft.'
                                     : undefined
                             }
                             tooltipPlacement="top-start"
