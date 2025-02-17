@@ -439,7 +439,9 @@ class Resolver(CloningVisitor):
 
         node = super().visit_alias(node)
         node.type = ast.FieldAliasType(
-            alias=node.alias, type=node.expr.type or ast.UnknownType(), nullable=node.expr.type.nullable
+            alias=node.alias,
+            type=node.expr.type or ast.UnknownType(),
+            nullable=(node.expr.type is None or node.expr.type.nullable),
         )
         if not node.hidden:
             scope.aliases[node.alias] = node.type
