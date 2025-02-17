@@ -18,7 +18,7 @@ import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
-import { DatabaseSchemaField } from '~/queries/schema'
+import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 export function ViewLinkModal(): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)

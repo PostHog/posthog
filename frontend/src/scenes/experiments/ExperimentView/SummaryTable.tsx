@@ -9,7 +9,12 @@ import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
-import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
     InsightType,

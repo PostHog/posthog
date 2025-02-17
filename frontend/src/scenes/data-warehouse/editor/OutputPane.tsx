@@ -28,7 +28,7 @@ import { VariablesForInsight } from '~/queries/nodes/DataVisualization/Component
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { HogQLQueryResponse } from '~/queries/schema'
+import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -256,7 +256,7 @@ function InternalDataTableVisualization(
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-surface-primary">
+            <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <LoadingBar />
             </div>
         )

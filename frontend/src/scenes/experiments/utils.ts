@@ -3,22 +3,22 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import merge from 'lodash.merge'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import {
     AnyEntityNode,
     EventsNode,
     ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
+    ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricMath,
+    ExperimentMetricType,
+    ExperimentTrendsQuery,
     type FunnelsQuery,
     NodeKind,
     type TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
-import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
+import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ChartDisplayType,
     FeatureFlagFilters,

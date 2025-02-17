@@ -7331,6 +7331,60 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "FileSystemEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "description": "Timestamp when file was added. Used to check persistence",
+                    "type": "string"
+                },
+                "href": {
+                    "description": "Object's URL",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "Unique UUID for tree entry",
+                    "type": "string"
+                },
+                "meta": {
+                    "description": "Metadata",
+                    "type": "object"
+                },
+                "path": {
+                    "description": "Object's name and folder",
+                    "type": "string"
+                },
+                "ref": {
+                    "description": "Object's ID or other unique reference",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/FileSystemType",
+                    "description": "Type of object, used for icon, e.g. feature_flag, insight, etc"
+                }
+            },
+            "required": ["path"],
+            "type": "object"
+        },
+        "FileSystemType": {
+            "enum": [
+                "feature_flag",
+                "insight",
+                "dashboard",
+                "experiment",
+                "notebook",
+                "repl",
+                "survey",
+                "sql",
+                "source",
+                "destination",
+                "site_app",
+                "transformation",
+                "folder",
+                "aichat"
+            ],
+            "type": "string"
+        },
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
             "type": "string"

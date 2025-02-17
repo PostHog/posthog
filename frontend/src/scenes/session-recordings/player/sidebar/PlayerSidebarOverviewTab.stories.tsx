@@ -131,9 +131,10 @@ const meta: Meta = {
                                     '$device_type',
                                     '$os',
                                     '$os_name',
-                                    '$referring_domain',
+                                    '$entry_referring_domain',
                                     '$geoip_subdivision_1_name',
                                     '$geoip_city_name',
+                                    '$entry_current_url',
                                 ],
                                 results: [
                                     [
@@ -146,6 +147,7 @@ const meta: Meta = {
                                         'hedgehog.io',
                                         'Spikeville',
                                         'Hogington',
+                                        'https://hedgehog.io/entry-page',
                                     ],
                                 ],
                             })

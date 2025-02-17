@@ -1713,6 +1713,39 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
+export type FileSystemType =
+    | 'feature_flag'
+    | 'insight'
+    | 'dashboard'
+    | 'experiment'
+    | 'notebook'
+    | 'repl'
+    | 'survey'
+    | 'sql'
+    | 'source'
+    | 'destination'
+    | 'site_app'
+    | 'transformation'
+    | 'folder'
+    | 'aichat'
+
+export interface FileSystemEntry {
+    /** Unique UUID for tree entry */
+    id?: string
+    /** Object's name and folder */
+    path: string
+    /** Type of object, used for icon, e.g. feature_flag, insight, etc */
+    type?: FileSystemType
+    /** Object's ID or other unique reference */
+    ref?: string
+    /** Object's URL */
+    href?: string
+    /** Metadata */
+    meta?: Record<string, any>
+    /** Timestamp when file was added. Used to check persistence */
+    created_at?: string
+}
+
 export type InsightQueryNode =
     | TrendsQuery
     | FunnelsQuery
