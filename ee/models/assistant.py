@@ -20,10 +20,6 @@ class Conversation(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=Status.choices, blank=True, null=True, default=Status.NOT_STARTED)
 
-    @property
-    def is_locked(self) -> bool:
-        return self.status in (Conversation.Status.IN_PROGRESS, Conversation.Status.CANCELLING)
-
 
 class ConversationCheckpoint(UUIDModel):
     thread = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="checkpoints")

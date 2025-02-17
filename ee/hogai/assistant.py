@@ -155,7 +155,7 @@ class Assistant:
                 else:
                     self._report_conversation_state(last_viz_message)
             except ConversationCancelled:
-                self._graph.update_state(config, PartialAssistantState.get_reset_state())
+                pass
             except Exception as e:
                 logger.exception("Error in assistant stream", error=e)
                 # This is an unhandled error, so we just stop further generation at this point
@@ -178,6 +178,7 @@ class Assistant:
     def _init_or_update_state(self):
         config = self._get_config()
         snapshot = self._graph.get_state(config)
+        initial_state = self._initial_state
 
         if snapshot.next:
             # In case the graph was interrupted, we resume from the point of interruption.
@@ -189,11 +190,11 @@ class Assistant:
                 return None
 
             # The graph had an exception or was cancelled.
-            else:
-                # Reset the state to start from the beginning.
-                self._graph.update_state(config, PartialAssistantState.get_reset_state())
+            # Reset the state to start from the beginning.
+            initial_state = initial_state.model_copy(
+                update=PartialAssistantState.get_reset_state().model_dump(exclude_none=True, exclude_unset=True)
+            )
 
-        initial_state = self._initial_state
         self._state = initial_state
         return initial_state
 
