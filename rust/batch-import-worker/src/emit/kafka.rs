@@ -67,9 +67,14 @@ impl Emitter for KafkaEmitter {
 #[async_trait]
 impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
-        self.inner
+        let res: Result<Vec<_>, _> = self
+            .inner
             .send_keyed_iter_to_kafka(self.topic, |e| Some(e.inner.key()), data.iter())
-            .await?;
+            .await
+            .into_iter()
+            .collect();
+
+        res?;
 
         self.count.fetch_add(data.len(), Ordering::SeqCst);
 

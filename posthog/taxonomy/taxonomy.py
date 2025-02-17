@@ -116,8 +116,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "When a user loads a screen in a mobile app.",
         },
         "$set": {
-            "label": "Set",
-            "description": "Setting person properties.",
+            "label": "Set person properties",
+            "description": "Setting person properties. Sent as `$set`",
             "ignored_in_assistant": True,  # Irrelevant product-wise
         },
         "$opt_in": {
@@ -291,13 +291,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,
         },
         "$set": {
-            "label": "Set",
-            "description": "Person properties to be set",
+            "label": "Set person properties",
+            "description": "Person properties to be set. Sent as `$set`",
             "ignored_in_assistant": True,
         },
         "$set_once": {
-            "label": "Set Once",
-            "description": "Person properties to be set if not set already (i.e. first-touch)",
+            "label": "Set person properties once",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`",
             "ignored_in_assistant": True,
         },
         "$pageview_id": {
