@@ -39,6 +39,8 @@ COPY frontend/ frontend/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY bin/ bin/
+# we got rid of the node_modules folders under products/, etc. so we need to install the (cached) dependencies again
+RUN pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
 RUN pnpm --filter=@posthog/frontend build
 
 #
