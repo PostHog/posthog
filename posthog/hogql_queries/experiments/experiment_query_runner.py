@@ -163,6 +163,13 @@ class ExperimentQueryRunner(QueryRunner):
                                 left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"),
                                 right=ast.Constant(value=feature_flag_key),
                             ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.In,
+                                left=parse_expr(
+                                    "replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"
+                                ),
+                                right=ast.Constant(value=self.variants),
+                            ),
                         ]
                     ),
                     # Filter by experiment date range
