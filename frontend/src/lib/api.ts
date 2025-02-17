@@ -918,6 +918,10 @@ class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
     }
 
+    public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
+    }
+
     // Notebooks
     public notebooks(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('notebooks')
@@ -2792,8 +2796,15 @@ const api = {
     },
 
     conversations: {
-        async create(data: { content: string; conversation?: string | null; trace_id: string }): Promise<Response> {
-            return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
+        async stream(
+            data: { content: string; conversation?: string | null; trace_id: string },
+            options?: ApiMethodOptions
+        ): Promise<Response> {
+            return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)
+        },
+
+        cancel(conversationId: string): Promise<void> {
+            return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
     },
 

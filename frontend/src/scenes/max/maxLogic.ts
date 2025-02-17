@@ -4,6 +4,7 @@ import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import { isAssistantMessage, isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
@@ -49,6 +50,7 @@ export const maxLogic = kea<maxLogicType>([
     }),
     actions({
         askMax: (prompt: string) => ({ prompt }),
+        stopGeneration: true,
         setThreadLoaded: (testOnlyOverride = false) => ({ testOnlyOverride }),
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
@@ -126,7 +128,7 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, cache, values }) => ({
         [projectLogic.actionTypes.updateCurrentProjectSuccess]: ({ payload }) => {
             // Load suggestions anew after product description is changed on the project
             // Most important when description is set for the first time, but also when updated,
@@ -170,11 +172,18 @@ export const maxLogic = kea<maxLogicType>([
                 const traceId = uuid()
                 actions.setTraceId(traceId)
 
-                const response = await api.conversations.create({
-                    content: prompt,
-                    conversation: values.conversation?.id,
-                    trace_id: traceId,
-                })
+                cache.generationController = new AbortController()
+
+                const response = await api.conversations.stream(
+                    {
+                        content: prompt,
+                        conversation: values.conversation?.id,
+                        trace_id: traceId,
+                    },
+                    {
+                        signal: cache.generationController.signal,
+                    }
+                )
                 const reader = response.body?.getReader()
 
                 if (!reader) {
@@ -234,21 +243,37 @@ export const maxLogic = kea<maxLogicType>([
                     }
                 }
             } catch (e) {
-                const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
-                if (e instanceof ApiError && e.status === 429) {
-                    relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
-                } else {
-                    captureException(e) // Unhandled error, log to Sentry
-                }
+                // Exclude AbortController exceptions
+                if (!(e instanceof DOMException) || e.name !== 'AbortError') {
+                    const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
+                    if (e instanceof ApiError && e.status === 429) {
+                        relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
+                    } else {
+                        captureException(e) // Unhandled error, log to Sentry
+                    }
 
-                if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
-                    actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
-                } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
-                    actions.addMessage(relevantErrorMessage)
+                    if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
+                        actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
+                    } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
+                        actions.addMessage(relevantErrorMessage)
+                    }
                 }
             }
 
+            cache.generationController = undefined
             actions.setThreadLoaded()
+        },
+        stopGeneration: async () => {
+            if (!values.conversation?.id) {
+                return
+            }
+
+            try {
+                await api.conversations.cancel(values.conversation.id)
+                cache.generationController?.abort()
+            } catch (e: any) {
+                lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')
+            }
         },
         retryLastMessage: () => {
             const lastMessage = values.threadRaw.filter(isHumanMessage).pop() as HumanMessage | undefined
@@ -333,16 +358,25 @@ export const maxLogic = kea<maxLogicType>([
         inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
         submissionDisabledReason: [
             (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading],
-            (formPending, dataProcessingAccepted, question, threadLoading): string | undefined =>
-                !dataProcessingAccepted
-                    ? 'Please accept OpenAI processing data'
-                    : formPending
-                    ? 'Please choose one of the options above'
-                    : !question
-                    ? 'I need some input first'
-                    : threadLoading
-                    ? 'Thinking…'
-                    : undefined,
+            (formPending, dataProcessingAccepted, question, threadLoading): string | undefined => {
+                if (threadLoading) {
+                    return undefined
+                }
+
+                if (!dataProcessingAccepted) {
+                    return 'Please accept OpenAI processing data'
+                }
+
+                if (formPending) {
+                    return 'Please choose one of the options above'
+                }
+
+                if (!question) {
+                    return 'I need some input first'
+                }
+
+                return undefined
+            },
         ],
     }),
     afterMount(({ actions, values }) => {
