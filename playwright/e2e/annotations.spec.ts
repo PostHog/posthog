@@ -3,8 +3,7 @@ import { Navigation } from '../utils/navigation'
 
 test.describe('Annotations', () => {
     test.beforeEach(async ({ page }) => {
-        const navigation = new Navigation(page)
-        await navigation.openMenuItem('datamanagement')
+        await page.goToMenuItem('datamanagement')
         await page.click('[data-attr=data-management-annotations-tab]')
     })
 

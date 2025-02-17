@@ -1,3 +1,5 @@
+// PD - migrated to playwright
+
 const createAction = (actionName: string): void => {
     cy.get('[data-attr=create-action]').first().click()
     cy.get('.LemonButton').should('contain', 'From event or pageview')
