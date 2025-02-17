@@ -14,7 +14,7 @@ import React from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
@@ -86,7 +86,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         clickmapsEnabled,
         heatmapFixedPositionMode,
         heatmapColorPalette,
-    } = useValues(heatmapLogic)
+    } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
         patchHeatmapFilters,
@@ -95,7 +95,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         toggleClickmapsEnabled,
         setHeatmapFixedPositionMode,
         setHeatmapColorPalette,
-    } = useActions(heatmapLogic)
+    } = useActions(heatmapToolbarMenuLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (

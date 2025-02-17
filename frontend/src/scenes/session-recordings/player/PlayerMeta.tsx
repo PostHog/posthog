@@ -17,25 +17,25 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 
-import { PlayerBottomSettings } from './controller/PlayerController'
+import { PlayerSettings } from './controller/PlayerController'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
-function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
-    if (isObject(lastUrl) && 'href' in lastUrl) {
+function URLOrScreen({ url }: { url: string | undefined }): JSX.Element | null {
+    if (isObject(url) && 'href' in url) {
         // regression protection, we saw a user whose site was sometimes sending the string-ified location object
         // this is a best-effort attempt to show the href in that case
-        lastUrl = lastUrl['href'] as string | undefined
+        url = url['href'] as string | undefined
     }
 
-    if (!lastUrl) {
+    if (!url) {
         return null
     }
 
     // re-using the rrweb web schema means that this might be a mobile replay screen name
     let isValidUrl = false
     try {
-        new URL(lastUrl || '')
+        new URL(url || '')
         isValidUrl = true
     } catch (_e) {
         // no valid url
@@ -47,17 +47,17 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
             <span className="flex items-center gap-1 truncate">
                 {isValidUrl ? (
                     <Tooltip title="Click to open url">
-                        <Link to={lastUrl} target="_blank" className="truncate">
-                            {lastUrl}
+                        <Link to={url} target="_blank" className="truncate">
+                            {url}
                         </Link>
                     </Tooltip>
                 ) : (
-                    lastUrl
+                    url
                 )}
                 <span className="flex items-center">
                     <CopyToClipboardInline
-                        description={lastUrl}
-                        explicitValue={lastUrl}
+                        description={url}
+                        explicitValue={url}
                         iconStyle={{ color: 'var(--text-secondary)' }}
                         selectable={true}
                     />
@@ -96,7 +96,7 @@ export function ResolutionView(): JSX.Element {
 export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
-    const { windowIds, trackedWindow, lastPageviewEvent, lastUrl, currentWindowIndex, loading } = useValues(
+    const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
         playerMetaLogic(logicProps)
     )
 
@@ -172,7 +172,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                                 onSelect={(value) => setTrackedWindow(value)}
                             />
 
-                            <URLOrScreen lastUrl={lastUrl} />
+                            <URLOrScreen url={currentURL} />
                             {lastPageviewEvent?.properties?.['$screen_name'] && (
                                 <span className="flex items-center gap-2 truncate">
                                     <span>·</span>
@@ -190,7 +190,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                         <PlayerPersonMeta />
                     </div>
                 </div>
-                <PlayerBottomSettings />
+                <PlayerSettings />
             </div>
         </DraggableToNotebook>
     )

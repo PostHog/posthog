@@ -7,6 +7,7 @@ import {
     AuthorizedUrlListType,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     calculateViewportRange,
@@ -32,6 +33,14 @@ export interface IFrameBanner {
     message: string | JSX.Element
 }
 
+export interface ReplayIframeData {
+    html: string
+    width: number // NB this should be meta width
+    height: number // NB this should be meta height
+    startDateTime: string | undefined
+    url: string | undefined
+}
+
 // team id is always available on window
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
@@ -47,6 +56,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
         ],
+        actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref', 'setUrlMatch']],
     }),
 
     actions({
@@ -71,6 +81,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
         startTrackingLoading: true,
         stopTrackingLoading: true,
+        setReplayIframeData: (replayIframeData: ReplayIframeData | null) => ({ replayIframeData }),
+        updateReplayIframeURL: (url: string) => ({ url }),
     }),
 
     loaders(({ values }) => ({
@@ -128,6 +140,20 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     })),
 
     reducers({
+        hasValidReplayIframeData: [
+            false,
+            {
+                setReplayIframeData: (_, { replayIframeData }) =>
+                    !!replayIframeData?.url?.trim().length && !!replayIframeData?.html.trim().length,
+            },
+        ],
+        replayIframeData: [
+            null as ReplayIframeData | null,
+            {
+                setReplayIframeData: (_, { replayIframeData }) => replayIframeData,
+                updateReplayIframeURL: (state, { url }) => ({ ...state, url }),
+            },
+        ],
         filterPanelCollapsed: [
             false as boolean,
             { persist: true },
@@ -229,6 +255,20 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     }),
 
     listeners(({ actions, cache, props, values }) => ({
+        setReplayIframeData: ({ replayIframeData }) => {
+            if (replayIframeData) {
+                // we don't want to use the toolbar fetch or the iframe message approach
+                actions.setFetchFn('native')
+                actions.setHref(replayIframeData.url)
+                actions.patchHeatmapFilters
+            }
+        },
+        updateReplayIframeURL: ({ url }) => {
+            if (url.includes('*')) {
+                actions.setUrlMatch('wildcard')
+            }
+            actions.setHref(url)
+        },
         setBrowserSearch: async (_, breakpoint) => {
             await breakpoint(200)
             actions.loadBrowserSearchResults()
@@ -265,6 +305,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         onIframeLoad: () => {
+            // if we've got valid replay iframe data we don't want to init and communicate with the embedded toolbar
+            // TODO this seems not fire with srcdoc
+            if (values.hasValidReplayIframeData) {
+                actions.loadHeatmap()
+                return
+            }
             // we get this callback whether the iframe loaded successfully or not
             // and don't get a signal if the load was successful, so we have to check
             // but there's no slam dunk way to do that
@@ -400,6 +446,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }
             if (searchParams.commonFilters && !objectsEqual(searchParams.commonFilters, values.commonFilters)) {
                 actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
+            }
+            if (searchParams.iframeStorage) {
+                const replayFrameData = JSON.parse(
+                    localStorage.getItem(searchParams.iframeStorage) || '{}'
+                ) as ReplayIframeData
+                actions.setReplayIframeData(replayFrameData)
             }
         },
     })),

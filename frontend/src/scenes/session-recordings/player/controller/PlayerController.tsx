@@ -175,7 +175,7 @@ function InspectDOM(): JSX.Element {
     )
 }
 
-export function PlayerBottomSettings(): JSX.Element {
+export function PlayerSettings(): JSX.Element {
     const {
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
