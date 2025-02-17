@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
+import posthog from 'posthog-js'
 import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { AiFilter } from 'scenes/session-recordings/components/AiFilter/AiFilter'
@@ -145,7 +146,13 @@ export function Playlist({
                 })}
             >
                 <div className="flex justify-end">
-                    <LemonButton icon={<IconX />} onClick={() => setIsExpanded(false)} />
+                    <LemonButton
+                        icon={<IconX />}
+                        onClick={() => {
+                            setIsExpanded(false)
+                            posthog.capture('ai_filter_close')
+                        }}
+                    />
                 </div>
                 <AiFilter />
             </div>
@@ -164,7 +171,10 @@ export function Playlist({
                                     type="secondary"
                                     className="bg-white"
                                     icon={<IconAIText />}
-                                    onClick={() => setIsExpanded(true)}
+                                    onClick={() => {
+                                        setIsExpanded(true)
+                                        posthog.capture('ai_filter_open')
+                                    }}
                                 >
                                     Ask Max AI about recordings{' '}
                                     <LemonTag type="completion" className="ml-2">
