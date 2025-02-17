@@ -202,3 +202,29 @@ class TestConversation(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cant_start_generation_on_in_progress_conversation(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
+                "conversation": str(conversation.id),
+                "content": "test query",
+                "trace_id": str(uuid.uuid4()),
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        conversation.status = Conversation.Status.CANCELLING
+        conversation.save()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
+                "conversation": str(conversation.id),
+                "content": "test query",
+                "trace_id": str(uuid.uuid4()),
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

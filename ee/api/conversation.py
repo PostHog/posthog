@@ -67,6 +67,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             conversation = self.get_object()
         else:
             conversation = self.get_queryset().create(user=request.user, team=self.team)
+        if conversation.is_locked:
+            raise ValidationError("Generation has already started.")
         assistant = Assistant(
             self.team,
             conversation,
