@@ -44,7 +44,8 @@
         "playwright/**/*",
         "ee/frontend/**/*",
         "products/**/frontend/**/*",
-        "common/esbuilder/*"
+        "common/esbuilder/*",
+        "common/eslint_rules/*"
     ],
     "exclude": ["frontend/dist/**/*"],
     "ts-node": {

@@ -1,7 +1,10 @@
 import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isDefinitionStale } from 'lib/utils/definitions'
 
 import {
     DateRange,
@@ -9,7 +12,7 @@ import {
     ErrorTrackingIssueAssignee,
     ErrorTrackingSparklineConfig,
 } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { EventDefinitionType, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
 
@@ -118,6 +121,19 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
                 setSparklineSelectedPeriod: (_, { period }) => period,
             },
         ],
+    }),
+    loaders({
+        hasSentExceptionEvent: {
+            __default: undefined as boolean | undefined,
+            loadExceptionEventDefinition: async (): Promise<boolean> => {
+                const exceptionDefinition = await api.eventDefinitions.list({
+                    event_type: EventDefinitionType.Event,
+                    search: '$exception',
+                })
+                const definition = exceptionDefinition.results.find((r) => r.name === '$exception')
+                return definition ? !isDefinitionStale(definition) : false
+            },
+        },
     }),
     selectors({
         sparklineOptions: [

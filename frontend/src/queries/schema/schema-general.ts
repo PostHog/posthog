@@ -1727,10 +1727,11 @@ export type FileSystemType =
     | 'site_app'
     | 'transformation'
     | 'folder'
+    | 'aichat'
 
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
-    id: string
+    id?: string
     /** Object's name and folder */
     path: string
     /** Type of object, used for icon, e.g. feature_flag, insight, etc */

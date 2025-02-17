@@ -5,6 +5,7 @@ import {
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 } from 'openai/resources/chat/completions'
+import posthog from 'posthog-js'
 
 import { RecordingUniversalFilters } from '~/types'
 
@@ -67,6 +68,7 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         handleSend: () => {
+            posthog.capture('ai_filter_send')
             const newMessages = [
                 ...values.messages,
                 {
@@ -92,6 +94,7 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
                 if (content.hasOwnProperty('result')) {
                     if (content.result === 'filter') {
                         props.setFilters(content.data)
+                        posthog.capture('ai_filter_success')
                     }
 
                     actions.setMessages([
@@ -110,6 +113,7 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
                         content: 'Sorry, I was unable to process your request. Please try again.',
                     } as ChatCompletionAssistantMessageParam,
                 ])
+                posthog.capture('ai_filter_error')
             }
 
             actions.setIsLoading(false)
@@ -117,6 +121,7 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
         handleReset: () => {
             actions.setMessages([])
             props.resetFilters()
+            posthog.capture('ai_filter_reset')
         },
     })),
 ])
