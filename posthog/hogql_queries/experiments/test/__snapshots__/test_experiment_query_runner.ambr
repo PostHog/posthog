@@ -198,7 +198,7 @@
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
         GROUP BY variant,
                  events.distinct_id) AS exposure_data
      LEFT JOIN
@@ -213,7 +213,7 @@
                   replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
-           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')))
            GROUP BY variant,
                     events.distinct_id) AS exposure_data ON equals(events.distinct_id, exposure_data.distinct_id)
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(exposure_data.distinct_id, events_after_exposure.distinct_id), equals(exposure_data.variant, events_after_exposure.variant))
