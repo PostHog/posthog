@@ -367,6 +367,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             localStorage.setItem(key, value)
         },
         initialize: () => {
+            // TODO: replace with queryTabState
             const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
             const activeModelUri = localStorage.getItem(activeModelStateKey(props.key))
             const activeModelVariablesString = localStorage.getItem(activeModelVariablesStateKey(props.key))
