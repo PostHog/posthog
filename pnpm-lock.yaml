@@ -256,6 +256,10 @@ importers:
       typescript:
         specifier: ~4.9.5
         version: 4.9.5
+    devDependencies:
+      ts-json-schema-generator:
+        specifier: ^v2.4.0-next.6
+        version: 2.4.0-next.6
 
   frontend:
     dependencies:

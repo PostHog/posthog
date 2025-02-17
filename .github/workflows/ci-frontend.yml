@@ -111,7 +111,7 @@ jobs:
 
             - name: Check if mobile replay "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
+              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
 
             - name: Check toolbar bundle size
               if: needs.changes.outputs.frontend == 'true'
