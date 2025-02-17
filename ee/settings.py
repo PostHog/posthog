@@ -44,6 +44,8 @@ elif DEMO:
     # This is because in the demo env social signups get is_staff=True to facilitate instance management
     SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = ["posthog.com"]
 
+CUSTOMER_IO_API_KEY = get_from_env("CUSTOMER_IO_API_KEY", "", type_cast=str)
+
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent from materializing
 MATERIALIZE_COLUMNS_SCHEDULE_CRON = get_from_env("MATERIALIZE_COLUMNS_SCHEDULE_CRON", "0 5 * * SAT")

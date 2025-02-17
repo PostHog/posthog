@@ -332,7 +332,8 @@ class TestTwoFactorAPI(APIBaseTest):
             "2fa_too_many_attempts",
         )
 
-    def test_login_with_backup_code(self):
+    @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
+    def test_login_with_backup_code(self, mock_send_email):
         """Test that a user can log in using a backup code instead of TOTP"""
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
@@ -355,7 +356,11 @@ class TestTwoFactorAPI(APIBaseTest):
         # Verify the backup code was consumed (can't be reused)
         self.assertFalse(static_device.token_set.filter(token="123456").exists())
 
-    def test_backup_code_is_consumed_after_use(self):
+        # Verify email was triggered
+        mock_send_email.delay.assert_called_once_with(self.user.id)
+
+    @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
+    def test_backup_code_is_consumed_after_use(self, mock_send_email):
         """Test that backup codes are one-time use only"""
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
@@ -367,6 +372,9 @@ class TestTwoFactorAPI(APIBaseTest):
         # Use backup code once
         response = self.client.post("/api/login/token", {"token": "123456"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify email was triggered
+        mock_send_email.delay.assert_called_once_with(self.user.id)
 
         # Log out
         self.client.logout()
@@ -380,7 +388,8 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "2fa_invalid")
 
-    def test_backup_codes_work_when_totp_device_is_throttled(self):
+    @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
+    def test_backup_codes_work_when_totp_device_is_throttled(self, mock_send_email):
         """Test that backup codes still work even if TOTP device is throttled"""
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
@@ -401,6 +410,9 @@ class TestTwoFactorAPI(APIBaseTest):
         # Backup code should still work
         response = self.client.post("/api/login/token", {"token": "123456"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify email was triggered
+        mock_send_email.delay.assert_called_once_with(self.user.id)
 
 
 class TestPasswordResetAPI(APIBaseTest):
