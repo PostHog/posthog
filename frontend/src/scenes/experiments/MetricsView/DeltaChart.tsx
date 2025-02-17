@@ -25,6 +25,18 @@ import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
 
+function getMathDisplayName(math?: string): string {
+    if (!math) {
+        return 'Total'
+    }
+    // Capitalize first letter and add spaces before capital letters
+    return math
+        .toString()
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim()
+}
+
 function formatTickValue(value: number): string {
     if (value === 0) {
         return '0%'
@@ -49,6 +61,14 @@ function formatTickValue(value: number): string {
 const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
     if (metric.name) {
         return <span className="truncate">{metric.name}</span>
+    }
+
+    if (metric.kind === 'ExperimentMetric') {
+        if (metric.metric_config?.kind === 'ExperimentEventMetricConfig') {
+            const mathName = getMathDisplayName(metric.metric_config.math)
+            const eventName = metric.metric_config.event
+            return <span className="truncate">{`${mathName} ${eventName}`}</span>
+        }
     }
 
     if (metricType === InsightType.TRENDS && metric.count_query?.series?.[0]?.name) {
@@ -390,11 +410,14 @@ export function DeltaChart({
                                 })}
 
                                 {variants.map((variant, index) => {
-                                    const interval = credibleIntervalForVariant(result, variant.key, metricType)
-                                    const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
-
                                     let delta: number
-                                    if (metricType === InsightType.TRENDS) {
+                                    if (metricType === InsightType.FUNNELS) {
+                                        const variantRate = conversionRateForVariant(result, variant.key)
+                                        const controlRate = conversionRateForVariant(result, 'control')
+                                        delta =
+                                            variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
+                                    } else {
+                                        // NOTE: Legacy trends metrics and new experiment metrics use the same logic
                                         const controlVariant = result.variants.find(
                                             (v: TrendExperimentVariant) => v.key === 'control'
                                         ) as TrendExperimentVariant
@@ -415,17 +438,16 @@ export function DeltaChart({
                                             const variantMean = variantData.count / variantData.absolute_exposure
                                             delta = (variantMean - controlMean) / controlMean
                                         }
-                                    } else {
-                                        const variantRate = conversionRateForVariant(result, variant.key)
-                                        const controlRate = conversionRateForVariant(result, 'control')
-                                        delta =
-                                            variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
                                     }
 
+                                    const interval = credibleIntervalForVariant(result, variant.key, metricType)
+                                    const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
+
                                     const y = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
-                                    const x1 = valueToX(lower)
-                                    const x2 = valueToX(upper)
                                     const deltaX = valueToX(delta)
+                                    const violinWidth = Math.abs(valueToX(upper) - valueToX(lower))
+                                    const x1 = deltaX - violinWidth / 2
+                                    const x2 = deltaX + violinWidth / 2
 
                                     return (
                                         <g
