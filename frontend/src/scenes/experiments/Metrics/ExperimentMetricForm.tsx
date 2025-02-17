@@ -27,8 +27,8 @@ export function ExperimentMetricForm({ isSecondary = false }: { isSecondary?: bo
     const currentMetric = metrics[metricIdx] as ExperimentMetric
 
     return (
-        <>
-            <div className="mb-4">
+        <div className="space-y-4">
+            <div>
                 <LemonLabel>Name (optional)</LemonLabel>
                 <LemonInput
                     value={currentMetric.name}
@@ -81,6 +81,6 @@ export function ExperimentMetricForm({ isSecondary = false }: { isSecondary?: bo
                 }}
                 readOnly
             />
-        </>
+        </div>
     )
 }
