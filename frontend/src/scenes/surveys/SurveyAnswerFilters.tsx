@@ -2,6 +2,7 @@ import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { allOperatorsMapping } from 'lib/utils'
+import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 
 import { EventPropertyFilter, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
 
@@ -37,14 +38,6 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
         { label: allOperatorsMapping[PropertyOperator.NotRegex], value: PropertyOperator.NotRegex },
     ],
     [SurveyQuestionType.Link]: [],
-}
-
-const QUESTION_TYPE_LABEL: Record<SurveyQuestionType, string> = {
-    [SurveyQuestionType.Open]: 'Text response',
-    [SurveyQuestionType.Rating]: 'Numeric rating',
-    [SurveyQuestionType.SingleChoice]: 'Single choice',
-    [SurveyQuestionType.MultipleChoice]: 'Multiple choice',
-    [SurveyQuestionType.Link]: 'Link',
 }
 
 export function SurveyAnswerFilters(): JSX.Element {
@@ -107,7 +100,7 @@ export function SurveyAnswerFilters(): JSX.Element {
                             >
                                 <div className="col-span-3">
                                     <span className="font-medium">{question.question}</span>
-                                    <div className="text-muted text-xs">{QUESTION_TYPE_LABEL[question.type]}</div>
+                                    <div className="text-muted text-xs">{SurveyQuestionLabel[question.type]}</div>
                                 </div>
                                 <div>
                                     <LemonSelect

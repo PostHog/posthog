@@ -1052,6 +1052,33 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     }),
     selectors({
+        isAnyResultsLoading: [
+            (s) => [
+                s.surveyUserStatsLoading,
+                s.surveyRatingResultsReady,
+                s.surveySingleChoiceResultsReady,
+                s.surveyMultipleChoiceResultsReady,
+                s.surveyOpenTextResultsReady,
+                s.surveyRecurringNPSResultsReady,
+            ],
+            (
+                surveyUserStatsLoading: boolean,
+                surveyRatingResultsReady: boolean,
+                surveySingleChoiceResultsReady: boolean,
+                surveyMultipleChoiceResultsReady: boolean,
+                surveyOpenTextResultsReady: boolean,
+                surveyRecurringNPSResultsReady: boolean
+            ) => {
+                return (
+                    surveyUserStatsLoading ||
+                    !surveyRatingResultsReady ||
+                    !surveySingleChoiceResultsReady ||
+                    !surveyMultipleChoiceResultsReady ||
+                    !surveyOpenTextResultsReady ||
+                    !surveyRecurringNPSResultsReady
+                )
+            },
+        ],
         isSurveyRunning: [
             (s) => [s.survey],
             (survey: Survey): boolean => {

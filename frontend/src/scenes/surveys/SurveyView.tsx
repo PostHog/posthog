@@ -497,15 +497,8 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResultsReady,
         surveyNPSScore,
         surveyAsInsightURL,
+        isAnyResultsLoading,
     } = useValues(surveyLogic)
-
-    const isAnyResultsLoading =
-        surveyUserStatsLoading ||
-        !surveyRatingResultsReady ||
-        !surveySingleChoiceResultsReady ||
-        !surveyMultipleChoiceResultsReady ||
-        !surveyOpenTextResultsReady ||
-        !surveyRecurringNPSResultsReady
 
     return (
         <div className="space-y-4">
