@@ -10,15 +10,20 @@ import { maxLogic } from './maxLogic'
 
 export function QuestionSuggestions(): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { visibleSuggestions, allSuggestionsLoading } = useValues(maxLogic)
+    const { visibleSuggestions, allSuggestionsLoading, dataProcessingAccepted } = useValues(maxLogic)
     const { askMax, shuffleVisibleSuggestions } = useActions(maxLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    if (!coreMemoryLoading && !coreMemory?.text) {
+    if (!coreMemoryLoading && !coreMemory) {
         return (
-            <LemonButton size="xsmall" type="primary" className="relative" onClick={() => askMax('👋')}>
-                Let's get started with a bit of learning about your project!
+            <LemonButton
+                size="xsmall"
+                type="primary"
+                onClick={() => askMax('Ready, steady, go!')}
+                disabledReason={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}
+            >
+                Let's get started with me learning about your project!
             </LemonButton>
         )
     }
@@ -67,7 +72,9 @@ export function QuestionSuggestions(): JSX.Element {
                                 tooltip="Shuffle suggestions"
                             />
                             <LemonButton
-                                onClick={() => openSettingsPanel({ settingId: 'core-memory' })}
+                                onClick={() =>
+                                    openSettingsPanel({ sectionId: 'environment-max', settingId: 'core-memory' })
+                                }
                                 size="xsmall"
                                 type="secondary"
                                 icon={<IconGear />}

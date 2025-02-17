@@ -135,19 +135,11 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        [maxSettingsLogic.actionTypes.updateCoreMemorySuccess]: ({ payload }) => {
-            // Load suggestions anew if core memory was changed manually on the project
-            if (payload?.text) {
-                actions.loadSuggestions({ refresh: 'blocking' })
-            }
+        [maxSettingsLogic.actionTypes.updateCoreMemorySuccess]: () => {
+            actions.loadSuggestions({ refresh: 'blocking' })
         },
-        [maxSettingsLogic.actionTypes.loadCoreMemorySuccess]: ({ coreMemory }) => {
-            // Load cached suggestions if we have just loaded the current project. This should not occur
-            // _normally_ in production, as the current project is preloaded in POSTHOG_APP_CONTEXT,
-            // but necessary in e.g. Storybook
-            if (coreMemory?.text) {
-                actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
-            }
+        [maxSettingsLogic.actionTypes.loadCoreMemorySuccess]: () => {
+            actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
         },
         loadSuggestionsSuccess: () => {
             actions.shuffleVisibleSuggestions()
@@ -352,8 +344,8 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
     afterMount(({ actions, values }) => {
-        // We only load suggestions on mount if core memory is populated
-        if (values.coreMemory?.text) {
+        // We only load suggestions on mount if core memory is present
+        if (values.coreMemory) {
             // In this case we're fine with even really old cached values
             actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
         }

@@ -113,7 +113,10 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
             return None
 
     def get_cache_payload(self):
-        return {**super().get_cache_payload(), "core_memory": self.core_memory.text if self.core_memory else None}
+        return {
+            **super().get_cache_payload(),
+            "core_memory": self.core_memory.formatted_text if self.core_memory else None,
+        }
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         # We don't want to regenerate suggestions more often than 3 days, as there's no point
