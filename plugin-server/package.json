@@ -30,7 +30,7 @@
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
-        "build:cyclotron": "pnpm --filter=@posthog/plugin-server build:cyclotron",
+        "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
         "update-ai-costs": "ts-node scripts/update-ai-costs.ts"
     },
     "graphile-worker": {
