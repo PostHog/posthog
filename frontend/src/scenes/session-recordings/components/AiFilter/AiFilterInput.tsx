@@ -51,7 +51,7 @@ export function AiFilterInput(): JSX.Element {
                 </div>
             </div>
             <span className="text-xs text-muted-alt">
-                * Max AI currently only works with default properties. For custom filters, use the filters box below.
+                * Max AI currently only knows about PostHog default properties added by our SDKs. For your custom properties, use the filters box below.
             </span>
             {messages.length > 0 && (
                 <div>
