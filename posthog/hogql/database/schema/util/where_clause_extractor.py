@@ -579,6 +579,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_tuple(self, node: ast.Tuple) -> bool:
         return all(self.visit(arg) for arg in node.exprs)
 
+    def visit_array(self, node: ast.Array) -> bool:
+        return all(self.visit(arg) for arg in node.exprs)
+
 
 def rewrite_timestamp_field(expr: ast.Expr, timestamp_field: ast.Expr, context: HogQLContext) -> ast.Expr:
     return RewriteTimestampFieldVisitor(context, timestamp_field).visit(expr)

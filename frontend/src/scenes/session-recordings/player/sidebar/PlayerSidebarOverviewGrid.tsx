@@ -21,9 +21,10 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                         return (
                             <OverviewGridItem
                                 key={item.label}
-                                description={item.tooltipTitle}
+                                description={item.valueTooltip}
                                 label={item.label}
                                 icon={item.icon}
+                                itemKeyTooltip={item.keyTooltip}
                                 fadeLabel
                             >
                                 <div className="flex flex-row items-center space-x-2 justify-start font-medium">
