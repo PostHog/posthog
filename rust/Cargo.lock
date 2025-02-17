@@ -1343,7 +1343,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "envconfig",
- "futures",
  "health",
  "rdkafka",
  "serde",
