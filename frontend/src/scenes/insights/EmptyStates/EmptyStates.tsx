@@ -1,6 +1,14 @@
 import './EmptyStates.scss'
 
-import { IconArchive, IconPieChart, IconPlus, IconPlusSmall, IconPlusSquare, IconWarning } from '@posthog/icons'
+import {
+    IconArchive,
+    IconInfo,
+    IconPieChart,
+    IconPlus,
+    IconPlusSmall,
+    IconPlusSquare,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -75,19 +83,13 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
     )
 }
 
-function QueryIdDisplay({
-    queryId,
-    compact = false,
-}: {
-    queryId?: string | null
-    compact?: boolean
-}): JSX.Element | null {
+function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element | null {
     if (queryId == null) {
         return null
     }
 
     return (
-        <div className={clsx('text-muted text-xs', { 'mt-20': !compact })}>
+        <div className="text-muted text-xs">
             Query ID: <span className="font-mono">{queryId}</span>
         </div>
     )
@@ -126,12 +128,12 @@ export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
     suggestion,
-    compact = false,
+    renderEmptyStateAsSkeleton = false,
 }: {
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
     suggestion?: JSX.Element
-    compact?: boolean
+    renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
@@ -202,27 +204,49 @@ export function StatelessInsightLoadingState({
         (pollResponse?.status?.query_progress?.time_elapsed || 1) /
         10000
 
+    const suggestions = suggestion ? (
+        suggestion
+    ) : (
+        <div className="flex gap-3">
+            <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
+        </div>
+    )
+
     return (
-        <div data-attr="insight-empty-state" className="insights-loading-state rounded p-4 m-2 h-full">
+        <div
+            data-attr="insight-empty-state"
+            className={clsx('flex flex-col gap-1 rounded p-4 m-2 w-full h-full', {
+                'justify-center items-center': !renderEmptyStateAsSkeleton,
+                'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
+            })}
+        >
+            <span
+                className={clsx(
+                    'font-semibold transition-opacity duration-300 mb-1',
+                    isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
+                )}
+            >
+                {LOADING_MESSAGES[loadingMessageIndex]}
+            </span>
+
+            {/* On skeleton mode render the suggestions *above* the loading bar, otherwise render them below with a box around it */}
             <div className="flex flex-col gap-1">
-                <span
-                    className={clsx(
-                        'font-bold transition-opacity duration-300',
-                        isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
-                    )}
-                >
-                    {LOADING_MESSAGES[loadingMessageIndex]}
-                </span>
-                {suggestion ? (
-                    suggestion
+                {renderEmptyStateAsSkeleton ? (
+                    <>
+                        {suggestions}
+                        <LoadingBar />
+                    </>
                 ) : (
-                    <div className="flex gap-3">
-                        <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
-                    </div>
+                    <>
+                        <LoadingBar />
+                        <div className="flex items-center p-4 rounded bg-primary gap-x-3 max-w-120">
+                            <IconInfo className="text-xl shrink-0" />
+                            {suggestions}
+                        </div>
+                    </>
                 )}
             </div>
 
-            <LoadingBar />
             <p className="mx-auto text-center text-xs">
                 {rowsRead > 0 && bytesRead > 0 && (
                     <>
@@ -242,7 +266,9 @@ export function StatelessInsightLoadingState({
                 )}
             </p>
 
-            <QueryIdDisplay queryId={queryId} compact={compact} />
+            <div className="mt-auto">
+                <QueryIdDisplay queryId={queryId} />
+            </div>
         </div>
     )
 }
@@ -317,9 +343,11 @@ export function SlowQuerySuggestions({
 export function InsightLoadingState({
     queryId,
     insightProps,
+    renderEmptyStateAsSkeleton = false,
 }: {
     queryId?: string | null
     insightProps: InsightLogicProps
+    renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
@@ -332,6 +360,7 @@ export function InsightLoadingState({
         <StatelessInsightLoadingState
             queryId={queryId}
             pollResponse={insightPollResponse}
+            renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
             suggestion={
                 <div className="flex items-center rounded gap-x-3 max-w-120">
                     {personsOnEventsMode === 'person_id_override_properties_joined' ? (
