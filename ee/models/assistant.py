@@ -11,8 +11,14 @@ from posthog.models.utils import UUIDModel
 
 
 class Conversation(UUIDModel):
+    class Status(models.TextChoices):
+        NOT_STARTED = "not_started", "Not Started"
+        IN_PROGRESS = "in_progress", "In Progress"
+        CANCELLING = "cancelling", "Cancelling"
+
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=Status.choices, blank=True, null=True, default=Status.NOT_STARTED)
 
 
 class ConversationCheckpoint(UUIDModel):

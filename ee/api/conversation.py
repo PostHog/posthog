@@ -1,10 +1,13 @@
 from typing import cast
 
+import pydantic
 from django.http import StreamingHttpResponse
-from pydantic import ValidationError
-from rest_framework import serializers
+from rest_framework import serializers, status
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from ee.hogai.assistant import Assistant
@@ -24,7 +27,7 @@ class MessageSerializer(serializers.Serializer):
         try:
             message = HumanMessage(content=data["content"])
             data["message"] = message
-        except ValidationError:
+        except pydantic.ValidationError:
             raise serializers.ValidationError("Invalid message content.")
         return data
 
@@ -40,7 +43,6 @@ class ServerSentEventRenderer(BaseRenderer):
 class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = MessageSerializer
-    renderer_classes = [ServerSentEventRenderer]
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"
 
@@ -50,6 +52,11 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     def get_throttles(self):
         return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+
+    def get_renderers(self):
+        if self.action == "create":
+            return [ServerSentEventRenderer()]
+        return super().get_renderers()
 
     def create(self, request: Request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -69,3 +76,12 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             trace_id=serializer.validated_data["trace_id"],
         )
         return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
+
+    @action(detail=True, methods=["PATCH"])
+    def cancel(self, request: Request, *args, **kwargs):
+        conversation = self.get_object()
+        if conversation.status == Conversation.Status.CANCELLING:
+            raise ValidationError("Generation has already cancelled.")
+        conversation.status = Conversation.Status.CANCELLING
+        conversation.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)

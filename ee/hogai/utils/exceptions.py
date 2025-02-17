@@ -1,0 +1,2 @@
+class ConversationCancelled(Exception):
+    pass

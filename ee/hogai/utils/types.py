@@ -77,6 +77,20 @@ class PartialAssistantState(_SharedAssistantState):
     Messages exposed to the user.
     """
 
+    @classmethod
+    def get_reset_state(cls) -> "PartialAssistantState":
+        return cls(
+            intermediate_steps=[],
+            plan="",
+            resumed=False,
+            memory_updated=False,
+            memory_collection_messages=[],
+            root_tool_call_id="",
+            root_tool_insight_plan="",
+            root_tool_insight_type="",
+            root_tool_calls_count=0,
+        )
+
 
 class AssistantNodeName(StrEnum):
     START = START

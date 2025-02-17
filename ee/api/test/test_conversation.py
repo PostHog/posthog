@@ -169,3 +169,36 @@ class TestConversation(APIBaseTest):
             with self.assertRaises(Exception) as context:
                 b"".join(response.streaming_content)
             self.assertTrue("Streaming error" in str(context.exception))
+
+    def test_cancel_conversation(self):
+        conversation = Conversation.objects.create(user=self.user, team=self.team)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.status, Conversation.Status.CANCELLING)
+
+    def test_cancel_already_cancelling_conversation(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, status=Conversation.Status.CANCELLING
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Generation has already cancelled.")
+
+    def test_cancel_other_users_conversation(self):
+        conversation = Conversation.objects.create(user=self.other_user, team=self.team)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cancel_other_teams_conversation(self):
+        conversation = Conversation.objects.create(user=self.user, team=self.other_team)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
