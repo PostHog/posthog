@@ -16,7 +16,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         "max_execution_time": "0",
         "max_memory_usage": "0",
         "mutations_sync": "0",
-        "receive_timeout": f"{10 * 60}",  # some queries like dictionary checksumming can be very slow
+        "receive_timeout": f"{10 * 60}",  # some synchronous queries like dictionary checksumming can be very slow to return
     }
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
