@@ -281,7 +281,6 @@ export async function buildOrWatch(config) {
         onBuildStart?.(config)
         buildPromise = runBuild()
         const buildResponse = await buildPromise
-        debugger
         buildPromise = null
         await onBuildComplete?.(config, buildResponse)
         buildsInProgress--
