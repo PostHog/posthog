@@ -54,6 +54,7 @@ export function InsightEmptyState({
 function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
     const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
+
     return (
         <Tooltip
             title={`Calculate results from ${suggestedSamplingPercentage}% of the total dataset for this insight, speeding up the calculation of results.`}
@@ -246,6 +247,13 @@ export function StatelessInsightLoadingState({
     )
 }
 
+const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
+    <code className="border border-1 border-border-bold rounded-sm text-xs px-1 py-0.5">{props.children}</code>
+)
+
+const SLOW_LOADING_TIME = 7
+const EVEN_SLOWER_LOADING_TIME = 12
+
 export function SlowQuerySuggestions({
     insightProps,
     suggestedSamplingPercentage,
@@ -255,53 +263,55 @@ export function SlowQuerySuggestions({
     insightProps: InsightLogicProps
     suggestedSamplingPercentage?: number | null
     samplingPercentage?: number | null
-    loadingTimeSeconds?: number | null
+    loadingTimeSeconds?: number
 }): JSX.Element | null {
     const { slowQueryPossibilities } = useValues(insightVizDataLogic(insightProps))
 
-    const paragraphText = 'Need to speed things up? Steps to optimize this query:'
-    const codeClassName = 'border border-1 border-border-bold rounded-sm text-xs px-1 py-0.5'
+    if (loadingTimeSeconds < SLOW_LOADING_TIME) {
+        return null
+    }
 
-    return loadingTimeSeconds && loadingTimeSeconds > 7 ? (
-        <div>
-            <p data-attr="insight-loading-waiting-message" className="mb-2">
-                {paragraphText}
+    const steps = [
+        slowQueryPossibilities.includes('all_events') ? (
+            <li key="all_events">
+                Don't use the <CodeWrapper>All events</CodeWrapper> event type. Use a specific event instead.
+            </li>
+        ) : null,
+        slowQueryPossibilities.includes('first_time_for_user') ? (
+            <li key="first_time_for_user">
+                When possible, avoid <CodeWrapper>First time for user</CodeWrapper> metric types.
+            </li>
+        ) : null,
+        slowQueryPossibilities.includes('strict_funnel') ? (
+            <li key="strict_funnel">
+                When possible, use <CodeWrapper>Sequential</CodeWrapper> step order rather than{' '}
+                <CodeWrapper>Strict</CodeWrapper>.
+            </li>
+        ) : null,
+        <li key="reduce_date_range">Reduce the date range.</li>,
+        loadingTimeSeconds >= EVEN_SLOWER_LOADING_TIME && suggestedSamplingPercentage ? (
+            <li key="sampling">
+                {samplingPercentage ? (
+                    <>
+                        Reduce volume further with <SamplingLink insightProps={insightProps} />.
+                    </>
+                ) : (
+                    <>
+                        Turn on <SamplingLink insightProps={insightProps} />.
+                    </>
+                )}
+            </li>
+        ) : null,
+    ].filter((x) => x !== null)
+
+    return (
+        <div className="text-xs">
+            <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">
+                Need to speed things up? {steps.length > 0 ? <span>Some steps to optimize this query:</span> : null}
             </p>
-            <ul className="mb-4 list-disc list-inside ml-4">
-                {slowQueryPossibilities.includes('all_events') ? (
-                    <li>
-                        Don't use the <code className={codeClassName}>All events</code> event type. Use a specific event
-                        instead.
-                    </li>
-                ) : null}
-                {slowQueryPossibilities.includes('first_time_for_user') ? (
-                    <li>
-                        When possible, avoid <code className={codeClassName}>First time for user</code> metric types.
-                    </li>
-                ) : null}
-                {slowQueryPossibilities.includes('strict_funnel') ? (
-                    <li>
-                        When possible, use <code className={codeClassName}>Sequential</code> step order rather than{' '}
-                        <code className={codeClassName}>Strict</code>.
-                    </li>
-                ) : null}
-                <li>Reduce the date range.</li>
-                {loadingTimeSeconds && loadingTimeSeconds > 12 && suggestedSamplingPercentage ? (
-                    <li>
-                        {samplingPercentage ? (
-                            <>
-                                Reduce volume further with <SamplingLink insightProps={insightProps} />.
-                            </>
-                        ) : (
-                            <>
-                                Turn on <SamplingLink insightProps={insightProps} />.
-                            </>
-                        )}
-                    </li>
-                ) : null}
-            </ul>
+            <ul className="mb-4 list-disc list-inside ml-2">{steps}</ul>
         </div>
-    ) : null
+    )
 }
 
 export function InsightLoadingState({
