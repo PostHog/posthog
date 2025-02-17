@@ -183,7 +183,7 @@ def postgres_source(
         raise ValueError("Table name is missing")
 
     with psycopg.connect(
-        f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}",
+        f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}&connect_timeout=5",
     ) as connection:
         with connection.cursor() as cursor:
             primary_keys = _get_primary_keys(cursor, schema, table_name)
@@ -198,7 +198,7 @@ def postgres_source(
         arrow_schema = _get_arrow_schema_from_type_name(table_structure)
 
         with psycopg.connect(
-            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}",
+            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}&connect_timeout=5",
             cursor_factory=psycopg.ServerCursor,
         ) as connection:
             with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
