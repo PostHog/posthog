@@ -106,16 +106,19 @@ class RootNode(AssistantNode):
             if isinstance(message, HumanMessage):
                 history.append(LangchainHumanMessage(content=message.content))
             elif isinstance(message, AssistantMessage):
-                history.append(
-                    LangchainAIMessage(content=message.content, tool_calls=message.model_dump()["tool_calls"] or [])
-                )
-                for tool_call in message.tool_calls or []:
-                    if tool_call.id in tool_result_messages:
-                        history.append(
-                            LangchainToolMessage(
-                                content=tool_result_messages[tool_call.id].content, tool_call_id=tool_call.id
-                            )
+                # Filter out messages without a tool response.
+                tool_calls = [
+                    tool for tool in message.model_dump()["tool_calls"] or [] if tool["id"] in tool_result_messages
+                ]
+                history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls))
+
+                # Append associated tool call messages.
+                for tool_call in tool_calls:
+                    history.append(
+                        LangchainToolMessage(
+                            content=tool_result_messages[tool_call["id"]].content, tool_call_id=tool_call["id"]
                         )
+                    )
 
         if self._is_hard_limit_reached(state):
             history.append(LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT))

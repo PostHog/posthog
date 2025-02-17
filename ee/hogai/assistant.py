@@ -178,12 +178,21 @@ class Assistant:
     def _init_or_update_state(self):
         config = self._get_config()
         snapshot = self._graph.get_state(config)
-        if snapshot.next:
-            saved_state = validate_state_update(snapshot.values)
-            self._state = saved_state
-            self._graph.update_state(config, PartialAssistantState(messages=[self._latest_message], resumed=True))
 
-            return None
+        if snapshot.next:
+            # In case the graph was interrupted, we resume from the point of interruption.
+            if next((task.interrupts for task in snapshot.tasks if task.interrupts), None):
+                saved_state = validate_state_update(snapshot.values)
+                self._state = saved_state
+                self._graph.update_state(config, PartialAssistantState(messages=[self._latest_message], resumed=True))
+                # Return None to indicate that we want to continue the execution from the interrupted point.
+                return None
+
+            # The graph had an exception or was cancelled.
+            else:
+                # Reset the state to start from the beginning.
+                self._graph.update_state(config, PartialAssistantState.get_reset_state())
+
         initial_state = self._initial_state
         self._state = initial_state
         return initial_state
