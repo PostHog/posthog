@@ -23,6 +23,11 @@ import { useRef } from 'react'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from './hogFunctionTestLogic'
 
+export interface HogFunctionTestProps {
+    id?: string
+    templateId?: string
+}
+
 const HogFunctionTestEditor = ({
     value,
     onChange,
@@ -135,7 +140,7 @@ const HogFunctionTestEditor = ({
     )
 }
 
-export function HogFunctionTest(): JSX.Element {
+export function HogFunctionTest({ id, templateId }: HogFunctionTestProps): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)
     const {
         isTestInvocationSubmitting,
@@ -163,9 +168,12 @@ export function HogFunctionTest(): JSX.Element {
         cancelSampleGlobalsLoading,
     } = useActions(hogFunctionTestLogic(logicProps))
 
+    const testResultsRef = useRef<HTMLDivElement>(null)
+
     return (
-        <Form logic={hogFunctionTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
+        <Form logic={hogFunctionTestLogic} props={{ id, templateId }} formKey="testInvocation" enableFormOnSubmit>
             <div
+                ref={testResultsRef}
                 className={clsx(
                     'border rounded p-3 space-y-2',
                     expanded ? 'bg-surface-secondary min-h-120' : 'bg-surface-primary'
@@ -181,7 +189,17 @@ export function HogFunctionTest(): JSX.Element {
                     </div>
 
                     {!expanded ? (
-                        <LemonButton data-attr="expand-hog-testing" type="secondary" onClick={() => toggleExpanded()}>
+                        <LemonButton
+                            data-attr="expand-hog-testing"
+                            type="secondary"
+                            onClick={() => {
+                                toggleExpanded()
+                                // Add a small delay to allow the content to expand
+                                setTimeout(() => {
+                                    testResultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                                }, 100)
+                            }}
+                        >
                             Start testing
                         </LemonButton>
                     ) : (
