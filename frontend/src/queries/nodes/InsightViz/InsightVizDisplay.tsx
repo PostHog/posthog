@@ -83,7 +83,14 @@ export function InsightVizDisplay({
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
-            return <InsightLoadingState queryId={queryId} key={queryId} insightProps={insightProps} />
+            return (
+                <InsightLoadingState
+                    queryId={queryId}
+                    key={queryId}
+                    insightProps={insightProps}
+                    renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                />
+            )
         }
 
         if (validationError) {
