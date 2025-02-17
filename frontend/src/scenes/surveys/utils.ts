@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify'
 
-import { SurveyAppearance } from '~/types'
+import { PropertyOperator, SurveyAppearance, SurveyMatchType } from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 
@@ -47,5 +47,28 @@ export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): S
         ratingButtonColor: sanitizeColor(appearance.ratingButtonColor),
         submitButtonColor: sanitizeColor(appearance.submitButtonColor),
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
+    }
+}
+
+export function getSurveyMatchTypeToPropertyOperator(surveyMatchType?: SurveyMatchType): PropertyOperator {
+    if (!surveyMatchType) {
+        return PropertyOperator.IContains
+    }
+
+    switch (surveyMatchType) {
+        case SurveyMatchType.Contains:
+            return PropertyOperator.IContains
+        case SurveyMatchType.NotIContains:
+            return PropertyOperator.NotIContains
+        case SurveyMatchType.Regex:
+            return PropertyOperator.Regex
+        case SurveyMatchType.NotRegex:
+            return PropertyOperator.NotRegex
+        case SurveyMatchType.Exact:
+            return PropertyOperator.Exact
+        case SurveyMatchType.IsNot:
+            return PropertyOperator.IsNot
+        default:
+            return PropertyOperator.IContains
     }
 }
