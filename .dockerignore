@@ -1,8 +1,6 @@
 *
 !.devcontainer
 !.kearc
-!.storybook
-!babel.config.js
 !bin
 !common/hogvm
 !common/esbuilder
@@ -13,10 +11,13 @@
 !ee
 !frontend/@posthog
 !frontend/*.*
+!frontend/.storybook
 !frontend/bin
 !frontend/public
 !frontend/src
 !frontend/types
+!frontend/babel.config.js
+!frontend/webpack.config.js
 !gunicorn.config.py
 !manage.py
 !package.json
@@ -45,7 +46,6 @@
 !test-runner-jest.config.js
 !tsconfig.json
 !unit.json.tpl
-!webpack.config.js
 rust/.env
 rust/.github
 rust/cyclotron-node/dist
