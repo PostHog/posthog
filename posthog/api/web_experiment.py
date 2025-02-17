@@ -180,7 +180,7 @@ def web_experiments(request: Request):
             WebExperiment.objects.filter(team_id=team.id)
             .exclude(archived=True)
             .exclude(end_date__isnull=False)
-            .select_related("feature_flag"),
+            .select_related("feature_flag", "created_by"),
             many=True,
         ).data
 
