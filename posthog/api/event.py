@@ -312,6 +312,56 @@ class EventViewSet(
                 ),
             ]
 
+            # Handle property filters from query parameters
+            for param_key, param_value in request.GET.items():
+                if param_key.startswith("properties_"):
+                    property_key = param_key.replace("properties_", "", 1)
+                    try:
+                        # Expect properly encoded JSON from frontend
+                        property_values = json.loads(param_value)
+                        if isinstance(property_values, list):
+                            # Convert all values to strings for consistent comparison
+                            value_conditions = [
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Eq,
+                                    left=ast.Call(
+                                        name="toString", args=[ast.Field(chain=["properties", property_key])]
+                                    ),
+                                    right=ast.Constant(
+                                        value=str(value).lower()
+                                    ),  # Convert to lowercase for consistent comparison
+                                )
+                                for value in property_values
+                            ]
+                            if len(value_conditions) > 1:
+                                conditions.append(ast.Or(exprs=value_conditions))
+                            else:
+                                conditions.append(value_conditions[0])
+                        else:
+                            # If JSON but not array, treat as single value
+                            conditions.append(
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Eq,
+                                    left=ast.Call(
+                                        name="toString", args=[ast.Field(chain=["properties", property_key])]
+                                    ),
+                                    right=ast.Constant(
+                                        value=str(property_values).lower()
+                                    ),  # Convert to lowercase for consistent comparison
+                                )
+                            )
+                    except json.JSONDecodeError:
+                        # If not JSON, treat as single value
+                        conditions.append(
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Call(name="toString", args=[ast.Field(chain=["properties", property_key])]),
+                                right=ast.Constant(
+                                    value=str(param_value).lower()
+                                ),  # Convert to lowercase for consistent comparison
+                            )
+                        )
+
             if event_names and len(event_names) > 0:
                 event_conditions: list[ast.Expr] = [
                     ast.CompareOperation(

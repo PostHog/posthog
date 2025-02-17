@@ -114,9 +114,7 @@ export function SurveyAnswerFilters(): JSX.Element {
                                             currentFilter.operator
                                         ) && (
                                             <PropertyValue
-                                                propertyKey={
-                                                    index === 0 ? '$survey_response' : `$survey_response_${index}`
-                                                }
+                                                propertyKey={getSurveyResponseKey(index)}
                                                 type={PropertyFilterType.Event}
                                                 operator={currentFilter.operator}
                                                 value={currentFilter.value || []}
@@ -127,6 +125,7 @@ export function SurveyAnswerFilters(): JSX.Element {
                                                         : 'Enter text to match'
                                                 }
                                                 eventNames={['survey sent']}
+                                                additionalPropertiesFilter={[{ key: '$survey_id', values: survey.id }]}
                                             />
                                         )}
                                 </div>
