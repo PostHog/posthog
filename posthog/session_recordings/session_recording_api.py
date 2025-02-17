@@ -891,6 +891,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             model=SESSION_REPLAY_AI_DEFAULT_MODEL,
             messages=messages,
             response_format=AiFilterSchema,
+            posthog_distinct_id=self._distinct_id_from_request(request),
+            posthog_properties={
+                "ai_product": "session_recording",
+                "ai_feature": "ai_filters",
+            },
         )
 
         if not completion.choices or not completion.choices[0].message.content:
@@ -925,6 +930,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             model=SESSION_REPLAY_AI_REGEX_MODEL,
             messages=messages,
             response_format=AiRegexSchema,
+            posthog_distinct_id=self._distinct_id_from_request(request),
+            posthog_properties={
+                "ai_product": "session_recording",
+                "ai_feature": "ai_regex",
+            },
         )
 
         if not completion.choices or not completion.choices[0].message.content:
