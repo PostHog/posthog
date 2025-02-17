@@ -976,9 +976,7 @@ class FeatureFlagViewSet(
     def status(self, request: request.Request, **kwargs):
         feature_flag_id = kwargs["pk"]
 
-        checker = FeatureFlagStatusChecker(
-            feature_flag_id=feature_flag_id,
-        )
+        checker = FeatureFlagStatusChecker(feature_flag_id=feature_flag_id)
         flag_status, reason = checker.get_status()
 
         return Response(
