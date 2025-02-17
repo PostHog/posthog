@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
 
-
 from posthog.cloud_utils import is_cloud, is_ci
 from posthog.hogql import ast
 from posthog.hogql.ast import (
@@ -404,6 +403,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         1,
         overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
+        signatures=[
+            ((ast.DateTimeType(),), ast.DateType()),
+        ],
     ),
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
@@ -532,15 +534,25 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         tz_aware=True,
         case_sensitive=False,
         signatures=[
-            ((), DateTimeType()),
-            ((UnknownType(),), DateTimeType()),
+            ((), DateTimeType(nullable=False)),
+            ((UnknownType(),), DateTimeType(nullable=False)),
         ],
     ),
     "nowInBlock": HogQLFunctionMeta("nowInBlock", 1, 1),
     "rowNumberInBlock": HogQLFunctionMeta("rowNumberInBlock", 0, 0),
     "rowNumberInAllBlocks": HogQLFunctionMeta("rowNumberInAllBlocks", 0, 0),
-    "today": HogQLFunctionMeta("today"),
-    "yesterday": HogQLFunctionMeta("yesterday"),
+    "today": HogQLFunctionMeta(
+        "today",
+        signatures=[
+            ((), DateType(nullable=False)),
+        ],
+    ),
+    "yesterday": HogQLFunctionMeta(
+        "yesterday",
+        signatures=[
+            ((), DateType(nullable=False)),
+        ],
+    ),
     "timeSlot": HogQLFunctionMeta("timeSlot", 1, 1),
     "toYYYYMM": HogQLFunctionMeta("toYYYYMM", 1, 1),
     "toYYYYMMDD": HogQLFunctionMeta("toYYYYMMDD", 1, 1),
@@ -1148,6 +1160,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsPosition": HogQLFunctionMeta("maxIntersectionsPosition", 2, 2, aggregate=True),
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
 }
+
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
@@ -1158,7 +1171,6 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
     "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
 }
-
 
 UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
@@ -1177,7 +1189,6 @@ if is_cloud() or is_ci():
         v.clickhouse_name = augment_function_name(v.clickhouse_name)
 
 HOGQL_CLICKHOUSE_FUNCTIONS.update(UDFS)
-
 
 ALL_EXPOSED_FUNCTION_NAMES = [
     name for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys()) if not name.startswith("_")

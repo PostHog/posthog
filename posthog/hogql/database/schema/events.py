@@ -54,11 +54,11 @@ class EventsGroupSubTable(VirtualTable):
 
 class EventsTable(Table):
     fields: dict[str, FieldOrTable] = {
-        "uuid": StringDatabaseField(name="uuid"),
-        "event": StringDatabaseField(name="event"),
+        "uuid": StringDatabaseField(name="uuid", nullable=False),
+        "event": StringDatabaseField(name="event", nullable=False),
         "properties": StringJSONDatabaseField(name="properties"),
-        "timestamp": DateTimeDatabaseField(name="timestamp"),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "distinct_id": StringDatabaseField(name="distinct_id"),
         "elements_chain": StringDatabaseField(name="elements_chain"),
         "created_at": DateTimeDatabaseField(name="created_at"),

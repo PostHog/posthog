@@ -1581,6 +1581,8 @@ class _Printer(Visitor):
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_nullable(self, node: ast.Expr) -> bool:
+        if node.type and not node.type.nullable:
+            return False
         if isinstance(node, ast.Constant):
             return node.value is None
         elif isinstance(node.type, ast.PropertyType):
