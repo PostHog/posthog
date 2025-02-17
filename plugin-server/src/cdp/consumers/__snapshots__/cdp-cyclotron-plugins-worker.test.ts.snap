@@ -20,25 +20,12 @@ exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 3`] 
     "topic": "log_entries_test",
     "value": {
       "instance_id": "<REPLACED-UUID-2>",
-      "level": "debug",
-      "log_source": "hog_function",
-      "log_source_id": "<REPLACED-UUID-2>",
-      "message": "Executing plugin plugin-posthog-intercom-plugin",
-      "team_id": 2,
-      "timestamp": "2025-01-01 00:00:00.000",
-    },
-  },
-  {
-    "key": "<REPLACED-UUID-2>",
-    "topic": "log_entries_test",
-    "value": {
-      "instance_id": "<REPLACED-UUID-2>",
       "level": "error",
       "log_source": "hog_function",
       "log_source_id": "<REPLACED-UUID-2>",
       "message": "Plugin execution failed: Service is down, retry later",
       "team_id": 2,
-      "timestamp": "2025-01-01 00:00:00.001",
+      "timestamp": "2025-01-01 00:00:00.000",
     },
   },
 ]
