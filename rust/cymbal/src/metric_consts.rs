@@ -35,4 +35,3 @@ pub const ISSUE_CREATED: &str = "cymbal_issue_created";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const DROPPED_EVENTS: &str = "cymbal_dropped_events";
-pub const EVENT_BATCH_SIZE: &str = "cymbal_event_batch_size";
