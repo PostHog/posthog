@@ -56,6 +56,7 @@ class Integration(models.Model):
         GOOGLE_ADS = "google-ads"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
+        INTERCOM = "intercom"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -122,7 +123,7 @@ class OauthConfig:
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "linkedin-ads"]
+    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "linkedin-ads", "intercom"]
     integration: Integration
 
     def __str__(self) -> str:
@@ -232,6 +233,21 @@ class OauthIntegration:
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
                 scope="r_ads rw_conversions openid profile email",
                 id_path="sub",
+                name_path="email",
+            )
+        elif kind == "intercom":
+            if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:
+                raise NotImplementedError("Intercom app not configured")
+
+            return OauthConfig(
+                authorize_url="https://app.intercom.com/oauth",
+                token_url="https://api.intercom.io/auth/eagle/token",
+                token_info_url="https://api.intercom.io/me",
+                token_info_config_fields=["id", "email", "app.region"],
+                client_id=settings.INTERCOM_APP_CLIENT_ID,
+                client_secret=settings.INTERCOM_APP_CLIENT_SECRET,
+                scope="",
+                id_path="id",
                 name_path="email",
             )
 
