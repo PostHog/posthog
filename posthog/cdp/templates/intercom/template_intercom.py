@@ -148,6 +148,7 @@ if (res.status >= 400) {
 
 template_send_event: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-intercom-event",
     name="Intercom",
