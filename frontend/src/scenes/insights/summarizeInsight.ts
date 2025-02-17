@@ -17,7 +17,13 @@ import { cohortsModelType } from '~/models/cohortsModelType'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsModelType } from '~/models/groupsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { Breakdown, BreakdownFilter, InsightQueryNode, MultipleBreakdownType, Node } from '~/queries/schema'
+import {
+    Breakdown,
+    BreakdownFilter,
+    InsightQueryNode,
+    MultipleBreakdownType,
+    Node,
+} from '~/queries/schema/schema-general'
 import {
     isDataTableNode,
     isEventsQuery,

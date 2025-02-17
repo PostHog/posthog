@@ -24,7 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema'
+import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema/schema-general'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'

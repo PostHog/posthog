@@ -10,6 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.file_system import FileSystem, get_unfiled_files
 from posthog.models.user import User
+from posthog.schema import FileSystemType
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -52,6 +53,12 @@ class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
     default_limit = 1000
 
 
+class UnfiledFilesQuerySerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=[(choice.value, choice.value) for choice in FileSystemType], required=False, allow_blank=True
+    )
+
+
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
     queryset = FileSystem.objects.select_related("created_by")
@@ -70,7 +77,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def unfiled(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        files = get_unfiled_files(self.team, cast(User, request.user))
+        query_serializer = UnfiledFilesQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        file_type = query_serializer.validated_data.get("type")
+        files = get_unfiled_files(self.team, cast(User, request.user), file_type)
+
         return Response(
             {
                 "results": FileSystemSerializer(files, many=True).data,
