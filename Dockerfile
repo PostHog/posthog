@@ -29,7 +29,6 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && pnpm --version && \
-    pnpm --filter=@posthog/esbuilder install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     pnpm --filter=@posthog/frontend install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
 
 COPY frontend/ frontend/
