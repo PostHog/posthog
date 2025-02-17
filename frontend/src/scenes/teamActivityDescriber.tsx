@@ -444,6 +444,7 @@ const teamActionsMapping: Record<
     week_start_day: () => null,
     default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
+    onboarding_tasks: () => null,
 
     // should never come from the backend
     created_at: () => null,

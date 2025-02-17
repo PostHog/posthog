@@ -2,8 +2,6 @@ import base64
 
 from django.core import exceptions
 from rest_framework.exceptions import ValidationError
-from django.test import override_settings
-from unittest.mock import patch
 
 from posthog.models import Plugin, PluginSourceFile
 from posthog.models.plugin import validate_plugin_job_payload
@@ -24,10 +22,6 @@ from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_SITE_TS,
 )
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
-from posthog.models.organization import Organization
-from posthog.models.team import Team
-from posthog.models.plugin import PluginConfig
-from posthog.models.hog_functions.hog_function import HogFunction
 
 
 class TestPlugin(BaseTest):
@@ -142,111 +136,6 @@ class TestPlugin(BaseTest):
             {"param": 5},
             is_staff=True,
         )
-
-    @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True)
-    def test_plugins_not_preinstalled_when_hog_transformations_enabled(self):
-        org = Organization.objects.create(name="Test Org")
-
-        # Verify no plugins were installed
-        plugins = Plugin.objects.filter(organization=org)
-        self.assertEqual(plugins.count(), 0)
-
-    @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=False)
-    def test_plugins_preinstalled_when_hog_transformations_disabled(self):
-        org = Organization.objects.create(name="Test Org")
-
-        # Create a preinstalled GeoIP plugin
-        geoip_plugin = Plugin.objects.create(
-            organization=org,
-            name="GeoIP",
-            url="https://www.npmjs.com/package/@posthog/geoip-plugin",
-            is_preinstalled=True,
-        )
-
-        # Verify GeoIP plugin was installed
-        plugins = Plugin.objects.filter(organization=org)
-        geoip_plugins = plugins.filter(url__contains="geoip-plugin")
-        self.assertEqual(geoip_plugins.count(), 1)
-        self.assertEqual(geoip_plugins.first(), geoip_plugin)
-
-    @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True, DISABLE_MMDB=False)
-    @patch("posthog.api.hog_function_template.HogFunctionTemplates.template")
-    def test_geoip_transformation_created_when_enabled(self, mock_template):
-        # Create a mock object with the required attributes
-        from types import SimpleNamespace
-
-        mock_template.return_value = SimpleNamespace(
-            id="plugin-posthog-plugin-geoip",
-            name="GeoIP",
-            description="Enrich events with GeoIP data",
-            icon_url="/static/transformations/geoip.png",
-            hog="return event",
-            inputs_schema={},
-            type="transformation",
-        )
-
-        team = Team.objects.create_with_data(
-            organization=self.organization, name="Test Team", initiating_user=self.user
-        )
-
-        # Verify GeoIP transformation was created
-        transformations = HogFunction.objects.filter(team=team, type="transformation")
-        self.assertEqual(transformations.count(), 1)
-
-        geoip = transformations.first()
-        self.assertIsNotNone(geoip, "GeoIP transformation should exist")
-        if geoip:  # Make type checker happy
-            self.assertEqual(geoip.name, "GeoIP")
-            self.assertEqual(geoip.description, "Enrich events with GeoIP data")
-            self.assertEqual(geoip.icon_url, "/static/transformations/geoip.png")
-            self.assertEqual(geoip.enabled, True)
-            self.assertEqual(geoip.execution_order, 1)
-
-        # Verify no plugins were enabled
-        plugin_configs = PluginConfig.objects.filter(team=team)
-        self.assertEqual(plugin_configs.count(), 0)
-
-    @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True, DISABLE_MMDB=True)
-    def test_no_geoip_created_when_mmdb_disabled(self):
-        team = Team.objects.create_with_data(
-            organization=self.organization, name="Test Team", initiating_user=self.user
-        )
-
-        # Verify no transformations were created
-        transformations = HogFunction.objects.filter(team=team, type="transformation")
-        self.assertEqual(transformations.count(), 0)
-
-        # Verify no plugins were enabled
-        plugin_configs = PluginConfig.objects.filter(team=team)
-        self.assertEqual(plugin_configs.count(), 0)
-
-    @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=False)
-    def test_plugins_enabled_when_transformations_disabled(self):
-        team = Team.objects.create_with_data(
-            organization=self.organization, name="Test Team", initiating_user=self.user
-        )
-
-        # Create a GeoIP plugin that should be enabled
-        geoip_plugin = Plugin.objects.create(
-            organization=self.organization,
-            name="GeoIP",
-            url="https://www.npmjs.com/package/@posthog/geoip-plugin",
-            is_preinstalled=True,
-        )
-
-        # Create team after plugin is created to trigger the enable_preinstalled_plugins_for_new_team signal
-        team = Team.objects.create_with_data(
-            organization=self.organization, name="Test Team 2", initiating_user=self.user
-        )
-
-        # Verify plugin was enabled for team
-        plugin_configs = PluginConfig.objects.filter(team=team, plugin=geoip_plugin)
-        self.assertEqual(plugin_configs.count(), 1)
-
-        config = plugin_configs.first()
-        self.assertIsNotNone(config, "Plugin config should exist")
-        if config:  # Make type checker happy
-            self.assertTrue(config.enabled)
 
 
 class TestPluginSourceFile(BaseTest, QueryMatchingTest):

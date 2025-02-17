@@ -29,7 +29,7 @@ import {
     AlertState,
     InsightThresholdType,
 } from '~/queries/schema/schema-general'
-import { InsightShortId, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
@@ -83,6 +83,7 @@ interface EditAlertModalProps {
     insightShortId: InsightShortId
     onEditSuccess: () => void
     onClose?: () => void
+    insightLogicProps?: InsightLogicProps
 }
 
 export function EditAlertModal({
@@ -92,6 +93,7 @@ export function EditAlertModal({
     insightShortId,
     onClose,
     onEditSuccess,
+    insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
@@ -103,7 +105,12 @@ export function EditAlertModal({
         onEditSuccess()
     }, [loadAlert, onEditSuccess])
 
-    const formLogicProps = { alert, insightId, onEditSuccess: _onEditSuccess }
+    const formLogicProps = {
+        alert,
+        insightId,
+        onEditSuccess: _onEditSuccess,
+        insightVizDataLogicProps: insightLogicProps,
+    }
     const formLogic = alertFormLogic(formLogicProps)
     const { alertForm, isAlertFormSubmitting, alertFormChanged } = useValues(formLogic)
     const { deleteAlert, snoozeAlert, clearSnooze } = useActions(formLogic)

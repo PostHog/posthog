@@ -1,5 +1,4 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
-import { captureException } from '@sentry/node'
 import {
     CODES,
     features,
@@ -16,6 +15,7 @@ import { PostgresRouter } from '~/src/utils/db/postgres'
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
+import { captureException } from '../../../utils/posthog'
 import { status as logger } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { runInstrumentedFunction } from '../../utils'

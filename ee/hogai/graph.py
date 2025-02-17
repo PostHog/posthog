@@ -18,14 +18,14 @@ from ee.hogai.memory.nodes import (
     MemoryInitializerNode,
     MemoryOnboardingNode,
 )
+from ee.hogai.query_executor.nodes import QueryExecutorNode
 from ee.hogai.retention.nodes import (
     RetentionGeneratorNode,
     RetentionGeneratorToolsNode,
     RetentionPlannerNode,
     RetentionPlannerToolsNode,
 )
-from ee.hogai.root.nodes import RootNode
-from ee.hogai.query_executor.nodes import QueryExecutorNode
+from ee.hogai.root.nodes import RootNode, RootNodeTools
 from ee.hogai.trends.nodes import (
     TrendsGeneratorNode,
     TrendsGeneratorToolsNode,
@@ -71,16 +71,24 @@ class AssistantGraph:
             "trends": AssistantNodeName.TRENDS_PLANNER,
             "funnel": AssistantNodeName.FUNNEL_PLANNER,
             "retention": AssistantNodeName.RETENTION_PLANNER,
+            "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
         }
         root_node = RootNode(self._team)
         builder.add_node(AssistantNodeName.ROOT, root_node.run)
+        root_node_tools = RootNodeTools(self._team)
+        builder.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools.run)
+        builder.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
         builder.add_conditional_edges(
-            AssistantNodeName.ROOT, root_node.router, path_map=cast(dict[Hashable, str], path_map)
+            AssistantNodeName.ROOT_TOOLS, root_node_tools.router, path_map=cast(dict[Hashable, str], path_map)
         )
         return self
 
-    def add_trends_planner(self, next_node: AssistantNodeName = AssistantNodeName.TRENDS_GENERATOR):
+    def add_trends_planner(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.TRENDS_GENERATOR,
+        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+    ):
         builder = self._graph
 
         create_trends_plan_node = TrendsPlannerNode(self._team)
@@ -101,6 +109,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.TRENDS_PLANNER,
                 "plan_found": next_node,
+                "root": root_node,
             },
         )
 
@@ -127,7 +136,11 @@ class AssistantGraph:
 
         return self
 
-    def add_funnel_planner(self, next_node: AssistantNodeName = AssistantNodeName.FUNNEL_GENERATOR):
+    def add_funnel_planner(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.FUNNEL_GENERATOR,
+        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+    ):
         builder = self._graph
 
         funnel_planner = FunnelPlannerNode(self._team)
@@ -148,6 +161,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.FUNNEL_PLANNER,
                 "plan_found": next_node,
+                "root": root_node,
             },
         )
 
@@ -174,7 +188,11 @@ class AssistantGraph:
 
         return self
 
-    def add_retention_planner(self, next_node: AssistantNodeName = AssistantNodeName.RETENTION_GENERATOR):
+    def add_retention_planner(
+        self,
+        next_node: AssistantNodeName = AssistantNodeName.RETENTION_GENERATOR,
+        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+    ):
         builder = self._graph
 
         retention_planner = RetentionPlannerNode(self._team)
@@ -195,6 +213,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.RETENTION_PLANNER,
                 "plan_found": next_node,
+                "root": root_node,
             },
         )
 

@@ -68,6 +68,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         null=True,
         help_text="The timestamp of this SavedQuery's last run (if any).",
     )
+    sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
+
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:

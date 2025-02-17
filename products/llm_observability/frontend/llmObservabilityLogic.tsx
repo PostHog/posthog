@@ -52,6 +52,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         setDashboardDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
+        setGenerationsQuery: (query: DataTableNode) => ({ query }),
     }),
 
     reducers({
@@ -86,6 +87,13 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             [] as AnyPropertyFilter[],
             {
                 setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
+            },
+        ],
+
+        generationsQueryOverride: [
+            null as DataTableNode | null,
+            {
+                setGenerationsQuery: (_, { query }) => query,
             },
         ],
     }),
@@ -449,8 +457,11 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 ],
             }),
         ],
-
         generationsQuery: [
+            (s) => [s.generationsQueryOverride, s.defaultGenerationsQuery],
+            (override, defQuery) => override || defQuery,
+        ],
+        defaultGenerationsQuery: [
             (s) => [
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
@@ -463,12 +474,12 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     kind: NodeKind.EventsQuery,
                     select: [
                         '*',
-                        `<strong><a href=f'/llm-observability/traces/{properties.$ai_trace_id}?event={uuid}'>
+                        `<strong><a href='/llm-observability/traces/{properties.$ai_trace_id}?event={uuid}'>
                             {f'{left(toString(uuid), 4)}...{right(toString(uuid), 4)}'}
-                        </a></strong> -- ID`,
-                        `<a href=f'/llm-observability/traces/{properties.$ai_trace_id}'>
+                         </a></strong> -- ID`,
+                        `<a href='/llm-observability/traces/{properties.$ai_trace_id}'>
                             {f'{left(properties.$ai_trace_id, 4)}...{right(properties.$ai_trace_id, 4)}'}
-                        </a> -- Trace ID`,
+                         </a> -- Trace ID`,
                         'person',
                         "f'{properties.$ai_model}' -- Model",
                         "f'{round(properties.$ai_latency, 2)} s' -- Latency",
@@ -499,7 +510,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 showActions: false,
             }),
         ],
-
         usersQuery: [
             (s) => [
                 s.dateFilter,

@@ -1,3 +1,4 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import express from 'express'
 import { DateTime } from 'luxon'
 
@@ -11,7 +12,13 @@ import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.ser
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import { HogFunctionInvocationResult, HogFunctionQueueParametersFetchRequest, HogFunctionType, LogEntry } from './types'
+import {
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationResult,
+    HogFunctionQueueParametersFetchRequest,
+    HogFunctionType,
+    LogEntry,
+} from './types'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -147,7 +154,7 @@ export class CdpApi {
             let result: any = null
             const errors: any[] = []
 
-            const triggerGlobals = {
+            const triggerGlobals: HogFunctionInvocationGlobals = {
                 ...globals,
                 project: {
                     id: team.id,
@@ -239,12 +246,22 @@ export class CdpApi {
                 // NOTE: We override the ID so that the transformer doesn't cache the result
                 // TODO: We could do this with a "special" ID to indicate no caching...
                 compoundConfiguration.id = new UUIDT().toString()
-                const response = await this.hogTransformer.executeHogFunction(compoundConfiguration, triggerGlobals)
-                logs = logs.concat(response.logs)
-                result = response.execResult ?? null
+                const pluginEvent: PluginEvent = {
+                    ...triggerGlobals.event,
+                    ip: triggerGlobals.event.properties.$ip,
+                    site_url: triggerGlobals.project.url,
+                    team_id: triggerGlobals.project.id,
+                    now: '',
+                }
+                const response = await this.hogTransformer.transformEvent(pluginEvent, [compoundConfiguration])
 
-                if (response.error) {
-                    errors.push(response.error)
+                result = response.event
+
+                for (const invocationResult of response.invocationResults) {
+                    logs = logs.concat(invocationResult.logs)
+                    if (invocationResult.error) {
+                        errors.push(invocationResult.error)
+                    }
                 }
             }
 

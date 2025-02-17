@@ -1,7 +1,6 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -111,8 +110,6 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     // TODO: add info here to sign up for alerts early access
     return (
         <>
-            <FeedbackNotice text="Alerts are in closed alpha. Thanks for taking part! We'd love to hear what you think." />
-
             {alertsSortedByState.length === 0 && !alertsLoading && (
                 <ProductIntroduction
                     productName="Alerts"

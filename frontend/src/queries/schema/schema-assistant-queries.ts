@@ -183,7 +183,7 @@ export interface AssistantTrendsFilter {
     /**
      * If the formula is provided, apply it here.
      */
-    formula?: TrendsFilterLegacy['formula']
+    formulas?: string[]
 
     /**
      * Visualization type. Available values:
@@ -323,8 +323,8 @@ export interface AssistantFunnelsFilter {
     /**
      * Defines the type of visualization to use. The `steps` option is recommended.
      * `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default).
-     * `time_to_convert` - shows a histogram of the time it took to complete the funnel. Use this if the user asks about the average time it takes to complete the funnel.
-     * `trends` - shows a trend of the whole sequence's conversion rate over time. Use this if the user wants to see how the conversion rate changes over time.
+     * `time_to_convert` - shows a histogram of the time it took to complete the funnel.
+     * `trends` - shows trends of the conversion rate of the whole sequence over time.
      * @default steps
      */
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']

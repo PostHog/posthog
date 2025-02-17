@@ -1,22 +1,17 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import posthog from 'posthog-js'
-import { replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
-
-import { SessionReplayUrlTriggerConfig } from '~/types'
 
 import type { aiRegexHelperLogicType } from './aiRegexHelperLogicType'
 
 export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
-    connect(replayTriggersLogic),
     path(['lib', 'components', 'AiRegexHelper', 'aiRegexHelperLogic']),
     actions({
         setIsOpen: (isOpen: boolean) => ({ isOpen }),
         setInput: (input: string) => ({ input }),
         handleGenerateRegex: true,
-        handleApplyRegex: (type: 'trigger' | 'blocklist') => ({ type }),
         handleCopyToClipboard: true,
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setGeneratedRegex: (generatedRegex: string) => ({ generatedRegex }),
@@ -62,15 +57,22 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
             actions.setError('')
             actions.setGeneratedRegex('')
 
-            const content = await api.recordings.aiRegex(values.input)
+            try {
+                const content = await api.recordings.aiRegex(values.input)
 
-            if (content.hasOwnProperty('result') && content.result === 'success') {
-                posthog.capture('ai_regex_helper_generate_regex_success')
-                actions.setGeneratedRegex(content.data.output)
-            }
-            if (content.hasOwnProperty('result') && content.result === 'error') {
-                posthog.capture('ai_regex_helper_generate_regex_error')
-                actions.setError(content.data.output)
+                if (content.hasOwnProperty('result') && content.result === 'success') {
+                    posthog.capture('ai_regex_helper_generate_regex_success')
+                    actions.setGeneratedRegex(content.data.output)
+                } else if (content.hasOwnProperty('result') && content.result === 'error') {
+                    posthog.capture('ai_regex_helper_generate_regex_error')
+                    actions.setError(content.data.output)
+                } else {
+                    posthog.capture('ai_regex_helper_generate_regex_unknown_error')
+                    actions.setError('Failed to generate regex. Try again?')
+                }
+            } catch {
+                posthog.capture('ai_regex_helper_generate_regex_unknown_error')
+                actions.setError('Failed to generate regex. Try again?')
             }
 
             actions.setIsLoading(false)
@@ -80,18 +82,6 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
                 await copyToClipboard(values.generatedRegex, 'Regex copied to clipboard')
             } catch (error) {
                 lemonToast.error('Failed to copy regex to clipboard')
-            }
-        },
-        handleApplyRegex: async ({ type }) => {
-            try {
-                const payload: SessionReplayUrlTriggerConfig = { url: values.generatedRegex, matching: 'regex' }
-                if (type === 'trigger') {
-                    await replayTriggersLogic.asyncActions.addUrlTrigger(payload)
-                } else {
-                    await replayTriggersLogic.asyncActions.addUrlBlocklist(payload)
-                }
-            } catch (error) {
-                lemonToast.error('Failed to apply regex')
             }
         },
         onClose: () => {
