@@ -28,6 +28,7 @@ export interface PropertyValueProps {
     addRelativeDateTimeOptions?: boolean
     forceSingleSelect?: boolean
     inputClassName?: string
+    additionalPropertiesFilter?: { key: string; values: string | string[] }[]
 }
 
 export function PropertyValue({
@@ -43,6 +44,7 @@ export function PropertyValue({
     addRelativeDateTimeOptions = false,
     forceSingleSelect = false,
     inputClassName = undefined,
+    additionalPropertiesFilter = [],
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -61,6 +63,7 @@ export function PropertyValue({
             newInput,
             propertyKey,
             eventNames,
+            properties: additionalPropertiesFilter,
         })
     }
 
