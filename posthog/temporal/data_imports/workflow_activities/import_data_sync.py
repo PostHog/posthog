@@ -226,6 +226,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                             schema=pg_schema,
                             table_names=endpoints,
                             is_incremental=schema.is_incremental,
+                            logger=logger,
                             incremental_field=schema.sync_type_config.get("incremental_field")
                             if schema.is_incremental
                             else None,
@@ -281,6 +282,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     schema=pg_schema,
                     table_names=endpoints,
                     is_incremental=schema.is_incremental,
+                    logger=logger,
                     incremental_field=schema.sync_type_config.get("incremental_field")
                     if schema.is_incremental
                     else None,

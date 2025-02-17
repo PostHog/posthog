@@ -6,9 +6,11 @@ import pyarrow as pa
 import psycopg
 from psycopg import sql
 
+from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
+from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE
 from posthog.warehouse.models import IncrementalFieldType
 
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -22,7 +24,7 @@ def _build_query(
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
 ) -> sql.Composed:
-    query = sql.SQL("SELECT * FROM {}.{}").format(sql.Identifier(schema), sql.Identifier(table_name))
+    query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
 
     if not is_incremental:
         return query
@@ -173,6 +175,7 @@ def postgres_source(
     schema: str,
     table_names: list[str],
     is_incremental: bool,
+    logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
@@ -210,14 +213,14 @@ def postgres_source(
                     incremental_field_type,
                     db_incremental_field_last_value,
                 )
-                print(query.as_string())  # noqa: T201
+                logger.debug(f"Postgres query: {query.as_string()}")
 
                 cursor.execute(query)
 
                 column_names = [column.name for column in cursor.description or []]
 
                 while True:
-                    rows = cursor.fetchmany(10_000)
+                    rows = cursor.fetchmany(DEFAULT_CHUNK_SIZE)
                     if not rows:
                         break
 
