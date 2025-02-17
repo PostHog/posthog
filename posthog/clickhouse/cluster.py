@@ -299,6 +299,15 @@ def get_cluster(
 
 
 @dataclass
+class Query:
+    query: str
+    parameters: Any | None = None
+
+    def __call__(self, client: Client):
+        return client.execute(self.query, self.parameters)
+
+
+@dataclass
 class Mutation:
     table: str
     mutation_id: str

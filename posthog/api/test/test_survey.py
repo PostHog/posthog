@@ -1117,6 +1117,7 @@ class TestSurvey(APIBaseTest):
                         "deleted": False,
                         "active": False,
                         "ensure_experience_continuity": False,
+                        "has_encrypted_payloads": False,
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,

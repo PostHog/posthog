@@ -5,7 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema'
+import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import {
     DEFAULT_ERROR_TRACKING_DATE_RANGE,

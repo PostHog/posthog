@@ -1,7 +1,7 @@
 import { LemonButton, LemonDialog, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { ExperimentFunnelsQuery } from '~/queries/schema'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -9,7 +9,7 @@ import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
 
-export function MetricModal({
+export function LegacyMetricModal({
     experimentId,
     isSecondary,
 }: {
@@ -41,7 +41,7 @@ export function MetricModal({
     }
 
     const metrics = experiment[metricsField]
-    const metric = metrics[metricIdx]
+    const metric = metrics[metricIdx] as ExperimentTrendsQuery | ExperimentFunnelsQuery
     const metricType = getMetricType(metric)
     const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
 
