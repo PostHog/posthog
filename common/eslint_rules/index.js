@@ -1,5 +1,5 @@
 const { readdirSync } = require('fs')
-const { basename } = require('path')
+const { basename } = require('path') // eslint-disable-line @typescript-eslint/unbound-method
 
 const ruleFiles = readdirSync(__dirname).filter(
     (file) => file.endsWith('.js') && file !== 'index.js' && !file.endsWith('test.js')
