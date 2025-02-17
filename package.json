@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/frontend",
+    "name": "@posthog/build",
     "description": "",
     "version": "0.0.0",
     "repository": {
@@ -18,8 +18,7 @@
     "packageManager": "pnpm@9.15.5+sha256.8472168c3e1fd0bff287e694b053fccbbf20579a3ff9526b6333beab8df65a8d",
     "scripts": {
         "prepare": "husky install",
-        "schema:build": "pnpm run schema:build:json && pnpm run schema:build:python",
-        "schema:build:json": "ts-node bin/build-schema-json.mjs && prettier --write frontend/src/queries/schema.json",
+        "schema:build": "pnpm --filter=@posthog/frontend run schema:build:json && pnpm run schema:build:python",
         "schema:build:python": "bash bin/build-schema-python.sh",
         "grammar:build": "npm run grammar:build:python && npm run grammar:build:cpp",
         "grammar:build:python": "cd posthog/hogql/grammar && antlr -Dlanguage=Python3 HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
