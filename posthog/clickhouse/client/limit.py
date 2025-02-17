@@ -45,41 +45,47 @@ class CeleryConcurrencyLimitExceeded(Exception):
 
 
 def limit_concurrency(
-    max_concurrent_tasks: int, key: Optional[Callable] = None, ttl: int = 60 * 15, limit_name: str = ""
+    max_concurrent_tasks: int,
+    key: Optional[Callable] = None,
+    applicable: Optional[Callable] = None,
+    ttl: int = 60 * 15,
+    limit_name: str = "",
 ) -> Callable:
     def decorator(task_func):
         @wraps(task_func)
         def wrapper(*args, **kwargs):
-            task_name = current_task.name
-            redis_client = redis.get_client()
-            running_tasks_key = f"celery_running_tasks:{task_name}"
-            if key:
-                dynamic_key = key(*args, **kwargs)
-                running_tasks_key = f"{running_tasks_key}:{dynamic_key}"
-            else:
-                dynamic_key = None
-            task_id = f"{task_name}:{current_task.request.id}"
-            current_time = int(time.time())
+            if applicable is None or applicable(*args, **kwargs):
+                task_name = current_task.name
+                redis_client = redis.get_client()
+                running_tasks_key = f"celery_running_tasks:{task_name}"
+                if key:
+                    dynamic_key = key(*args, **kwargs)
+                    running_tasks_key = f"{running_tasks_key}:{dynamic_key}"
+                else:
+                    dynamic_key = None
+                task_id = f"{task_name}:{current_task.request.id}"
+                current_time = int(time.time())
 
-            # Atomically check, remove expired if limit hit, and add the new task
-            if (
-                redis_client.eval(lua_script, 1, running_tasks_key, current_time, task_id, max_concurrent_tasks, ttl)
-                == 0
-            ):
-                CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER.labels(
-                    task_name=task_name, limit=max_concurrent_tasks, limit_name=limit_name
-                ).inc()
+                # Atomically check, remove expired if limit hit, and add the new task
+                if (
+                    redis_client.eval(
+                        lua_script, 1, running_tasks_key, current_time, task_id, max_concurrent_tasks, ttl
+                    )
+                    == 0
+                ):
+                    CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER.labels(
+                        task_name=task_name, limit=max_concurrent_tasks, limit_name=limit_name
+                    ).inc()
 
-                raise CeleryConcurrencyLimitExceeded(
-                    f"Exceeded maximum concurrent tasks limit: {max_concurrent_tasks} for key: {dynamic_key}"
-                )
-
-            try:
-                # Execute the task
-                return task_func(*args, **kwargs)
-            finally:
-                # Remove the task ID from the sorted set when the task finishes
-                redis_client.zrem(running_tasks_key, task_id)
+                    raise CeleryConcurrencyLimitExceeded(
+                        f"Exceeded maximum concurrent tasks limit: {max_concurrent_tasks} for key: {dynamic_key}"
+                    )
+                try:
+                    # Execute the task
+                    return task_func(*args, **kwargs)
+                finally:
+                    # Remove the task ID from the sorted set when the task finishes
+                    redis_client.zrem(running_tasks_key, task_id)
 
         return wrapper
 
