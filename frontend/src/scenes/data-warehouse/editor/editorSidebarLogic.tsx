@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
-import { DatabaseSchemaTableCommon } from '~/queries/schema'
+import { DatabaseSchemaTableCommon } from '~/queries/schema/schema-general'
 import { DataWarehouseFolder, DataWarehouseSavedQuery, PipelineTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -320,7 +320,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                               key: savedQuery.id,
                                               name: savedQuery.name,
                                               url: '',
-                                              icon: savedQuery.status ? <IconCalculate /> : <IconClipboardEdit />,
+                                              icon: savedQuery.last_run_at ? <IconCalculate /> : <IconClipboardEdit />,
                                               onClick: () => {
                                                   editorSceneLogic.actions.selectSchema(savedQuery)
                                               },

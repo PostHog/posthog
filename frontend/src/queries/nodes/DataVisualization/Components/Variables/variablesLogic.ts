@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
-import { DataVisualizationNode, HogQLVariable } from '~/queries/schema'
+import { DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
 import { DashboardType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
