@@ -14,6 +14,7 @@ import time
 import uuid
 import zlib
 from collections.abc import Generator, Mapping
+from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
@@ -1454,6 +1455,11 @@ def patchable(fn):
     Used in benchmarking scripts.
     """
 
+    import posthog
+
+    if not posthog.settings.TEST:
+        return fn
+
     @wraps(fn)
     def inner(*args, **kwargs):
         return inner._impl(*args, **kwargs)  # type: ignore
@@ -1463,6 +1469,19 @@ def patchable(fn):
 
     inner._impl = fn  # type: ignore
     inner._patch = patch  # type: ignore
+
+    @contextmanager
+    def temp_patch(wrapper):
+        """
+        Context manager for temporary patching.  Restores the original function when the 'with' block exits.
+        """
+        patch(wrapper)
+        try:
+            yield
+        finally:
+            inner._impl = fn  # type: ignore
+
+    inner._temp_patch = temp_patch  # type: ignore
 
     return inner
 

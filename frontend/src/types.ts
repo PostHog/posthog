@@ -31,24 +31,24 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import { NodeKind, RevenueTrackingConfig } from '~/queries/schema'
-import { QueryContext } from '~/queries/types'
-
 import type {
     DashboardFilter,
     DatabaseSchemaField,
     ExperimentFunnelsQuery,
-    ExperimentQuery,
+    ExperimentMetric,
     ExperimentTrendsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
     InsightVizNode,
     Node,
+    NodeKind,
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
-} from './queries/schema'
+    RevenueTrackingConfig,
+} from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -2237,6 +2237,8 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
+export type SlowQueryPossibilities = 'all_events' | 'large_date_range' | 'first_time_for_user' | 'strict_funnel'
+
 // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
 export type BreakdownKeyType = integer | string | number | (integer | string | number)[] | null
 
@@ -2509,15 +2511,12 @@ export interface InsightEditorFilter {
     label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
-    position?: 'left' | 'right'
-    valueSelector?: (insight: Partial<QueryBasedInsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
 export type InsightEditorFilterGroup = {
-    title?: string
-    count?: number
+    title: string
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
 }
@@ -3351,8 +3350,8 @@ export interface Experiment {
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
     filters: TrendsFilterType | FunnelsFilterType
-    metrics: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
-    metrics_secondary: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
@@ -4479,6 +4478,7 @@ export enum SDKKey {
     BUBBLE = 'bubble',
     DJANGO = 'django',
     DOCUSAURUS = 'docusaurus',
+    DOTNET = 'dotnet',
     ELIXIR = 'elixir',
     FRAMER = 'framer',
     FLUTTER = 'flutter',

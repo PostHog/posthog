@@ -7,7 +7,7 @@ import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
