@@ -2,6 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -65,6 +66,13 @@ export const SidePanelActivation: StoryFn = () => {
 
 export const SidePanelNotebooks: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Notebooks} />
+}
+
+export const SidePanelMax: StoryFn = () => {
+    return <BaseTemplate panel={SidePanelTab.Max} />
+}
+SidePanelMax.parameters = {
+    featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG],
 }
 
 export const SidePanelFeaturePreviews: StoryFn = () => {
