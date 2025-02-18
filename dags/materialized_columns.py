@@ -125,7 +125,7 @@ def run_materialize_mutations(
     # Step through the remaining partitions, materializing the column in any shards where the column hasn't already been
     # materialized.
     for partition in sorted(remaining_partitions, reverse=True):
-        cluster.map_any_host_in_shards(
+        shard_mutations = cluster.map_any_host_in_shards(
             {
                 shard_num: MutationRunner(
                     config.table,
@@ -135,6 +135,13 @@ def run_materialize_mutations(
                 for shard_num, remaining_partitions_for_shard in remaining_partitions_by_shard.items()
                 if partition in remaining_partitions_for_shard
             }
+        ).result()
+
+        # Wait for all hosts in the shard to finish the job before moving on to the next partition: this helps control
+        # the number of outstanding or in-progress mutations on clusters where some hosts are more resource constrained
+        # than others, as we want to wait for the slowest one to complete its tasks before giving it more work.
+        cluster.map_all_hosts_in_shards(
+            {shard_host.shard_num: mutation.wait for shard_host, mutation in shard_mutations.items()}
         ).result()
 
 
