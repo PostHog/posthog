@@ -40,9 +40,7 @@
      GROUP BY events.`$session_id`,
               url)
   GROUP BY `context.columns.url`
-  ORDER BY `context.columns.visitors` DESC,
-           `context.columns.clicks` DESC,
-           `context.columns.url` ASC
+  ORDER BY `context.columns.url` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -83,9 +81,7 @@
      GROUP BY events.`$session_id`,
               url)
   GROUP BY `context.columns.url`
-  ORDER BY `context.columns.visitors` DESC,
-           `context.columns.clicks` DESC,
-           `context.columns.url` ASC
+  ORDER BY `context.columns.url` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -136,9 +132,7 @@
      GROUP BY events.`$session_id`,
               url)
   GROUP BY `context.columns.url`
-  ORDER BY `context.columns.visitors` DESC,
-           `context.columns.clicks` DESC,
-           `context.columns.url` ASC
+  ORDER BY `context.columns.url` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -179,9 +173,7 @@
      GROUP BY events.`$session_id`,
               url)
   GROUP BY `context.columns.url`
-  ORDER BY `context.columns.visitors` DESC,
-           `context.columns.clicks` DESC,
-           `context.columns.url` ASC
+  ORDER BY `context.columns.url` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -222,9 +214,7 @@
      GROUP BY events.`$session_id`,
               url)
   GROUP BY `context.columns.url`
-  ORDER BY `context.columns.visitors` DESC,
-           `context.columns.clicks` DESC,
-           `context.columns.url` ASC
+  ORDER BY `context.columns.url` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -265,9 +255,7 @@
      GROUP BY events.`$session_id`,
               url)
   GROUP BY `context.columns.url`
-  ORDER BY `context.columns.visitors` DESC,
-           `context.columns.clicks` DESC,
-           `context.columns.url` ASC
+  ORDER BY `context.columns.url` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -308,9 +296,7 @@
      GROUP BY events.`$session_id`,
               url)
   GROUP BY `context.columns.url`
-  ORDER BY `context.columns.visitors` DESC,
-           `context.columns.clicks` DESC,
-           `context.columns.url` ASC
+  ORDER BY `context.columns.url` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -351,9 +337,7 @@
      GROUP BY events.`$session_id`,
               url)
   GROUP BY `context.columns.url`
-  ORDER BY `context.columns.visitors` DESC,
-           `context.columns.clicks` DESC,
-           `context.columns.url` ASC
+  ORDER BY `context.columns.url` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -394,9 +378,7 @@
      GROUP BY events.`$session_id`,
               url)
   GROUP BY `context.columns.url`
-  ORDER BY `context.columns.visitors` DESC,
-           `context.columns.clicks` DESC,
-           `context.columns.url` ASC
+  ORDER BY `context.columns.url` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,

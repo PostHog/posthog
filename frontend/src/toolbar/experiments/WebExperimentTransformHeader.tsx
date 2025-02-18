@@ -49,6 +49,7 @@ export function WebExperimentTransformHeader({
                     className="shrink"
                     noPadding
                     status="danger"
+                    tooltip="Remove transformation"
                     onClick={(e) => {
                         e.stopPropagation()
                         removeElement(variant, transformIndex)

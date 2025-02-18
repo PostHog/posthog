@@ -17,6 +17,7 @@ import {
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
     FileSystemEntry,
+    FileSystemType,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -24,7 +25,7 @@ import {
     RecordingsQuery,
     RecordingsQueryResponse,
     RefreshType,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     ActionType,
     ActivityScope,
@@ -371,10 +372,14 @@ class ApiRequest {
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('file_system')
     }
-    public fileSystemUnfiled(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
+    public fileSystemUnfiled(type?: FileSystemType, teamId?: TeamType['id']): ApiRequest {
+        const path = this.projectsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
+        if (type) {
+            path.withQueryString({ type })
+        }
+        return path
     }
-    public fileSystemDetail(id: FileSystemEntry['id'], teamId?: TeamType['id']): ApiRequest {
+    public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id)
     }
 
@@ -1179,16 +1184,16 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystem().get()
         },
-        async unfiled(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystemUnfiled().get()
+        async unfiled(type?: FileSystemType): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystemUnfiled(type).get()
         },
         async create(data: FileSystemEntry): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystem().create({ data })
         },
-        async update(id: FileSystemEntry['id'], data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
+        async update(id: NonNullable<FileSystemEntry['id']>, data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).update({ data })
         },
-        async delete(id: FileSystemEntry['id']): Promise<FileSystemEntry> {
+        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).delete()
         },
     },
@@ -1922,15 +1927,18 @@ const api = {
         },
     },
     hogFunctions: {
-        async list(
-            filters?: any,
-            type?: HogFunctionTypeType | HogFunctionTypeType[]
-        ): Promise<PaginatedResponse<HogFunctionType>> {
+        async list({
+            filters,
+            types,
+        }: {
+            filters?: any
+            types?: HogFunctionTypeType[]
+        }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
                 .withQueryString({
-                    filters: filters,
-                    ...(type ? (Array.isArray(type) ? { types: type.join(',') } : { type }) : {}),
+                    filters,
+                    ...(types ? { types: types.join(',') } : {}),
                 })
                 .get()
         },

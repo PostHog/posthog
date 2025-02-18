@@ -8,7 +8,9 @@ else:
     PluginConfig = None
 
 
-SubTemplateId = Literal["early-access-feature-enrollment", "survey-response", "activity-log"]
+SubTemplateId = Literal[
+    "early-access-feature-enrollment", "survey-response", "activity-log", "error-tracking-issue-created"
+]
 
 
 HogFunctionTemplateType = Literal[

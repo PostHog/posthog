@@ -90,6 +90,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 {
                     "project_datetime": self.project_now,
                     "project_timezone": self.project_timezone,
+                    "project_name": self._team.name,
                 },
                 config,
             )
