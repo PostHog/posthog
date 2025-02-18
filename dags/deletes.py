@@ -306,21 +306,35 @@ def load_pending_person_deletions(
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
     if create_pending_person_deletions_table.is_reporting:
-        pending_deletions = AsyncDeletion.objects.all().iterator()
+        pending_deletions = (
+            AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+            )
+            .values("team_id", "key", "created_at")
+            .iterator()
+        )
     else:
         if not create_pending_person_deletions_table.team_id:
-            pending_deletions = AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_person_deletions_table.timestamp,
-            ).iterator()
+            pending_deletions = (
+                AsyncDeletion.objects.filter(
+                    deletion_type=DeletionType.Person,
+                    delete_verified_at__isnull=True,
+                    created_at__lte=create_pending_person_deletions_table.timestamp,
+                )
+                .values("team_id", "key", "created_at")
+                .iterator()
+            )
         else:
-            pending_deletions = AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                team_id=create_pending_person_deletions_table.team_id,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_person_deletions_table.timestamp,
-            ).iterator()
+            pending_deletions = (
+                AsyncDeletion.objects.filter(
+                    deletion_type=DeletionType.Person,
+                    team_id=create_pending_person_deletions_table.team_id,
+                    delete_verified_at__isnull=True,
+                    created_at__lte=create_pending_person_deletions_table.timestamp,
+                )
+                .values("team_id", "key", "created_at")
+                .iterator()
+            )
 
     # Process and insert in chunks
     chunk_size = 10000
@@ -338,9 +352,9 @@ def load_pending_person_deletions(
     for deletion in pending_deletions:
         current_chunk.append(
             {
-                "team_id": deletion.team_id,
-                "key": deletion.key,
-                "created_at": deletion.created_at,
+                "team_id": deletion["team_id"],
+                "key": deletion["key"],
+                "created_at": deletion["created_at"],
             }
         )
 
