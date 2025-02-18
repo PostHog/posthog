@@ -14,7 +14,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'

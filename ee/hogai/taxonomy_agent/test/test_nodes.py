@@ -139,21 +139,19 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 start_id="10",
             )
         )
-        self.assertEqual(len(history), 7)
+        self.assertEqual(len(history), 6)
         self.assertEqual(history[0].type, "human")
         self.assertIn("Question 1", history[0].content)
         self.assertEqual(history[1].type, "ai")
         self.assertEqual(history[1].content, "Plan 1")
         self.assertEqual(history[2].type, "human")
         self.assertIn("Question 2", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, "Loop 1")
-        self.assertEqual(history[4].type, "human")
-        self.assertEqual(history[4].content, "Loop Answer 1")
-        self.assertEqual(history[5].type, "ai")
-        self.assertEqual(history[5].content, "Plan 2")
-        self.assertEqual(history[6].type, "human")
-        self.assertIn("Question 3", history[6].content)
+        self.assertEqual(history[3].type, "human")
+        self.assertEqual(history[3].content, "Loop Answer 1")
+        self.assertEqual(history[4].type, "ai")
+        self.assertEqual(history[4].content, "Plan 2")
+        self.assertEqual(history[5].type, "human")
+        self.assertIn("Question 3", history[5].content)
 
     def test_agent_reconstructs_conversation_without_messages_after_parent(self):
         node = self._get_node()
@@ -332,8 +330,29 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_router(self):
         node = self._get_node()
-        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Question")])), "continue")
-        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Question")], plan="")), "continue")
         self.assertEqual(
-            node.router(AssistantState(messages=[HumanMessage(content="Question")], plan="plan")), "plan_found"
+            node.router(
+                AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1"),
+            ),
+            "continue",
+        )
+        self.assertEqual(
+            node.router(
+                AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", plan=""),
+            ),
+            "continue",
+        )
+        self.assertEqual(
+            node.router(
+                AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", plan="plan"),
+            ),
+            "plan_found",
+        )
+        self.assertEqual(
+            node.router(
+                AssistantState(
+                    messages=[AssistantToolCallMessage(content="help", tool_call_id="1")], root_tool_call_id="", plan=""
+                ),
+            ),
+            "root",
         )

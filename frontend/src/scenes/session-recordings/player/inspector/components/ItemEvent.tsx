@@ -1,6 +1,6 @@
 import './ImagePreview.scss'
 
-import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
@@ -92,7 +92,9 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
 }
 
 export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
-    const [activeTab, setActiveTab] = useState<'properties' | 'flags' | 'image' | 'elements' | 'raw'>('properties')
+    const [activeTab, setActiveTab] = useState<
+        'properties' | 'flags' | 'image' | 'elements' | '$set_properties' | '$set_once_properties' | 'raw'
+    >('properties')
 
     const insightUrl = insightUrlForEvent(item.data)
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
@@ -101,11 +103,17 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
 
     const properties = {}
     const featureFlagProperties = {}
+    let setProperties = {}
+    let setOnceProperties = {}
 
     for (const key of Object.keys(item.data.properties)) {
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
             if (key.startsWith('$feature') || key === '$active_feature_flags') {
                 featureFlagProperties[key] = item.data.properties[key]
+            } else if (key === '$set') {
+                setProperties = item.data.properties[key]
+            } else if (key === '$set_once') {
+                setOnceProperties = item.data.properties[key]
             } else {
                 properties[key] = item.data.properties[key]
             }
@@ -177,6 +185,50 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                           key: 'image',
                                           label: 'Image',
                                           content: <AutocaptureImageTab elements={item.data.elements} />,
+                                      }
+                                    : null,
+                                Object.keys(setProperties).length > 0
+                                    ? {
+                                          key: '$set_properties',
+                                          label: 'Person properties',
+                                          content: (
+                                              <SimpleKeyValueList
+                                                  item={setProperties}
+                                                  promotedKeys={promotedKeys}
+                                                  header={
+                                                      <p>
+                                                          Person properties sent with this event. Will replace any
+                                                          property value that may have been set on this person profile
+                                                          before now.{' '}
+                                                          <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                                              Learn more
+                                                          </Link>
+                                                      </p>
+                                                  }
+                                              />
+                                          ),
+                                      }
+                                    : null,
+                                Object.keys(setOnceProperties).length > 0
+                                    ? {
+                                          key: '$set_once_properties',
+                                          label: 'Set once person properties',
+                                          content: (
+                                              <SimpleKeyValueList
+                                                  item={setOnceProperties}
+                                                  promotedKeys={promotedKeys}
+                                                  header={
+                                                      <p>
+                                                          "Set once" person properties sent with this event. Will
+                                                          replace any property value that have never been set on this
+                                                          person profile before now.{' '}
+                                                          <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                                              Learn more
+                                                          </Link>
+                                                      </p>
+                                                  }
+                                              />
+                                          ),
                                       }
                                     : null,
                                 {
