@@ -68,6 +68,36 @@ describe('generateViolinPath', () => {
         expect(centerPoints.length % 2).toBe(0)
     })
 
+    it('generates an asymmetric path when deltaX is not centered', () => {
+        const x1 = 0
+        const x2 = 100
+        const y = 50
+        const height = 20
+        const deltaX = 30 // Asymmetric - closer to x1 than x2
+
+        const path = generateViolinPath(x1, x2, y, height, deltaX)
+        const points = parseSvgPathToPoints(path, true)
+
+        // Check points on each side of deltaX
+        const leftPoints = points.filter((p) => p.x < deltaX)
+        const rightPoints = points.filter((p) => p.x > deltaX)
+        const centerPoints = points.filter((p) => p.x === deltaX)
+
+        // Should still have equal number of points on each side
+        expect(leftPoints.length).toBe(rightPoints.length)
+        expect(centerPoints.length % 2).toBe(0)
+
+        // But the x-coordinates should be distributed differently
+        const leftSpan = deltaX - x1
+        const rightSpan = x2 - deltaX
+        expect(rightSpan).toBeGreaterThan(leftSpan)
+
+        // Check that points are distributed proportionally
+        const leftStep = leftSpan / (leftPoints.length / 2) // divide by 2 because points appear in pairs (top/bottom)
+        const rightStep = rightSpan / (rightPoints.length / 2)
+        expect(rightStep).toBeGreaterThan(leftStep)
+    })
+
     it('respects the height parameter', () => {
         const x1 = 0
         const x2 = 100
