@@ -80,13 +80,12 @@ def limit_concurrency(
                     raise CeleryConcurrencyLimitExceeded(
                         f"Exceeded maximum concurrent tasks limit: {max_concurrent_tasks} for key: {dynamic_key}"
                     )
-
-            try:
-                # Execute the task
-                return task_func(*args, **kwargs)
-            finally:
-                # Remove the task ID from the sorted set when the task finishes
-                redis_client.zrem(running_tasks_key, task_id)
+                try:
+                    # Execute the task
+                    return task_func(*args, **kwargs)
+                finally:
+                    # Remove the task ID from the sorted set when the task finishes
+                    redis_client.zrem(running_tasks_key, task_id)
 
         return wrapper
 
