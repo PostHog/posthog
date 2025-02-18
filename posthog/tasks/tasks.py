@@ -63,7 +63,7 @@ def redis_heartbeat() -> None:
     key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
     applicable=lambda *args, **kwargs: (kwargs.get("query_json") or args[4]).get("access_method", "")
     == "personal_api_key",
-    limit_name="per_team",
+    limit_name="api_per_team",
 )  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
