@@ -1714,20 +1714,22 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
 export type FileSystemType =
-    | 'feature_flag'
-    | 'insight'
+    | 'aichat'
+    | 'broadcast'
     | 'dashboard'
+    | 'destination'
     | 'experiment'
+    | 'feature_flag'
+    | 'feature'
+    | 'folder'
+    | 'insight'
     | 'notebook'
     | 'repl'
-    | 'survey'
-    | 'sql'
-    | 'source'
-    | 'destination'
     | 'site_app'
+    | 'source'
+    | 'sql'
+    | 'survey'
     | 'transformation'
-    | 'folder'
-    | 'aichat'
 
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
