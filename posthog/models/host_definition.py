@@ -23,6 +23,7 @@ class HostDefinition(UUIDModel):
     host = models.CharField(max_length=400)
     created_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(default=timezone.now)
+    hit_count = models.IntegerField(default=1, null=False)
 
     class Meta:
         db_table = "posthog_hostdefinition"

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO posthog_hostdefinition (id, host, team_id, project_id, last_seen_at, created_at, hit_count)\n            VALUES ($1, $2, $3, $4, $5, NOW(), 1)\n            ON CONFLICT (coalesce(project_id, team_id::bigint), host)\n            DO UPDATE SET last_seen_at = $5, hit_count = LEAST(posthog_hostdefinition.hit_count + 1, 1000000)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Int4",
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b5e4d22cb28cf0a1370b33050c7df7318729d7297aa47eed63aa69e3ff94cead"
+}

@@ -551,6 +551,9 @@ impl EventProperty {
     }
 }
 
+// NOTE: Capping `hit_count` at 1,000,000 because we don't want this to grow unbounded.
+// This value is only ever going to be used to figure out what hosts are more used,
+// so it doesn't need to be exact, just the right order of magnitude.
 impl HostDefinition {
     pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
     where
@@ -558,10 +561,10 @@ impl HostDefinition {
     {
         let res = sqlx::query!(
             r#"
-            INSERT INTO posthog_hostdefinition (id, host, team_id, project_id, last_seen_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, NOW())
+            INSERT INTO posthog_hostdefinition (id, host, team_id, project_id, last_seen_at, created_at, hit_count)
+            VALUES ($1, $2, $3, $4, $5, NOW(), 1)
             ON CONFLICT (coalesce(project_id, team_id::bigint), host)
-            DO UPDATE SET last_seen_at = $5
+            DO UPDATE SET last_seen_at = $5, hit_count = LEAST(posthog_hostdefinition.hit_count + 1, 1000000)
             "#,
             Uuid::now_v7(),
             sanitize_string(self.host.clone()),

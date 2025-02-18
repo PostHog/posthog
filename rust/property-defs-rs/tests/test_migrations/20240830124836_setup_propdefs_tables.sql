@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS posthog_hostdefinition (
     host VARCHAR(400) NOT NULL,
     team_id INTEGER NOT NULL,
     project_id BIGINT NULL,
+    hit_count INTEGER NOT NULL DEFAULT 1,
     last_seen_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL
 );
