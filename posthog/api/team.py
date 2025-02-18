@@ -147,9 +147,65 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class TeamBaseModelSerializer(
-    serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
-):
+CONFIG_FIELDS = (
+    "app_urls",
+    "slack_incoming_webhook",
+    "anonymize_ips",
+    "completed_snippet_onboarding",
+    "test_account_filters",
+    "test_account_filters_default_checked",
+    "path_cleaning_filters",
+    "is_demo",
+    "timezone",
+    "data_attributes",
+    "person_display_name_properties",
+    "correlation_config",
+    "autocapture_opt_out",
+    "autocapture_exceptions_opt_in",
+    "autocapture_web_vitals_opt_in",
+    "autocapture_web_vitals_allowed_metrics",
+    "autocapture_exceptions_errors_to_ignore",
+    "capture_console_log_opt_in",
+    "capture_performance_opt_in",
+    "session_recording_opt_in",
+    "session_recording_sample_rate",
+    "session_recording_minimum_duration_milliseconds",
+    "session_recording_linked_flag",
+    "session_recording_network_payload_capture_config",
+    "session_recording_url_trigger_config",
+    "session_recording_url_blocklist_config",
+    "session_recording_event_trigger_config",
+    "session_replay_config",
+    "survey_config",
+    "week_start_day",
+    "primary_dashboard",
+    "live_events_columns",
+    "recording_domains",
+    "cookieless_server_hash_mode",
+    "human_friendly_comparison_periods",
+    "inject_web_apps",
+    "extra_settings",
+    "modifiers",
+    "has_completed_onboarding_for",
+    "surveys_opt_in",
+    "heatmaps_opt_in",
+    "flags_persistence_default",
+    "capture_dead_clicks",
+    "default_data_theme",
+    "revenue_tracking_config",
+    "onboarding_tasks",
+)
+
+COMPUTED_FIELDS = (
+    "effective_membership_level",
+    "has_group_types",
+    "live_events_token",
+    "product_intents",
+    "access_control_version",
+)
+
+
+class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     """Base serializer for Team model with common validation and fields."""
 
     instance: Optional[Team]
@@ -160,62 +216,39 @@ class TeamBaseModelSerializer(
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
 
-    CONFIG_FIELDS = (
-        "app_urls",
-        "slack_incoming_webhook",
-        "anonymize_ips",
-        "completed_snippet_onboarding",
-        "test_account_filters",
-        "test_account_filters_default_checked",
-        "path_cleaning_filters",
-        "is_demo",
-        "timezone",
-        "data_attributes",
-        "person_display_name_properties",
-        "correlation_config",
-        "autocapture_opt_out",
-        "autocapture_exceptions_opt_in",
-        "autocapture_web_vitals_opt_in",
-        "autocapture_web_vitals_allowed_metrics",
-        "autocapture_exceptions_errors_to_ignore",
-        "capture_console_log_opt_in",
-        "capture_performance_opt_in",
-        "session_recording_opt_in",
-        "session_recording_sample_rate",
-        "session_recording_minimum_duration_milliseconds",
-        "session_recording_linked_flag",
-        "session_recording_network_payload_capture_config",
-        "session_recording_url_trigger_config",
-        "session_recording_url_blocklist_config",
-        "session_recording_event_trigger_config",
-        "session_replay_config",
-        "survey_config",
-        "week_start_day",
-        "primary_dashboard",
-        "live_events_columns",
-        "recording_domains",
-        "cookieless_server_hash_mode",
-        "human_friendly_comparison_periods",
-        "inject_web_apps",
-        "extra_settings",
-        "modifiers",
-        "has_completed_onboarding_for",
-        "surveys_opt_in",
-        "heatmaps_opt_in",
-        "flags_persistence_default",
-        "capture_dead_clicks",
-        "default_data_theme",
-        "revenue_tracking_config",
-        "onboarding_tasks",
-    )
+    class Meta:
+        model = Team
+        fields = (
+            "id",
+            "uuid",
+            "name",
+            "organization",
+            "project_id",
+            "api_token",
+            "created_at",
+            "updated_at",
+            "access_control",
+            "product_intents",
+            "person_on_events_querying_enabled",
+            "default_modifiers",
+            "user_access_level",
+            *CONFIG_FIELDS,
+            *COMPUTED_FIELDS,
+        )
 
-    COMPUTED_FIELDS = (
-        "effective_membership_level",
-        "has_group_types",
-        "live_events_token",
-        "product_intents",
-        "access_control_version",
-    )
+        read_only_fields = (
+            "id",
+            "uuid",
+            "organization",
+            "project_id",
+            "api_token",
+            "created_at",
+            "updated_at",
+            "default_modifiers",
+            "person_on_events_querying_enabled",
+            "user_access_level",
+            *COMPUTED_FIELDS,
+        )
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -453,48 +486,14 @@ class TeamBaseModelSerializer(
         return updated_team
 
 
-class TeamConfigSerializer(TeamBaseModelSerializer):
+class TeamConfigSerializer(
+    serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
+):
     """This serializer for meant for updating team configuration settings - it has different permissions checks than TeamSerializer"""
 
     class Meta:
         model = Team
-        fields = TeamBaseModelSerializer.CONFIG_FIELDS
-
-
-class TeamSerializer(TeamBaseModelSerializer):
-    class Meta:
-        model = Team
-        fields = (
-            "id",
-            "uuid",
-            "name",
-            "organization",
-            "project_id",
-            "api_token",
-            "created_at",
-            "updated_at",
-            "access_control",
-            "product_intents",
-            "person_on_events_querying_enabled",
-            "default_modifiers",
-            "user_access_level",
-            *TeamBaseModelSerializer.CONFIG_FIELDS,
-            *TeamBaseModelSerializer.COMPUTED_FIELDS,
-        )
-
-        read_only_fields = (
-            "id",
-            "uuid",
-            "organization",
-            "project_id",
-            "api_token",
-            "created_at",
-            "updated_at",
-            "default_modifiers",
-            "person_on_events_querying_enabled",
-            "user_access_level",
-            *TeamBaseModelSerializer.COMPUTED_FIELDS,
-        )
+        fields = CONFIG_FIELDS
 
 
 class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
@@ -612,7 +611,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         report_user_action(user, f"team deleted", team=team)
 
     @action(
-        methods=["POST"],
+        methods=["PATCH"],
         detail=True,
         required_scopes=["team:read"],
         serializer_class=TeamConfigSerializer,
