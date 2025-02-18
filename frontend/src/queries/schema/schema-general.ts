@@ -1826,7 +1826,7 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
 export enum ExperimentMetricType {
     COUNT = 'count',
     CONTINUOUS = 'continuous',
-    FUNNEL = 'funnel',
+    BINOMIAL = 'binomial',
 }
 
 export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'

@@ -7055,7 +7055,7 @@
             "type": "string"
         },
         "ExperimentMetricType": {
-            "enum": ["count", "continuous", "funnel"],
+            "enum": ["count", "continuous", "binomial"],
             "type": "string"
         },
         "ExperimentQuery": {

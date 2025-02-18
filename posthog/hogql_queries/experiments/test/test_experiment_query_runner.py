@@ -359,7 +359,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.FUNNEL,
+            metric_type=ExperimentMetricType.BINOMIAL,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
         )
 
@@ -790,7 +790,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=ExperimentMetric(
-                metric_type=ExperimentMetricType.FUNNEL,
+                metric_type=ExperimentMetricType.BINOMIAL,
                 metric_config=ExperimentEventMetricConfig(event="purchase"),
                 filterTestAccounts=True,
             ),
