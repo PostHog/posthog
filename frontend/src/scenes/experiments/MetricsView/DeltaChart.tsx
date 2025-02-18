@@ -43,10 +43,13 @@ export function getDefaultMetricTitle(metric: ExperimentMetric): string {
             .join(' ')
             // replace underscores with spaces
             .replace(/_/g, ' ')
-            // add spaces before capital letters
+            // add spaces before capital letters and convert to lowercase
             .replace(/([A-Z])/g, ' $1')
+            .toLowerCase()
             // capitalize first letter
             .replace(/^./, (str) => str.toUpperCase())
+            // normalize spaces (remove double spaces)
+            .replace(/\s+/g, ' ')
             .trim()
     )
 }
