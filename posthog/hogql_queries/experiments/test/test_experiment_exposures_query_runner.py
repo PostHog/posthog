@@ -54,7 +54,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         if feature_flag is None:
             feature_flag = self.create_feature_flag(name)
         if start_date is None:
-            start_date = timezone.now() - timedelta(days=2)
+            start_date = timezone.now()
         if end_date is None:
             end_date = timezone.now() + timedelta(days=14)
 
