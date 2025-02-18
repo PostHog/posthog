@@ -148,15 +148,18 @@ class ExperimentQueryRunner(QueryRunner):
         ]
         exposure_query_group_by = [ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])]
         if is_data_warehouse_query:
-            exposure_query_select.append(
+            exposure_metric_config = cast(ExperimentDataWarehouseMetricConfig, self.metric.metric_config)
+            exposure_query_select = [
+                *exposure_query_select,
                 ast.Alias(
                     alias="exposure_field",
-                    expr=ast.Field(chain=[*self.metric.metric_config.exposure_entity_field.split(".")]),
-                )
-            )
-            exposure_query_group_by.append(
-                ast.Field(chain=[*self.metric.metric_config.exposure_entity_field.split(".")])
-            )
+                    expr=ast.Field(chain=[*exposure_metric_config.exposure_entity_field.split(".")]),
+                ),
+            ]
+            exposure_query_group_by = [
+                *exposure_query_group_by,
+                ast.Field(chain=[*exposure_metric_config.exposure_entity_field.split(".")]),
+            ]
 
         # First exposure query: One row per user-variant combination
         # Columns: distinct_id, variant, first_exposure_time
@@ -201,7 +204,7 @@ class ExperimentQueryRunner(QueryRunner):
                     *test_accounts_filter,
                 ]
             ),
-            group_by=exposure_query_group_by,
+            group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
 
         match self.metric.metric_config:
