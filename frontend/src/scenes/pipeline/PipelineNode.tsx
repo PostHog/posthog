@@ -23,6 +23,7 @@ import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
 import { PipelineBackend } from './types'
+import { TestingMenu } from './TestingMenu'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
     [PipelineTab.Transformations]: PipelineStage.Transformation,
@@ -98,6 +99,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     }
 
     if (node.backend === PipelineBackend.HogFunction) {
+        tabToContent[PipelineNodeTab.Testing] = <TestingMenu id={node.id} />
         tabToContent[PipelineNodeTab.History] = (
             <ActivityLog
                 id={String(id).startsWith('hog-') ? String(id).substring(4) : id}
