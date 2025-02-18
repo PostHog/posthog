@@ -26,7 +26,7 @@ import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
 
-function getDefaultMetricTitle(metric: ExperimentMetric): string {
+export function getDefaultMetricTitle(metric: ExperimentMetric): string {
     let parts: (string | undefined)[] = []
     if (metric.metric_config.kind === 'ExperimentEventMetricConfig') {
         parts = [metric.metric_config.math || 'Total', metric.metric_config.math_property, metric.metric_config.event]

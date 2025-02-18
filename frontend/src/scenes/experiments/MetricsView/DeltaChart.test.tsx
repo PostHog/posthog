@@ -150,3 +150,98 @@ describe('generateViolinPath', () => {
         expect(path).toContain('Z')
     })
 })
+import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+
+import { getDefaultMetricTitle } from './DeltaChart'
+
+describe('getDefaultMetricTitle', () => {
+    it('handles ExperimentEventMetricConfig correctly', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.COUNT,
+            metric_config: {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                math: 'total',
+                math_property: 'revenue',
+                event: 'purchase',
+            },
+        }
+
+        expect(getDefaultMetricTitle(metric)).toBe('Total Revenue Purchase')
+    })
+
+    it('handles ExperimentEventMetricConfig without math_property', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.COUNT,
+            metric_config: {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                math: 'total',
+                event: 'signup',
+            },
+        }
+
+        expect(getDefaultMetricTitle(metric)).toBe('Total Signup')
+    })
+
+    it('handles ExperimentActionMetricConfig with name', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.COUNT,
+            metric_config: {
+                kind: NodeKind.ExperimentActionMetricConfig,
+                math: 'avg',
+                math_property: 'value',
+                name: 'Completed Purchase',
+                action: 123,
+            },
+        }
+
+        expect(getDefaultMetricTitle(metric)).toBe('Average Value Completed Purchase')
+    })
+
+    it('handles ExperimentActionMetricConfig without name', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.COUNT,
+            metric_config: {
+                kind: NodeKind.ExperimentActionMetricConfig,
+                math: 'avg',
+                math_property: 'value',
+                action: 123,
+            },
+        }
+
+        expect(getDefaultMetricTitle(metric)).toBe('Average Value Action 123')
+    })
+
+    it('handles snake_case conversion correctly', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.COUNT,
+            metric_config: {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                math: 'total',
+                math_property: 'user_revenue',
+                event: 'completed_purchase',
+            },
+        }
+
+        expect(getDefaultMetricTitle(metric)).toBe('Total User Revenue Completed Purchase')
+    })
+
+    it('handles camelCase conversion correctly', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.COUNT,
+            metric_config: {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                math: 'total',
+                math_property: 'userRevenue',
+                event: 'completedPurchase',
+            },
+        }
+
+        expect(getDefaultMetricTitle(metric)).toBe('Total User Revenue Completed Purchase')
+    })
+})
