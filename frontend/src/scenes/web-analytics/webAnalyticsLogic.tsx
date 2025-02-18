@@ -800,10 +800,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     source?: Partial<WebStatsTableQuery>,
                     tab?: Partial<TabsTileTab>
                 ): TabsTileTab => {
-                    const columns = ['breakdown_value', 'visitors', 'views', 'replay_url']
-                    if (source?.includeBounceRate) {
-                        columns.push('bounce_rate')
-                    }
+                    const columns = [
+                        'breakdown_value',
+                        'visitors',
+                        'views',
+                        source?.includeBounceRate ? 'bounce_rate' : null,
+                        'cross_sell',
+                    ].filter(isNotNil)
 
                     return {
                         id: tabId,
@@ -1156,7 +1159,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               },
                                               embedded: false,
                                               showActions: true,
-                                              columns: ['url', 'visitors', 'clicks', 'replay_url'],
+                                              columns: ['url', 'visitors', 'clicks', 'cross_sell'],
                                           },
                                           insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
                                           canOpenModal: true,
@@ -1571,7 +1574,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   },
                                   embedded: true,
                                   showActions: true,
-                                  columns: ['breakdown_value', 'visitors', 'views', 'replay_url'],
+                                  columns: ['breakdown_value', 'visitors', 'views', 'cross_sell'],
                               },
                               insightProps: createInsightProps(TileId.GOALS),
                               canOpenInsight: false,
