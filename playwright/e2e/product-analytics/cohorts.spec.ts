@@ -1,4 +1,5 @@
 import { expect, test } from '../../utils/playwright-test-base'
+import { randomString } from '../../utils'
 
 test.describe('Cohorts', () => {
     test.beforeEach(async ({ page }) => {
@@ -17,25 +18,26 @@ test.describe('Cohorts', () => {
         await page.click('[data-attr="cohort-taxonomic-field-key"]')
 
         await page.click('[data-attr=prop-filter-person_properties-0]', { force: true })
-        await page.click('[data-attr=prop-val]')
-        await page.click('[data-attr=prop-val-0]', { force: true })
+        await page.locator('[data-attr=prop-val]').type('true')
+
         await page.click('[data-attr="cohort-name"]')
 
-        await page.fill('[data-attr="cohort-name"]', 'Test Cohort')
+        const name = randomString('Test-Cohort-')
+
+        await page.fill('[data-attr="cohort-name"]', name)
         await page.click('[data-attr="save-cohort"]')
         await expect(page.locator('[data-attr=success-toast]')).toHaveText(/Cohort saved/)
+        await page.locator('[data-attr="toast-close-button"]').click()
 
         await page.goToMenuItem('personsmanagement')
         await page.click('[data-attr=persons-management-cohorts-tab]')
 
-        await expect(page.locator('tbody')).toContainText('Test Cohort')
+        await expect(page.locator('tbody')).toContainText(name)
         await expect(page.locator('text=Create your first cohort')).not.toBeVisible()
 
-        // wait for the table to finish loading
-        await page.waitForSelector('.LemonTable__overlay', { state: 'detached' })
-
-        await page.click('tbody >> text=Test Cohort')
-        await page.click('[data-attr="more-button"]')
+        // need to force because table stays loading so long
+        await page.click('tbody >> text=' + name, { force: true })
+        await page.click('[data-attr="more-button"]', { force: true })
         await page.click('.Popover__content >> text=Duplicate as dynamic cohort')
         await page.click('.Toastify__toast-body >> text=View cohort')
 
@@ -49,6 +51,6 @@ test.describe('Cohorts', () => {
         await page.goToMenuItem('personsmanagement')
         await page.click('[data-attr=persons-management-cohorts-tab]')
 
-        await expect(page.locator('tbody')).not.toContainText('Test Cohort (dynamic copy) (static copy)')
+        await expect(page.locator('tbody')).not.toContainText(name + ' (dynamic copy) (static copy)')
     })
 })
