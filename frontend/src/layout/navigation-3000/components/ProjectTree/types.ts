@@ -1,3 +1,5 @@
+import { FeatureFlagKey } from 'lib/constants'
+
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export interface ProjectTreeAction {
@@ -9,4 +11,5 @@ export interface ProjectTreeAction {
 
 export interface FileSystemImport extends FileSystemEntry {
     icon?: JSX.Element
+    flag?: FeatureFlagKey
 }
