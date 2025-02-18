@@ -189,7 +189,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <div className="py-8">
                                 {!billing?.has_active_subscription && (
                                     <p className="ml-0">
-                                        Every product subsciption comes with free platform features such as{' '}
+                                        Every product subscription comes with free platform features such as{' '}
                                         <b>Multiple projects, Integrations, Apps, and more</b>. Subscribe to one of the
                                         products above to get instant access.
                                     </p>
@@ -311,19 +311,21 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             ) : null}
                                         </>
                                     ) : product.current_amount_usd ? (
-                                        <div className="my-8">
-                                            <Tooltip
-                                                title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
-                                            >
-                                                <div className="flex flex-col items-center">
-                                                    <div className="font-bold text-3xl leading-7">
-                                                        {humanFriendlyCurrency(product.current_amount_usd)}
+                                        <div className="w-full flex justify-end">
+                                            <div className="my-8">
+                                                <Tooltip
+                                                    title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
+                                                >
+                                                    <div className="flex flex-col items-center">
+                                                        <div className="font-bold text-3xl leading-7">
+                                                            {humanFriendlyCurrency(product.current_amount_usd)}
+                                                        </div>
+                                                        <span className="text-xs text-secondary">
+                                                            per {billing?.billing_period?.interval || 'period'}
+                                                        </span>
                                                     </div>
-                                                    <span className="text-xs text-secondary">
-                                                        per {billing?.billing_period?.interval || 'period'}
-                                                    </span>
-                                                </div>
-                                            </Tooltip>
+                                                </Tooltip>
+                                            </div>
                                         </div>
                                     ) : null}
                                 </>

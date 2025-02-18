@@ -187,6 +187,22 @@ export function Billing(): JSX.Element {
                                                               humanFriendlyCurrency(billing.current_total_amount_usd)}
                                                     </div>
                                                 </div>
+                                                <div>
+                                                    <LemonLabel
+                                                        info="This is roughly calculated based on your current bill, discounts on your account, and the remaining time left in this billing period. This number updates once daily."
+                                                        className="text-secondary"
+                                                    >
+                                                        Projected bill total
+                                                    </LemonLabel>
+                                                    <div className="font-semibold text-2xl text-secondary">
+                                                        {/* See comment above */}
+                                                        {billing.discount_percent
+                                                            ? humanFriendlyCurrency(
+                                                                  billing.projected_total_amount_usd_after_discount
+                                                              )
+                                                            : humanFriendlyCurrency(billing.projected_total_amount_usd)}
+                                                    </div>
+                                                </div>
                                                 {billing?.discount_amount_usd && (
                                                     <div>
                                                         <LemonLabel
