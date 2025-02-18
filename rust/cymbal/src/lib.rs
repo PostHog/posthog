@@ -58,7 +58,12 @@ pub async fn handle_events(
         let team_id = events[*index].team_id;
         for exception in props.exception_list.iter_mut() {
             let frames = match exception.stack.take() {
-                Some(Stacktrace::Raw { frames }) => frames,
+                Some(Stacktrace::Raw { frames }) => {
+                    if frames.is_empty() {
+                        continue;
+                    }
+                    frames
+                }
                 Some(Stacktrace::Resolved { frames }) => {
                     // This stack trace is already resolved, we have no work to do.
                     exception.stack = Some(Stacktrace::Resolved { frames });
@@ -68,13 +73,6 @@ pub async fn handle_events(
                     continue; // It was None before and it's none after the take
                 }
             };
-
-            if frames.is_empty() {
-                // If the frame list was empty, we effectively just remove the stack from the exception,
-                // making it stackless.
-                exception.stack = None;
-                continue;
-            }
 
             for frame in frames.iter() {
                 let id = frame.frame_id();
