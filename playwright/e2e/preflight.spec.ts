@@ -30,8 +30,13 @@ test.describe('Preflight', () => {
         await page.goto('/preflight')
 
         await page.locator('[data-attr=preflight-experimentation]').click()
+
         await expect(page.locator('[data-attr=preflight-refresh]')).toBeVisible()
-        await expect(page.locator('[data-attr=caption]')).toContainText('Not required for experimentation mode')
+        // expand rows
+        await page.locator('.Preflight__check-summary .LemonButton').click()
+        await expect(page.locator('.PreflightItem [data-attr=caption]')).toContainText(
+            'Not required for experimentation mode'
+        )
         await expect(page.locator('[data-attr=preflight-complete]')).toBeVisible()
         await page.locator('[data-attr=preflight-complete]').click()
         await expect(page).toHaveURL(/.*\/signup/)
