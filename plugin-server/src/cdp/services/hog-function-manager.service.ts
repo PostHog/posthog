@@ -106,7 +106,6 @@ export class HogFunctionManagerService {
             const functions = Object.values(this.hogFunctions).filter((x) => x?.team_id === teamId) as HogFunctionType[]
             this.orderedHogFunctionsCache[teamId] = this.sortHogFunctions(functions)
         }
-
         return this.orderedHogFunctionsCache[teamId] || []
     }
 
@@ -226,23 +225,78 @@ export class HogFunctionManagerService {
         return items[0] ?? null
     }
 
-    public reloadIntegrations(teamId: Team['id'], ids: IntegrationType['id'][]): Promise<void> {
+    public async reloadIntegrations(teamId: Team['id'], ids: IntegrationType['id'][]): Promise<void> {
         status.info('🍿', 'Reloading integrations', { teamId, integrationCount: ids.length })
 
-        // We need to find all hog functions that depend on these integrations and re-enrich them
-
-        // TODO: Change this to be like the reloadAllHogFunctions so we can also update the cache
-
+        // First find all hog functions that depend on these integrations
         const items = this.getTeamHogFunctions(teamId)
         const itemsToReload = items.filter((item) => ids.some((id) => item.depends_on_integration_ids?.has(id)))
 
-        return this.enrichWithIntegrations(itemsToReload)
+        // Get their IDs
+        const hogFunctionIds = itemsToReload.map((item) => item.id)
+
+        // Delete them from the cache
+        hogFunctionIds.forEach((id) => {
+            delete this.hogFunctions[id]
+        })
+
+        // Delete the ordered cache for this team
+        delete this.orderedHogFunctionsCache[teamId]
+
+        // Fetch fresh copies from the database
+        const freshItems = (
+            await this.hub.postgres.query<HogFunctionType>(
+                PostgresUse.COMMON_READ,
+                `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
+                FROM posthog_hogfunction
+                WHERE id = ANY($1) AND deleted = FALSE`,
+                [hogFunctionIds],
+                'fetchHogFunctionsForIntegrationReload'
+            )
+        ).rows
+
+        // Update the cache with fresh copies
+        freshItems.forEach((item) => {
+            this.hogFunctions[item.id] = item
+        })
+
+        // Now enrich with fresh integration data
+        await this.enrichWithIntegrations(freshItems)
     }
 
     public async reloadAllIntegrations(): Promise<void> {
         status.info('🍿', 'Reloading all integrations')
-        // Reload all integrations for all hog functions in use
-        await this.enrichWithIntegrations(Object.values(this.hogFunctions).filter((x) => !!x) as HogFunctionType[])
+        // Get all functions that need updating
+        const functions = Object.values(this.hogFunctions).filter((x) => !!x) as HogFunctionType[]
+        const functionIds = functions.map((f) => f.id)
+
+        // Clear affected functions from cache
+        functionIds.forEach((id) => {
+            delete this.hogFunctions[id]
+        })
+
+        // Clear all team caches since we don't know which teams are affected
+        this.orderedHogFunctionsCache = {}
+
+        // Fetch fresh copies
+        const freshItems = (
+            await this.hub.postgres.query<HogFunctionType>(
+                PostgresUse.COMMON_READ,
+                `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
+                FROM posthog_hogfunction
+                WHERE id = ANY($1) AND deleted = FALSE`,
+                [functionIds],
+                'fetchHogFunctionsForAllIntegrationsReload'
+            )
+        ).rows
+
+        // Update cache with fresh copies
+        freshItems.forEach((item) => {
+            this.hogFunctions[item.id] = item
+        })
+
+        // Enrich with fresh integration data
+        await this.enrichWithIntegrations(freshItems)
     }
 
     public sanitize(items: HogFunctionType[]): void {
