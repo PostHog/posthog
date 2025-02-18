@@ -15,6 +15,7 @@ from concurrent.futures import (
 from copy import copy
 from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple, TypeVar
+from collections.abc import Iterable
 
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
@@ -416,3 +417,17 @@ class MutationRunner:
             raise ValueError(f"Invalid DELETE command format: {self.command}")
         where_clause = self.command.strip()[match.end() :]
         return f"UPDATE _row_exists = 0 WHERE {where_clause}"
+
+    def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
+        """
+        Enqueue (or find) this mutation on one host in each shard, and then block until the mutation is complete on all
+        hosts within the affected shards.
+        """
+        if shards is not None:
+            shard_mutations = cluster.map_any_host_in_shards({shard: self.enqueue for shard in shards})
+        else:
+            shard_mutations = cluster.map_one_host_per_shard(self.enqueue)
+
+        cluster.map_all_hosts_in_shards(
+            {shard_host.shard_num: mutation.wait for shard_host, mutation in shard_mutations.result().items()}
+        ).result()
