@@ -20,6 +20,7 @@
 !frontend/webpack.config.js
 !gunicorn.config.py
 !manage.py
+!turbo.json
 !package.json
 !patches
 !playwright.config.ts

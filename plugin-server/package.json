@@ -55,7 +55,7 @@
         "@maxmind/geoip2-node": "^3.4.0",
         "@posthog/clickhouse": "^1.7.0",
         "@posthog/cyclotron": "file:../rust/cyclotron-node",
-        "@posthog/hogvm": "^1.0.67",
+        "@posthog/hogvm": "workspace:*",
         "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
         "@sentry/node": "7.112.1",
