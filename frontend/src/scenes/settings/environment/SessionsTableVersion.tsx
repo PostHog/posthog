@@ -5,7 +5,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQueryModifiers } from '~/queries/schema'
+import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
 
 type SessionTableVersion = NonNullable<HogQLQueryModifiers['sessionTableVersion']>
 

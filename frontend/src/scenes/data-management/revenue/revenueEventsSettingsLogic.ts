@@ -4,7 +4,7 @@ import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { RevenueTrackingConfig, RevenueTrackingEventItem } from '~/queries/schema'
+import { RevenueTrackingConfig, RevenueTrackingEventItem } from '~/queries/schema/schema-general'
 
 import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
 

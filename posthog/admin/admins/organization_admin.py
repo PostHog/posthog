@@ -159,7 +159,7 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
-        if not request.user.groups.filter(name="Billing Team").exists():
+        if request.user.groups.filter(name="Billing Team").exists():
             extra_context["show_rbac_migration_buttons"] = True
 
         return super().change_view(request, object_id, form_url, extra_context=extra_context)

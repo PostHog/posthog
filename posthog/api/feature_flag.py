@@ -35,6 +35,11 @@ from posthog.event_usage import report_user_action
 from posthog.helpers.dashboard_templates import (
     add_enriched_insights_to_feature_flag_dashboard,
 )
+from posthog.helpers.encrypted_flag_payloads import (
+    encrypt_flag_payloads,
+    get_decrypted_flag_payloads,
+    REDACTED_PAYLOAD_VALUE,
+)
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -96,6 +101,7 @@ class FeatureFlagSerializer(
     TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
 ):
     created_by = UserBasicSerializer(read_only=True)
+
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
@@ -157,6 +163,7 @@ class FeatureFlagSerializer(
             "user_access_level",
             "creation_context",
             "is_remote_configuration",
+            "has_encrypted_payloads",
             "status",
         ]
 
@@ -361,6 +368,7 @@ class FeatureFlagSerializer(
         )  # default to "feature_flags" if an alternative value is not provided
 
         self._update_filters(validated_data)
+        encrypt_flag_payloads(validated_data)
 
         variants = (validated_data.get("filters", {}).get("multivariate", {}) or {}).get("variants", [])
         variant_rollout_sum = 0
@@ -410,6 +418,13 @@ class FeatureFlagSerializer(
             ).delete()
         self._update_filters(validated_data)
 
+        if validated_data.get("has_encrypted_payloads", False):
+            if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
+                # Don't write the redacted payload to the db, keep the current value instead
+                validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
+            else:
+                encrypt_flag_payloads(validated_data)
+
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
         if analytics_dashboards is not None:
@@ -441,6 +456,11 @@ class FeatureFlagSerializer(
             _update_feature_flag_dashboard(instance, old_key)
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
+
+        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
+        # if the request was made with a personal API key
+        if instance.has_encrypted_payloads:
+            instance.filters["payloads"] = get_decrypted_flag_payloads(request, instance.filters.get("payloads", {}))
 
         return instance
 
@@ -535,6 +555,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "deleted",
             "active",
             "ensure_experience_continuity",
+            "has_encrypted_payloads",
         ]
 
 
@@ -583,6 +604,8 @@ class FeatureFlagViewSet(
                     )
                 elif type == "experiment":
                     queryset = queryset.filter(~Q(experiment__isnull=True))
+                elif type == "remote_config":
+                    queryset = queryset.filter(is_remote_configuration=True)
 
         return queryset
 
@@ -661,7 +684,29 @@ class FeatureFlagViewSet(
             # Add request for analytics only if request coming with personal API key authentication
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
-        return super().list(request, args, kwargs)
+        response = super().list(request, *args, **kwargs)
+        feature_flags_data = response.data.get("results", [])
+
+        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
+        for feature_flag in feature_flags_data:
+            if feature_flag.get("has_encrypted_payloads", False):
+                feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads(
+                    request, feature_flag["filters"]["payloads"]
+                )
+
+        return response
+
+    def retrieve(self, request, *args, **kwargs):
+        response = super().retrieve(request, *args, **kwargs)
+        feature_flag_data = response.data
+
+        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
+        if feature_flag_data.get("has_encrypted_payloads", False):
+            feature_flag_data["filters"]["payloads"] = get_decrypted_flag_payloads(
+                request, feature_flag_data["filters"]["payloads"]
+            )
+
+        return response
 
     @action(methods=["POST"], detail=True)
     def dashboard(self, request: request.Request, **kwargs):
@@ -760,7 +805,9 @@ class FeatureFlagViewSet(
     )
     def local_evaluation(self, request: request.Request, **kwargs):
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team__project_id=self.project_id, deleted=False
+            ~Q(is_remote_configuration=True),
+            team__project_id=self.project_id,
+            deleted=False,
         )
 
         should_send_cohorts = "send_cohorts" in request.GET
@@ -938,6 +985,37 @@ class FeatureFlagViewSet(
             {"status": flag_status, "reason": reason},
             status=status.HTTP_404_NOT_FOUND if flag_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
         )
+
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["feature_flag:read"],
+    )
+    def remote_config(self, request: request.Request, **kwargs):
+        is_flag_id_provided = kwargs["pk"].isdigit()
+
+        feature_flag = (
+            FeatureFlag.objects.get(pk=kwargs["pk"])
+            if is_flag_id_provided
+            else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
+        )
+
+        if not feature_flag.is_remote_configuration:
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        if not feature_flag.has_encrypted_payloads:
+            payloads = feature_flag.filters.get("payloads", {})
+            return Response(payloads.get("true") or None)
+
+        # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
+        # user has access to the flag. However get_decrypted_flag_payloads will also check the authentication
+        # method used to make the request as it is used in non-protected endpoints.
+        decrypted_flag_payloads = get_decrypted_flag_payloads(request, feature_flag.filters.get("payloads", {}))
+
+        count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+        increment_request_count(self.team.pk, count, FlagRequestType.REMOTE_CONFIG)
+
+        return Response(decrypted_flag_payloads["true"] or None)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):

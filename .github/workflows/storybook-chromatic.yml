@@ -4,6 +4,7 @@ on:
     pull_request:
         paths: # Only run if the frontend has changed
             - 'frontend/**'
+            - 'ee/frontend/**'
             - '.storybook/**'
             - 'package.json'
             - '.github/workflows/storybook-chromatic.yml'
@@ -18,9 +19,10 @@ concurrency:
 jobs:
     storybook-chromatic:
         name: Publish to Chromatic
-        runs-on: ubuntu-24.04
+        runs-on: ubuntu-latest
         timeout-minutes: 15
-        if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
+        # Don't run on forks
+        if: github.event.pull_request.head.repo.full_name == github.repository
         outputs:
             storybook-url: ${{ steps.publish.outputs.storybookUrl }}
         steps:
@@ -38,7 +40,9 @@ jobs:
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
-              run: pnpm i -w -D chromatic
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  pnpm install -w -D chromatic
 
             - name: Publish to Chromatic
               uses: chromaui/action@v11
@@ -47,10 +51,11 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+                  workingDir: ./frontend/
 
     visual-regression:
         name: Visual regression tests
-        runs-on: ubuntu-24.04
+        runs-on: ubuntu-latest
         timeout-minutes: 30
         container:
             image: mcr.microsoft.com/playwright:v1.45.0
@@ -109,25 +114,25 @@ jobs:
               uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
-              uses: buildjet/setup-node@v3
+              uses: actions/setup-node@v4
               with:
                   node-version: 18.12.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
+              run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Install CI utilities with pnpm
               run: pnpm install http-server wait-on -g
 
             - name: Build Storybook
-              run: pnpm build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam
+              run: pnpm --filter=@posthog/frontend build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam
 
             - name: Serve Storybook in the background
               run: |
                   retries=3
                   while [ $retries -gt 0 ]; do
-                      pnpm exec http-server storybook-static --port 6006 --silent &
+                      pnpm exec http-server frontend/storybook-static --port 6006 --silent &
                       if pnpm wait-on http://127.0.0.1:6006 --timeout 15; then
                           break
                       fi
@@ -143,7 +148,7 @@ jobs:
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
-                  pnpm test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
+                  pnpm --filter=@posthog/frontend test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 
             - name: Archive failure screenshots
               if: ${{ failure() }}
@@ -211,10 +216,11 @@ jobs:
 
     visual-regression-summary:
         name: Summarize visual regression tests
-        runs-on: ubuntu-24.04
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: visual-regression
-        if: always() # Run even if visual-regression fails for one (or more) of the browsers
+        # Run even if visual-regression fails for one (or more) of the browsers
+        if: always()
         steps:
             - name: Post comment about updated snapshots
               if: github.event.pull_request.head.repo.full_name == github.repository
@@ -284,3 +290,41 @@ jobs:
 
                       👉 **[Review this PR's diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)**`
                       })
+
+    calculate-running-time:
+        name: Calculate running time
+        needs: [storybook-chromatic, visual-regression]
+        runs-on: ubuntu-latest
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            (
+            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository
+            ) == 'PostHog/posthog'
+        steps:
+            - name: Calculate running time
+              run: |
+                  gh auth login --with-token < <(echo ${{ secrets.GITHUB_TOKEN }})
+                  run_id=${GITHUB_RUN_ID}
+                  repo=${GITHUB_REPOSITORY}
+                  run_info=$(gh api repos/${repo}/actions/runs/${run_id})
+                  echo run_info: ${run_info}
+                  # name is the name of the workflow file
+                  # run_started_at is the start time of the workflow
+                  # we want to get the number of seconds between the start time and now
+                  name=$(echo ${run_info} | jq -r '.name')
+                  run_url=$(echo ${run_info} | jq -r '.url')
+                  run_started_at=$(echo ${run_info} | jq -r '.run_started_at')
+                  run_attempt=$(echo ${run_info} | jq -r '.run_attempt')
+                  start_seconds=$(date -d "${run_started_at}" +%s)
+                  now_seconds=$(date +%s)
+                  duration=$((now_seconds-start_seconds))
+                  echo running_time_duration_seconds=${duration} >> $GITHUB_ENV
+                  echo running_time_run_url=${run_url} >> $GITHUB_ENV
+                  echo running_time_run_attempt=${run_attempt} >> $GITHUB_ENV
+                  echo running_time_run_id=${run_id} >> $GITHUB_ENV
+                  echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
+            - name: Capture running time to PostHog
+              uses: PostHog/posthog-github-action@v0.1
+              with:
+                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-ci-running-time'
+                  properties: '{"duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
