@@ -35,12 +35,12 @@ import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
+import { getSurveyMatchTypeToPropertyOperator } from 'scenes/surveys/utils'
 
 import {
     ActionType,
     LinkSurveyQuestion,
     PropertyFilterType,
-    PropertyOperator,
     RatingSurveyQuestion,
     SurveyMatchType,
     SurveyQuestion,
@@ -824,13 +824,17 @@ export default function SurveyEdit(): JSX.Element {
                                                                         TaxonomicFilterGroupType.EventProperties
                                                                     )}
                                                                     type={PropertyFilterType.Event}
-                                                                    onSet={(deviceTypes: string[]) =>
+                                                                    onSet={(deviceTypes: string | string[]) => {
                                                                         onChange({
                                                                             ...value,
-                                                                            deviceTypes: deviceTypes,
+                                                                            deviceTypes: Array.isArray(deviceTypes)
+                                                                                ? deviceTypes
+                                                                                : [deviceTypes],
                                                                         })
-                                                                    }
-                                                                    operator={PropertyOperator.Exact}
+                                                                    }}
+                                                                    operator={getSurveyMatchTypeToPropertyOperator(
+                                                                        survey.conditions?.deviceTypesMatchType
+                                                                    )}
                                                                     value={value?.deviceTypes}
                                                                     inputClassName="flex-1"
                                                                 />
