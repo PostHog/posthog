@@ -15,7 +15,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
      JOIN
        (SELECT aggregation_target AS actor_id,
                final_matching_events AS matching_events,
@@ -85,15 +85,15 @@
                               if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                               e.uuid AS uuid,
                               if(equals(e.event, '$pageview'), 1, 0) AS step_0,
-                              if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0,
-                              if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`,
-                              if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`,
+                              if(equals(step_0, 1), timestamp, NULL) AS latest_0,
+                              if(equals(step_0, 1), uuid, NULL) AS uuid_0,
+                              if(equals(step_0, 1), e.`$session_id`, NULL) AS `$session_id_0`,
+                              if(equals(step_0, 1), e.`$window_id`, NULL) AS `$window_id_0`,
                               if(equals(e.event, 'insight analyzed'), 1, 0) AS step_1,
-                              if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1,
-                              if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
-                              if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
+                              if(equals(step_1, 1), timestamp, NULL) AS latest_1,
+                              if(equals(step_1, 1), uuid, NULL) AS uuid_1,
+                              if(equals(step_1, 1), e.`$session_id`, NULL) AS `$session_id_1`,
+                              if(equals(step_1, 1), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -101,8 +101,8 @@
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                          HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed'))), or(equals(step_0, 1), equals(step_1, 1)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -130,7 +130,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -156,7 +156,7 @@
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS event__override ON equals(event.distinct_id, event__override.distinct_id)
      JOIN
        (SELECT aggregation_target AS actor_id,
                final_matching_events AS matching_events,
@@ -287,20 +287,20 @@
                                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                                     e.uuid AS uuid,
                                     if(equals(e.event, '$pageview'), 1, 0) AS step_0,
-                                    if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                                    if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0,
-                                    if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`,
-                                    if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`,
+                                    if(equals(step_0, 1), timestamp, NULL) AS latest_0,
+                                    if(equals(step_0, 1), uuid, NULL) AS uuid_0,
+                                    if(equals(step_0, 1), e.`$session_id`, NULL) AS `$session_id_0`,
+                                    if(equals(step_0, 1), e.`$window_id`, NULL) AS `$window_id_0`,
                                     if(equals(e.event, 'insight analyzed'), 1, 0) AS step_1,
-                                    if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                                    if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1,
-                                    if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
-                                    if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`,
+                                    if(equals(step_1, 1), timestamp, NULL) AS latest_1,
+                                    if(equals(step_1, 1), uuid, NULL) AS uuid_1,
+                                    if(equals(step_1, 1), e.`$session_id`, NULL) AS `$session_id_1`,
+                                    if(equals(step_1, 1), e.`$window_id`, NULL) AS `$window_id_1`,
                                     if(equals(e.event, 'insight updated'), 1, 0) AS step_2,
-                                    if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
-                                    if(ifNull(equals(step_2, 1), 0), uuid, NULL) AS uuid_2,
-                                    if(ifNull(equals(step_2, 1), 0), e.`$session_id`, NULL) AS `$session_id_2`,
-                                    if(ifNull(equals(step_2, 1), 0), e.`$window_id`, NULL) AS `$window_id_2`
+                                    if(equals(step_2, 1), timestamp, NULL) AS latest_2,
+                                    if(equals(step_2, 1), uuid, NULL) AS uuid_2,
+                                    if(equals(step_2, 1), e.`$session_id`, NULL) AS `$session_id_2`,
+                                    if(equals(step_2, 1), e.`$window_id`, NULL) AS `$window_id_2`
                              FROM events AS e
                              LEFT OUTER JOIN
                                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -308,8 +308,8 @@
                                 FROM person_distinct_id_overrides
                                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                 GROUP BY person_distinct_id_overrides.distinct_id
-                                HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed', 'insight updated'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                                HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed', 'insight updated'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1)))))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -337,7 +337,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -425,15 +425,15 @@
                               if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
                               e.uuid AS uuid,
                               if(equals(e.event, '$pageview'), 1, 0) AS step_0,
-                              if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(ifNull(equals(step_0, 1), 0), uuid, NULL) AS uuid_0,
-                              if(ifNull(equals(step_0, 1), 0), e.`$session_id`, NULL) AS `$session_id_0`,
-                              if(ifNull(equals(step_0, 1), 0), e.`$window_id`, NULL) AS `$window_id_0`,
+                              if(equals(step_0, 1), timestamp, NULL) AS latest_0,
+                              if(equals(step_0, 1), uuid, NULL) AS uuid_0,
+                              if(equals(step_0, 1), e.`$session_id`, NULL) AS `$session_id_0`,
+                              if(equals(step_0, 1), e.`$window_id`, NULL) AS `$window_id_0`,
                               if(equals(e.event, 'insight analyzed'), 1, 0) AS step_1,
-                              if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              if(ifNull(equals(step_1, 1), 0), uuid, NULL) AS uuid_1,
-                              if(ifNull(equals(step_1, 1), 0), e.`$session_id`, NULL) AS `$session_id_1`,
-                              if(ifNull(equals(step_1, 1), 0), e.`$window_id`, NULL) AS `$window_id_1`
+                              if(equals(step_1, 1), timestamp, NULL) AS latest_1,
+                              if(equals(step_1, 1), uuid, NULL) AS uuid_1,
+                              if(equals(step_1, 1), e.`$session_id`, NULL) AS `$session_id_1`,
+                              if(equals(step_1, 1), e.`$window_id`, NULL) AS `$window_id_1`
                        FROM events AS e
                        LEFT OUTER JOIN
                          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -441,7 +441,7 @@
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                          HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'foo'), ''), 'null'), '^"|"$', '') AS properties___foo
@@ -451,8 +451,8 @@
                                                                                 FROM person
                                                                                 WHERE equals(person.team_id, 99999)
                                                                                 GROUP BY person.id
-                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed')), ifNull(equals(e__person.properties___foo, 'bar'), 0)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                                                                                HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'insight analyzed')), ifNull(equals(e__person.properties___foo, 'bar'), 0)), or(equals(step_0, 1), equals(step_1, 1)))))
                  WHERE ifNull(equals(step_0, 1), 0)))
            GROUP BY aggregation_target,
                     steps
@@ -480,7 +480,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
