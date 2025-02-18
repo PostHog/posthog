@@ -20,6 +20,43 @@ RS_SVC="$1"
 
 # set up env appropriate for each *known* service - add new ones here!
 case "$RS_SVC" in
+  capture)
+    export ADDRESS=0.0.0.0:3000
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export KAFKA_TOPIC=events_plugin_ingestion
+    export KAFKA_HOSTS=kafka:9092
+    export REDIS_URL=redis://redis:6379/
+    export CAPTURE_MODE=events
+    export DEBUG=1
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    ;;
+
+  relay-capture)
+    export ADDRESS=0.0.0.0:3000
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export KAFKA_TOPIC=session_recording_snapshot_item_events
+    export KAFKA_HOSTS=kafka:9092
+    export REDIS_URL=redis://redis:6379/
+    export CAPTURE_MODE=recordings
+    export DEBUG=1
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    ;;
+
+  feature-flags)
+    export WRITE_DATABASE_URL=postgres://posthog:posthog@db:5432/posthog
+    export READ_DATABASE_URL=postgres://posthog:posthog@db:5432/posthog
+    export MAXMIND_DB_PATH=./share/GeoLite2-City.mmdb
+    export REDIS_URL=redis://redis:6379/
+    export ADDRESS=0.0.0.0:3001
+    export SKIP_WRITES=false
+    export SKIP_READS=false
+    export DEBUG=1
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    ;;
+
   property-defs-rs)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL

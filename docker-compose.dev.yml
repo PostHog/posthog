@@ -128,34 +128,7 @@ services:
         environment:
             - LISTEN_PORT=2080
 
-    # capture-rs
-    capture:
-        extends:
-            file: docker-compose.base.yml
-            service: capture
-        environment:
-            - DEBUG=1
-        depends_on:
-            - redis
-            - kafka
-
     # vector replay capture
-    replay-capture:
-        extends:
-            file: docker-compose.base.yml
-            service: replay-capture
-        depends_on:
-            - redis
-            - kafka
-
-    feature-flags:
-        extends:
-            file: docker-compose.base.yml
-            service: feature-flags
-        depends_on:
-            - redis
-            - db
-
     livestream:
         extends:
             file: docker-compose.base.yml

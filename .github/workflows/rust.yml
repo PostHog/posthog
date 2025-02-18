@@ -88,35 +88,20 @@ jobs:
 
         defaults:
             run:
-                working-directory: rust
+                working-directory: .
 
         steps:
-            # Checkout project code
-            # Use sparse checkout to only select files in rust directory
-            # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v3
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
-              with:
-                  sparse-checkout: 'rust/'
-                  sparse-checkout-cone-mode: false
+            - name: Check out project code
+              uses: actions/checkout@v3
+              if: needs.changes.outputs.rust == 'true'
 
-            # For flags checkout entire repository
-            - uses: actions/checkout@v3
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
-
-            - name: Setup main repo dependencies for flags
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+            - name: Setup main repo dependencies
+              if: needs.changes.outputs.rust == 'true'
               run: |
-                  docker compose -f ../docker-compose.dev.yml down
-                  docker compose -f ../docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml -f rust/docker-compose.yml down
                   echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
-
-            - name: Setup dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
-              run: |
-                  docker compose up kafka redis db echo_server objectstorage -d --wait
-                  docker compose up setup_test_db
-                  echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+                  docker compose -f docker-compose.dev.yml up -d --wait
+                  docker compose -f rust/docker-compose.yml up setup_test_db
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
@@ -153,11 +138,10 @@ jobs:
             - name: Install python dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               run: |
-                  uv pip install --system -r ../requirements-dev.txt
-                  uv pip install --system -r ../requirements.txt
+                  uv pip install --system -r ./requirements-dev.txt
+                  uv pip install --system -r ./requirements.txt
 
             - name: Set up databases
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               env:
                   DEBUG: 'true'
                   TEST: 'true'
@@ -169,13 +153,15 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   mkdir -p ../share
-                  curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=../share/GeoLite2-City.mmdb
+                  curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb
 
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
               run: |
                   echo "Starting cargo test"
+                  pushd rust
                   RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && '--package feature-flags' || '--workspace --exclude feature-flags' }}
+                  popd
                   echo "Cargo test completed"
 
     linting:
