@@ -138,10 +138,14 @@ pub async fn handle_events(
                 .map_err(|e| (index, e))?
         }
 
-        let fingerprint = generate_fingerprint(&props.exception_list);
-        if !issue_handles.contains_key(&fingerprint) {
-            let name = props.exception_list[0].exception_type.clone();
-            let description = props.exception_list[0].exception_message.clone();
+        let proposed = generate_fingerprint(&props.exception_list);
+        let fingerprinted = props.to_fingerprinted(proposed);
+        // We do this because the input props might have come with a fingerprint, and if they did, we want to resolve that
+        // issue, not the one associated with the generated fingerprint.
+        let to_resolve = fingerprinted.fingerprint.clone();
+        if !issue_handles.contains_key(&to_resolve) {
+            let name = fingerprinted.exception_list[0].exception_type.clone();
+            let description = fingerprinted.exception_list[0].exception_message.clone();
             let event_timestamp = get_event_timestamp(event).unwrap_or_else(|| {
                 warn!(
                     event = event.uuid.to_string(),
@@ -150,7 +154,7 @@ pub async fn handle_events(
                 Utc::now()
             });
 
-            let m_fingerprint = fingerprint.clone();
+            let m_fingerprint = to_resolve.clone();
             let m_context = context.clone();
             let handle = tokio::spawn(async move {
                 resolve_issue(
@@ -163,10 +167,9 @@ pub async fn handle_events(
                 )
                 .await
             });
-            issue_handles.insert(fingerprint.clone(), handle);
+            issue_handles.insert(to_resolve, handle);
         }
 
-        let fingerprinted = props.to_fingerprinted(fingerprint);
         indexed_fingerprinted.push((index, fingerprinted));
     }
 
