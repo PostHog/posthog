@@ -6,6 +6,7 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
+import { heatmapsSettingsLogic } from 'lib/components/heatmaps/heatmapsSettingsLogic'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -136,21 +137,11 @@ function ForbiddenURL(): JSX.Element {
 function FilterPanel(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
-    const {
-        heatmapFilters,
-        heatmapColorPalette,
-        heatmapFixedPositionMode,
-        viewportRange,
-        commonFilters,
-        filterPanelCollapsed,
-    } = useValues(logic)
-    const {
-        patchHeatmapFilters,
-        setHeatmapColorPalette,
-        setHeatmapFixedPositionMode,
-        setCommonFilters,
-        toggleFilterPanelCollapsed,
-    } = useActions(logic)
+    const { filterPanelCollapsed } = useValues(logic)
+    const { toggleFilterPanelCollapsed } = useActions(logic)
+
+    const { commonFilters } = useValues(heatmapsSettingsLogic)
+    const { setCommonFilters } = useActions(heatmapsSettingsLogic)
 
     return (
         <div className={clsx('flex flex-col gap-y-2 px-2 py-1 border-r', !filterPanelCollapsed && 'w-100')}>
@@ -182,15 +173,7 @@ function FilterPanel(): JSX.Element {
                         }}
                         dateOptions={heatmapDateOptions}
                     />
-                    <HeatmapsSettings
-                        heatmapFilters={heatmapFilters}
-                        patchHeatmapFilters={patchHeatmapFilters}
-                        viewportRange={viewportRange}
-                        heatmapColorPalette={heatmapColorPalette}
-                        setHeatmapColorPalette={setHeatmapColorPalette}
-                        heatmapFixedPositionMode={heatmapFixedPositionMode}
-                        setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
-                    />
+                    <HeatmapsSettings />
                 </>
             )}
         </div>
