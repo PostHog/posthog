@@ -70,15 +70,24 @@ jobs:
 
                   # If no files exist, handle that gracefully:
                   if [ -z "$files" ]; then
-                    echo "chunks=[]" >> $GITHUB_OUTPUT
+                    echo "chunks=[]" >> "$GITHUB_OUTPUT"
                     exit 0
                   fi
 
-                  # Chunk these filenames in groups of 3, then join each group with commas
+                  # 1. Chunk these filenames in groups of 3, then join each group with commas
                   chunked=$(echo "$files" | xargs -n3 | sed 's/ /,/g')
 
-                  # Convert each line into a JSON string, then produce a JSON array
-                  echo "chunks=$(echo "$chunked" | jq -R . | jq -s .)" >> $GITHUB_OUTPUT
+                  # 2. Convert each line into a JSON string, then produce a SINGLE-LINE JSON array
+                  #    Use `-c` for "compact" (no extra newlines).
+                  chunk_array=$(echo "$chunked" | jq -R . | jq -s -c .)
+
+                  # 3. Escape special characters for GitHub output:
+                  chunk_array="${chunk_array//'%'/'%25'}"
+                  chunk_array="${chunk_array//$'\n'/'%0A'}"
+                  chunk_array="${chunk_array//$'\r'/'%0D'}"
+
+                  # 4. Finally, write to GITHUB_OUTPUT in valid "key=value" form
+                  echo "chunks=$chunk_array" >> "$GITHUB_OUTPUT"
 
     container:
         name: Build and cache container image
