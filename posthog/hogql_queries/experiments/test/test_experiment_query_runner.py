@@ -1383,7 +1383,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     @snapshot_clickhouse_queries
-    @pytest.mark.skip(reason="Doesn't work with the new query runner")
     def test_query_runner_with_data_warehouse_internal_filters(self, name, filter: dict, filter_expected: dict):
         table_name = self.create_data_warehouse_table_with_usage()
 

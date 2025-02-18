@@ -204,7 +204,7 @@ class ExperimentQueryRunner(QueryRunner):
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
                         ),
                         ast.Alias(
-                            alias="distinct_id",
+                            alias="aggregation_target",
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
                         ),
                         ast.Field(chain=["exposure_data", "variant"]),
@@ -219,7 +219,7 @@ class ExperimentQueryRunner(QueryRunner):
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
                                     left=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
-                                    right=ast.Field(chain=["exposure_data", "aggregation_target"]),
+                                    right=parse_expr("toString(exposure_data.aggregation_target)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -309,8 +309,8 @@ class ExperimentQueryRunner(QueryRunner):
                         expr=ast.And(
                             exprs=[
                                 ast.CompareOperation(
-                                    left=ast.Field(chain=["exposure_data", "aggregation_target"]),
-                                    right=ast.Field(chain=["events_after_exposure", "aggregation_target"]),
+                                    left=parse_expr("toString(exposure_data.aggregation_target)"),
+                                    right=parse_expr("toString(events_after_exposure.aggregation_target)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 ast.CompareOperation(
