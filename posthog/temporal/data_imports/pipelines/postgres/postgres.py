@@ -9,7 +9,11 @@ from psycopg import sql
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    DEFAULT_NUMERIC_PRECISION,
+    DEFAULT_NUMERIC_SCALE,
+    table_from_iterator,
+)
 from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE
 from posthog.warehouse.models import IncrementalFieldType
 
@@ -105,8 +109,6 @@ def _get_table_structure(cursor: psycopg.Cursor, schema: str, table_name: str) -
 
 def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -> pa.Schema:
     fields = []
-    default_numeric_precision = 76
-    default_numeric_scale = 32
 
     for col in table_structure:
         name = col.column_name
@@ -123,8 +125,8 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
             case "smallint":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                precision = col.numeric_precision or default_numeric_precision
-                scale = col.numeric_scale or default_numeric_scale
+                precision = col.numeric_precision or DEFAULT_NUMERIC_PRECISION
+                scale = col.numeric_scale or DEFAULT_NUMERIC_SCALE
                 if precision <= 38:
                     arrow_type = pa.decimal128(precision, scale)
                 elif precision <= 76:

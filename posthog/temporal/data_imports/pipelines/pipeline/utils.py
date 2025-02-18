@@ -41,6 +41,9 @@ DLT_TO_PA_TYPE_MAP = {
     "decimal": pa.float64(),
 }
 
+DEFAULT_NUMERIC_PRECISION = 76
+DEFAULT_NUMERIC_SCALE = 32
+
 
 def normalize_column_name(column_name: str) -> str:
     return NamingConvention().normalize_identifier(column_name)
@@ -277,12 +280,12 @@ def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schem
     return processed_batch
 
 
-def table_from_py_list(table_data: list[Any]) -> pa.Table:
+def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None) -> pa.Table:
     """
     Convert a list of Python dictionaries to a PyArrow Table.
     This is a wrapper around table_from_iterator for backward compatibility.
     """
-    return table_from_iterator(iter(table_data))
+    return table_from_iterator(iter(table_data), schema=schema)
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):
@@ -306,6 +309,21 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
             return pa.list_(pa.null())
 
         return pa.list_(_python_type_to_pyarrow_type(type(value[0]), value[0]))
+
+    if issubclass(type_, decimal.Decimal) and isinstance(value, decimal.Decimal):
+        sign, digits, exponent = value.as_tuple()
+        if isinstance(exponent, int):
+            precision = len(digits)
+            scale = -exponent if exponent < 0 else 0
+
+            if precision <= 38:
+                return pa.decimal128(precision, scale)
+            elif precision <= 76:
+                return pa.decimal256(precision, scale)
+            else:
+                return pa.decimal256(76, max(0, 76 - (precision - scale)))
+
+        return pa.decimal128(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
 
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
@@ -347,9 +365,12 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             field_index = arrow_schema.get_field_index(str(field_name))
 
             # cast double / float ndarrays to decimals if type mismatch, looks like decimals and floats are often mixed up in dialects
-            if pa.types.is_decimal(field.type) and issubclass(py_type, str | float):
+            if pa.types.is_decimal(field.type) and (float in unique_types_in_column or str in unique_types_in_column):
                 float_array = pa.array(columnar_table_data[field_name], type=pa.float64())
                 columnar_table_data[field_name] = float_array.cast(field.type, safe=False)
+                unique_types_in_column = {decimal.Decimal}
+                py_type = decimal.Decimal
+                val = decimal.Decimal(val)
 
             # cast string timestamps to datetime objects
             if pa.types.is_timestamp(field.type) and issubclass(py_type, str):
@@ -415,16 +436,22 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
         # Remove any NaN or infinite values from decimal columns
-        if issubclass(py_type, decimal.Decimal):
-            columnar_table_data[field_name] = pa.array(
+        if issubclass(py_type, decimal.Decimal) or issubclass(py_type, float):
+            number_arr = pa.array(
                 [
                     None
-                    if x is not None and (math.isnan(x) or (isinstance(x, decimal.Decimal) and x.is_infinite()))
+                    if x is not None
+                    and (
+                        math.isnan(x)
+                        or (isinstance(x, decimal.Decimal) and x.is_infinite())
+                        or (isinstance(x, float) and np.isinf(x))
+                    )
                     else x
                     for x in columnar_table_data[field_name].tolist()
                 ],
-                type=field.type,
+                type=_python_type_to_pyarrow_type(py_type, val),
             )
+            columnar_table_data[field_name] = number_arr
 
         # Remove any binary columns
         if issubclass(py_type, bytes):
