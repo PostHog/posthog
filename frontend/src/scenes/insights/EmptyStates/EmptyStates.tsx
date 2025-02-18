@@ -129,14 +129,7 @@ export const LOADING_MESSAGES = [
     'Gathering nuts and numbers from the data forest…',
 ]
 
-export const DELAYED_LOADING_MESSAGES = [
-    'Waiting for changes...',
-    'Waiting for changes...',
-    'Waiting for changes...',
-    'Waiting for changes...',
-    'Waiting for changes...',
-    'Waiting for changes...',
-]
+export const DELAYED_LOADING_MESSAGE = 'Waiting for changes...'
 
 export function StatelessInsightLoadingState({
     queryId,
@@ -188,8 +181,8 @@ export function StatelessInsightLoadingState({
                     >
                         {!showLoadingDetails ? (
                             <>
-                                <IconHourglass className="mr-2" />
-                                {DELAYED_LOADING_MESSAGES[loadingMessageIndex]}
+                                <IconHourglass className="mr-2 inline-block brief-spin" />
+                                {DELAYED_LOADING_MESSAGE}
                             </>
                         ) : (
                             LOADING_MESSAGES[loadingMessageIndex]

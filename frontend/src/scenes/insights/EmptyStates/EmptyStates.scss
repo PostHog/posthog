@@ -2,3 +2,22 @@
 .insights-loading-state {
     background-color: rgb(129 129 129 / 20%);
 }
+
+@keyframes InsightsEmptyState__BriefSpin {
+    0%,
+    65% {
+        transform: rotate(0deg);
+    }
+
+    95% {
+        transform: rotate(360deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.brief-spin {
+    animation: InsightsEmptyState__BriefSpin 3s infinite;
+}
