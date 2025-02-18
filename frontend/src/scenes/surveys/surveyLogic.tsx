@@ -1225,7 +1225,12 @@ export const surveyLogic = kea<surveyLogicType>([
         urlMatchTypeValidationError: [
             (s) => [s.survey],
             (survey): string | null => {
-                if (survey.conditions?.urlMatchType === SurveyMatchType.Regex && survey.conditions.url) {
+                if (
+                    survey.conditions?.url &&
+                    [SurveyMatchType.Regex, SurveyMatchType.NotRegex].includes(
+                        survey.conditions?.urlMatchType || SurveyMatchType.Exact
+                    )
+                ) {
                     try {
                         new RegExp(survey.conditions.url)
                     } catch (e: any) {
@@ -1239,8 +1244,10 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): string | null => {
                 if (
-                    survey.conditions?.deviceTypesMatchType === SurveyMatchType.Regex &&
-                    survey.conditions.deviceTypes
+                    survey.conditions?.deviceTypes &&
+                    [SurveyMatchType.Regex, SurveyMatchType.NotRegex].includes(
+                        survey.conditions?.deviceTypesMatchType || SurveyMatchType.Exact
+                    )
                 ) {
                     try {
                         new RegExp(survey.conditions.deviceTypes?.join('|'))
