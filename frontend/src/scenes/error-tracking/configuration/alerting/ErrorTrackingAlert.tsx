@@ -1,6 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
-// import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -8,7 +7,7 @@ import { Breadcrumb } from '~/types'
 
 import type { errorTrackingAlertSceneLogicType } from './ErrorTrackingAlertType'
 
-type ErrorTrackingAlertSceneLogicProps = { id: string }
+type ErrorTrackingAlertSceneLogicProps = { id?: string }
 
 export const errorTrackingAlertSceneLogic = kea<errorTrackingAlertSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingAlertSceneLogic', key]),
@@ -42,7 +41,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): ErrorTrackingAlertSceneLogicProps => ({ id }),
 }
 
-export function ErrorTrackingAlertScene({ id }: ErrorTrackingAlertSceneLogicProps): JSX.Element | null {
+export function ErrorTrackingAlertScene({ id }: ErrorTrackingAlertSceneLogicProps = {}): JSX.Element {
     const props = id === 'new' ? { id: null, templateId: 'template-slack-error-tracking-issue-created' } : { id }
     return <HogFunctionConfiguration {...props} />
 }
