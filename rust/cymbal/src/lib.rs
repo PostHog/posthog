@@ -83,7 +83,6 @@ pub async fn handle_events(
 
                 // We need a cloned frame to move into the closure below
                 let frame = frame.clone();
-
                 let context = context.clone();
                 // Spawn a concurrent task for resolving every frame
                 let handle = tokio::spawn(async move {
@@ -231,6 +230,10 @@ pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
             return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
         }
     };
+
+    if props.exception_list.is_empty() {
+        return Err(EventError::EmptyExceptionList(event.uuid));
+    }
 
     Ok(props)
 }
