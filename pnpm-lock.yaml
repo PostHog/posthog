@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  playwright: 1.45.0
+  playwright: 1.50.1
   typescript: ~4.9.5
 
 patchedDependencies:
@@ -1125,8 +1125,8 @@ importers:
   playwright:
     dependencies:
       '@playwright/test':
-        specifier: 1.45.0
-        version: 1.45.0
+        specifier: 1.50.1
+        version: 1.50.1
       '@posthog/frontend':
         specifier: workspace:*
         version: link:../frontend
@@ -4095,8 +4095,8 @@ packages:
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
 
-  '@playwright/test@1.45.0':
-    resolution: {integrity: sha512-TVYsfMlGAaxeUllNkywbwek67Ncf8FRGn8ZlRdO291OL3NjG9oMbfVhyP82HQF0CZLMrYsvesqoUekxdWuF9Qw==}
+  '@playwright/test@1.50.1':
+    resolution: {integrity: sha512-Jii3aBg+CEDpgnuDxEp/h7BimHcUTDlpEtce89xEumlJ5ef2hqepZ+PWp1DDpYC/VO9fmWVI1IlEaoI5fK9FXQ==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -12144,8 +12144,13 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  playwright@1.45.0:
-    resolution: {integrity: sha512-4z3ac3plDfYzGB6r0Q3LF8POPR20Z8D0aXcxbJvmfMgSSq1hkcgvFRXJk9rUq5H/MJ0Ktal869hhOdI/zUTeLA==}
+  playwright-core@1.50.1:
+    resolution: {integrity: sha512-ra9fsNWayuYumt+NiM069M6OkcRb1FZSK8bgi66AtpFoWkg2+y0bJSNmkFrWhMbEBbVKC/EruAHH3g0zmtwGmQ==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  playwright@1.50.1:
+    resolution: {integrity: sha512-G8rwsOQJ63XG6BbKj2w5rHeavFjy5zynBA9zsJMMtBoe/Uf757oG12NXz6e6OirF7RCrTVAKFXbLmn1RbL7Qaw==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -18985,9 +18990,9 @@ snapshots:
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
-  '@playwright/test@1.45.0':
+  '@playwright/test@1.50.1':
     dependencies:
-      playwright: 1.45.0
+      playwright: 1.50.1
 
   '@pmmmwh/react-refresh-webpack-plugin@0.5.11(react-refresh@0.14.0)(type-fest@3.5.3)(webpack-hot-middleware@2.25.4)(webpack@5.88.2)':
     dependencies:
@@ -20777,7 +20782,7 @@ snapshots:
       jest-serializer-html: 7.1.0
       jest-watch-typeahead: 2.2.2(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))
       node-fetch: 2.6.9(encoding@0.1.13)
-      playwright: 1.45.0
+      playwright: 1.50.1
       read-pkg-up: 7.0.1
       tempy: 1.0.1
       ts-dedent: 2.2.0
@@ -29404,9 +29409,11 @@ snapshots:
 
   playwright-core@1.45.0: {}
 
-  playwright@1.45.0:
+  playwright-core@1.50.1: {}
+
+  playwright@1.50.1:
     dependencies:
-      playwright-core: 1.45.0
+      playwright-core: 1.50.1
     optionalDependencies:
       fsevents: 2.3.2
 
