@@ -8,7 +8,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -2322,7 +2322,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -2398,7 +2398,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -2474,7 +2474,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -2550,7 +2550,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -2656,7 +2656,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -2762,7 +2762,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -2868,7 +2868,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -2923,7 +2923,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
@@ -2978,7 +2978,7 @@
   FROM
     (SELECT exposure_data.variant AS variant,
             exposure_data.entity_id AS entity_id,
-            sum(coalesce(events_after_exposure.value, 0)) AS value
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,

@@ -98,6 +98,7 @@ class ExperimentQueryRunner(QueryRunner):
         feature_flag_key = self.feature_flag.key
 
         is_data_warehouse_query = isinstance(self.metric.metric_config, ExperimentDataWarehouseMetricConfig)
+        is_binomial_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
 
         # Pick the correct value for the aggregation chosen
         match self.metric.metric_type:
@@ -296,7 +297,9 @@ class ExperimentQueryRunner(QueryRunner):
             select=[
                 ast.Field(chain=["exposure_data", "variant"]),
                 ast.Field(chain=["exposure_data", "entity_id"]),
-                parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
+                parse_expr("coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) as value")
+                if is_binomial_metric
+                else parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
             ],
             select_from=ast.JoinExpr(
                 table=exposure_query,
