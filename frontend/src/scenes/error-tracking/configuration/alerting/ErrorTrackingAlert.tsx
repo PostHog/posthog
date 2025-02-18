@@ -7,7 +7,7 @@ import { Breadcrumb } from '~/types'
 
 import type { errorTrackingAlertSceneLogicType } from './ErrorTrackingAlertType'
 
-type ErrorTrackingAlertSceneLogicProps = { id?: string }
+export type ErrorTrackingAlertSceneLogicProps = { id: string }
 
 export const errorTrackingAlertSceneLogic = kea<errorTrackingAlertSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingAlertSceneLogic', key]),
@@ -38,10 +38,10 @@ export const errorTrackingAlertSceneLogic = kea<errorTrackingAlertSceneLogicType
 export const scene: SceneExport = {
     component: ErrorTrackingAlertScene,
     logic: errorTrackingAlertSceneLogic,
-    paramsToProps: ({ params: { id } }): ErrorTrackingAlertSceneLogicProps => ({ id }),
+    paramsToProps: ({ params: { id } }): (typeof errorTrackingAlertSceneLogic)['props'] => ({ id }),
 }
 
-export function ErrorTrackingAlertScene({ id }: ErrorTrackingAlertSceneLogicProps = {}): JSX.Element {
+export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneLogicProps> = {}): JSX.Element {
     const props = id === 'new' ? { id: null, templateId: 'template-slack-error-tracking-issue-created' } : { id }
     return <HogFunctionConfiguration {...props} />
 }
