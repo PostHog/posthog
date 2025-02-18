@@ -40,7 +40,6 @@ import {
     ExperimentMetricType,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
-    ExperimentVariantFunnelsBaseStats,
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
@@ -1650,9 +1649,8 @@ export const experimentLogic = kea<experimentLogicType>([
                         metricResult.kind === NodeKind.ExperimentQuery &&
                         metricResult.metric.metric_type === ExperimentMetricType.BINOMIAL
                     ) {
-                        const variantResults = metricResult.variants?.find(
-                            (variant) => variant.key === variantKey
-                        ) as ExperimentVariantFunnelsBaseStats
+                        const variants = metricResult.variants as FunnelExperimentVariant[]
+                        const variantResults = variants.find((variant) => variant.key === variantKey)
 
                         if (!variantResults) {
                             return null
