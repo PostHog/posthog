@@ -4446,6 +4446,23 @@ export type BatchExportConfiguration = {
     latest_runs?: BatchExportRun[]
 }
 
+export type BatchExportConfigurationTestStepStatus = 'Passed' | 'Failed'
+
+export type BatchExportConfigurationTestStepResult = {
+    status: BatchExportConfigurationTestStepStatus
+    message: string
+}
+
+export type BatchExportConfigurationTestStep = {
+    name: string
+    description: string
+    result: BatchExportConfigurationTestStepResult | null
+}
+
+export type BatchExportConfigurationTest = {
+    steps: BatchExportConfigurationTestStep[]
+}
+
 export type RawBatchExportRun = {
     id: string
     status:

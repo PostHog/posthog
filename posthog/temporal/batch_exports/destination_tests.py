@@ -26,7 +26,7 @@ class DestinationTestStepResult:
         }
 
 
-DestinationTestStepDict = dict[str, str | DestinationTestStepResultDict]
+DestinationTestStepDict = dict[str, str | DestinationTestStepResultDict | None]
 
 
 class DestinationTestStep:
@@ -47,9 +47,14 @@ class DestinationTestStep:
         raise NotImplementedError
 
     def as_dict(self) -> DestinationTestStepDict:
-        base: dict[str, str | dict[str, str | None]] = {"name": self.name, "description": self.description}
+        base: dict[str, str | DestinationTestStepResultDict | None] = {
+            "name": self.name,
+            "description": self.description,
+        }
         if self.result:
             base["result"] = self.result.as_dict()
+        else:
+            base["result"] = None
         return base
 
 
@@ -63,10 +68,12 @@ class DestinationTest:
     def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
         raise NotImplementedError
 
-    def run_step(self, step: int) -> DestinationTestStepResult:
-        step_result = async_to_sync(self.steps[step].run)()
+    def run_step(self, step: int) -> DestinationTestStep:
+        test_step = self.steps[step]
+        step_result = async_to_sync(test_step.run)()
 
-        return step_result
+        test_step.result = step_result
+        return test_step
 
     def as_dict(self) -> dict[str, list[DestinationTestStepDict]]:
         return {"steps": [step.as_dict() for step in self.steps]}
