@@ -75,26 +75,45 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
     return <span className="text-secondary truncate">Untitled metric</span>
 }
 
-function generateViolinPath(x1: number, x2: number, y: number, height: number): string {
+function generateViolinPath(x1: number, x2: number, y: number, height: number, deltaX: number): string {
     // Create points for the violin curve
     const points: [number, number][] = []
     const steps = 20
-    const maxWidth = height / 2 // Use half the height as the maximum width to maintain proportions
+    const maxWidth = height / 2
 
-    // Generate top curve points
+    // Generate left side points (x1 to deltaX)
     for (let i = 0; i <= steps; i++) {
         const t = i / steps
-        const x = x1 + (x2 - x1) * t
-        // Using a normal distribution approximation
-        const width = Math.exp(-Math.pow((t - 0.5) * 3, 2)) * maxWidth
+        const x = x1 + (deltaX - x1) * t
+        // Standard normal distribution PDF from x1 to deltaX
+        const z = (t - 1) * 2.5 // Scale factor of 2.5 gives good visual width
+        const width = Math.exp(-0.5 * z * z) * maxWidth
+        points.push([x, y + height / 2 - width])
+    }
+
+    // Generate right side points (deltaX to x2)
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps
+        const x = deltaX + (x2 - deltaX) * t
+        // Standard normal distribution PDF from deltaX to x2
+        const z = t * 2.5 // Scale factor of 2.5 gives good visual width
+        const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 - width])
     }
 
     // Generate bottom curve points (mirror of top)
     for (let i = steps; i >= 0; i--) {
         const t = i / steps
-        const x = x1 + (x2 - x1) * t
-        const width = Math.exp(-Math.pow((t - 0.5) * 3, 2)) * maxWidth
+        const x = deltaX + (x2 - deltaX) * t
+        const z = t * 2.5
+        const width = Math.exp(-0.5 * z * z) * maxWidth
+        points.push([x, y + height / 2 + width])
+    }
+    for (let i = steps; i >= 0; i--) {
+        const t = i / steps
+        const x = x1 + (deltaX - x1) * t
+        const z = (t - 1) * 2.5
+        const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 + width])
     }
 
@@ -470,7 +489,7 @@ export function DeltaChart({
                                             {variant.key === 'control' ? (
                                                 // Control variant - dashed violin
                                                 <path
-                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
+                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
                                                     fill={COLORS.BAR_CONTROL}
                                                     stroke={COLORS.BOUNDARY_LINES}
                                                     strokeWidth={1}
@@ -518,7 +537,7 @@ export function DeltaChart({
                                                         </linearGradient>
                                                     </defs>
                                                     <path
-                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
+                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
                                                         fill={`url(#gradient-${metricIndex}-${variant.key}-${
                                                             isSecondary ? 'secondary' : 'primary'
                                                         })`}
