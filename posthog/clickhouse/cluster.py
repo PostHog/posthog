@@ -4,7 +4,7 @@ import logging
 import re
 import time
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import (
     ALL_COMPLETED,
     FIRST_EXCEPTION,
@@ -14,7 +14,7 @@ from concurrent.futures import (
 )
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Literal, NamedTuple, TypeVar
+from typing import Any, Generic, Literal, NamedTuple, TypeVar
 from collections.abc import Iterable
 
 from clickhouse_driver import Client
@@ -76,6 +76,10 @@ class ConnectionInfo(NamedTuple):
         return _make_ch_pool(host=self.address, port=self.port, settings=client_settings)
 
 
+T = TypeVar("T")
+K = TypeVar("K")
+
+
 class HostInfo(NamedTuple):
     connection_info: ConnectionInfo
     shard_num: int | None
@@ -83,8 +87,44 @@ class HostInfo(NamedTuple):
     host_cluster_type: str | None
     host_cluster_role: str | None
 
+    def task(self, fn: Callable[[Client], T]) -> Callable[[], T]:
+        raise NotImplementedError  # todo
 
-T = TypeVar("T")
+
+@dataclass
+class HostSet:
+    executor: ThreadPoolExecutor
+    hosts: Set[HostInfo]
+
+    def any(self, fn: Callable[[Client], T]) -> tuple[HostInfo, Future[T]]:
+        host = next(iter(self.hosts))
+        return self.executor.submit(host.task(fn))  # todo
+
+    def all(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+        # todo: ability to limit concurrency
+        return FuturesMap({host: self.executor.submit(host.task(fn)) for host in self.hosts})
+
+    def filter(self, fn: Callable[[HostInfo], bool]) -> HostSet:
+        # todo: handle node role filtering for convenience
+        return HostSet(self.executor, {host for host in self.hosts if fn(host)})
+
+    def group(self, fn: Callable[[HostInfo], K]) -> HostGroup[K]:
+        groups = defaultdict(set)
+        for host in self.hosts:
+            groups[fn(host)].append(host)
+        return HostGroup({key: HostSet(self.executor, hosts) for key, hosts in groups.items()})
+
+
+@dataclass
+class HostGroup(Generic[K]):
+    groups: Mapping[K, HostSet]
+
+    def any(self, fn: Callable[[Client], T]) -> Mapping[K, tuple[HostInfo, Future[T]]]:
+        return {key: hosts.any(fn) for key, hosts in self.groups.items()}
+
+    def all(self, fn: Callable[[Client], T]) -> Mapping[K, FuturesMap[HostInfo, T]]:
+        # TODO: ability to limit concurrency
+        return {key: hosts.all(fn) for key, hosts in self.groups.items()}
 
 
 class ClickhouseCluster:
