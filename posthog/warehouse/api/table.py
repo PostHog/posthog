@@ -105,6 +105,7 @@ class TableSerializer(serializers.ModelSerializer):
 
         validated_data["team_id"] = team_id
         validated_data["created_by"] = self.context["request"].user
+        validated_data["is_external"] = self.context["request"].user is not None
         if validated_data.get("credential"):
             validated_data["credential"] = DataWarehouseCredential.objects.create(
                 team_id=team_id,

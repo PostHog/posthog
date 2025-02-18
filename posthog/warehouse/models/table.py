@@ -309,6 +309,9 @@ def get_table_by_schema_id(schema_id: str, team_id: int):
 
 @database_sync_to_async
 def acreate_datawarehousetable(**kwargs):
+    if "is_external" not in kwargs:
+        kwargs["is_external"] = False
+
     return DataWarehouseTable.objects.create(**kwargs)
 
 
