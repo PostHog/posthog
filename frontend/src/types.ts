@@ -487,13 +487,13 @@ export interface TeamBasicType extends WithAccessControl {
     project_id: number
     api_token: string
     name: string
-    ingested_event: boolean
     is_demo: boolean
-    created_at: string
-    updated_at: string
+    timezone: string
     /** Whether the project is private. */
     access_control: boolean
     access_control_version: 'v1' | 'v2'
+    created_at: string
+    updated_at: string
 }
 
 export interface CorrelationConfigType {
@@ -524,29 +524,32 @@ export enum ActivationTaskStatus {
     SKIPPED = 'skipped',
 }
 
-// Configurable settings
+// Extension to TeamBasicType - computer / uneditable fields
+export interface TeamType extends TeamBasicType, TeamConfigType {
+    live_events_token: string
+    /** Effective access level of the user in this specific team. Null if user has no access. */
+    effective_membership_level: OrganizationMembershipLevel | null
+    has_group_types: boolean
+    product_intents?: ProductIntentType[]
+    default_modifiers?: HogQLQueryModifiers
+    person_on_events_querying_enabled: boolean
+    completed_snippet_onboarding: boolean
+    has_completed_onboarding_for?: Record<string, boolean>
+    ingested_event: boolean
+}
+
+
 export interface TeamConfigType {
-    onboarding_tasks?: {
-        [key: string]: ActivationTaskStatus
-    }
-    timezone: string
-    recording_domains: string[]
+    anonymize_ips: boolean
     app_urls: string[]
-    primary_dashboard: number // Dashboard shown on the project homepage
-    live_events_columns: string[] | null // Custom columns shown on the Live Events page
-    revenue_tracking_config: RevenueTrackingConfig
-    flags_persistence_default: boolean
-    correlation_config: CorrelationConfigType | null
+    recording_domains: string[]
+    slack_incoming_webhook: string
+    autocapture_opt_out: boolean
     session_recording_opt_in: boolean
     // These fields in the database accept null values and were previously set to NULL by default
     capture_console_log_opt_in: boolean | null
     capture_performance_opt_in: boolean | null
     capture_dead_clicks: boolean | null
-    has_completed_onboarding_for?: Record<string, boolean>
-    autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
-    autocapture_opt_out: boolean
-    autocapture_exceptions_opt_in: boolean
-    autocapture_web_vitals_opt_in?: boolean
     // a string representation of the decimal value between 0 and 1
     session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
@@ -557,43 +560,40 @@ export interface TeamConfigType {
         | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
+    autocapture_exceptions_opt_in: boolean
+    autocapture_web_vitals_opt_in?: boolean
+    autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
-    cookieless_server_hash_mode?: CookielessServerHashMode
-    default_data_theme?: number
-    anonymize_ips: boolean
-    human_friendly_comparison_periods: boolean
-    path_cleaning_filters: PathCleaningFilter[]
-    person_display_name_properties: string[]
-    /** 0 or unset for Sunday, 1 for Monday. */
-    week_start_day?: number
-    data_attributes: string[]
-    has_group_types: boolean
-    slack_incoming_webhook: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
-    person_on_events_querying_enabled: boolean
-    extra_settings?: Record<string, string | number | boolean | undefined>
-    modifiers?: HogQLQueryModifiers
+    /** 0 or unset for Sunday, 1 for Monday. */
+    week_start_day?: number
+    path_cleaning_filters: PathCleaningFilter[]
+    data_attributes: string[]
+    person_display_name_properties: string[]
+    primary_dashboard: number // Dashboard shown on the project homepage
+    live_events_columns: string[] | null // Custom columns shown on the Live Events page
+    cookieless_server_hash_mode?: CookielessServerHashMode
+    human_friendly_comparison_periods: boolean
+    revenue_tracking_config: RevenueTrackingConfig
+    onboarding_tasks?: {
+        [key: string]: ActivationTaskStatus
+    }
     /** Used to exclude person properties from correlation analysis results.
      *
      * For example can be used to exclude properties that have trivial causation.
      * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
      */
-    default_modifiers?: HogQLQueryModifiers
-    product_intents?: ProductIntentType[]
-}
-
-export interface TeamType extends TeamBasicType, TeamConfigType {
-    completed_snippet_onboarding: boolean
-    live_events_token: string
-
-    /** Effective access level of the user in this specific team. Null if user has no access. */
-    effective_membership_level: OrganizationMembershipLevel | null
+    correlation_config: CorrelationConfigType | null
+    extra_settings?: Record<string, string | number | boolean | undefined>
+    modifiers?: HogQLQueryModifiers
+    default_data_theme?: number
+    flags_persistence_default: boolean
 }
 
 export interface ProductIntentType {
