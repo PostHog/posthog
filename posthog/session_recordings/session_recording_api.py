@@ -891,8 +891,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             model=SESSION_REPLAY_AI_DEFAULT_MODEL,
             messages=messages,
             response_format=AiFilterSchema,
-            posthog_distinct_id=self._distinct_id_from_request(request),
-            posthog_properties={
+            # need to type ignore before, this will be a WrappedParse
+            # but the type detection can't figure that out
+            posthog_distinct_id=self._distinct_id_from_request(request),  # type: ignore
+            posthog_properties={  # type: ignore
                 "ai_product": "session_replay",
                 "ai_feature": "ai_filters",
             },
@@ -930,8 +932,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             model=SESSION_REPLAY_AI_REGEX_MODEL,
             messages=messages,
             response_format=AiRegexSchema,
-            posthog_distinct_id=self._distinct_id_from_request(request),
-            posthog_properties={
+            # need to type ignore before, this will be a WrappedParse
+            # but the type detection can't figure that out
+            posthog_distinct_id=self._distinct_id_from_request(request),  # type: ignore
+            posthog_properties={  # type: ignore
                 "ai_product": "session_replay",
                 "ai_feature": "ai_regex",
             },
