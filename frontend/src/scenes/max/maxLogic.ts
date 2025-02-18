@@ -7,6 +7,7 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
+import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
 import {
     AssistantEventType,
@@ -46,7 +47,14 @@ export const maxLogic = kea<maxLogicType>([
     props({} as MaxLogicProps),
     key(({ conversationId }) => conversationId || 'new-conversation'),
     connect({
-        values: [projectLogic, ['currentProject'], maxGlobalLogic, ['dataProcessingAccepted']],
+        values: [
+            projectLogic,
+            ['currentProject'],
+            maxGlobalLogic,
+            ['dataProcessingAccepted'],
+            maxSettingsLogic,
+            ['coreMemory'],
+        ],
     }),
     actions({
         askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
@@ -130,22 +138,12 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
     }),
-    listeners(({ actions, cache, values }) => ({
-        [projectLogic.actionTypes.updateCurrentProjectSuccess]: ({ payload }) => {
-            // Load suggestions anew after product description is changed on the project
-            // Most important when description is set for the first time, but also when updated,
-            // which is why we always want to load fresh suggestions here
-            if (payload?.product_description) {
-                actions.loadSuggestions({ refresh: 'blocking' })
-            }
+    listeners(({ actions, values, cache }) => ({
+        [maxSettingsLogic.actionTypes.updateCoreMemorySuccess]: () => {
+            actions.loadSuggestions({ refresh: 'blocking' })
         },
-        [projectLogic.actionTypes.loadCurrentProjectSuccess]: ({ currentProject }) => {
-            // Load cached suggestions if we have just loaded the current project. This should not occur
-            // _normally_ in production, as the current project is preloaded in POSTHOG_APP_CONTEXT,
-            // but necessary in e.g. Storybook
-            if (currentProject?.product_description) {
-                actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
-            }
+        [maxSettingsLogic.actionTypes.loadCoreMemorySuccess]: () => {
+            actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
         },
         loadSuggestionsSuccess: () => {
             actions.shuffleVisibleSuggestions()
@@ -393,8 +391,8 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
     afterMount(({ actions, values }) => {
-        // We only load suggestions on mount if the product description is already set
-        if (values.currentProject?.product_description) {
+        // We only load suggestions on mount if core memory is present
+        if (values.coreMemory) {
             // In this case we're fine with even really old cached values
             actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
         }

@@ -99,6 +99,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
                         "project_timezone": self.project_timezone,
+                        "project_name": self._team.name,
                     },
                     config,
                 ),

@@ -136,6 +136,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                     alertId={alert.id}
                     insightShortId={alert.insight.short_id}
                     insightId={alert.insight.id}
+                    insightLogicProps={{ dashboardItemId: alert.insight.short_id }}
                     onEditSuccess={() => {
                         loadAlerts()
                         push(urls.alerts())

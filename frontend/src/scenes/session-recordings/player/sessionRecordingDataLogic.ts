@@ -120,7 +120,10 @@ function isCompressedEvent(ev: unknown): ev is compressedEventWithTime {
     return typeof ev === 'object' && ev !== null && 'cv' in ev
 }
 
-function unzip(compressedStr: string): any {
+function unzip(compressedStr: string | undefined): any {
+    if (!compressedStr) {
+        return undefined
+    }
     return JSON.parse(strFromU8(gunzipSync(strToU8(compressedStr, true))))
 }
 

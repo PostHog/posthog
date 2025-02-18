@@ -327,6 +327,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'ERROR_TRACKING',
         settings: [
             {
+                id: 'exception-autocapture',
+                title: 'Exception autocapture',
+                component: <ExceptionAutocaptureSettings />,
+            },
+            {
                 id: 'error-tracking-user-groups',
                 title: 'User groups',
                 description: 'Allow collections of users to be assigned to issues',

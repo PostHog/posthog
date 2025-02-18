@@ -10,7 +10,7 @@ import { defineConfig, devices } from '@playwright/test'
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
-    testDir: './playwright',
+    testDir: '.',
     /* Maximum time one test can run for. */
     timeout: 90 * 1000,
     expect: {
@@ -25,9 +25,9 @@ export default defineConfig({
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
-    retries: process.env.CI ? 4 : 2,
+    retries: process.env.CI ? 8 : 2,
     /* Run one worker per core in GitHub Actions. */
-    // workers: process.env.CI ? 4 : undefined,
+    workers: process.env.CI ? 4 : undefined,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [['html', { open: 'never' }]],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */

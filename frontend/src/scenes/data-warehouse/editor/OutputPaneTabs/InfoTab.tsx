@@ -58,7 +58,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
     const { editingView } = useValues(multitabEditorLogic)
     const { runDataWarehouseSavedQuery } = useActions(multitabEditorLogic)
 
-    const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
+    const { dataWarehouseSavedQueryMapById, updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
@@ -113,6 +113,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                                 })
                                             }
                                         }}
+                                        loading={updatingDataWarehouseSavedQuery}
                                         options={OPTIONS}
                                     />
                                 </div>
@@ -134,6 +135,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                     }
                                     type="primary"
                                     disabledReason={editingView ? undefined : 'You must save the view first'}
+                                    loading={updatingDataWarehouseSavedQuery}
                                 >
                                     Materialize
                                 </LemonButton>
