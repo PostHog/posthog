@@ -282,7 +282,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertFalse(snapshot.next)
             self.assertFalse(snapshot.values.get("intermediate_steps"))
             self.assertFalse(snapshot.values["plan"])
-            self.assertFalse(snapshot.values["resumed"])
+            self.assertFalse(snapshot.values["graph_status"])
             self.assertFalse(snapshot.values["root_tool_call_id"])
             self.assertFalse(snapshot.values["root_tool_insight_plan"])
             self.assertFalse(snapshot.values["root_tool_insight_type"])
@@ -318,12 +318,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self._run_assistant_graph(graph, conversation=self.conversation)
             snapshot: StateSnapshot = graph.get_state(config)
             self.assertTrue(snapshot.next)
-            self.assertNotIn("resumed", snapshot.values)
+            self.assertEqual(snapshot.values["graph_status"], "interrupted")
             self.assertIsInstance(snapshot.values["messages"][-1], AssistantMessage)
             self.assertEqual(snapshot.values["messages"][-1].content, "test")
 
             def interrupt_graph(_):
-                self.assertTrue(graph.get_state(config).values["resumed"])
+                self.assertEqual(graph.get_state(config).values["graph_status"], "resumed")
                 raise NodeInterrupt("test")
 
             mock.return_value = RunnableLambda(interrupt_graph)

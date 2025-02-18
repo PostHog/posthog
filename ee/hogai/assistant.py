@@ -156,17 +156,25 @@ class Assistant:
                             interrupt_messages.append(interrupt_message)
                             yield self._serialize_message(interrupt_message)
 
-                    if interrupt_messages:
-                        self._graph.update_state(config, PartialAssistantState(messages=interrupt_messages))
+                    self._graph.update_state(
+                        config,
+                        PartialAssistantState(
+                            messages=interrupt_messages,
+                            # LangGraph by some reason doesn't store the interrupt exceptions in checkpoints.
+                            graph_status="interrupted",
+                        ),
+                    )
                 else:
                     self._report_conversation_state(last_viz_message)
-            except GenerationCanceled:
-                pass
             except Exception as e:
-                logger.exception("Error in assistant stream", error=e)
-                # This is an unhandled error, so we just stop further generation at this point
-                yield self._serialize_message(FailureMessage())
-                raise  # Re-raise, so that the error is printed or goes into Sentry
+                # Reset the state, so that the next generation starts from the beginning.
+                self._graph.update_state(config, PartialAssistantState.get_reset_state())
+
+                if not isinstance(e, GenerationCanceled):
+                    logger.exception("Error in assistant stream", error=e)
+                    # This is an unhandled error, so we just stop further generation at this point
+                    yield self._serialize_message(FailureMessage())
+                    raise  # Re-raise, so that the error is printed or goes into Sentry
 
     @property
     def _initial_state(self) -> AssistantState:
@@ -184,23 +192,19 @@ class Assistant:
     def _init_or_update_state(self):
         config = self._get_config()
         snapshot = self._graph.get_state(config)
-        initial_state = self._initial_state
 
+        # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
         if snapshot.next:
-            # In case the graph was interrupted, we resume from the point of interruption.
-            if next((task.interrupts for task in snapshot.tasks if task.interrupts), None):
-                saved_state = validate_state_update(snapshot.values)
+            saved_state = validate_state_update(snapshot.values)
+            if saved_state.graph_status == "interrupted":
                 self._state = saved_state
-                self._graph.update_state(config, PartialAssistantState(messages=[self._latest_message], resumed=True))
+                self._graph.update_state(
+                    config, PartialAssistantState(messages=[self._latest_message], graph_status="resumed")
+                )
                 # Return None to indicate that we want to continue the execution from the interrupted point.
                 return None
 
-            # The graph had an exception or was cancelled.
-            # Reset the state to start from the beginning.
-            initial_state = initial_state.model_copy(
-                update=PartialAssistantState.get_reset_state().model_dump(exclude_none=True, exclude_unset=True)
-            )
-
+        initial_state = self._initial_state
         self._state = initial_state
         return initial_state
 
