@@ -1,10 +1,6 @@
-# End to End Testing
+# End-to-End Testing
 
-<<<<<<< HEAD
 ## `/e2e/` directory contains all the end-to-end tests.
-=======
-`/e2e/` directory contains all the end-to-end tests.
->>>>>>> master
 
 to run the old cypress tests, run the following command:
 
