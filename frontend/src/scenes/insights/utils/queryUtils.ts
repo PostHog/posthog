@@ -126,7 +126,7 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
     }
 
     if (opts?.ignoreVisualizationOnlyChanges) {
-        // Keep this in sync with the backend side clean_insight_queries method
+        // Keep this in sync with posthog/schema_helpers.py `serialize_query` method
         const insightFilter = filterForQuery(cleanedQuery)
         const insightFilterKey = filterKeyForQuery(cleanedQuery)
         cleanedQuery[insightFilterKey] = {

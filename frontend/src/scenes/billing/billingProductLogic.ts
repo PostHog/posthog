@@ -474,19 +474,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 if (props.product.current_usage && newAmountAsUsage < props.product.current_usage) {
                     LemonDialog.open({
-                        title: 'Billing limit warning',
+                        title: 'Billing limit not acceptable',
                         description:
-                            'Your new billing limit will be below your current usage. Your bill will not increase for this period but parts of the product will stop working and data may be lost.',
+                            'You cannot set a billing limit below your current usage. Please enter an amount greater than your current usage.',
                         primaryButton: {
-                            status: 'danger',
                             children: 'I understand',
-                            onClick: () =>
-                                actions.updateBillingLimits({
-                                    [props.product.type]: input,
-                                }),
-                        },
-                        secondaryButton: {
-                            children: 'I changed my mind',
                         },
                     })
                     return
