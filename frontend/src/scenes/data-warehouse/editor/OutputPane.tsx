@@ -1,7 +1,7 @@
 import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
-import { IconGear } from '@posthog/icons'
+import { IconExpand, IconGear } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -9,7 +9,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import DataGrid from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -39,6 +39,48 @@ import { LineageTab } from './OutputPaneTabs/lineageTab'
 import { lineageTabLogic } from './OutputPaneTabs/lineageTabLogic'
 import TabScroller from './OutputPaneTabs/TabScroller'
 
+interface ExpandableCellProps {
+    value: any
+    columnName: string
+    isExpanded: boolean
+    onToggleExpand: () => void
+    hasManualWidth: boolean
+}
+
+function ExpandableCell({
+    value,
+    columnName,
+    isExpanded,
+    onToggleExpand,
+    hasManualWidth,
+}: ExpandableCellProps): JSX.Element {
+    const [isHovered, setIsHovered] = useState(false)
+
+    return (
+        <div
+            className="relative w-full h-full flex items-center gap-1"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <div className={clsx('flex-1 overflow-hidden', !isExpanded && 'text-ellipsis whitespace-nowrap')}>
+                {value}
+            </div>
+            {isHovered && !isExpanded && !hasManualWidth && (
+                <LemonButton
+                    className="rotate-90 shrink-0"
+                    size="xsmall"
+                    icon={<IconExpand />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onToggleExpand()
+                    }}
+                    tooltip={`Expand ${columnName} column`}
+                />
+            )}
+        </div>
+    )
+}
+
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
@@ -55,6 +97,33 @@ export function OutputPane(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const vizKey = useMemo(() => `SQLEditorScene`, [])
+    const [expandedColumns, setExpandedColumns] = useState<Set<string>>(new Set())
+    const [manualColumnWidths, setManualColumnWidths] = useState<Record<string, number>>({})
+
+    const toggleColumnExpansion = useCallback((columnKey: string) => {
+        setExpandedColumns((prev) => {
+            const newExpandedColumns = new Set(prev)
+            if (newExpandedColumns.has(columnKey)) {
+                newExpandedColumns.delete(columnKey)
+            } else {
+                newExpandedColumns.add(columnKey)
+            }
+            return newExpandedColumns
+        })
+    }, [])
+
+    const handleColumnResize = useCallback(
+        (column: string, width: number) => {
+            if (response?.columns) {
+                const columnName = response.columns[column]
+                setManualColumnWidths((prev) => ({
+                    ...prev,
+                    [columnName]: width,
+                }))
+            }
+        },
+        [response?.columns]
+    )
 
     const columns = useMemo(() => {
         const types = response?.types
@@ -63,12 +132,27 @@ export function OutputPane(): JSX.Element {
             response?.columns?.map((column: string, index: number) => {
                 const type = types?.[index]?.[1]
 
+                const maxContentLength = Math.max(
+                    column.length,
+                    ...response.results.map((row: any[]) => {
+                        const content = row[index]
+                        return typeof content === 'string'
+                            ? content.length
+                            : content === null
+                            ? 0
+                            : content.toString().length
+                    })
+                )
+                const isLongContent = maxContentLength > 100
+                const isExpanded = expandedColumns.has(column)
+                const width = manualColumnWidths[column] ?? (isLongContent && !isExpanded ? 600 : undefined)
                 // Hack to get bools to render in the data grid
                 if (type && type.indexOf('Bool') !== -1) {
                     return {
                         key: column,
                         name: column,
                         resizable: true,
+                        width,
                         renderCell: (props: any) => {
                             if (props.row[column] === null) {
                                 return null
@@ -78,21 +162,42 @@ export function OutputPane(): JSX.Element {
                     }
                 }
 
-                return {
+                const baseColumn = {
                     key: column,
                     name: column,
                     resizable: true,
+                    width,
+                }
+
+                if (isLongContent) {
+                    return {
+                        ...baseColumn,
+                        renderCell: (props: any) => (
+                            <ExpandableCell
+                                value={props.row[column]}
+                                columnName={column}
+                                isExpanded={isExpanded}
+                                onToggleExpand={() => toggleColumnExpansion(column)}
+                                hasManualWidth={column in manualColumnWidths}
+                            />
+                        ),
+                    }
+                }
+
+                return {
+                    ...baseColumn,
+                    renderCell: (props: any) => props.row[column],
                 }
             }) ?? []
         )
-    }, [response])
+    }, [response, expandedColumns, toggleColumnExpansion, manualColumnWidths])
 
     const rows = useMemo(() => {
         if (!response?.results) {
             return []
         }
-        return response?.results?.map((row: any[]) => {
-            const rowObject: Record<string, any> = {}
+        return response?.results?.map((row: any[], index: number) => {
+            const rowObject: Record<string, any> = { __index: index }
             response.columns.forEach((column: string, i: number) => {
                 // Handling objects here as other viz methods can accept objects. Data grid does not for now
                 if (typeof row[i] === 'object' && row[i] !== null) {
@@ -147,7 +252,7 @@ export function OutputPane(): JSX.Element {
                             : []),
                     ]}
                 />
-                <div className="flex gap-4">
+                <div className="flex gap-2">
                     <AddVariableButton />
 
                     {exportContext && (
@@ -225,6 +330,7 @@ export function OutputPane(): JSX.Element {
                         queryId={queryId}
                         pollResponse={pollResponse}
                         editorKey={editorKey}
+                        handleColumnResize={handleColumnResize}
                     />
                 </BindLogic>
             </div>
@@ -293,10 +399,10 @@ function InternalDataTableVisualization(
                 </div>
                 {showResultControls && (
                     <>
-                        <div className="flex gap-4 justify-between flex-wrap px-px py-2">
-                            <div className="flex gap-4 items-center" />
-                            <div className="flex gap-4 items-center">
-                                <div className="flex gap-4 items-center flex-wrap">
+                        <div className="flex justify-between flex-wrap px-px py-2">
+                            <div className="flex items-center" />
+                            <div className="flex items-center">
+                                <div className="flex gap-2 items-center flex-wrap">
                                     <TableDisplay />
 
                                     <LemonButton
@@ -354,6 +460,7 @@ const Content = ({
     queryId,
     pollResponse,
     editorKey,
+    handleColumnResize,
 }: any): JSX.Element | null => {
     if (activeTab === OutputTab.Results) {
         if (responseError) {
@@ -385,6 +492,7 @@ const Content = ({
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}
                     rows={rows}
+                    onColumnResize={handleColumnResize}
                 />
             </TabScroller>
         )

@@ -16,7 +16,8 @@ export interface ExportButtonItem {
     insight?: number
 }
 
-export interface ExportButtonProps extends Pick<LemonButtonProps, 'disabledReason' | 'icon' | 'type' | 'fullWidth'> {
+export interface ExportButtonProps
+    extends Pick<LemonButtonProps, 'disabledReason' | 'icon' | 'type' | 'fullWidth' | 'size'> {
     items: ExportButtonItem[]
 }
 
