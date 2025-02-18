@@ -17,6 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -25,16 +26,29 @@ import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
 
-function getMathDisplayName(math?: string): string {
-    if (!math) {
-        return 'Total'
+function getDefaultMetricTitle(metric: ExperimentMetric): string {
+    let parts: (string | undefined)[] = []
+    if (metric.metric_config.kind === 'ExperimentEventMetricConfig') {
+        parts = [metric.metric_config.math || 'Total', metric.metric_config.math_property, metric.metric_config.event]
+    } else if (metric.metric_config.kind === 'ExperimentActionMetricConfig') {
+        parts = [
+            metric.metric_config.math || 'Total',
+            metric.metric_config.math_property,
+            metric.metric_config.name || `Action ${metric.metric_config.action}`,
+        ]
     }
-    // Capitalize first letter and add spaces before capital letters
-    return math
-        .toString()
-        .replace(/([A-Z])/g, ' $1')
-        .replace(/^./, (str) => str.toUpperCase())
-        .trim()
+    return (
+        parts
+            .filter(Boolean)
+            .join(' ')
+            // replace underscores with spaces
+            .replace(/_/g, ' ')
+            // add spaces before capital letters
+            .replace(/([A-Z])/g, ' $1')
+            // capitalize first letter
+            .replace(/^./, (str) => str.toUpperCase())
+            .trim()
+    )
 }
 
 function formatTickValue(value: number): string {
@@ -64,15 +78,7 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
     }
 
     if (metric.kind === 'ExperimentMetric') {
-        if (metric.metric_config?.kind === 'ExperimentEventMetricConfig') {
-            const mathName = getMathDisplayName(metric.metric_config.math)
-            const eventName = metric.metric_config.event
-            return (
-                <span className="truncate">{`${mathName} ${
-                    metric.metric_config.math_property ? `${metric.metric_config.math_property} ` : ''
-                }${eventName}`}</span>
-            )
-        }
+        return <span className="truncate">{getDefaultMetricTitle(metric)}</span>
     }
 
     if (metricType === InsightType.TRENDS && metric.count_query?.series?.[0]?.name) {
