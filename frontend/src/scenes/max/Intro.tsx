@@ -62,7 +62,8 @@ export function Intro(): JSX.Element {
             <div className="text-center mb-3">
                 <h2 className="text-xl @md:text-2xl font-bold mb-2 text-balance">{headline}</h2>
                 <div className="text-sm text-secondary text-balance">
-                    I'm Max, here to help you build a successful product. Ask me about your product and your users.
+                    I'm Max, here to help you build a successful&nbsp;product. Ask&nbsp;me about your product and
+                    your&nbsp;users.
                 </div>
             </div>
         </>
