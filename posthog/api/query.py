@@ -53,6 +53,33 @@ from posthog.schema import (
 from typing import cast
 
 
+def _process_query_request(
+    request_data: QueryRequest, team, client_query_id: str | None = None, user=None
+) -> tuple[BaseModel, str, ExecutionMode]:
+    """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
+    query = request_data.query
+
+    if request_data.filters_override is not None:
+        query = apply_dashboard_filters(query, request_data.filters_override, team)
+
+    if request_data.variables_override is not None:
+        query = apply_dashboard_variables(query, request_data.variables_override, team)
+
+    query_id = client_query_id or uuid.uuid4().hex
+    execution_mode = execution_mode_from_refresh(request_data.refresh)
+
+    if request_data.async_:  # TODO: Legacy async, use "refresh=async" instead
+        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+
+    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+        # Here in query endpoint we always want to calculate if the cache is stale
+        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+
+    tag_queries(query=query.model_dump())
+
+    return query, query_id, execution_mode
+
+
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
@@ -69,32 +96,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
-    def _process_query_request(
-        self, request_data: QueryRequest, team, client_query_id: str | None = None, user=None
-    ) -> tuple[BaseModel, str, ExecutionMode]:
-        """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
-        query = request_data.query
-
-        if request_data.filters_override is not None:
-            query = apply_dashboard_filters(query, request_data.filters_override, team)
-
-        if request_data.variables_override is not None:
-            query = apply_dashboard_variables(query, request_data.variables_override, team)
-
-        query_id = client_query_id or uuid.uuid4().hex
-        execution_mode = execution_mode_from_refresh(request_data.refresh)
-
-        if request_data.async_:  # TODO: Legacy async, use "refresh=async" instead
-            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-
-        if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-            # Here in query endpoint we always want to calculate if the cache is stale
-            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-
-        tag_queries(query=query.model_dump())
-
-        return query, query_id, execution_mode
-
     @extend_schema(
         request=QueryRequest,
         responses={
@@ -106,7 +107,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         data = self.get_model(request.data, QueryRequest)
 
         try:
-            query, client_query_id, execution_mode = self._process_query_request(
+            query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
             self._tag_client_query_id(client_query_id)
@@ -122,7 +123,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 result = result.model_dump(by_alias=True)
             response_status = (
                 status.HTTP_202_ACCEPTED
-                if result.get("query_status", {}).get("complete") is False
+                if hasattr(result, "query_status") and result.query_status.complete is False
                 else status.HTTP_200_OK
             )
             return Response(result, status=response_status)
@@ -240,19 +241,17 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
             },
         )
 
-    assert not isinstance(request.user, AnonymousUser)  # just for typing, actual auth check happens above
     try:
         # Get the parsed data from the auth response
         auth_content = json.loads(response.content)
         json_data = auth_content["data"]
         data = QueryRequest.model_validate(json_data)
         team = await Team.objects.aget(pk=auth_content["team_id"])
-        query, client_query_id, execution_mode = QueryViewSet._process_query_request(
-            None,
+        query, client_query_id, execution_mode = _process_query_request(
             data,
             team,
             data.client_query_id,
-            request.user,  # type: ignore
+            request.user,
         )
         if execution_mode in (ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE):
             execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
@@ -261,6 +260,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
 
         # Start the query processing in a background thread
         loop = asyncio.get_event_loop()
+        assert not isinstance(request.user, AnonymousUser)  # just for typing, actual auth check happens above
         query_task = loop.run_in_executor(
             None,
             lambda: process_query_model(
