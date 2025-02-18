@@ -175,7 +175,6 @@ export const FEATURE_FLAGS = {
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
     PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
-    SQL_EDITOR: 'sql-editor', // owner: @EDsCODE #team-data-warehouse
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
@@ -197,7 +196,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
     INSIGHT_FUNNELS_USE_UDF: 'insight-funnels-use-udf', // owner: @aspicer #team-product-analytics
     INSIGHT_FUNNELS_USE_UDF_TRENDS: 'insight-funnels-use-udf-trends', // owner: @aspicer #team-product-analytics
-    MULTITAB_EDITOR: 'multitab-editor', // owner: @EDsCODE #team-data-warehouse
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
