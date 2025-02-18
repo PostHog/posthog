@@ -1,5 +1,6 @@
 import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
+import { heatmapsSettingsLogic } from 'lib/components/heatmaps/heatmapsSettingsLogic'
 import { useMousePosition } from 'lib/components/heatmaps/useMousePosition'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
@@ -11,7 +12,7 @@ function HeatmapMouseInfo({
 }: {
     heatmapJsRef: MutableRefObject<HeatmapJS<'value', 'x', 'y'> | undefined>
 }): JSX.Element | null {
-    const { heatmapTooltipLabel } = useValues(heatmapLogic)
+    const { heatmapTooltipLabel } = useValues(heatmapsSettingsLogic)
 
     const mousePosition = useMousePosition()
     const shiftPressed = useShiftKeyPressed()

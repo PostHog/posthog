@@ -7,12 +7,9 @@ import {
     AuthorizedUrlListType,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
-import {
-    calculateViewportRange,
-    DEFAULT_HEATMAP_FILTERS,
-    PostHogAppToolbarEvent,
-} from 'lib/components/IframedToolbarBrowser/utils'
+import { heatmapsSettingsLogic } from 'lib/components/heatmaps/heatmapsSettingsLogic'
+import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -46,6 +43,18 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 type: AuthorizedUrlListType.TOOLBAR_URLS,
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
+            heatmapsSettingsLogic,
+            ['commonFilters', 'heatmapColorPalette', 'heatmapFilters', 'heatmapFixedPositionMode', 'viewportRange'],
+        ],
+        actions: [
+            heatmapsSettingsLogic,
+            [
+                'patchHeatmapFilters',
+                'setHeatmapColorPalette',
+                'setHeatmapFixedPositionMode',
+                'setCommonFilters',
+                'setContainerWidth',
+            ],
         ],
     }),
 
@@ -60,17 +69,11 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         loadTopUrls: true,
         maybeLoadTopUrls: true,
         loadBrowserSearchResults: true,
-        // TRICKY: duplicated with the heatmapLogic so that we can share the settings picker
-        patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
-        setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
-        setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
-        setCommonFilters: (filters: CommonFilters) => ({ filters }),
-        // TRICKY: duplication ends
-        setIframeWidth: (width: number | null) => ({ width }),
         toggleFilterPanelCollapsed: true,
         setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
         startTrackingLoading: true,
         stopTrackingLoading: true,
+        setIframeWidth: (width: number | null) => ({ width }),
     }),
 
     loaders(({ values }) => ({
@@ -135,38 +138,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 toggleFilterPanelCollapsed: (state) => !state,
             },
         ],
-        // they're called common filters in the toolbar because they're shared between heatmaps and clickmaps
-        // the name is continued here since they're passed down into the embedded iframe
-        commonFilters: [
-            { date_from: '-7d' } as CommonFilters,
-            {
-                setCommonFilters: (_, { filters }) => filters,
-            },
-        ],
-        heatmapColorPalette: [
-            'default' as string | null,
-            {
-                setHeatmapColorPalette: (_, { Palette }) => Palette,
-            },
-        ],
-        heatmapFilters: [
-            DEFAULT_HEATMAP_FILTERS,
-            {
-                patchHeatmapFilters: (state, { filters }) => ({ ...state, ...filters }),
-            },
-        ],
-        heatmapFixedPositionMode: [
-            'fixed' as HeatmapFixedPositionMode,
-            {
-                setHeatmapFixedPositionMode: (_, { mode }) => mode,
-            },
-        ],
-        iframeWidth: [
-            null as number | null,
-            {
-                setIframeWidth: (_, { width }) => width,
-            },
-        ],
         browserSearchTerm: [
             '',
             {
@@ -215,13 +186,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             },
         ],
 
-        viewportRange: [
-            (s) => [s.heatmapFilters, s.iframeWidth],
-            (heatmapFilters, iframeWidth) => {
-                return iframeWidth ? calculateViewportRange(heatmapFilters, iframeWidth) : { min: 0, max: 1800 }
-            },
-        ],
-
         noPageviews: [
             (s) => [s.topUrlsLoading, s.topUrls],
             (topUrlsLoading, topUrls) => !topUrlsLoading && (!topUrls || topUrls.length === 0),
@@ -229,6 +193,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     }),
 
     listeners(({ actions, cache, props, values }) => ({
+        setIframeWidth: ({ width }) => {
+            actions.setContainerWidth(width)
+        },
         setBrowserSearch: async (_, breakpoint) => {
             await breakpoint(200)
             actions.loadBrowserSearchResults()
