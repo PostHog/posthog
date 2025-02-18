@@ -40,6 +40,7 @@ import {
     ExperimentMetricType,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
+    ExperimentVariantFunnelsBaseStats,
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
@@ -1641,20 +1642,40 @@ export const experimentLogic = kea<experimentLogicType>([
                         | null,
                     variantKey: string
                 ): number | null => {
-                    if (!metricResult || !metricResult.insight) {
+                    if (!metricResult) {
                         return null
                     }
-                    const variantResults = (metricResult.insight as FunnelStep[][]).find(
-                        (variantFunnel: FunnelStep[]) => {
-                            const breakdownValue = variantFunnel[0]?.breakdown_value
-                            return Array.isArray(breakdownValue) && breakdownValue[0] === variantKey
-                        }
-                    )
 
-                    if (!variantResults) {
-                        return null
+                    if (
+                        metricResult.kind === NodeKind.ExperimentQuery &&
+                        metricResult.metric.metric_type === ExperimentMetricType.BINOMIAL
+                    ) {
+                        const variantResults = metricResult.variants?.find(
+                            (variant) => variant.key === variantKey
+                        ) as ExperimentVariantFunnelsBaseStats
+
+                        if (!variantResults) {
+                            return null
+                        }
+                        return (
+                            variantResults.success_count / (variantResults.success_count + variantResults.failure_count)
+                        )
+                    } else if (metricResult.kind === NodeKind.ExperimentFunnelsQuery && metricResult.insight) {
+                        const variantResults = (metricResult.insight as FunnelStep[][]).find(
+                            (variantFunnel: FunnelStep[]) => {
+                                const breakdownValue = variantFunnel[0]?.breakdown_value
+                                return Array.isArray(breakdownValue) && breakdownValue[0] === variantKey
+                            }
+                        )
+
+                        if (!variantResults) {
+                            return null
+                        }
+
+                        return variantResults[variantResults.length - 1].count / variantResults[0].count
                     }
-                    return (variantResults[variantResults.length - 1].count / variantResults[0].count) * 100
+
+                    return null
                 },
         ],
         credibleIntervalForVariant: [
