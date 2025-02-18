@@ -105,7 +105,7 @@ async fn main() {
         }
 
         let processed = match handle_events(context.clone(), to_process).await {
-            Ok(event) => event,
+            Ok(events) => events,
             Err((index, e)) => {
                 let offset = &offsets[index];
                 error!("Error handling event: {:?}; offset: {:?}", e, offset);
