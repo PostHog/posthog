@@ -2320,6 +2320,71 @@
             ],
             "type": "object"
         },
+        "CachedExperimentExposureQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "date_range": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentExposureQuery",
+                    "type": "string"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "timeseries": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureTimeSeries"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "total_exposures": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": [
+                "cache_key",
+                "date_range",
+                "is_cached",
+                "kind",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "timeseries",
+                "timezone",
+                "total_exposures"
+            ],
+            "type": "object"
+        },
         "CachedExperimentFunnelsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -6920,6 +6985,75 @@
             "required": ["kind", "event"],
             "type": "object"
         },
+        "ExperimentExposureQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "experiment_id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "kind": {
+                    "const": "ExperimentExposureQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ExperimentExposureQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "ExperimentExposureQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "date_range": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "ExperimentExposureQuery",
+                    "type": "string"
+                },
+                "timeseries": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentExposureTimeSeries"
+                    },
+                    "type": "array"
+                },
+                "total_exposures": {
+                    "additionalProperties": {
+                        "type": "number"
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["kind", "timeseries", "total_exposures", "date_range"],
+            "type": "object"
+        },
+        "ExperimentExposureTimeSeries": {
+            "additionalProperties": false,
+            "properties": {
+                "days": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "exposure_counts": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "variant": {
+                    "type": "string"
+                }
+            },
+            "required": ["variant", "days", "exposure_counts"],
+            "type": "object"
+        },
         "ExperimentFunnelsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -7374,20 +7508,22 @@
         },
         "FileSystemType": {
             "enum": [
-                "feature_flag",
-                "insight",
+                "aichat",
+                "broadcast",
                 "dashboard",
+                "destination",
                 "experiment",
+                "feature_flag",
+                "feature",
+                "folder",
+                "insight",
                 "notebook",
                 "repl",
-                "survey",
-                "sql",
-                "source",
-                "destination",
                 "site_app",
-                "transformation",
-                "folder",
-                "aichat"
+                "source",
+                "sql",
+                "survey",
+                "transformation"
             ],
             "type": "string"
         },
@@ -9829,6 +9965,7 @@
                 "WebVitalsPathBreakdownQuery",
                 "ExperimentMetric",
                 "ExperimentQuery",
+                "ExperimentExposureQuery",
                 "ExperimentEventMetricConfig",
                 "ExperimentActionMetricConfig",
                 "ExperimentDataWarehouseMetricConfig",
@@ -11103,6 +11240,32 @@
                         "p_value",
                         "credible_intervals"
                     ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "date_range": {
+                            "$ref": "#/definitions/DateRange"
+                        },
+                        "kind": {
+                            "const": "ExperimentExposureQuery",
+                            "type": "string"
+                        },
+                        "timeseries": {
+                            "items": {
+                                "$ref": "#/definitions/ExperimentExposureTimeSeries"
+                            },
+                            "type": "array"
+                        },
+                        "total_exposures": {
+                            "additionalProperties": {
+                                "type": "number"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["kind", "timeseries", "total_exposures", "date_range"],
                     "type": "object"
                 },
                 {
@@ -12592,6 +12755,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentQuery"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentExposureQuery"
                 },
                 {
                     "$ref": "#/definitions/WebOverviewQuery"
