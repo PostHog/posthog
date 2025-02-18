@@ -234,6 +234,7 @@ export default function SurveyEdit(): JSX.Element {
         hasBranchingLogic,
         surveyRepeatedActivationAvailable,
         surveyErrors,
+        deviceTypesMatchTypeValidationError,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -785,6 +786,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         </LemonField.Pure>
                                                         <LemonField.Pure
                                                             label="Device Types"
+                                                            error={deviceTypesMatchTypeValidationError}
                                                             info={
                                                                 <>
                                                                     Add the device types to show the survey on. Possible

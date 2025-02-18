@@ -1235,6 +1235,23 @@ export const surveyLogic = kea<surveyLogicType>([
                 return null
             },
         ],
+        deviceTypesMatchTypeValidationError: [
+            (s) => [s.survey],
+            (survey: Survey): string | null => {
+                if (
+                    survey.conditions?.deviceTypesMatchType === SurveyMatchType.Regex &&
+                    survey.conditions.deviceTypes
+                ) {
+                    try {
+                        new RegExp(survey.conditions.deviceTypes?.join('|'))
+                    } catch (e: any) {
+                        return e.message
+                    }
+                }
+                return null
+            },
+        ],
+
         surveyNPSScore: [
             (s) => [s.surveyRatingResults],
             (surveyRatingResults) => {
