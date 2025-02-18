@@ -48,13 +48,22 @@ class TableSerializer(serializers.ModelSerializer):
             "format",
             "created_by",
             "created_at",
+            "is_external",
             "url_pattern",
             "credential",
             "columns",
             "external_data_source",
             "external_schema",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "is_external",
+            "columns",
+            "external_data_source",
+            "external_schema",
+        ]
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
