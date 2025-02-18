@@ -126,6 +126,13 @@ class HostGroup(Generic[K]):
         # TODO: ability to limit concurrency
         return {key: hosts.all(fn) for key, hosts in self.groups.items()}
 
+    def join_any(self, fns: Mapping[K, Callable[[Client], T]]) -> Mapping[K, tuple[HostInfo, Future[T]]]:
+        return {key: self.groups[key].any(fn) for key, fn in fns.items()}
+
+    def join_all(self, fns: Mapping[K, Callable[[Client], T]]) -> Mapping[K, FuturesMap[HostInfo, T]]:
+        # TODO: ability to limit concurrency
+        return {key: self.groups[key].all(fn) for key, fn in fns.items()}
+
 
 class ClickhouseCluster:
     def __init__(
@@ -185,6 +192,7 @@ class ClickhouseCluster:
         self.__pools: dict[HostInfo, ChPool] = {}
         self.__logger = logger
         self.__client_settings = client_settings
+        self.hosts: HostSet
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
@@ -214,20 +222,13 @@ class ClickhouseCluster:
         return hosts
 
     def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
-        with ThreadPoolExecutor() as executor:
-            host = next(iter(self.__hosts))
-            return executor.submit(self.__get_task_function(host, fn))
+        return self.hosts.any(fn)
 
     def any_host_by_role(self, fn: Callable[[Client], T], node_role: NodeRole) -> Future[T]:
         """
         Execute the callable once for any host with the given node role.
         """
-        with ThreadPoolExecutor() as executor:
-            try:
-                host = next(host for host in self.__hosts if host.host_cluster_role == node_role.value.lower())
-            except StopIteration:
-                raise ValueError(f"No hosts found with role {node_role.value}")
-            return executor.submit(self.__get_task_function(host, fn))
+        return self.hosts.filter(lambda host: host.host_cluster_role == node_role).any(fn)
 
     def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
         """
@@ -236,7 +237,7 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        return self.map_hosts_by_role(fn, NodeRole.ALL, concurrency)
+        return self.hosts.all(fn)
 
     def map_hosts_by_role(
         self,
@@ -250,14 +251,7 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {
-                    host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts
-                    if host.host_cluster_role == node_role.value.lower() or node_role == NodeRole.ALL
-                }
-            )
+        return self.hosts.filter(lambda host: host.host_cluster_role == node_role).all(fn)
 
     def map_all_hosts_in_shard(
         self, shard_num: int, fn: Callable[[Client], T], concurrency: int | None = None
@@ -268,10 +262,7 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {host: executor.submit(self.__get_task_function(host, fn)) for host in self.__shards[shard_num]}
-            )
+        return self.hosts.filter(lambda host: host.shard_num == shard_num).all(fn)
 
     def map_all_hosts_in_shards(
         self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
@@ -284,15 +275,7 @@ class ClickhouseCluster:
 
         Wait for all to return before returning upon ``.values()``
         """
-        shard_host_fn = {}
-        for shard, fn in shard_fns.items():
-            for host in self.__shards[shard]:
-                shard_host_fn[host] = fn
-
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {host: executor.submit(self.__get_task_function(host, fn)) for host, fn in shard_host_fn.items()}
-            )
+        return self.hosts.group(lambda host: host.shard_num).join_all(shard_fns)
 
     def map_any_host_in_shards(
         self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
@@ -303,15 +286,7 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        shard_host_fns = {}
-        for shard, fn in shard_fns.items():
-            host = next(iter(self.__shards[shard]))
-            shard_host_fns[host] = fn
-
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap(
-                {host: executor.submit(self.__get_task_function(host, fn)) for host, fn in shard_host_fns.items()}
-            )
+        return self.hosts.group(lambda host: host.shard_num).join_any(shard_fns)
 
     def map_one_host_per_shard(
         self, fn: Callable[[Client], T], concurrency: int | None = None
@@ -322,9 +297,7 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        hosts = {next(iter(shard_hosts)) for shard_hosts in self.__shards.values()}
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in hosts})
+        return self.hosts.group(lambda host: host.shard_num).any(fn)
 
 
 def get_cluster(
