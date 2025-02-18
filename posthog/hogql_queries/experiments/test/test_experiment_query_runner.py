@@ -327,16 +327,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             field_name="subscription_customer",
         )
 
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=subscription_table_name,
-            source_table_key="subscription_customer.customer_email",
-            joining_table_name="events",
-            joining_table_key="person.properties.email",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "subscription_created_at"},
-        )
-
         return subscription_table_name
 
     def create_standard_test_events(self, feature_flag):
