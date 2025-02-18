@@ -312,14 +312,16 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                     formValues={configuration as BatchExportConfigurationForm}
                                 />
                             </div>
-                            <div className="border bg-surface-primary p-3 rounded">
-                                <BatchExportConfigurationTests
-                                    batchExportConfigTest={batchExportConfigTest}
-                                    batchExportConfigTestLoading={batchExportConfigTestLoading}
-                                    runningStep={runningStep}
-                                    runBatchExportConfigTestStep={runBatchExportConfigTestStep}
-                                />
-                            </div>
+                            {batchExportConfigTest && (
+                                <div className="border bg-surface-primary p-3 rounded">
+                                    <BatchExportConfigurationTests
+                                        batchExportConfigTest={batchExportConfigTest}
+                                        batchExportConfigTestLoading={batchExportConfigTestLoading}
+                                        runningStep={runningStep}
+                                        runBatchExportConfigTestStep={runBatchExportConfigTestStep}
+                                    />
+                                </div>
+                            )}
                         </div>
                     </div>
                     <div className="flex gap-2 justify-end">{buttons}</div>
@@ -359,7 +361,7 @@ export function BatchExportConfigurationTests({
     }
 
     if (!batchExportConfigTest) {
-        return <div className="text-center text-gray-500 p-4">No test configuration available</div>
+        return null
     }
 
     const renderStatusIcon = (step, index): JSX.Element => {
