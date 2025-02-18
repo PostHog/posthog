@@ -88,6 +88,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat.choices)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    is_external = models.BooleanField(default=False)
 
     url_pattern = models.CharField(max_length=500)
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)

@@ -1,1 +1,1 @@
-0669_file_system
+0670_datawarehousetable_is_external
