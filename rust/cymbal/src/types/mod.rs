@@ -170,6 +170,26 @@ impl OutputErrProps {
     }
 }
 
+impl Stacktrace {
+    pub fn resolve(&self, lookup_table: &HashMap<String, Frame>) -> Option<Self> {
+        let Stacktrace::Raw { frames } = self else {
+            return Some(self.clone());
+        };
+
+        let mut resolved_frames = Vec::with_capacity(frames.len());
+        for frame in frames {
+            match lookup_table.get(&frame.frame_id()) {
+                Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
+                None => return None,
+            }
+        }
+
+        Some(Stacktrace::Resolved {
+            frames: resolved_frames,
+        })
+    }
+}
+
 #[cfg(test)]
 mod test {
     use common_types::ClickHouseEvent;
