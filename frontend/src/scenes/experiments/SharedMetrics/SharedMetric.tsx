@@ -6,12 +6,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { tagsModel } from '~/models/tagsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 
+import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { LegacySharedFunnelsMetricForm } from './LegacySharedFunnelsMetricForm'
 import { LegacySharedTrendsMetricForm } from './LegacySharedTrendsMetricForm'
-import { SharedExperimentMetricForm } from './SharedExperimentMetricForm'
 import { sharedMetricLogic } from './sharedMetricLogic'
 
 export const scene: SceneExport = {
@@ -128,7 +128,15 @@ export function SharedMetric(): JSX.Element {
                     </div>
                 </div>
                 {sharedMetric.query.kind === NodeKind.ExperimentMetric ? (
-                    <SharedExperimentMetricForm />
+                    <ExperimentMetricForm
+                        metric={sharedMetric.query as ExperimentMetric}
+                        handleSetMetric={({ newMetric }: { newMetric: ExperimentMetric }) => {
+                            setSharedMetric({
+                                ...sharedMetric,
+                                query: newMetric,
+                            })
+                        }}
+                    />
                 ) : sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
                     <LegacySharedTrendsMetricForm />
                 ) : (
