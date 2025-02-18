@@ -123,7 +123,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 result = result.model_dump(by_alias=True)
             response_status = (
                 status.HTTP_202_ACCEPTED
-                if hasattr(result, "query_status") and result.query_status.complete is False
+                if result.get("query_status") and result["query_status"].get("complete") is False
                 else status.HTTP_200_OK
             )
             return Response(result, status=response_status)
@@ -260,7 +260,6 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
 
         # Start the query processing in a background thread
         loop = asyncio.get_event_loop()
-        assert not isinstance(request.user, AnonymousUser)  # just for typing, actual auth check happens above
         query_task = loop.run_in_executor(
             None,
             lambda: process_query_model(
@@ -268,7 +267,9 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                 query=query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
-                user=request.user,
+                user=request.user
+                if not isinstance(request.user, AnonymousUser)
+                else None,  # just for typing, actual auth check happens above
             ),
         )
 
