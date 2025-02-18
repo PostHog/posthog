@@ -686,7 +686,6 @@ posthog/api/test/dashboards/test_dashboard.py:0: error: Value of type variable "
 posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
 posthog/api/test/dashboards/test_dashboard.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "timedelta"  [attr-defined]
-posthog/api/query.py:0: error: Statement is unreachable  [unreachable]
 posthog/api/event.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_add_permission" incompatible with supertype "BaseModelAdmin"  [override]
 posthog/admin/inlines/plugin_attachment_inline.py:0: note: Superclass:
