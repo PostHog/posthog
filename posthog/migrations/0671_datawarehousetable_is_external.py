@@ -10,7 +10,7 @@ def set_is_external(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0669_file_system"),
+        ("posthog", "0670_querytabstate_querytabstate_unique_team_created_by"),
     ]
 
     operations = [
