@@ -41,44 +41,65 @@ let RDT_ALLOWED_EVENT_NAMES := [
     'Custom',
 ];
 
-let eventName := inputs.eventType;
 
-let eventProperties := {}
+let eventProperties := {};
 for (let key, value in inputs.customData) {
     if (not empty(value)) {
-        eventProperties[key] := value
+        eventProperties[key] := value;
     }
 }
 eventProperties.conversion_id := inputs.eventId;
 
-let userProperties := {}
+let userProperties := {};
 for (let key, value in inputs.userData) {
     if (not empty(value)) {
-        userProperties[key] := value
+        userProperties[key] := value;
     }
 }
 
-if (not has(RDT_ALLOWED_EVENT_NAMES, eventName)) {
-    eventName := 'Custom';
-    eventProperties.customEventName := inputs.eventType;
+let eventType := {'tracking_type': inputs.eventType};
+if (not has(RDT_ALLOWED_EVENT_NAMES, inputs.eventType)) {
+    eventType.tracking_type := 'Custom';
+    eventType.custom_event_name := inputs.eventType;
 }
 
 let event := {
-    'event_at': inputs.eventTime,
-    'event_name': eventName,
+    'event_at': toDateTime(inputs.eventTime),
+    'event_type': eventType,
     'user': userProperties,
     'event_metadata': eventProperties,
 };
 
-let events:= [event];
+let events := [event];
+
+let body := {
+    'test_mode': true,
+    'events': events,
+};
+
+let url := f'https://ads-api.reddit.com/api/v2.0/conversions/events/{inputs.accountId}';
+let userAgent := 'hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)';
+
+let res := fetch(url, {
+    'method': 'POST',
+    'headers': {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {inputs.conversionsAccessToken}',
+        'User-Agent': userAgent,
+    },
+    'body': body
+});
+if (res.status >= 400) {
+    throw Error(f'Error from https://ads-api.reddit.com (status {res.status}): {res.body}')
+}
 
 """.strip(),
     inputs_schema=[
         {
-            "key": "pixelId",
+            "key": "accountId",
             "type": "string",
-            "label": "Pixel ID",
-            "description": "You must obtain a Pixel ID to use the Reddit Pixel. If you've already set up a Pixel for your website, we recommend that you use the same Pixel ID for your browser and server events.",
+            "label": "Reddit Ads account ID",
+            "description": "The ID of the Reddit Ads account that the conversion event belongs to. Your account ID may or may not contain the t2_ prefix.",  # this is copied verbatim from https://ads-api.reddit.com/docs/v2/#section/Best-practices
             "default": "",
             "secret": False,
             "required": True,
