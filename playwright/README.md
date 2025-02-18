@@ -1,6 +1,6 @@
 # End to End Testing
 
-## 1. `/e2e/` directory contains all the end-to-end tests.
+`/e2e/` directory contains all the end-to-end tests.
 
 ### to run the old cypress tests, run the following command:
 
@@ -21,5 +21,3 @@ NB there are some differences between a running dev instance and the instance st
 ```bash
 LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http://localhost:8010' pnpm exec playwright test --ui
 ```
-
-## 2. /`e2e-vrt/` directory contains all the end-to-end visual regression tests.

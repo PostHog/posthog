@@ -234,6 +234,7 @@ export default function SurveyEdit(): JSX.Element {
         hasBranchingLogic,
         surveyRepeatedActivationAvailable,
         surveyErrors,
+        deviceTypesMatchTypeValidationError,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -785,6 +786,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         </LemonField.Pure>
                                                         <LemonField.Pure
                                                             label="Device Types"
+                                                            error={deviceTypesMatchTypeValidationError}
                                                             info={
                                                                 <>
                                                                     Add the device types to show the survey on. Possible
@@ -818,22 +820,45 @@ export default function SurveyEdit(): JSX.Element {
                                                                         })
                                                                     )}
                                                                 />
-                                                                <PropertyValue
-                                                                    propertyKey={getPropertyKey(
-                                                                        'Device Type',
-                                                                        TaxonomicFilterGroupType.EventProperties
-                                                                    )}
-                                                                    type={PropertyFilterType.Event}
-                                                                    onSet={(deviceTypes: string[]) =>
-                                                                        onChange({
-                                                                            ...value,
-                                                                            deviceTypes: deviceTypes,
-                                                                        })
-                                                                    }
-                                                                    operator={PropertyOperator.Exact}
-                                                                    value={value?.deviceTypes}
-                                                                    inputClassName="flex-1"
-                                                                />
+                                                                {[
+                                                                    SurveyMatchType.Regex,
+                                                                    SurveyMatchType.NotRegex,
+                                                                ].includes(
+                                                                    value?.deviceTypesMatchType ||
+                                                                        SurveyMatchType.Contains
+                                                                ) ? (
+                                                                    <LemonInput
+                                                                        value={value?.deviceTypes?.join('|')}
+                                                                        onChange={(deviceTypesVal) =>
+                                                                            onChange({
+                                                                                ...value,
+                                                                                deviceTypes: [deviceTypesVal],
+                                                                            })
+                                                                        }
+                                                                        // regex placeholder for device type
+                                                                        className="flex-1"
+                                                                        placeholder="ex: Desktop|Mobile"
+                                                                    />
+                                                                ) : (
+                                                                    <PropertyValue
+                                                                        propertyKey={getPropertyKey(
+                                                                            'Device Type',
+                                                                            TaxonomicFilterGroupType.EventProperties
+                                                                        )}
+                                                                        type={PropertyFilterType.Event}
+                                                                        onSet={(deviceTypes: string | string[]) => {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                deviceTypes: Array.isArray(deviceTypes)
+                                                                                    ? deviceTypes
+                                                                                    : [deviceTypes],
+                                                                            })
+                                                                        }}
+                                                                        operator={PropertyOperator.Exact}
+                                                                        value={value?.deviceTypes}
+                                                                        inputClassName="flex-1"
+                                                                    />
+                                                                )}
                                                             </div>
                                                         </LemonField.Pure>
                                                         <LemonField.Pure label="CSS selector matches:">

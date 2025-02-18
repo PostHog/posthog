@@ -228,6 +228,17 @@ class MaxChatViewSet(viewsets.ViewSet):
                 django_logger.error(f"✨🦔 Error preparing API headers: {str(e)}", exc_info=True)
                 raise
 
+            # Check token count before sending
+            count = client.messages.count_tokens(
+                messages=messages,
+                model="claude-3-5-sonnet-20241022",
+                system=system_prompt,
+                tools=tools,  # Include same tools as in create()
+            )
+
+            if count.input_tokens > 190000:  # Safe buffer below 200k limit
+                messages = [messages[0], messages[-1]]  # Keep first and last messages
+
             # Use with_raw_response to get access to headers
             raw_response = client.messages.with_raw_response.create(
                 model="claude-3-5-sonnet-20241022",
