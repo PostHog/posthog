@@ -424,10 +424,19 @@ class MutationRunner:
         hosts within the affected shards.
         """
         if shards is not None:
-            shard_mutations = cluster.map_any_host_in_shards({shard: self.enqueue for shard in shards})
+            shard_host_mutations = cluster.map_any_host_in_shards({shard: self.enqueue for shard in shards})
         else:
-            shard_mutations = cluster.map_one_host_per_shard(self.enqueue)
+            shard_host_mutations = cluster.map_one_host_per_shard(self.enqueue)
+
+        # XXX: need to convert the `shard_num` of type `int | None` to `int` to appease the type checker -- but nothing
+        # should have actually been filtered out, since we're using the cluster shard functions for targeting
+        shard_mutations = {
+            host.shard_num: mutations
+            for host, mutations in shard_host_mutations.result().items()
+            if host.shard_num is not None
+        }
+        assert len(shard_mutations) == len(shard_host_mutations)
 
         cluster.map_all_hosts_in_shards(
-            {shard_host.shard_num: mutation.wait for shard_host, mutation in shard_mutations.result().items()}
+            {shard_num: mutation.wait for shard_num, mutation in shard_mutations.items()}
         ).result()
