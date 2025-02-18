@@ -2069,7 +2069,11 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
+<<<<<<< HEAD
          AND "posthog_team"."project_id" = 520)
+=======
+         AND "posthog_team"."project_id" = 517)
+>>>>>>> origin/master
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_cohorts_and_nested_cohorts.1
@@ -2115,7 +2119,11 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
+<<<<<<< HEAD
   WHERE "posthog_grouptypemapping"."project_id" = 520
+=======
+  WHERE "posthog_grouptypemapping"."project_id" = 517
+>>>>>>> origin/master
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags.1
