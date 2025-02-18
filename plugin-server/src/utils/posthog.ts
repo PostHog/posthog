@@ -9,7 +9,7 @@ export const posthog = new PostHog('sTMFPsFhdP1Ssg', {
     enableExceptionAutocapture: true,
 })
 
-if (process.env.NODE_ENV === 'test') {
+if (process.env.NODE_ENV && ['test', 'development'].includes(process.env.NODE_ENV)) {
     void posthog.disable()
 }
 

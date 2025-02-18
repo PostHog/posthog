@@ -4770,7 +4770,11 @@ export type HogFunctionType = {
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated'
-export type HogFunctionSubTemplateIdType = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
+export type HogFunctionSubTemplateIdType =
+    | 'early-access-feature-enrollment'
+    | 'survey-response'
+    | 'activity-log'
+    | 'error-tracking'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

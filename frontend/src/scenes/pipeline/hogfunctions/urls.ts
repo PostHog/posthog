@@ -7,6 +7,8 @@ export function hogFunctionNewUrl(type: HogFunctionTypeType, template?: string):
         ? urls.messagingProviderNew(template)
         : type === 'broadcast'
         ? urls.messagingBroadcastNew()
+        : type === 'internal_destination' && template?.includes('error-tracking')
+        ? urls.errorTrackingConfiguration()
         : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(type), template ? `hog-${template}` : undefined)
 }
 
