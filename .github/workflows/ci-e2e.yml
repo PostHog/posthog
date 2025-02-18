@@ -74,8 +74,8 @@ jobs:
                     exit 0
                   fi
 
-                  # 1. Chunk these filenames in groups of 3, then join each group with commas
-                  chunked=$(echo "$files" | xargs -n3 | sed 's/ /,/g')
+                  # 1. Chunk these filenames in groups of 2, then join each group with commas
+                  chunked=$(echo "$files" | xargs -n2 | sed 's/ /,/g')
 
                   # 2. Convert each line into a JSON string, then produce a SINGLE-LINE JSON array
                   #    Use `-c` for "compact" (no extra newlines).
