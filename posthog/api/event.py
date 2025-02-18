@@ -35,6 +35,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.utils import convert_property_value, flatten
+from posthog.hogql.property_utils import create_property_conditions
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 
@@ -321,48 +322,10 @@ class EventViewSet(
                         property_values = (
                             json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
                         )
-                        if isinstance(property_values, list):
-                            # Convert all values to strings for consistent comparison
-                            value_conditions: list[ast.Expr] = [
-                                ast.CompareOperation(
-                                    op=ast.CompareOperationOp.Eq,
-                                    left=ast.Call(
-                                        name="toString", args=[ast.Field(chain=["properties", property_key])]
-                                    ),
-                                    right=ast.Constant(
-                                        value=str(value).lower()
-                                    ),  # Convert to lowercase for consistent comparison
-                                )
-                                for value in property_values
-                            ]
-                            if len(value_conditions) > 1:
-                                conditions.append(ast.Or(exprs=value_conditions))
-                            else:
-                                conditions.append(value_conditions[0])
-                        else:
-                            # If JSON but not array, treat as single value
-                            conditions.append(
-                                ast.CompareOperation(
-                                    op=ast.CompareOperationOp.Eq,
-                                    left=ast.Call(
-                                        name="toString", args=[ast.Field(chain=["properties", property_key])]
-                                    ),
-                                    right=ast.Constant(
-                                        value=str(property_values).lower()
-                                    ),  # Convert to lowercase for consistent comparison
-                                )
-                            )
+                        conditions.append(create_property_conditions(property_key, property_values))
                     except json.JSONDecodeError:
                         # If not JSON, treat as single value
-                        conditions.append(
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Call(name="toString", args=[ast.Field(chain=["properties", property_key])]),
-                                right=ast.Constant(
-                                    value=str(param_value).lower()
-                                ),  # Convert to lowercase for consistent comparison
-                            )
-                        )
+                        conditions.append(create_property_conditions(property_key, param_value))
 
             if event_names and len(event_names) > 0:
                 event_conditions: list[ast.Expr] = [
