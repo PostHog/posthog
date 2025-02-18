@@ -829,7 +829,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.models.event.query_event_list.insight_query_with_columns")
     def test_optimize_query(self, patch_query_with_columns):
-        #  For ClickHouse we normally only query the last day,
+        # For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
         patch_query_with_columns.return_value = [
             {
@@ -863,7 +863,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.models.event.query_event_list.insight_query_with_columns", wraps=insight_query_with_columns)
     def test_optimize_query_with_bounded_dates(self, patch_query_with_columns):
-        #  For ClickHouse we normally only query the last day,
+        # For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
 
         _create_event(
