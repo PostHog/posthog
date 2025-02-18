@@ -427,7 +427,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             tiles,
             key=lambda tile: (
                 tile.layouts.get("xs", {}).get("y", 0),
-                tile.layouts.get("xs", {}).get("x", {}),
+                tile.layouts.get("xs", {}).get("x", 0),
             ),
         )
 
