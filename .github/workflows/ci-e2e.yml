@@ -230,7 +230,7 @@ jobs:
               with:
                   config-file: cypress.e2e.config.ts
                   spec: ${{ matrix.chunk }}
-                  install: false
+                  install-command: 'pnpm --filter=@posthog/cypress... install --frozen-lockfile'
                   # We were seeing suprising crashes in headless mode
                   # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
                   headed: true
