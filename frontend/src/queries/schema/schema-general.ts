@@ -48,10 +48,10 @@ export { ChartDisplayCategory }
  * This file acts as the source of truth for:
  *
  * - frontend/src/queries/schema.json
- *   - generated from typescript via "pnpm run schema:build:json"
+ *   - generated from typescript via "pnpm --filter=@posthog/frontend run schema:build:json"
  *
  * - posthog/schema.py
- *   - generated from json the above json via "pnpm run schema:build:python"
+ *   - generated from json the above json via "pnpm -w run schema:build:python"
  * */
 
 export enum NodeKind {
@@ -101,6 +101,7 @@ export enum NodeKind {
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
+    ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
     ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
@@ -167,6 +168,7 @@ export type QuerySchema =
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | ExperimentQuery
+    | ExperimentExposureQuery
 
     // Web Analytics + Web Vitals
     | WebOverviewQuery
@@ -1466,6 +1468,20 @@ export type CustomEventConversionGoal = {
     customEventName: string
 }
 export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
+export type WebAnalyticsOrderByDirection = 'ASC' | 'DESC'
+export enum WebAnalyticsOrderByFields {
+    Visitors = 'Visitors',
+    Views = 'Views',
+    Clicks = 'Clicks',
+    BounceRate = 'BounceRate',
+    AverageScrollPercentage = 'AverageScrollPercentage',
+    ScrollGt80Percentage = 'ScrollGt80Percentage',
+    TotalConversions = 'TotalConversions',
+    UniqueConversions = 'UniqueConversions',
+    ConversionRate = 'ConversionRate',
+    ConvertingUsers = 'ConvertingUsers',
+}
+export type WebAnalyticsOrderBy = [WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
@@ -1478,6 +1494,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     }
     filterTestAccounts?: boolean
     includeRevenue?: boolean
+    orderBy?: WebAnalyticsOrderBy
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }
@@ -1714,20 +1731,22 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
 export type FileSystemType =
-    | 'feature_flag'
-    | 'insight'
+    | 'aichat'
+    | 'broadcast'
     | 'dashboard'
+    | 'destination'
     | 'experiment'
+    | 'feature_flag'
+    | 'feature'
+    | 'folder'
+    | 'insight'
     | 'notebook'
     | 'repl'
-    | 'survey'
-    | 'sql'
-    | 'source'
-    | 'destination'
     | 'site_app'
+    | 'source'
+    | 'sql'
+    | 'survey'
     | 'transformation'
-    | 'folder'
-    | 'aichat'
 
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
@@ -1865,9 +1884,9 @@ export interface ExperimentActionMetricConfig {
 export interface ExperimentDataWarehouseMetricConfig {
     kind: NodeKind.ExperimentDataWarehouseMetricConfig
     table_name: string
-    id_field: string
-    distinct_id_field: string
     timestamp_field: string
+    exposure_identifier_field: string
+    after_exposure_identifier_field: string
     math?: ExperimentMetricMath
     math_hogql?: string
     math_property?: string
@@ -1878,6 +1897,11 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     metric: ExperimentMetric
     experiment_id?: integer
     name?: string
+}
+
+export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
+    kind: NodeKind.ExperimentExposureQuery
+    experiment_id?: integer
 }
 
 export interface ExperimentQueryResponse {
@@ -1893,7 +1917,22 @@ export interface ExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
+export interface ExperimentExposureTimeSeries {
+    variant: string
+    days: string[]
+    exposure_counts: number[]
+}
+
+export interface ExperimentExposureQueryResponse {
+    kind: NodeKind.ExperimentExposureQuery
+    timeseries: ExperimentExposureTimeSeries[]
+    total_exposures: Record<string, number>
+    date_range: DateRange
+}
+
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
+
+export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
 
 /**
  * @discriminator kind
