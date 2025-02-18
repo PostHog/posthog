@@ -77,7 +77,7 @@ export function QuestionSuggestions(): JSX.Element {
                                 size="xsmall"
                                 type="secondary"
                                 icon={<IconGear />}
-                                tooltip="Edit product description"
+                                tooltip="Edit Max's memory"
                             />
                         </div>
                     </>
