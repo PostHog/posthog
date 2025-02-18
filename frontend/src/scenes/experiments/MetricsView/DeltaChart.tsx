@@ -75,7 +75,7 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
     return <span className="text-secondary truncate">Untitled metric</span>
 }
 
-function generateViolinPath(x1: number, x2: number, y: number, height: number, deltaX: number): string {
+export function generateViolinPath(x1: number, x2: number, y: number, height: number, deltaX: number): string {
     // Create points for the violin curve
     const points: [number, number][] = []
     const steps = 20
