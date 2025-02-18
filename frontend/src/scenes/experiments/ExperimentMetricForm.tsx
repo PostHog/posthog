@@ -1,4 +1,3 @@
-import { useActions, useValues } from 'kea'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -7,30 +6,27 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
-import { commonActionFilterProps } from '../Metrics/Selectors'
-import { filterToMetricConfig, metricConfigToFilter, metricToQuery } from '../utils'
-import { sharedMetricLogic } from './sharedMetricLogic'
+import { commonActionFilterProps } from './Metrics/Selectors'
+import { filterToMetricConfig, metricConfigToFilter, metricToQuery } from './utils'
 
-export function SharedExperimentMetricForm(): JSX.Element {
-    const { sharedMetric } = useValues(sharedMetricLogic)
-    const { setSharedMetric } = useActions(sharedMetricLogic)
-
-    if (!sharedMetric?.query) {
-        return <></>
-    }
-
+export function ExperimentMetricForm({
+    metric,
+    handleSetMetric,
+}: {
+    metric: ExperimentMetric
+    handleSetMetric: any
+}): JSX.Element {
     return (
         <div className="space-y-4">
             <div>
                 <h4 className="mb-2">Metric type</h4>
                 <LemonRadio
                     data-attr="metrics-selector"
-                    value={sharedMetric.query.metric_type}
+                    value={metric.metric_type}
                     onChange={(newMetricType: ExperimentMetricType) => {
-                        setSharedMetric({
-                            ...sharedMetric,
-                            query: {
-                                ...sharedMetric.query,
+                        handleSetMetric({
+                            newMetric: {
+                                ...metric,
                                 metric_type: newMetricType,
                             },
                         })
@@ -52,16 +48,15 @@ export function SharedExperimentMetricForm(): JSX.Element {
             </div>
             <ActionFilter
                 bordered
-                filters={metricConfigToFilter(sharedMetric.query.metric_config)}
+                filters={metricConfigToFilter(metric.metric_config)}
                 setFilters={({ actions, events }: Partial<FilterType>): void => {
                     // We only support one event/action for experiment metrics
                     const entity = events?.[0] || actions?.[0]
                     const metricConfig = filterToMetricConfig(entity)
                     if (metricConfig) {
-                        setSharedMetric({
-                            ...sharedMetric,
-                            query: {
-                                ...sharedMetric.query,
+                        handleSetMetric({
+                            newMetric: {
+                                ...metric,
                                 metric_config: metricConfig,
                             },
                         })
@@ -79,7 +74,7 @@ export function SharedExperimentMetricForm(): JSX.Element {
             <Query
                 query={{
                     kind: NodeKind.InsightVizNode,
-                    source: metricToQuery(sharedMetric.query as ExperimentMetric),
+                    source: metricToQuery(metric),
                     showTable: false,
                     showLastComputation: true,
                     showLastComputationRefresh: false,
