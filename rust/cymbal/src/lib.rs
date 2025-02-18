@@ -100,6 +100,10 @@ pub async fn handle_events(
                 });
                 frame_resolve_handles.insert(id, handle);
             }
+
+            // Put the frames back on the exception, now that we're done mutating them until we've
+            // gathered our lookup table.
+            exception.stack = Some(Stacktrace::Raw { frames });
         }
     }
 
