@@ -54,7 +54,7 @@ export default defineConfig({
                 },
             } as any)
 
-            // @ts-expect-error -- ignore errors in options type
+            // @ts-expect-error - ignore errors in options type
             on('file:preprocessor', webpackPreprocessor(options))
             try {
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
