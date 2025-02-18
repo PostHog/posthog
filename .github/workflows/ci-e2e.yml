@@ -63,7 +63,22 @@ jobs:
 
             - name: Group spec files into chunks of three
               id: chunk
-              run: cd cypress && echo "chunks=$(ls e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(2) | join("\n")' | jq --slurp -c .)" >> $GITHUB_OUTPUT
+              run: |
+                  cd cypress
+                  # Grab all .cy.ts files in e2e/
+                  files=$(ls e2e/*.cy.ts || true)
+
+                  # If no files exist, handle that gracefully:
+                  if [ -z "$files" ]; then
+                    echo "chunks=[]" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
+                  # Chunk these filenames in groups of 3, then join each group with commas
+                  chunked=$(echo "$files" | xargs -n3 | sed 's/ /,/g')
+
+                  # Convert each line into a JSON string, then produce a JSON array
+                  echo "chunks=$(echo "$chunked" | jq -R . | jq -s .)" >> $GITHUB_OUTPUT
 
     container:
         name: Build and cache container image

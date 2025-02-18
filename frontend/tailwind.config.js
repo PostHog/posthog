@@ -319,13 +319,14 @@ const deprecatedColors = {
 
 const config = {
     content: [
-        './src/**/*.{ts,tsx}',
+        // Starting all paths with '.." to share this between frontend/ and cypress/
+        '../frontend/src/**/*.{ts,tsx}',
         '../ee/frontend/**/*.{ts,tsx}',
-        './src/index.html',
+        '../frontend/src/index.html',
         '../products/**/frontend/**/*.{ts,tsx}',
         '../common/**/src/**/*.{ts,tsx}',
         '../common/**/frontend/**/*.{ts,tsx}',
-        '!./src/**/*Type.ts',
+        '!../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
     important: true,
