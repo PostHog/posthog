@@ -90,7 +90,12 @@ export function WebVitals(props: {
             <div className="flex flex-col sm:flex-row gap-2 p-4 bg-surface-secondary">
                 <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} />
                 <div className="flex flex-col flex-1">
-                    <Query query={webVitalsMetricQuery} readOnly embedded />
+                    <Query
+                        query={webVitalsMetricQuery}
+                        readOnly
+                        embedded
+                        context={{ renderEmptyStateAsSkeleton: true }}
+                    />
 
                     <div className="flex w-full justify-end">
                         <LemonButton
