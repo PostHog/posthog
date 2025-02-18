@@ -37,6 +37,7 @@ export default defineConfig({
     retries: { runMode: 3 },
     e2e: {
         supportFile: path.join(__dirname, 'support/e2e.ts'),
+        fixturesFolder: path.join(__dirname, 'fixtures'),
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.
         setupNodeEvents(on, config) {
