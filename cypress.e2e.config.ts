@@ -1,13 +1,13 @@
 import { defineConfig } from 'cypress'
 import { createClient } from 'redis'
-import * as webpackPreprocessor from '@cypress/webpack-preprocessor'
+import webpackPreprocessor from '@cypress/webpack-preprocessor'
 import { PNG } from 'pngjs'
-import * as pixelmatch from 'pixelmatch'
-import * as fs from 'fs'
-import * as path from 'path'
-import { createEntry } from '../frontend/webpack.config'
+import pixelmatch from 'pixelmatch'
+import fs from 'fs'
+import path from 'path'
+import { createEntry } from './webpack.config'
 
-const downloadDirectory = path.join(__dirname, '..', '..', 'downloads')
+const downloadDirectory = path.join(__dirname, '..', 'downloads')
 
 const checkFileDownloaded = async (filename: string, timeout: number, delayMs = 10): Promise<string | undefined> => {
     const start = Date.now()
@@ -36,8 +36,6 @@ export default defineConfig({
     scrollBehavior: 'center',
     retries: { runMode: 3 },
     e2e: {
-        supportFile: path.join(__dirname, 'support/e2e.ts'),
-        fixturesFolder: path.join(__dirname, 'fixtures'),
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.
         setupNodeEvents(on, config) {
@@ -48,13 +46,13 @@ export default defineConfig({
                 watchOptions: {},
             }
             options.webpackOptions.module.rules.push({
-                test: /\.m?js$/,
-                resolve: {
-                    fullySpecified: false,
-                },
-            } as any)
+  test: /\.m?js$/,
+  resolve: {
+    fullySpecified: false,
+  },
+} as any)
 
-            // @ts-expect-error - ignore errors in options type
+            // @ts-expect-error -- ignore errors in options type
             on('file:preprocessor', webpackPreprocessor(options))
             try {
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -132,7 +130,7 @@ export default defineConfig({
             return config
         },
         baseUrl: 'http://localhost:8000',
-        specPattern: 'e2e/**/*.{js,jsx,ts,tsx}',
+        specPattern: 'cypress/e2e/**/*.{js,jsx,ts,tsx}',
         chromeWebSecurity: false,
     },
 })

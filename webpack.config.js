@@ -33,13 +33,13 @@ function createEntry(entry) {
                     ? 'source-map'
                     : 'inline-source-map',
         entry: {
-            [entry]: entry === 'main' || entry === 'cypress' ? './src/index.tsx' : null,
+            [entry]: entry === 'main' || entry === 'cypress' ? './frontend/src/index.tsx' : null,
         },
         watchOptions: {
             ignored: /node_modules/,
         },
         output: {
-            path: path.resolve(__dirname, 'dist'),
+            path: path.resolve(__dirname, 'frontend', 'dist'),
             chunkFilename: '[name].[contenthash].js',
             publicPath: process.env.JS_URL
                 ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
@@ -50,20 +50,20 @@ function createEntry(entry) {
         resolve: {
             extensions: ['.js', '.jsx', '.ts', '.tsx'],
             alias: {
-                '~': path.resolve(__dirname, 'src'),
-                lib: path.resolve(__dirname, 'src', 'lib'),
-                scenes: path.resolve(__dirname, 'src', 'scenes'),
-                '@posthog/lemon-ui': path.resolve(__dirname, '@posthog', 'lemon-ui', 'src'),
+                '~': path.resolve(__dirname, 'frontend', 'src'),
+                lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
+                scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
+                '@posthog/lemon-ui': path.resolve(__dirname, 'frontend', '@posthog', 'lemon-ui', 'src'),
                 '@posthog/ee/exports': [
-                    path.resolve(__dirname, '..', 'ee', 'frontend', 'exports'),
-                    path.resolve(__dirname, '@posthog', 'ee', 'exports'),
+                    path.resolve(__dirname, 'ee', 'frontend', 'exports'),
+                    path.resolve(__dirname, 'frontend', '@posthog', 'ee', 'exports'),
                 ],
                 storybook: path.resolve(__dirname, '.storybook'),
-                types: path.resolve(__dirname, 'types'),
-                public: path.resolve(__dirname, 'public'),
-                cypress: path.resolve(__dirname, '..', 'cypress'),
+                types: path.resolve(__dirname, 'frontend', 'types'),
+                public: path.resolve(__dirname, 'frontend', 'public'),
+                cypress: path.resolve(__dirname, 'cypress'),
                 process: 'process/browser',
-                products: path.resolve(__dirname, '..', 'products'),
+                products: path.resolve(__dirname, 'products'),
             },
             fallback: { "crypto": require.resolve("crypto-browserify"), "stream": require.resolve("stream-browserify") }
         },
@@ -166,7 +166,7 @@ function createEntry(entry) {
         ...(entry === 'main'
             ? {
                 devServer: {
-                    contentBase: path.join(__dirname, 'dist'),
+                    contentBase: path.join(__dirname, 'frontend', 'dist'),
                     hot: true,
                     host: webpackDevServerHost,
                     port: 8234,
@@ -192,7 +192,7 @@ function createEntry(entry) {
                     new HtmlWebpackPlugin({
                         alwaysWriteToDisk: true,
                         title: 'PostHog',
-                        template: path.join(__dirname, 'src', 'index.html'),
+                        template: path.join(__dirname, 'frontend', 'src', 'index.html'),
                     }),
 
                     new HtmlWebpackPlugin({
@@ -200,7 +200,7 @@ function createEntry(entry) {
                         title: 'PostHog',
                         filename: 'layout.html',
                         inject: false,
-                        template: path.join(__dirname, 'src', 'layout.ejs'),
+                        template: path.join(__dirname, 'frontend', 'src', 'layout.ejs'),
                     }),
                     new HtmlWebpackHarddiskPlugin(),
                 ]

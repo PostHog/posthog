@@ -87,38 +87,37 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/playwright... install --frozen-lockfile
+              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend prettier:check
+              run: pnpm prettier:check
 
             - name: Lint with Stylelint
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend lint:css
+              run: pnpm lint:css
 
             - name: Generate logic types and run typescript with strict
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend typegen:write && pnpm --filter=@posthog/frontend typescript:check
+              run: pnpm typegen:write && pnpm typescript:check
 
             - name: Lint with ESLint
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend lint:js
+              run: pnpm lint:js
 
             - name: Check if "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+              run: pnpm schema:build:json && git diff --exit-code
 
             - name: Check if mobile replay "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
+              run: pnpm mobile-replay:schema:build:json && git diff --exit-code
 
             - name: Check toolbar bundle size
               if: needs.changes.outputs.frontend == 'true'
               uses: preactjs/compressed-size-action@v2
               with:
-                  build-script: '--filter=@posthog/frontend build'
-                  install-script: 'pnpm --filter=@posthog/frontend... install'
+                  build-script: 'build'
                   compression: 'none'
                   pattern: 'frontend/dist/toolbar.js'
                   # we only care if the toolbar will increase a lot
@@ -157,11 +156,11 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: pnpm --filter=@posthog/frontend test:unit --maxWorkers=2 --shard=${{ matrix.chunk }}/3
+              run: pnpm test:unit --maxWorkers=2 --shard=${{ matrix.chunk }}/3
               if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=6144

@@ -319,14 +319,12 @@ const deprecatedColors = {
 
 const config = {
     content: [
-        // Starting all paths with '.." to share this between frontend/ and cypress/
-        '../frontend/src/**/*.{ts,tsx}',
-        '../ee/frontend/**/*.{ts,tsx}',
-        '../frontend/src/index.html',
-        '../products/**/frontend/**/*.{ts,tsx}',
-        '../common/**/src/**/*.{ts,tsx}',
-        '../common/**/frontend/**/*.{ts,tsx}',
-        '!../frontend/src/**/*Type.ts',
+        './frontend/src/**/*.{ts,tsx}',
+        './ee/frontend/**/*.{ts,tsx}',
+        './frontend/src/index.html',
+        './products/**/frontend/**/*.{ts,tsx}',
+        './common/**/src/**/*.{ts,tsx}',
+        './common/**/frontend/**/*.{ts,tsx}',
     ],
     darkMode: ['selector', '[theme="dark"]'],
     important: true,
@@ -334,7 +332,7 @@ const config = {
         colors: {
             red: {
                 50: 'var(--color-red-50)',
-                100: 'var(--color-red-100)',
+                100: 'var(--color-red-100)', 
                 200: 'var(--color-red-200)',
                 300: 'var(--color-red-300)',
                 400: 'var(--color-red-400)',
@@ -348,7 +346,7 @@ const config = {
             orange: {
                 50: 'var(--color-orange-50)',
                 100: 'var(--color-orange-100)',
-                200: 'var(--color-orange-200)',
+                200: 'var(--color-orange-200)', 
                 300: 'var(--color-orange-300)',
                 400: 'var(--color-orange-400)',
                 500: 'var(--color-orange-500)',
@@ -362,7 +360,7 @@ const config = {
                 50: 'var(--color-amber-50)',
                 100: 'var(--color-amber-100)',
                 200: 'var(--color-amber-200)',
-                300: 'var(--color-amber-300)',
+                300: 'var(--color-amber-300)', 
                 400: 'var(--color-amber-400)',
                 500: 'var(--color-amber-500)',
                 600: 'var(--color-amber-600)',
@@ -376,7 +374,7 @@ const config = {
                 100: 'var(--color-yellow-100)',
                 200: 'var(--color-yellow-200)',
                 300: 'var(--color-yellow-300)',
-                400: 'var(--color-yellow-400)',
+                400: 'var(--color-yellow-400)', 
                 500: 'var(--color-yellow-500)',
                 600: 'var(--color-yellow-600)',
                 700: 'var(--color-yellow-700)',
@@ -620,7 +618,7 @@ const config = {
             },
             black: 'var(--color-black)',
             white: 'var(--color-white)',
-
+            
         },
         extend: {
             colors: {
@@ -628,7 +626,7 @@ const config = {
                 // TODO: Move all colors over to Tailwind
                 // Currently color utility classes are still generated with SCSS in colors.scss due to relying on our color
                 // CSS vars in lots of stylesheets
-
+    
                 // purple: '#B62AD9',
                 'primary-highlight': 'var(--primary-highlight)',
             },
@@ -664,7 +662,7 @@ const config = {
             },
             textColor: {
                 ...commonColors,
-
+                
                 'primary': 'var(--text-primary)',
                 'primary-inverse': 'var(--text-primary-inverse)',
                 'secondary': 'var(--text-secondary)',
@@ -679,7 +677,7 @@ const config = {
             },
             borderColor: {
                 ...commonColors,
-
+    
                 'primary': 'var(--border-primary)',
                 'info': 'var(--border-info)',
                 'warning': 'var(--border-warning)',

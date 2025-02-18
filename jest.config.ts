@@ -9,11 +9,11 @@ process.env.TZ = process.env.TZ || 'UTC'
  */
 
 const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv', 'monaco-editor']
-const eeFolderExists = fs.existsSync('../ee/frontend/exports.ts')
+const eeFolderExists = fs.existsSync('ee/frontend/exports.ts')
 function rootDirectories() {
-    const rootDirectories = ['<rootDir>/src', '<rootDir>/../products']
+    const rootDirectories = ['<rootDir>/frontend/src', '<rootDir>/products']
     if (eeFolderExists) {
-        rootDirectories.push('<rootDir>/../ee/frontend')
+        rootDirectories.push('<rootDir>/ee/frontend')
     }
     return rootDirectories
 }
@@ -94,15 +94,13 @@ const config: Config = {
 
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
-        '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/src/test/mocks/styleMock.js',
-        '^~/(.*)$': '<rootDir>/src/$1',
-        '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
-        '^@posthog/ee/exports': ['<rootDir>/../ee/frontend/exports', '<rootDir>/@posthog/ee/exports'],
-        '^lib/(.*)$': '<rootDir>/src/lib/$1',
+        '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/frontend/src/test/mocks/styleMock.js',
+        '^~/(.*)$': '<rootDir>/frontend/src/$1',
+        '^@posthog/lemon-ui(|/.*)$': '<rootDir>/frontend/@posthog/lemon-ui/src/$1',
+        '^@posthog/ee/exports': ['<rootDir>/ee/frontend/exports', '<rootDir>/frontend/@posthog/ee/exports'],
+        '^lib/(.*)$': '<rootDir>/frontend/src/lib/$1',
         'monaco-editor': '<rootDir>/node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts',
-        '^scenes/(.*)$': '<rootDir>/src/scenes/$1',
-        '^products/(.*)$': '<rootDir>/../products/$1',
-        '^common/(.*)$': '<rootDir>/../common/$1',
+        '^scenes/(.*)$': '<rootDir>/frontend/src/scenes/$1',
         '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
         '^@posthog/rrweb/es/rrweb': '@posthog/rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
@@ -152,7 +150,7 @@ const config: Config = {
     setupFiles: ['<rootDir>/jest.setup.ts'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
-    setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.ts', 'givens/setup', '<rootDir>/src/mocks/jest.ts'],
+    setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.ts', 'givens/setup', '<rootDir>/frontend/src/mocks/jest.ts'],
 
     // The number of seconds after which a test is considered as slow and reported as such in the results.
     // slowTestThreshold: 5,

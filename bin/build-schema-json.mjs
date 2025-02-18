@@ -9,13 +9,13 @@ import tsj from 'ts-json-schema-generator'
 /** @type {import('ts-json-schema-generator/dist/src/Config').Config} */
 const config = {
     ...tsj.DEFAULT_CONFIG,
-    path: './src/queries/schema/index.ts',
+    path: 'frontend/src/queries/schema/index.ts',
     tsconfig: 'tsconfig.json',
     discriminatorType: 'open-api',
     skipTypeCheck: true,
 }
 
-const output_path = 'src/queries/schema.json'
+const output_path = 'frontend/src/queries/schema.json'
 
 const schema = tsj.createGenerator(config).createSchema(config.type)
 const stringify = config.sortProps ? stableStringify : JSON.stringify
