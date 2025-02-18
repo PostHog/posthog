@@ -8,7 +8,7 @@ test.describe('Cohorts', () => {
 
     test('Cohorts new and list', async ({ page }) => {
         await expect(page).toHaveTitle('Cohorts • People • PostHog')
-        await expect(page.locator('text=Create your first cohort')).toBeVisible()
+        await expect(page.locator('text=Welcome to Cohorts')).toBeVisible()
         await expect(page.locator('[data-attr="product-introduction-docs-link"]')).toHaveText(/Learn more/)
 
         await page.click('[data-attr="new-cohort"]')
