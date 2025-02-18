@@ -1250,7 +1250,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     )
                 ) {
                     try {
-                        new RegExp(survey.conditions.deviceTypes?.join('|'))
+                        new RegExp(survey.conditions.deviceTypes?.at(0) || '')
                     } catch (e: any) {
                         return e.message
                     }
