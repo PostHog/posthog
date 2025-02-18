@@ -31,6 +31,9 @@ test.describe('Cohorts', () => {
         await expect(page.locator('tbody')).toContainText('Test Cohort')
         await expect(page.locator('text=Create your first cohort')).not.toBeVisible()
 
+        // wait for the table to finish loading
+        await page.waitForSelector('.LemonTable__overlay', { state: 'detached' })
+
         await page.click('tbody >> text=Test Cohort')
         await page.click('[data-attr="more-button"]')
         await page.click('.Popover__content >> text=Duplicate as dynamic cohort')
