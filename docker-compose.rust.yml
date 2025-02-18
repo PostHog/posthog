@@ -1,0 +1,37 @@
+#
+# docker-compose file used ONLY for local development.
+# For more info, see:
+# https://posthog.com/handbook/engineering/developing-locally
+#
+# PostHog has sunset support for self-hosted K8s deployments.
+# See: https://posthog.com/blog/sunsetting-helm-support-posthog
+#
+
+services:
+    # capture-rs
+    capture:
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+        environment:
+            - DEBUG=1
+        depends_on:
+            - redis
+            - kafka
+
+    # vector replay capture
+    replay-capture:
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
+        depends_on:
+            - redis
+            - kafka
+
+    feature-flags:
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+        depends_on:
+            - redis
+            - db

@@ -124,8 +124,8 @@ jobs:
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev -f docker-compose.rust.yml down
+                  docker compose -f docker-compose.dev.yml -f docker-compose.rust.yml up -d
 
             - name: Wait for ClickHouse
               # these are required checks so, we can't skip entire sections

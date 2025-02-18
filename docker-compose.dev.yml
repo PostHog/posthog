@@ -9,15 +9,12 @@
 
 services:
     proxy:
+        restart: on-failure
         extends:
             file: docker-compose.base.yml
             service: proxy
         ports:
             - 8010:8000
-        depends_on:
-            - replay-capture
-            - capture
-            - feature-flags
         extra_hosts:
             - 'web:host-gateway'
     db:
