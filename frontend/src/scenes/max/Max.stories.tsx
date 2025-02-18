@@ -1,8 +1,8 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { useEffect } from 'react'
-import { projectLogic } from 'scenes/projectLogic'
+import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
@@ -55,19 +55,6 @@ const Template = ({ conversationId: CONVERSATION_ID }: { conversationId: string 
 
 export const Welcome: StoryFn = () => {
     useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/query/': () => [
-                200,
-                {
-                    questions: [
-                        'What are my most popular pages?',
-                        'Where are my users located?',
-                        'Who are the biggest customers?',
-                        'Which feature drives most usage?',
-                    ],
-                },
-            ],
-        },
         get: {
             '/api/organizations/@current/': () => [
                 200,
@@ -84,13 +71,29 @@ export const Welcome: StoryFn = () => {
 }
 
 export const WelcomeSuggestionsAvailable: StoryFn = () => {
-    const { loadCurrentProjectSuccess } = useActions(projectLogic)
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/query/': () => [
+                200,
+                {
+                    questions: [
+                        'What are our most popular pages in the blog?',
+                        'Where are our new users located?',
+                        'Who are the biggest customers using our paid product?',
+                        'Which feature drives most usage?',
+                    ],
+                },
+            ],
+        },
+    })
+
+    const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
 
     useEffect(() => {
-        loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
+        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
     }, [])
 
-    return <Welcome />
+    return <Template conversationId={CONVERSATION_ID} />
 }
 
 export const WelcomeLoadingSuggestions: StoryFn = () => {
@@ -100,10 +103,10 @@ export const WelcomeLoadingSuggestions: StoryFn = () => {
         },
     })
 
-    const { loadCurrentProjectSuccess } = useActions(projectLogic)
+    const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
 
     useEffect(() => {
-        loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
+        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
     }, [])
 
     return <Template conversationId={CONVERSATION_ID} />
