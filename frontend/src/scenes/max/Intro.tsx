@@ -22,6 +22,9 @@ export function Intro(): JSX.Element {
     const [hedgehogDirection, setHedgehogDirection] = useState<'left' | 'right'>('right')
 
     const headline = useMemo(() => {
+        if (process.env.STORYBOOK) {
+            return HEADLINES[0] // Preventing UI snapshots from being different every time
+        }
         return HEADLINES[parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length]
     }, [conversation?.id])
 
