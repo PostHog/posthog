@@ -31,7 +31,7 @@ def create_property_conditions(property_key: str, property_values: Union[list, A
         If property_values is a list with one item or a single value: A single comparison operation
     """
     if isinstance(property_values, list):
-        value_conditions = [create_property_condition(property_key, value) for value in property_values]
+        value_conditions: list[ast.Expr] = [create_property_condition(property_key, value) for value in property_values]
         return ast.Or(exprs=value_conditions) if len(value_conditions) > 1 else value_conditions[0]
     else:
         return create_property_condition(property_key, property_values)
