@@ -111,4 +111,4 @@ class TestErrorTracking(BaseTest):
         assert not hasattr(issue, "first_seen")
 
         issue = ErrorTrackingIssue.objects.with_first_seen().get(id=issue.id)
-        assert issue.first_seen == fingerprint.first_seen
+        assert issue.first_seen == fingerprint.first_seen  # type: ignore[attr-defined]
