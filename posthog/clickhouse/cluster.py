@@ -114,6 +114,10 @@ class HostSet:
             groups[fn(host)].append(host)
         return HostGroup({key: HostSet(self.executor, hosts) for key, hosts in groups.items()})
 
+    @property
+    def shards(self) -> HostGroup[int]:
+        return self.filter(lambda host: host.shard_num is not None).group(lambda host: host.shard_num)
+
 
 @dataclass
 class HostGroup(Generic[K]):
@@ -275,7 +279,7 @@ class ClickhouseCluster:
 
         Wait for all to return before returning upon ``.values()``
         """
-        return self.hosts.group(lambda host: host.shard_num).join_all(shard_fns)
+        return self.hosts.shards.join_all(shard_fns)
 
     def map_any_host_in_shards(
         self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
@@ -286,7 +290,7 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        return self.hosts.group(lambda host: host.shard_num).join_any(shard_fns)
+        return self.hosts.shards.join_any(shard_fns)
 
     def map_one_host_per_shard(
         self, fn: Callable[[Client], T], concurrency: int | None = None
@@ -297,7 +301,7 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        return self.hosts.group(lambda host: host.shard_num).any(fn)
+        return self.hosts.shards.any(fn)
 
 
 def get_cluster(
