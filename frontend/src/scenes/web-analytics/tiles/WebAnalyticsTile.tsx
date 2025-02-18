@@ -1,4 +1,4 @@
-import { IconChevronDown, IconRewindPlay, IconTrending, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
