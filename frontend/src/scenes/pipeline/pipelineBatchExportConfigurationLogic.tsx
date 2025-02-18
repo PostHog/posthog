@@ -514,6 +514,12 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             {
                 runBatchExportConfigTestStep: async (step) => {
                     actions.setRunningStep(step)
+                    if (step === 0) {
+                        // TODO: Allow re-running steps that failed
+                        values.batchExportConfigTest.steps.forEach((step) => {
+                            step.result = null
+                        })
+                    }
                     const {
                         name,
                         destination,
