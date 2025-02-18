@@ -21,6 +21,7 @@ export interface QueryContext<T = InsightVizNode> {
     insightProps?: InsightLogicProps<T>
     emptyStateHeading?: string
     emptyStateDetail?: string
+    renderEmptyStateAsSkeleton?: boolean
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /**
      * Displayed in insight tooltip's "Click to view {groupTypeLabel}".
