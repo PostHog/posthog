@@ -32,6 +32,9 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
+from posthog.clickhouse.client.async_task_chain import task_chain_context
+from contextlib import nullcontext
+
 
 logger = structlog.get_logger(__name__)
 
@@ -419,14 +422,26 @@ class DashboardSerializer(DashboardBasicSerializer):
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
-        for tile in tiles:
-            self.context.update({"dashboard_tile": tile})
+        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
+        sorted_tiles = sorted(
+            tiles,
+            key=lambda tile: (
+                tile.layouts.get("xs", {}).get("y", 0),
+                tile.layouts.get("xs", {}).get("x", {}),
+            ),
+        )
 
-            if isinstance(tile.layouts, str):
-                tile.layouts = json.loads(tile.layouts)
+        # In case of a large number of tiles on a dashboard,
+        # ensure all tiles are computed one at a time to avoid overwhelming the database
+        with task_chain_context() if len(sorted_tiles) > 5 else nullcontext():
+            for tile in sorted_tiles:
+                self.context.update({"dashboard_tile": tile})
 
-            tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
-            serialized_tiles.append(tile_data)
+                if isinstance(tile.layouts, str):
+                    tile.layouts = json.loads(tile.layouts)
+
+                tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
+                serialized_tiles.append(tile_data)
 
         return serialized_tiles
 

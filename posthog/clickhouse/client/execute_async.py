@@ -263,7 +263,15 @@ def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -
     return manager.get_query_status(show_progress=show_progress)
 
 
-def cancel_query(team_id: int, query_id: str) -> bool:
+def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> bool:
+    """
+    Cancel a query.
+    First tries to see if the query is queued in celery and revokes it.
+    If the query is not queued, it will be cancelled on clickhouse.
+
+    If dequeue_only is True, only tries to revoke the task, not cancel the query on clickhouse.
+    Useful as we don't want to overwhelm clickhouse with KILL queries.
+    """
     manager = QueryStatusManager(query_id, team_id)
 
     try:
@@ -277,6 +285,9 @@ def cancel_query(team_id: int, query_id: str) -> bool:
     except QueryNotFoundError:
         # Continue, to attempt to cancel the query even if it's not a task
         pass
+
+    if dequeue_only:
+        return True
 
     from posthog.clickhouse.cancel import cancel_query_on_cluster
 
