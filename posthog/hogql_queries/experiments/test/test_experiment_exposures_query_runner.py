@@ -54,7 +54,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         if feature_flag is None:
             feature_flag = self.create_feature_flag(name)
         if start_date is None:
-            start_date = timezone.now()
+            start_date = timezone.now() - timedelta(days=2)
         if end_date is None:
             end_date = timezone.now() + timedelta(days=14)
 
@@ -210,11 +210,21 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_series = next(series for series in response.timeseries if series.variant == "control")
         test_series = next(series for series in response.timeseries if series.variant == "test")
 
-        self.assertEqual(control_series.exposure_counts, [2, 4])  # Two people on day 1, cumulative four people by day 2
-        self.assertEqual(len(control_series.days), 2)
+        # Daily cumulative exposures for control variant:
+        # Day 0 (Jan 1): 0 exposures
+        # Day 1 (Jan 2): 2 new users exposed
+        # Day 2 (Jan 3): 2 more users exposed, total 4
+        # Days 3-6: No new exposures, remains at 4
+        self.assertEqual(control_series.exposure_counts, [0, 2, 4, 4, 4, 4, 4])
+        self.assertEqual(len(control_series.days), 7)
 
-        self.assertEqual(test_series.exposure_counts, [3, 5])  # Three people on day 1, cumulative five people by day 2
-        self.assertEqual(len(test_series.days), 2)
+        # Daily cumulative exposures for test variant:
+        # Day 0 (Jan 1): 0 exposures
+        # Day 1 (Jan 2): 3 new users exposed
+        # Day 2 (Jan 3): 2 more users exposed, total 5
+        # Days 3-6: No new exposures, remains at 5
+        self.assertEqual(test_series.exposure_counts, [0, 3, 5, 5, 5, 5, 5])
+        self.assertEqual(len(test_series.days), 7)
 
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
