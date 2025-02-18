@@ -231,7 +231,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         defaultTreeNodes: [
             (s) => [s.featureFlags, s.groupNodes],
-            (featureFlags, groupNodes: FileSystemImport[]) =>
+            (_featureFlags, groupNodes: FileSystemImport[]) =>
                 // .filter(f => !f.flag || featureFlags[f.flag])
                 convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes)),
         ],

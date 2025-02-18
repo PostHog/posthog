@@ -146,7 +146,7 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
         {
             path: `Create new/Broadcast`,
             type: 'broadcast' as const,
-            href: urls.messagingBroadcasts('new'),
+            href: urls.messagingBroadcasts(),
         },
         {
             path: `Create new/Repl`,
