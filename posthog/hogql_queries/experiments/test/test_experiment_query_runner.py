@@ -880,8 +880,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             result = query_runner.calculate()
 
             self.assertEqual(len(result.variants), 2)
-            control_variant = next(v for v in result.variants if v.key == "control")
-            test_variant = next(v for v in result.variants if v.key == "test")
+            control_variant = cast(
+                ExperimentVariantFunnelsBaseStats, next(v for v in result.variants if v.key == "control")
+            )
+            test_variant = cast(ExperimentVariantFunnelsBaseStats, next(v for v in result.variants if v.key == "test"))
 
             self.assertEqual(
                 {
