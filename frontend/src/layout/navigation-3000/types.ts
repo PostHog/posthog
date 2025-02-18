@@ -49,7 +49,7 @@ export interface SidebarCategoryBase {
     key: string
     /** Category content noun. If the plural form is non-standard, provide a tuple with both forms. @example 'person' */
     noun: string | [singular: string, plural: string]
-    items: BasicListItem[] | ExtendedListItem[] | ListItemAccordion[]
+    items: (BasicListItem | ExtendedListItem | ListItemAccordion)[]
 
     /** Ref to the corresponding <a> element. This is injected automatically when the element is rendered. */
     ref?: React.MutableRefObject<HTMLElement | null>
@@ -57,6 +57,19 @@ export interface SidebarCategoryBase {
 
 export interface ListItemAccordion extends SidebarCategoryBase {
     depth?: number
+    name: string
+    sideAction?: {
+        icon: JSX.Element
+        tooltip: string
+        onClick: () => void
+    }
+    menuItems?: {
+        label: string
+        status?: 'danger'
+        onClick: () => void
+    }[]
+    onRename?: ListItemSaveHandler
+    onCancelRename?: () => void
 }
 
 /** A category of items. This is either displayed directly for sidebars with only one category, or as an accordion. */
@@ -85,6 +98,7 @@ export interface SidebarCategory extends SidebarCategoryBase {
         /** The "page" size. @default 100 */
         minimumBatchSize?: number
     }
+    menuItems?: LemonMenuItems
 }
 
 export interface SearchMatch {
@@ -138,6 +152,8 @@ export interface BasicListItem {
     ref?: React.MutableRefObject<HTMLElement | null>
     /** If this item is inside an accordion, this is the depth of the accordion. */
     depth?: number
+
+    draggable?: boolean
 }
 
 export type ExtraListItemContext = string | Dayjs
