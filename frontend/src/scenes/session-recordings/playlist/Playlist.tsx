@@ -154,7 +154,7 @@ export function Playlist({
                         }}
                     />
                 </div>
-                <AiFilter />
+                <AiFilter isExpanded={isExpanded} />
             </div>
 
             <div
