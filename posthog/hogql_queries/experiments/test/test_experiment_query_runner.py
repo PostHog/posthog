@@ -1631,8 +1631,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                distinct_id_field="subscription_customer_id",
-                id_field="id",
+                exposure_entity_field="person.properties.email",
+                after_exposure_entity_field="subscription_customer.customer_email",
                 timestamp_field="subscription_created_at",
             ),
         )
