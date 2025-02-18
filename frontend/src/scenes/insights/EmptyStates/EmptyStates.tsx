@@ -27,6 +27,7 @@ import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFi
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -221,8 +222,8 @@ export function StatelessInsightLoadingState({
     }, [
         loadingMessageIndex,
         isLoadingMessageVisible,
-        loadingTimeSeconds, // Always include this to react to timing thresholds
-        showLoadingDetails, // Always include this as it depends on secondsElapsed
+        loadingTimeSeconds,
+        showLoadingDetails,
         // Include progress-related dependencies ONLY when showing loading details
         ...(showLoadingDetails ? [rowsRead, bytesRead, pollResponse, queryId, compact] : []),
     ])
@@ -350,7 +351,9 @@ export function InsightLoadingState({
     insightProps: InsightLogicProps
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
+    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged, activeScene } = useValues(
+        insightDataLogic(insightProps)
+    )
     const { currentTeam } = useValues(teamLogic)
 
     const personsOnEventsMode =
@@ -360,7 +363,7 @@ export function InsightLoadingState({
         <StatelessInsightLoadingState
             queryId={queryId}
             pollResponse={insightPollResponse}
-            delayLoadingAnimation={true}
+            delayLoadingAnimation={activeScene == Scene.Insight && queryChanged}
             loadingTimeSeconds={insightLoadingTimeSeconds}
             suggestion={
                 <div className="flex items-center rounded gap-x-3 max-w-120">
