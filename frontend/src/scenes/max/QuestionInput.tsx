@@ -24,7 +24,7 @@ export function QuestionInput(): JSX.Element {
         <div
             className={clsx(
                 'px-3',
-                !isFloating ? 'relative w-[min(44rem,100%)]' : 'sticky z-10 w-full max-w-[43rem] self-center'
+                !isFloating ? 'relative w-[min(44rem,100%)]' : 'sticky bottom-0 z-10 w-full max-w-[45rem] self-center'
             )}
         >
             <div

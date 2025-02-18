@@ -272,11 +272,18 @@ export const maxLogic = kea<maxLogicType>([
         scrollThreadToBottom: () => {
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
-                const mainEl = document.querySelector('main')
-                mainEl?.scrollTo({
-                    top: mainEl?.scrollHeight,
-                    behavior: 'smooth',
-                })
+                const threadEl = document.getElementsByClassName('@container/thread')[0]
+                let scrollableEl = threadEl?.parentElement // .Navigation3000__scene or .SidePanel3000__content
+                if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
+                    // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
+                    scrollableEl = scrollableEl.parentElement
+                }
+                if (scrollableEl) {
+                    scrollableEl.scrollTo({
+                        top: threadEl.scrollHeight,
+                        behavior: 'smooth',
+                    })
+                }
             })
         },
     })),

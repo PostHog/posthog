@@ -71,7 +71,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                 groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10'
             )}
         >
-            <Tooltip placement={groupType === 'human' ? 'right' : 'left'} title={groupType === 'human' ? 'You' : 'Max'}>
+            <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
                     user={
                         groupType === 'human'
@@ -331,7 +331,7 @@ function RetriableFailureActions(): JSX.Element {
             size="xsmall"
             tooltip="Try again"
             onClick={() => retryLastMessage()}
-            className="ml-1 -mb-2"
+            className="ml-1 -mb-1"
         >
             Try again
         </LemonButton>
@@ -374,7 +374,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center ml-1 -mb-2">
+            <div className="flex items-center ml-1 -mb-1">
                 {rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
