@@ -408,13 +408,24 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
         1,
-        2,
+        3,
         tz_aware=True,
         overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
         signatures=[
             ((StringType(),), DateTimeType(nullable=True)),
             ((StringType(), IntegerType()), DateTimeType(nullable=True)),
             ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=True)),
+        ],
+    ),
+    "ch_toDateTime": HogQLFunctionMeta(
+        "toDateTime",
+        1,
+        3,
+        tz_aware=True,
+        signatures=[
+            ((StringType(),), DateTimeType()),
+            ((StringType(), IntegerType()), DateTimeType()),
+            ((StringType(), IntegerType(), StringType()), DateTimeType()),
         ],
     ),
     "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),
@@ -435,7 +446,28 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toBool": HogQLFunctionMeta("toBool", 1, 1),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
-    "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
+    "parseDateTime64BestEffortOrNull": HogQLFunctionMeta(
+        "parseDateTime64BestEffortOrNull",
+        1,
+        3,
+        tz_aware=True,
+        signatures=[
+            ((StringType(),), DateTimeType(nullable=True)),
+            ((StringType(), IntegerType()), DateTimeType(nullable=True)),
+            ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=True)),
+        ],
+    ),
+    "parseDateTimeBestEffort": HogQLFunctionMeta(
+        "parseDateTimeBestEffort",
+        1,
+        3,
+        tz_aware=True,
+        signatures=[
+            ((StringType(),), DateTimeType(nullable=False)),
+            ((StringType(), IntegerType()), DateTimeType(nullable=False)),
+            ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=False)),
+        ],
+    ),
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     # dates and times
