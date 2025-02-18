@@ -1414,8 +1414,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                exposure_entity_field="properties.$user_id",
-                after_exposure_entity_field="userid",
+                exposure_identifier_field="properties.$user_id",
+                after_exposure_identifier_field="userid",
                 timestamp_field="ds",
                 math="avg",
                 math_property="usage",
@@ -1560,8 +1560,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                exposure_entity_field="properties.$user_id",
-                after_exposure_entity_field="userid",
+                exposure_identifier_field="properties.$user_id",
+                after_exposure_identifier_field="userid",
                 timestamp_field="ds",
                 math="avg",
                 math_property="usage",
@@ -1610,8 +1610,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                exposure_entity_field="person.properties.email",
-                after_exposure_entity_field="subscription_customer.customer_email",
+                exposure_identifier_field="person.properties.email",
+                after_exposure_identifier_field="subscription_customer.customer_email",
                 timestamp_field="subscription_created_at",
             ),
         )
