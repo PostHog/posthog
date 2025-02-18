@@ -40,8 +40,6 @@ test.describe('Cohorts', () => {
         await expect(page.getByTestId('top-bar-name').getByText('Test-Cohort--')).toBeVisible()
         await page.click('[data-attr="more-button"]', { force: true })
         // click edit
-        await page.locator('.Popover__content a').first().click()
-
         await page.click('.Popover__content >> text=Duplicate as dynamic cohort')
         await page.click('.Toastify__toast-body >> text=View cohort')
 
