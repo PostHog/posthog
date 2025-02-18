@@ -23,7 +23,7 @@
      WHERE equals(raw_sessions.team_id, 99999)
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
-  WHERE and(ifNull(equals(sessions.`$entry_utm_source`, 'source1'), 0), 1)
+  WHERE and(equals(sessions.`$entry_utm_source`, 'source1'), 1)
   GROUP BY `context.columns.channel_type`,
            `context.columns.utm_source`,
            `context.columns.utm_medium`
