@@ -47,7 +47,7 @@ interface ExpandableCellProps {
     hasManualWidth: boolean
 }
 
-function ExpandableCell({
+export function ExpandableCell({
     value,
     columnName,
     isExpanded,
@@ -86,7 +86,7 @@ export function OutputPane(): JSX.Element {
     const { setActiveTab } = useActions(outputPaneLogic)
     const { variablesForInsight } = useValues(variablesLogic)
 
-    const { editingView, sourceQuery, exportContext, isValidView, error, editorKey, metadataLoading } =
+    const { activeModelUri, editingView, sourceQuery, exportContext, isValidView, error, editorKey, metadataLoading } =
         useValues(multitabEditorLogic)
     const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -98,7 +98,7 @@ export function OutputPane(): JSX.Element {
 
     const vizKey = useMemo(() => `SQLEditorScene`, [])
     const [expandedColumns, setExpandedColumns] = useState<Set<string>>(new Set())
-    const [manualColumnWidths, setManualColumnWidths] = useState<Record<string, number>>({})
+    const [manualColumnWidths, setManualColumnWidths] = useState<Record<string, Record<string, number>>>({})
 
     const toggleColumnExpansion = useCallback((columnKey: string) => {
         setExpandedColumns((prev) => {
@@ -114,19 +114,24 @@ export function OutputPane(): JSX.Element {
 
     const handleColumnResize = useCallback(
         (column: string, width: number) => {
-            if (response?.columns) {
+            if (response?.columns && activeModelUri) {
                 const columnName = response.columns[column]
+                const modelKey = String(activeModelUri.uri)
                 setManualColumnWidths((prev) => ({
                     ...prev,
-                    [columnName]: width,
+                    [modelKey]: {
+                        ...(prev[modelKey] || {}),
+                        [columnName]: width,
+                    },
                 }))
             }
         },
-        [response?.columns]
+        [response?.columns, activeModelUri]
     )
 
     const columns = useMemo(() => {
         const types = response?.types
+        const modelKey = activeModelUri ? String(activeModelUri.uri) : null
 
         return (
             response?.columns?.map((column: string, index: number) => {
@@ -145,14 +150,16 @@ export function OutputPane(): JSX.Element {
                 )
                 const isLongContent = maxContentLength > 100
                 const isExpanded = expandedColumns.has(column)
-                const width = manualColumnWidths[column] ?? (isLongContent && !isExpanded ? 600 : undefined)
+                const width = modelKey ? (manualColumnWidths[modelKey] || {})[column] : undefined
+                const finalWidth = width ?? (isLongContent && !isExpanded ? 600 : undefined)
+
                 // Hack to get bools to render in the data grid
                 if (type && type.indexOf('Bool') !== -1) {
                     return {
                         key: column,
                         name: column,
                         resizable: true,
-                        width,
+                        width: finalWidth,
                         renderCell: (props: any) => {
                             if (props.row[column] === null) {
                                 return null
@@ -166,7 +173,7 @@ export function OutputPane(): JSX.Element {
                     key: column,
                     name: column,
                     resizable: true,
-                    width,
+                    width: finalWidth,
                 }
 
                 if (isLongContent) {
@@ -178,7 +185,7 @@ export function OutputPane(): JSX.Element {
                                 columnName={column}
                                 isExpanded={isExpanded}
                                 onToggleExpand={() => toggleColumnExpansion(column)}
-                                hasManualWidth={column in manualColumnWidths}
+                                hasManualWidth={!!modelKey && !!(manualColumnWidths[modelKey] || {})[column]}
                             />
                         ),
                     }
@@ -190,7 +197,7 @@ export function OutputPane(): JSX.Element {
                 }
             }) ?? []
         )
-    }, [response, expandedColumns, toggleColumnExpansion, manualColumnWidths])
+    }, [response, expandedColumns, toggleColumnExpansion, manualColumnWidths, activeModelUri])
 
     const rows = useMemo(() => {
         if (!response?.results) {
