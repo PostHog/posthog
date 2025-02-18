@@ -1,3 +1,6 @@
+import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+
 import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
 import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
@@ -8,15 +11,18 @@ import {
     ExperimentEventMetricConfig,
     ExperimentFunnelsQuery,
     ExperimentMetric,
+    ExperimentMetricType,
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
+    ChartDisplayType,
     EntityType,
     FeatureFlagFilters,
     FeatureFlagType,
     InsightType,
     PropertyFilterType,
+    PropertyMathType,
     PropertyOperator,
 } from '~/types'
 
@@ -27,6 +33,7 @@ import {
     getMinimumDetectableEffect,
     getViewRecordingFilters,
     metricConfigToFilter,
+    metricToQuery,
     percentageDistribution,
     transformFiltersForWinningVariant,
 } from './utils'
@@ -668,5 +675,97 @@ describe('filterToMetricConfig', () => {
             math_hogql: undefined,
             properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
         })
+    })
+})
+
+describe('metricToQuery', () => {
+    it('returns the correct query for a count metric', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.COUNT,
+            metric_config: {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                event: '$pageview',
+                name: '$pageview',
+            },
+            filterTestAccounts: true,
+        }
+
+        const query = metricToQuery(metric)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+            ],
+        })
+    })
+
+    it('returns the correct query for a continuous metric', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.CONTINUOUS,
+            metric_config: {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                event: '$pageview',
+                name: '$pageview',
+                math: 'sum',
+                math_property: 'property_value',
+            },
+            filterTestAccounts: false,
+        }
+
+        const query = metricToQuery(metric)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: false,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    math: PropertyMathType.Sum,
+                    math_property: 'property_value',
+                },
+            ],
+        })
+    })
+
+    it('returns undefined for unsupported metric types', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: 'unsupported_type' as ExperimentMetricType,
+            metric_config: {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                event: '$pageview',
+                name: '$pageview',
+            },
+            filterTestAccounts: false,
+        }
+
+        const query = metricToQuery(metric)
+        expect(query).toBeUndefined()
     })
 })
