@@ -20,6 +20,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.models.team import Team
+from django.contrib.auth.models import AnonymousUser
 
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute_async import (
@@ -32,8 +33,8 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.apply_dashboard_filters import (
-    apply_dashboard_filters_to_dict,
-    apply_dashboard_variables_to_dict,
+    apply_dashboard_filters,
+    apply_dashboard_variables,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
@@ -70,20 +71,15 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
     def _process_query_request(
         self, request_data: QueryRequest, team, client_query_id: str | None = None, user=None
-    ) -> tuple[dict, str, ExecutionMode]:
+    ) -> tuple[BaseModel, str, ExecutionMode]:
         """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
+        query = request_data.query
+
         if request_data.filters_override is not None:
-            request_data.query = apply_dashboard_filters_to_dict(
-                request_data.query.model_dump(), request_data.filters_override.model_dump(), team
-            )
+            query = apply_dashboard_filters(query, request_data.filters_override, team)
 
         if request_data.variables_override is not None:
-            if isinstance(request_data.query, BaseModel):
-                query_as_dict = request_data.query.model_dump()
-            else:
-                query_as_dict = request_data.query
-
-            request_data.query = apply_dashboard_variables_to_dict(query_as_dict, request_data.variables_override, team)
+            query = apply_dashboard_variables(query, request_data.variables_override, team)
 
         query_id = client_query_id or uuid.uuid4().hex
         execution_mode = execution_mode_from_refresh(request_data.refresh)
@@ -95,9 +91,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             # Here in query endpoint we always want to calculate if the cache is stale
             execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
-        tag_queries(query=request_data.query)
+        tag_queries(query=query.model_dump())
 
-        return request_data.query, query_id, execution_mode
+        return query, query_id, execution_mode
 
     @extend_schema(
         request=QueryRequest,
@@ -244,6 +240,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
             },
         )
 
+    assert not isinstance(request.user, AnonymousUser)  # just for typing, actual auth check happens above
     try:
         # Get the parsed data from the auth response
         auth_content = json.loads(response.content)
@@ -251,7 +248,11 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
         data = QueryRequest.model_validate(json_data)
         team = await Team.objects.aget(pk=auth_content["team_id"])
         query, client_query_id, execution_mode = QueryViewSet._process_query_request(
-            None, data, team, data.client_query_id, request.user
+            None,
+            data,
+            team,
+            data.client_query_id,
+            request.user,  # type: ignore
         )
         if execution_mode in (ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE):
             execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
@@ -293,10 +294,9 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                             try:
                                 result = query_task.result()
                                 if isinstance(result, BaseModel):
-                                    result = result.model_dump_json(by_alias=True)
+                                    yield f"data: {result.model_dump_json(by_alias=True)}\n\n".encode()
                                 else:
-                                    result = json.dumps(result)
-                                yield f"data: {result}\n\n".encode()
+                                    yield f"data: {json.dumps(result)}\n\n".encode()
                             except Exception as e:
                                 capture_exception(e)
                                 yield f"data: {json.dumps({'error': 'Server error'})}\n\n".encode()
