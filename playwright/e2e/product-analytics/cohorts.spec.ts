@@ -35,9 +35,13 @@ test.describe('Cohorts', () => {
         await expect(page.locator('tbody')).toContainText(name)
         await expect(page.locator('text=Create your first cohort')).not.toBeVisible()
 
-        // need to force because table stays loading so long
-        await page.click('tbody >> text=' + name, { force: true })
+        // navigate to the page
+        await page.click('tbody >> text=' + name)
+        await expect(page.getByTestId('top-bar-name').getByText('Test-Cohort--')).toBeVisible()
         await page.click('[data-attr="more-button"]', { force: true })
+        // click edit
+        await page.locator('.Popover__content a').first().click()
+
         await page.click('.Popover__content >> text=Duplicate as dynamic cohort')
         await page.click('.Toastify__toast-body >> text=View cohort')
 
