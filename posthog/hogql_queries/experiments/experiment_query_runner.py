@@ -141,15 +141,31 @@ class ExperimentQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
+        exposure_query_select = [
+            ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
+            parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
+            parse_expr("min(timestamp) as first_exposure_time"),
+        ]
+        exposure_query_group_by = [ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])]
+        if is_data_warehouse_query:
+            exposure_metric_config = cast(ExperimentDataWarehouseMetricConfig, self.metric.metric_config)
+            exposure_query_select = [
+                *exposure_query_select,
+                ast.Alias(
+                    alias="exposure_identifier",
+                    expr=ast.Field(chain=[*exposure_metric_config.exposure_identifier_field.split(".")]),
+                ),
+            ]
+            exposure_query_group_by = [
+                *exposure_query_group_by,
+                ast.Field(chain=[*exposure_metric_config.exposure_identifier_field.split(".")]),
+            ]
+
         # First exposure query: One row per user-variant combination
         # Columns: distinct_id, variant, first_exposure_time
         # Finds when each user was first exposed to each experiment variant
         exposure_query = ast.SelectQuery(
-            select=[
-                ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
-                parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
-                parse_expr("min(timestamp) as first_exposure_time"),
-            ],
+            select=exposure_query_select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
@@ -188,7 +204,7 @@ class ExperimentQueryRunner(QueryRunner):
                     *test_accounts_filter,
                 ]
             ),
-            group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])],
+            group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
 
         match self.metric.metric_config:
@@ -204,8 +220,13 @@ class ExperimentQueryRunner(QueryRunner):
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
                         ),
                         ast.Alias(
-                            alias="entity_id",
-                            expr=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
+                            alias="after_exposure_identifier",
+                            expr=ast.Field(
+                                chain=[
+                                    metric_config.table_name,
+                                    *metric_config.after_exposure_identifier_field.split("."),
+                                ]
+                            ),
                         ),
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Alias(alias="value", expr=metric_value),
@@ -218,8 +239,13 @@ class ExperimentQueryRunner(QueryRunner):
                             alias="exposure_data",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
-                                    left=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
-                                    right=parse_expr("toString(exposure_data.entity_id)"),
+                                    left=ast.Field(
+                                        chain=[
+                                            metric_config.table_name,
+                                            *metric_config.after_exposure_identifier_field.split("."),
+                                        ]
+                                    ),
+                                    right=parse_expr("toString(exposure_data.exposure_identifier)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -309,6 +335,12 @@ class ExperimentQueryRunner(QueryRunner):
                         expr=ast.And(
                             exprs=[
                                 ast.CompareOperation(
+                                    left=parse_expr("toString(exposure_data.exposure_identifier)"),
+                                    right=parse_expr("toString(events_after_exposure.after_exposure_identifier)"),
+                                    op=ast.CompareOperationOp.Eq,
+                                )
+                                if is_data_warehouse_query
+                                else ast.CompareOperation(
                                     left=parse_expr("toString(exposure_data.entity_id)"),
                                     right=parse_expr("toString(events_after_exposure.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,

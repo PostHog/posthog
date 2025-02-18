@@ -76,7 +76,7 @@ jobs:
 
     playwright:
         name: Playwright E2E tests
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 60
         needs: [changes, container]
         permissions:
