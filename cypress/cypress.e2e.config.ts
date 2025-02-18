@@ -1,10 +1,10 @@
 import { defineConfig } from 'cypress'
 import { createClient } from 'redis'
-import webpackPreprocessor from '@cypress/webpack-preprocessor'
+import * as webpackPreprocessor from '@cypress/webpack-preprocessor'
 import { PNG } from 'pngjs'
-import pixelmatch from 'pixelmatch'
-import fs from 'fs'
-import path from 'path'
+import * as pixelmatch from 'pixelmatch'
+import * as fs from 'fs'
+import * as path from 'path'
 import { createEntry } from '../frontend/webpack.config'
 
 const downloadDirectory = path.join(__dirname, '..', '..', 'downloads')
@@ -36,6 +36,7 @@ export default defineConfig({
     scrollBehavior: 'center',
     retries: { runMode: 3 },
     e2e: {
+        supportFile: path.join(__dirname, 'support/e2e.ts'),
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.
         setupNodeEvents(on, config) {
