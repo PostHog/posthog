@@ -197,6 +197,32 @@ class TestTable(BaseTest):
         assert list(table.hogql_definition().fields.keys()) == ["id", "timestamp-dash"]
         assert table.hogql_definition().structure == "`id` String, `timestamp-dash` DateTime64(3, 'UTC')"
 
+    def test_is_external(self):
+        credential = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+
+        external_table = DataWarehouseTable.objects.create(
+            name="external_table",
+            url_pattern="https://posthog.com/data",
+            format="Parquet",
+            team=self.team,
+            is_external=True,
+            credential=credential,
+        )
+        internal_table = DataWarehouseTable.objects.create(
+            name="internal_table",
+            url_pattern="https://posthog.com/data",
+            format="Parquet",
+            team=self.team,
+            is_external=False,
+            credential=credential,
+        )
+
+        assert external_table.is_external is True
+
+        assert internal_table.is_external is False
+
     def test_hogql_definition_tuple_patch(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
