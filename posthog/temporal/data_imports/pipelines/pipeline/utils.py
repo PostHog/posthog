@@ -285,6 +285,31 @@ def table_from_py_list(table_data: list[Any]) -> pa.Table:
     return table_from_iterator(iter(table_data))
 
 
+def _python_type_to_pyarrow_type(type_: type, value: Any):
+    python_to_pa = {
+        int: pa.int64(),
+        float: pa.float64(),
+        str: pa.string(),
+        bool: pa.bool_(),
+        bytes: pa.binary(),
+        type(None): pa.null(),
+    }
+
+    if type_ in python_to_pa:
+        return python_to_pa[type_]
+
+    if issubclass(type_, dict) and isinstance(value, dict):
+        return pa.struct([pa.field(str(k), _python_type_to_pyarrow_type(type(v), v)) for k, v in value.items()])
+
+    if issubclass(type_, list) and isinstance(value, list):
+        if len(value) == 0:
+            return pa.list_(pa.null())
+
+        return pa.list_(_python_type_to_pyarrow_type(type(value[0]), value[0]))
+
+    raise ValueError(f"Python type {type_} has no pyarrow mapping")
+
+
 def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
     # Support both given schemas and inferred schemas
     if schema is None:
@@ -298,22 +323,28 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     drop_column_names: list[Hashable] = []
 
     columnar_table_data: dict[Hashable, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {
-        key: np.array(values) for key, values in pd.DataFrame(table_data, dtype=object).to_dict(orient="list").items()
+        key: np.array([None if isinstance(x, float) and np.isnan(x) else x for x in values], dtype=object)
+        for key, values in pd.DataFrame(table_data, dtype=object).to_dict(orient="list").items()
     }
 
-    for idx, field_name in enumerate(columnar_table_data.keys()):
+    for field_name in columnar_table_data.keys():
         py_type: type = type(None)
-        unique_types_in_column = {type(item) for item in columnar_table_data[field_name].tolist()}
+        unique_types_in_column = {type(item) for item in columnar_table_data[field_name].tolist() if item is not None}
 
         for row in table_data:
-            val = row[field_name]
+            val = row.get(field_name, None)
             if val is not None:
                 py_type = type(val)
                 break
 
         # If a schema is present:
         if arrow_schema:
-            field = arrow_schema.field(idx)
+            if field_name not in arrow_schema.names:
+                new_field = pa.field(str(field_name), _python_type_to_pyarrow_type(py_type, val), nullable=True)
+                arrow_schema = arrow_schema.append(field=new_field)
+
+            field = arrow_schema.field_by_name(str(field_name))
+            field_index = arrow_schema.get_field_index(str(field_name))
 
             # cast double / float ndarrays to decimals if type mismatch, looks like decimals and floats are often mixed up in dialects
             if pa.types.is_decimal(field.type) and issubclass(py_type, str | float):
@@ -328,8 +359,8 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 columnar_table_data[field_name] = timestamp_array
                 has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
 
-                adjusted_field = arrow_schema.field(idx).with_nullable(has_nulls)
-                arrow_schema = arrow_schema.set(idx, adjusted_field)
+                adjusted_field = arrow_schema.field(field_index).with_nullable(has_nulls)
+                arrow_schema = arrow_schema.set(field_index, adjusted_field)
 
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):
@@ -337,7 +368,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             columnar_table_data[field_name] = uuid_str_array
             py_type = str
             if arrow_schema:
-                arrow_schema = arrow_schema.set(idx, arrow_schema.field(idx).with_type(pa.string()))
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
         # If one type is a list, then make everything into a list
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:
@@ -346,7 +377,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             py_type = list
             unique_types_in_column = {list}
             if arrow_schema:
-                arrow_schema = arrow_schema.set(idx, arrow_schema.field(idx).with_type(pa.string()))
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
         # If str and dict are shared - then turn everything into a json string
         if len(unique_types_in_column) > 1 and str in unique_types_in_column and dict in unique_types_in_column:
@@ -360,7 +391,18 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             py_type = str
             unique_types_in_column = {str}
             if arrow_schema:
-                arrow_schema = arrow_schema.set(idx, arrow_schema.field(idx).with_type(pa.string()))
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
+
+        # If there are multiple types that aren't a list, then JSON stringify everything
+        if len(unique_types_in_column) > 1:
+            json_array = pa.array(
+                [None if s is None else _json_dumps(s) for s in columnar_table_data[field_name].tolist()]
+            )
+            columnar_table_data[field_name] = json_array
+            py_type = str
+            unique_types_in_column = {str}
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
         # Convert any dict/lists to json strings to avoid schema mismatches in nested objects
         if issubclass(py_type, dict | list):
@@ -370,7 +412,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             columnar_table_data[field_name] = json_str_array
             py_type = str
             if arrow_schema:
-                arrow_schema = arrow_schema.set(idx, arrow_schema.field(idx).with_type(pa.string()))
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
         # Remove any NaN or infinite values from decimal columns
         if issubclass(py_type, decimal.Decimal):
