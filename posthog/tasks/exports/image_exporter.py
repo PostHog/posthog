@@ -189,10 +189,6 @@ def _screenshot_asset(
         else:
             width = screenshot_width
 
-        # Ensure minimum height for visualizations
-        min_height = int(width * 0.75)  # 4:3 aspect ratio
-        height = max(int(height), min_height)
-
         # Set window size with the calculated dimensions
         driver.set_window_size(width, height + HEIGHT_OFFSET)
 
