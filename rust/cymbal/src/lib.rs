@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
 use app_context::AppContext;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -143,7 +146,7 @@ pub async fn handle_events(
         // We do this because the input props might have come with a fingerprint, and if they did, we want to resolve that
         // issue, not the one associated with the generated fingerprint.
         let to_resolve = fingerprinted.fingerprint.clone();
-        if !issue_handles.contains_key(&to_resolve) {
+        if let Entry::Vacant(e) = issue_handles.entry(to_resolve.clone()) {
             let name = fingerprinted.exception_list[0].exception_type.clone();
             let description = fingerprinted.exception_list[0].exception_message.clone();
             let event_timestamp = get_event_timestamp(event).unwrap_or_else(|| {
@@ -167,7 +170,7 @@ pub async fn handle_events(
                 )
                 .await
             });
-            issue_handles.insert(to_resolve, handle);
+            e.insert(handle);
         }
 
         indexed_fingerprinted.push((index, fingerprinted));
