@@ -5,9 +5,9 @@ import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
 import fs from 'fs'
 import path from 'path'
-import { createEntry } from './webpack.config'
+import { createEntry } from '../frontend/webpack.config'
 
-const downloadDirectory = path.join(__dirname, '..', 'downloads')
+const downloadDirectory = path.join(__dirname, '..', '..', 'downloads')
 
 const checkFileDownloaded = async (filename: string, timeout: number, delayMs = 10): Promise<string | undefined> => {
     const start = Date.now()
@@ -46,11 +46,11 @@ export default defineConfig({
                 watchOptions: {},
             }
             options.webpackOptions.module.rules.push({
-  test: /\.m?js$/,
-  resolve: {
-    fullySpecified: false,
-  },
-} as any)
+                test: /\.m?js$/,
+                resolve: {
+                    fullySpecified: false,
+                },
+            } as any)
 
             // @ts-expect-error -- ignore errors in options type
             on('file:preprocessor', webpackPreprocessor(options))
@@ -130,7 +130,7 @@ export default defineConfig({
             return config
         },
         baseUrl: 'http://localhost:8000',
-        specPattern: 'cypress/e2e/**/*.{js,jsx,ts,tsx}',
+        specPattern: 'e2e/**/*.{js,jsx,ts,tsx}',
         chromeWebSecurity: false,
     },
 })

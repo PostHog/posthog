@@ -20,6 +20,7 @@ module.exports = {
         'common/hogvm/typescript',
         'common/plugin_transpiler',
         'common/hogvm/__tests__/**/__snapshots__/**',
+        'cypress/cypress.e2e.config.ts',
     ],
     env,
     settings: {
