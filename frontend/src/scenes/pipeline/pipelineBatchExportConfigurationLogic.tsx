@@ -503,7 +503,13 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             {
                 loadBatchExportConfigTest: async () => {
                     if (props.service) {
-                        return await api.batchExports.test(props.service)
+                        try {
+                            return await api.batchExports.test(props.service)
+                        } catch (error) {
+                            if (error.status === 404) {
+                                return null
+                            }
+                        }
                     }
                     return null
                 },

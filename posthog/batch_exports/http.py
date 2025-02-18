@@ -7,7 +7,7 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
-from rest_framework import filters, mixins, request, response, serializers, viewsets
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -531,11 +531,13 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         from posthog.temporal.batch_exports.destination_tests import get_destination_test
 
         destination = request.data.pop("destination", None)
-
         if not destination:
-            pass
+            return response.Response(status=status.HTTP_400_BAD_REQUEST)
 
-        destination_test = get_destination_test(destination=destination)
+        try:
+            destination_test = get_destination_test(destination=destination)
+        except ValueError:
+            return response.Response(status=status.HTTP_404_NOT_FOUND)
 
         return response.Response(destination_test.as_dict())
 

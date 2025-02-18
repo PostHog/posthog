@@ -328,30 +328,12 @@ class BigQueryDestinationTest(DestinationTest):
         ]
 
 
-class SnowflakeDestinationTest(DestinationTest):
-    pass
-
-
-class PostgreSQLDestinationTest(DestinationTest):
-    pass
-
-
-class RedshiftDestinationTest(DestinationTest):
-    pass
-
-
 def get_destination_test(
     destination: str,
 ) -> DestinationTest:
     if destination == "S3":
         return S3DestinationTest()
-    elif destination == "Snowflake":
-        return SnowflakeDestinationTest()
     elif destination == "BigQuery":
         return BigQueryDestinationTest()
-    elif destination == "Postgres":
-        return PostgreSQLDestinationTest()
-    elif destination == "Redshift":
-        return RedshiftDestinationTest()
     else:
         raise ValueError(f"Unsupported destination: {destination}")
