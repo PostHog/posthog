@@ -17,7 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -28,9 +28,9 @@ import { NoResultEmptyState } from './NoResultEmptyState'
 
 export function getDefaultMetricTitle(metric: ExperimentMetric): string {
     let parts: (string | undefined)[] = []
-    if (metric.metric_config.kind === 'ExperimentEventMetricConfig') {
+    if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
         parts = [metric.metric_config.math || 'Total', metric.metric_config.math_property, metric.metric_config.event]
-    } else if (metric.metric_config.kind === 'ExperimentActionMetricConfig') {
+    } else if (metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
         parts = [
             metric.metric_config.math || 'Total',
             metric.metric_config.math_property,
@@ -80,7 +80,7 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
         return <span className="truncate">{metric.name}</span>
     }
 
-    if (metric.kind === 'ExperimentMetric') {
+    if (metric.kind === NodeKind.ExperimentMetric) {
         return <span className="truncate">{getDefaultMetricTitle(metric)}</span>
     }
 
@@ -336,7 +336,7 @@ export function DeltaChart({
                             </div>
                             <div className="space-x-1">
                                 <LemonTag type="muted" size="small">
-                                    {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
+                                    {metric.kind === NodeKind.ExperimentFunnelsQuery ? 'Funnel' : 'Trend'}
                                 </LemonTag>
                                 {metric.isSharedMetric && (
                                     <LemonTag type="option" size="small">
@@ -898,11 +898,13 @@ export function DeltaChart({
                 }
             >
                 {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                {result && (result.kind === 'ExperimentTrendsQuery' || result.kind === 'ExperimentFunnelsQuery') && (
-                    <div className="flex justify-end">
-                        <ExploreButton result={result} />
-                    </div>
-                )}
+                {result &&
+                    (result.kind === NodeKind.ExperimentTrendsQuery ||
+                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
+                        <div className="flex justify-end">
+                            <ExploreButton result={result} />
+                        </div>
+                    )}
                 <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
                         <WinningVariantText result={result} experimentId={experimentId} />
@@ -911,9 +913,11 @@ export function DeltaChart({
                 </LemonBanner>
                 <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
                 {/* TODO: Only show results query if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                {result && (result.kind === 'ExperimentTrendsQuery' || result.kind === 'ExperimentFunnelsQuery') && (
-                    <ResultsQuery result={result} showTable={true} />
-                )}
+                {result &&
+                    (result.kind === NodeKind.ExperimentTrendsQuery ||
+                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
+                        <ResultsQuery result={result} showTable={true} />
+                    )}
             </LemonModal>
         </div>
     )
