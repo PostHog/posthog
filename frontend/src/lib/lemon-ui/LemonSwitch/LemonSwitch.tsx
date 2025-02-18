@@ -6,7 +6,7 @@ import { forwardRef, useMemo, useState } from 'react'
 
 export interface LemonSwitchProps {
     className?: string
-    onChange?: (newChecked: boolean, event: React.MouseEvent<HTMLButtonElement, MouseEvent>) => void
+    onChange?: (newChecked: boolean) => void
     checked: boolean
     label?: string | JSX.Element
     labelClassName?: string
@@ -72,9 +72,9 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                 className="LemonSwitch__button"
                 type="button"
                 role="switch"
-                onClick={(event) => {
+                onClick={() => {
                     if (onChange) {
-                        onChange(!checked, event)
+                        onChange(!checked)
                     }
                 }}
                 onMouseDown={() => setIsActive(true)}

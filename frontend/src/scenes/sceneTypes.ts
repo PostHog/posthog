@@ -12,6 +12,7 @@ export enum Scene {
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
+    ErrorTrackingAlert = 'ErrorTrackingAlert',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',

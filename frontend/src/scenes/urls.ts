@@ -181,6 +181,8 @@ export const urls = {
     featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
     errorTracking: (): string => '/error_tracking',
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
+    /** @param id A UUID or 'new'. ':id' for routing. */
+    errorTrackingAlert: (id: string): string => `/error_tracking/configuration/alert/${id}`,
     errorTrackingIssue: (id: string, fingerprint?: string): string =>
         combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
