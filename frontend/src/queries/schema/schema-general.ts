@@ -48,10 +48,10 @@ export { ChartDisplayCategory }
  * This file acts as the source of truth for:
  *
  * - frontend/src/queries/schema.json
- *   - generated from typescript via "pnpm run schema:build:json"
+ *   - generated from typescript via "pnpm --filter=@posthog/frontend run schema:build:json"
  *
  * - posthog/schema.py
- *   - generated from json the above json via "pnpm run schema:build:python"
+ *   - generated from json the above json via "pnpm -w run schema:build:python"
  * */
 
 export enum NodeKind {
@@ -1727,10 +1727,11 @@ export type FileSystemType =
     | 'site_app'
     | 'transformation'
     | 'folder'
+    | 'aichat'
 
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
-    id: string
+    id?: string
     /** Object's name and folder */
     path: string
     /** Type of object, used for icon, e.g. feature_flag, insight, etc */

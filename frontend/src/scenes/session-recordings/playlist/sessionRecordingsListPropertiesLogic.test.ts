@@ -14,7 +14,7 @@ const EXPECTED_RECORDING_PROPERTIES = [
             $geoip_country_code: 'AU',
             $os: 'Windows',
             $os_name: 'Windows 10',
-            $referring_domain: 'google.com',
+            $entry_referring_domain: 'google.com',
         },
     },
     {
@@ -25,7 +25,7 @@ const EXPECTED_RECORDING_PROPERTIES = [
             $geoip_country_code: 'GB',
             $os: 'iOS',
             $os_name: 'iOS 14',
-            $referring_domain: 'google.com',
+            $entry_referring_domain: 'google.com',
         },
     },
 ]
@@ -37,7 +37,7 @@ const EXPECTED_RECORDING_PROPERTIES_BY_ID = {
         $geoip_country_code: 'AU',
         $os: 'Windows',
         $os_name: 'Windows 10',
-        $referring_domain: 'google.com',
+        $entry_referring_domain: 'google.com',
     },
     s2: {
         $browser: 'Safari',
@@ -45,7 +45,7 @@ const EXPECTED_RECORDING_PROPERTIES_BY_ID = {
         $geoip_country_code: 'GB',
         $os: 'iOS',
         $os_name: 'iOS 14',
-        $referring_domain: 'google.com',
+        $entry_referring_domain: 'google.com',
     },
 }
 

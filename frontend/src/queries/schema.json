@@ -7363,7 +7363,7 @@
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc"
                 }
             },
-            "required": ["id", "path"],
+            "required": ["path"],
             "type": "object"
         },
         "FileSystemType": {
@@ -7380,7 +7380,8 @@
                 "destination",
                 "site_app",
                 "transformation",
-                "folder"
+                "folder",
+                "aichat"
             ],
             "type": "string"
         },
@@ -9782,7 +9783,7 @@
             "type": "string"
         },
         "NodeKind": {
-            "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm run schema:build:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm run schema:build:python\"",
+            "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm --filter=@posthog/frontend run schema:build:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm -w run schema:build:python\"",
             "enum": [
                 "EventsNode",
                 "ActionsNode",

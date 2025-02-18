@@ -820,6 +820,7 @@ class FileSystemType(StrEnum):
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
     FOLDER = "folder"
+    AICHAT = "aichat"
 
 
 class FilterLogicalOperator(StrEnum):
@@ -2249,7 +2250,7 @@ class FileSystemEntry(BaseModel):
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
     href: Optional[str] = Field(default=None, description="Object's URL")
-    id: str = Field(..., description="Unique UUID for tree entry")
+    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")

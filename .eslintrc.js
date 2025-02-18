@@ -12,7 +12,16 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server', 'rust', 'livestream'],
+    ignorePatterns: [
+        'node_modules',
+        'plugin-server',
+        'rust',
+        'livestream',
+        'common/hogvm/typescript',
+        'common/plugin_transpiler',
+        'common/hogvm/__tests__/**/__snapshots__/**',
+        'cypress/cypress.e2e.config.ts',
+    ],
     env,
     settings: {
         react: {
@@ -20,7 +29,7 @@ module.exports = {
         },
         'import/resolver': {
             node: {
-                paths: ['eslint-rules'], // Add the directory containing your custom rules
+                paths: ['./common/eslint_rules', '../common/eslint_rules', '../../common/eslint_rules', '../../../common/eslint_rules'], // Add the directory containing your custom rules
                 extensions: ['.js', '.jsx', '.ts', '.tsx'], // Ensure ESLint resolves both JS and TS files
             },
         },
@@ -363,7 +372,7 @@ module.exports = {
             globals: { ...globals, process: 'readonly' },
         },
         {
-            files: 'eslint-rules/**/*',
+            files: './common/eslint_rules/*',
             rules: {
                 '@typescript-eslint/no-var-requires': 'off',
             },

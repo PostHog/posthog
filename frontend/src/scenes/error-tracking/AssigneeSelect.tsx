@@ -36,12 +36,10 @@ export const AssigneeSelect = ({
     }
 
     useEffect(() => {
-        if (showPopover) {
-            ensureAssigneeTypesLoaded()
-        }
-    }, [showPopover, ensureAssigneeTypesLoaded])
+        ensureAssigneeTypesLoaded()
+    }, [])
 
-    const displayAssignee = useMemo(() => computeAssignee(assignee), [assignee])
+    const displayAssignee = useMemo(() => computeAssignee(assignee), [assignee, computeAssignee])
 
     return (
         <LemonDropdown
