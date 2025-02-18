@@ -54,6 +54,16 @@ async fn main() {
     info!("Starting up...");
 
     let config = Config::init_with_defaults().unwrap();
+
+    match &config.posthog_api_key {
+        Some(key) => {
+            posthog_rs::init_global(key.as_str()).await.unwrap();
+        }
+        None => {
+            posthog_rs::disable_global();
+        }
+    }
+
     let context = Arc::new(AppContext::new(&config).await.unwrap());
 
     start_health_liveness_server(&config, context.clone());

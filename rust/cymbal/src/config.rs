@@ -14,6 +14,8 @@ pub struct Config {
     #[envconfig(from = "BIND_PORT", default = "3301")]
     pub port: u16,
 
+    pub posthog_api_key: Option<String>,
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
