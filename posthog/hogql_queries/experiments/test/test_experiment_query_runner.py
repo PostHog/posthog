@@ -50,7 +50,6 @@ from botocore.config import Config
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.warehouse.models.table import DataWarehouseTable
-from rest_framework.exceptions import ValidationError
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.experiments.queryrunner" + XDIST_SUFFIX
 
@@ -875,7 +874,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         if expected_results is None:
-            with self.assertRaises(ValidationError):
+            with self.assertRaises(ValueError):
                 query_runner.calculate()
         else:
             result = query_runner.calculate()

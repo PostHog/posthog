@@ -385,6 +385,9 @@ class ExperimentQueryRunner(QueryRunner):
         if not control_variant:
             raise ValueError("Control variant not found in experiment results")
 
+        if not test_variants:
+            raise ValueError("Test variants not found in experiment results")
+
         # Statistical analysis
         if self.stats_version == 2:
             match self.metric.metric_type:
