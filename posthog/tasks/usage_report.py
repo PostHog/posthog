@@ -119,7 +119,8 @@ class UsageReportCounters:
     rows_synced_in_period: int
     # Error Tracking
     issues_created_total: int
-    resolved_symbol_sets_total: int
+    symbol_sets_count: int
+    resolved_symbol_sets_count: int
     exceptions_captured_in_period: int
     # CDP Delivery
     hog_function_calls_in_period: int
@@ -865,7 +866,10 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_issues_created_total": list(
             ErrorTrackingIssue.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
-        "teams_with_resolved_symbol_sets_total": list(
+        "teams_with_symbol_sets_count": list(
+            ErrorTrackingSymbolSet.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
+        "teams_with_resolved_symbol_sets_count": list(
             ErrorTrackingSymbolSet.objects.filter(storage_ptr__isnull=False)
             .values("team_id")
             .annotate(total=Count("id"))
@@ -1035,7 +1039,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
         issues_created_total=all_data["teams_with_issues_created_total"].get(team.id, 0),
-        resolved_symbol_sets_total=all_data["teams_with_resolved_symbol_sets_total"].get(team.id, 0),
+        symbol_sets_count=all_data["teams_with_symbol_sets_count"].get(team.id, 0),
+        resolved_symbol_sets_count=all_data["teams_with_resolved_symbol_sets_count"].get(team.id, 0),
         hog_function_calls_in_period=all_data["teams_with_hog_function_calls_in_period"].get(team.id, 0),
         hog_function_fetch_calls_in_period=all_data["teams_with_hog_function_fetch_calls_in_period"].get(team.id, 0),
         web_events_count_in_period=all_data["teams_with_web_events_count_in_period"].get(team.id, 0),
