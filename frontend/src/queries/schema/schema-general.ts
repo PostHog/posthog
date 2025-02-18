@@ -1865,9 +1865,9 @@ export interface ExperimentActionMetricConfig {
 export interface ExperimentDataWarehouseMetricConfig {
     kind: NodeKind.ExperimentDataWarehouseMetricConfig
     table_name: string
-    id_field: string
-    distinct_id_field: string
     timestamp_field: string
+    exposure_identifier_field: string
+    after_exposure_identifier_field: string
     math?: ExperimentMetricMath
     math_hogql?: string
     math_property?: string

@@ -6852,10 +6852,10 @@
         "ExperimentDataWarehouseMetricConfig": {
             "additionalProperties": false,
             "properties": {
-                "distinct_id_field": {
+                "after_exposure_identifier_field": {
                     "type": "string"
                 },
-                "id_field": {
+                "exposure_identifier_field": {
                     "type": "string"
                 },
                 "kind": {
@@ -6878,7 +6878,13 @@
                     "type": "string"
                 }
             },
-            "required": ["kind", "table_name", "id_field", "distinct_id_field", "timestamp_field"],
+            "required": [
+                "kind",
+                "table_name",
+                "timestamp_field",
+                "exposure_identifier_field",
+                "after_exposure_identifier_field"
+            ],
             "type": "object"
         },
         "ExperimentEventMetricConfig": {
