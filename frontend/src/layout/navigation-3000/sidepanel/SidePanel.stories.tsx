@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator, setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { SidePanelTab } from '~/types'
 
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -69,6 +70,12 @@ export const SidePanelNotebooks: StoryFn = () => {
 }
 
 export const SidePanelMax: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/core_memory': EMPTY_PAGINATED_RESPONSE,
+        },
+    })
+
     return <BaseTemplate panel={SidePanelTab.Max} />
 }
 SidePanelMax.parameters = {
