@@ -1,21 +1,33 @@
 import { IconBook, IconUpload } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemType } from '~/queries/schema/schema-general'
 
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
-import { ProjectTreeAction } from './types'
+import { FileSystemImport, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem } from './utils'
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
+    connect({
+        values: [
+            groupsModel,
+            ['aggregationLabel', 'groupTypes', 'groupsAccessStatus'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
+    }),
     actions({
         loadSavedItems: true,
         loadUnfiledItems: (type?: FileSystemType) => ({ type }),
@@ -191,7 +203,38 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.viableItems],
             (viableItems): TreeDataItem[] => convertFileSystemEntryToTreeDataItem(viableItems),
         ],
-        defaultTreeNodes: [() => [], (): TreeDataItem[] => convertFileSystemEntryToTreeDataItem(getDefaultTree())],
+        groupNodes: [
+            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
+            (groupTypes, groupsAccessStatus, aggregationLabel): FileSystemImport[] => {
+                const showGroupsIntroductionPage = [
+                    GroupsAccessStatus.HasAccess,
+                    GroupsAccessStatus.HasGroupTypes,
+                    GroupsAccessStatus.NoAccess,
+                ].includes(groupsAccessStatus)
+
+                const groupNodes: FileSystemImport[] = [
+                    ...(showGroupsIntroductionPage
+                        ? [
+                              {
+                                  path: 'Groups',
+                                  href: urls.groups(0),
+                              },
+                          ]
+                        : Array.from(groupTypes.values()).map((groupType) => ({
+                              path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                              href: urls.groups(groupType.group_type_index),
+                          }))),
+                ]
+
+                return groupNodes
+            },
+        ],
+        defaultTreeNodes: [
+            (s) => [s.featureFlags, s.groupNodes],
+            (_featureFlags, groupNodes: FileSystemImport[]) =>
+                // .filter(f => !f.flag || featureFlags[f.flag])
+                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes)),
+        ],
         projectRow: [
             (s) => [s.pendingActionsCount, s.pendingLoaderLoading],
             (pendingActionsCount, pendingLoaderLoading): TreeDataItem[] => [
