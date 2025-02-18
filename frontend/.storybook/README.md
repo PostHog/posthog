@@ -16,7 +16,7 @@ before you do this... 🤷
 
 in one terminal 
 ```bash
-pnpm storybook
+pnpm --filter=@posthog/frontend storybook
 ```
 
 in another

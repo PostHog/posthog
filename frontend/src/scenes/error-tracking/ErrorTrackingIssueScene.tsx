@@ -9,10 +9,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { Events } from './issue/Events'
 import { Metadata } from './issue/Metadata'
 import { SparklinePanel } from './issue/Sparkline'
@@ -35,14 +35,14 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, initIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { updateIssue, initIssue, assignIssue } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
         initIssue()
     }, [])
 
     return (
-        <AlphaAccessScenePrompt>
+        <ErrorTrackingSetupPrompt>
             <>
                 <PageHeader
                     buttons={
@@ -51,7 +51,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 <div className="flex divide-x gap-x-2">
                                     <AssigneeSelect
                                         assignee={issue.assignee}
-                                        onChange={(assignee) => updateIssue({ assignee })}
+                                        onChange={assignIssue}
                                         type="secondary"
                                         showName
                                     />
@@ -100,6 +100,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <Spinner />
                 )}
             </>
-        </AlphaAccessScenePrompt>
+        </ErrorTrackingSetupPrompt>
     )
 }

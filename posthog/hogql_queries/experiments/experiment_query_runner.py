@@ -2,7 +2,7 @@ from zoneinfo import ZoneInfo
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.trends_statistics import (
@@ -27,10 +27,12 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.action.action import Action
 from posthog.models.experiment import Experiment
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
     ExperimentMetricType,
@@ -144,7 +146,7 @@ class ExperimentQueryRunner(QueryRunner):
         # Finds when each user was first exposed to each experiment variant
         exposure_query = ast.SelectQuery(
             select=[
-                ast.Field(chain=["distinct_id"]),
+                ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
                 parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
                 parse_expr("min(timestamp) as first_exposure_time"),
             ],
@@ -163,6 +165,13 @@ class ExperimentQueryRunner(QueryRunner):
                                 left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"),
                                 right=ast.Constant(value=feature_flag_key),
                             ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.In,
+                                left=parse_expr(
+                                    "replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"
+                                ),
+                                right=ast.Constant(value=self.variants),
+                            ),
                         ]
                     ),
                     # Filter by experiment date range
@@ -179,7 +188,7 @@ class ExperimentQueryRunner(QueryRunner):
                     *test_accounts_filter,
                 ]
             ),
-            group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["distinct_id"])],
+            group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])],
         )
 
         match self.metric.metric_config:
@@ -195,7 +204,7 @@ class ExperimentQueryRunner(QueryRunner):
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
                         ),
                         ast.Alias(
-                            alias="distinct_id",
+                            alias="entity_id",
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
                         ),
                         ast.Field(chain=["exposure_data", "variant"]),
@@ -210,7 +219,7 @@ class ExperimentQueryRunner(QueryRunner):
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
                                     left=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
-                                    right=ast.Field(chain=["exposure_data", "distinct_id"]),
+                                    right=parse_expr("toString(exposure_data.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -224,14 +233,27 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                 )
 
-            case ExperimentEventMetricConfig() as metric_config:
+            case (ExperimentEventMetricConfig() | ExperimentActionMetricConfig()) as metric_config:
+                if isinstance(metric_config, ExperimentActionMetricConfig):
+                    try:
+                        action = Action.objects.get(pk=int(metric_config.action), team__project_id=self.team.project_id)
+                        event_filter = action_to_expr(action)
+                    except Action.DoesNotExist:
+                        # If an action doesn't exist, we want to return no events
+                        event_filter = parse_expr("1 = 2")
+                else:
+                    event_filter = ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=metric_config.event),
+                        op=ast.CompareOperationOp.Eq,
+                    )
                 # Events after exposure query: One row per PostHog event after exposure
                 # Columns: timestamp, distinct_id, variant, event, value
                 # Finds all matching events that occurred after a user was exposed to a variant
                 events_after_exposure_query = ast.SelectQuery(
                     select=[
                         ast.Field(chain=["events", "timestamp"]),
-                        ast.Field(chain=["events", "distinct_id"]),
+                        ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", "person_id"])),
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Field(chain=["events", "event"]),
                         ast.Alias(alias="value", expr=metric_value),
@@ -244,8 +266,8 @@ class ExperimentQueryRunner(QueryRunner):
                             alias="exposure_data",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
-                                    left=ast.Field(chain=["events", "distinct_id"]),
-                                    right=ast.Field(chain=["exposure_data", "distinct_id"]),
+                                    left=ast.Field(chain=["events", "person_id"]),
+                                    right=ast.Field(chain=["exposure_data", "entity_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -260,11 +282,8 @@ class ExperimentQueryRunner(QueryRunner):
                                 right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
                                 op=ast.CompareOperationOp.GtEq,
                             ),
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["event"]),
-                                right=ast.Constant(value=metric_config.event),
-                                op=ast.CompareOperationOp.Eq,
-                            ),
+                            event_filter,
+                            *test_accounts_filter,
                             *metric_property_filters,
                         ],
                     ),
@@ -276,7 +295,7 @@ class ExperimentQueryRunner(QueryRunner):
         metrics_aggregated_per_user_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["exposure_data", "variant"]),
-                ast.Field(chain=["exposure_data", "distinct_id"]),
+                ast.Field(chain=["exposure_data", "entity_id"]),
                 parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
             ],
             select_from=ast.JoinExpr(
@@ -290,8 +309,8 @@ class ExperimentQueryRunner(QueryRunner):
                         expr=ast.And(
                             exprs=[
                                 ast.CompareOperation(
-                                    left=ast.Field(chain=["exposure_data", "distinct_id"]),
-                                    right=ast.Field(chain=["events_after_exposure", "distinct_id"]),
+                                    left=parse_expr("toString(exposure_data.entity_id)"),
+                                    right=parse_expr("toString(events_after_exposure.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 ast.CompareOperation(
@@ -307,7 +326,7 @@ class ExperimentQueryRunner(QueryRunner):
             ),
             group_by=[
                 ast.Field(chain=["exposure_data", "variant"]),
-                ast.Field(chain=["exposure_data", "distinct_id"]),
+                ast.Field(chain=["exposure_data", "entity_id"]),
             ],
         )
 
@@ -317,7 +336,7 @@ class ExperimentQueryRunner(QueryRunner):
         experiment_variant_results_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["metrics_per_user", "variant"]),
-                parse_expr("count(metrics_per_user.distinct_id) as num_users"),
+                parse_expr("count(metrics_per_user.entity_id) as num_users"),
                 parse_expr("sum(metrics_per_user.value) as total_sum"),
                 parse_expr("sum(power(metrics_per_user.value, 2)) as total_sum_of_squares"),
             ],
@@ -365,6 +384,9 @@ class ExperimentQueryRunner(QueryRunner):
 
         if not control_variant:
             raise ValueError("Control variant not found in experiment results")
+
+        if not test_variants:
+            raise ValueError("Test variants not found in experiment results")
 
         # Statistical analysis
         if self.stats_version == 2:
