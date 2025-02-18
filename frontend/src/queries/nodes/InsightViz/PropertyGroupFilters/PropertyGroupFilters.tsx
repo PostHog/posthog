@@ -2,6 +2,7 @@ import './PropertyGroupFilters.scss'
 
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
@@ -157,7 +158,12 @@ export function PropertyGroupFilters({
                         icon={<IconPlusSmall color="var(--accent-primary)" />}
                         sideIcon={null}
                         disabledReason={disabledReason}
-                        className="PropertyGroupFilters__add-filter-group-after"
+                        // This class hides this button in some situations to improve layout
+                        // We don't want to hide it in Cypress tests because it'll complain the button isn't clickable
+                        // so let's simply avoid adding the class in that case
+                        className={clsx({
+                            'PropertyGroupFilters__add-filter-group-after': !window.Cypress,
+                        })}
                     >
                         Add filter group
                     </LemonButton>
