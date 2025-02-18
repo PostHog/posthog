@@ -6,7 +6,7 @@ import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { examples } from '~/queries/examples'
 import { Query } from '~/queries/Query/Query'
-import { WebAnalyticsOrderByFields } from '~/queries/schema'
+import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
 
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
 import browserMock from './__mocks__/Browser.json'
