@@ -22,7 +22,7 @@ const preflightSuccessResponse = {
 
 test.describe('Preflight', () => {
     test('Preflight experimentation', async ({ page }) => {
-        await page.route('**/_preflight', async (route) => {
+        await page.route(/_preflight/, async (route) => {
             await route.fulfill({ json: preflightSuccessResponse })
         })
 
@@ -32,14 +32,13 @@ test.describe('Preflight', () => {
         await page.locator('[data-attr=preflight-experimentation]').click()
         await expect(page.locator('[data-attr=preflight-refresh]')).toBeVisible()
         await expect(page.locator('[data-attr=caption]')).toContainText('Not required for experimentation mode')
-        await page.waitForTimeout(200)
         await expect(page.locator('[data-attr=preflight-complete]')).toBeVisible()
         await page.locator('[data-attr=preflight-complete]').click()
         await expect(page).toHaveURL(/.*\/signup/)
     })
 
     test('Preflight live mode', async ({ page }) => {
-        await page.route('**/_preflight', async (route) => {
+        await page.route(/_preflight/, async (route) => {
             await route.fulfill({ json: preflightSuccessResponse })
         })
 
@@ -50,12 +49,14 @@ test.describe('Preflight', () => {
         await expect(page.locator('.PreflightItem')).toHaveCount(10)
         await expect(page.locator('[data-attr="status-text"]:has-text("Validated")')).toHaveCount(9)
         await expect(page.locator('[data-attr="status-text"]:has-text("Warning")')).toHaveCount(1)
-        await expect(page.locator('[data-attr=caption]')).toContainText('Set up before ingesting real user data')
+        await expect(page.locator('.PreflightItem [data-attr=caption]')).toContainText(
+            'Set up before ingesting real user data'
+        )
         await expect(page.locator('[data-attr=preflight-complete]')).toBeVisible()
     })
 
     test('Preflight can have errors too', async ({ page }) => {
-        await page.route('**/_preflight', async (route) => {
+        await page.route(/_preflight/, async (route) => {
             await route.fulfill({ json: { ...preflightSuccessResponse, celery: false } })
         })
 
@@ -67,7 +68,9 @@ test.describe('Preflight', () => {
         await expect(page.locator('[data-attr="status-text"]:has-text("Validated")')).toHaveCount(8)
         await expect(page.locator('[data-attr="status-text"]:has-text("Warning")')).toHaveCount(1)
         await expect(page.locator('[data-attr="status-text"]:has-text("Error")')).toHaveCount(1)
-        await expect(page.locator('[data-attr=caption]')).toContainText('Set up before ingesting real user data')
+        await expect(page.locator('.PreflightItem [data-attr=caption]')).toContainText(
+            'Set up before ingesting real user data'
+        )
         await expect(page.locator('[data-attr=preflight-complete]')).not.toBeVisible()
         await expect(
             page.locator(
