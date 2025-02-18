@@ -33,6 +33,12 @@ export function ExperimentMetricForm({
                     }}
                     options={[
                         {
+                            value: ExperimentMetricType.BINOMIAL,
+                            label: 'Binomial',
+                            description:
+                                'Tracks whether an event happens for each user, useful for measuring conversion rates.',
+                        },
+                        {
                             value: ExperimentMetricType.COUNT,
                             label: 'Count',
                             description:

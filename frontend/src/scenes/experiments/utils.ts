@@ -451,7 +451,7 @@ export function filterToMetricConfig(
     }
 }
 
-export function metricToQuery(metric: ExperimentMetric): TrendsQuery | undefined {
+export function metricToQuery(metric: ExperimentMetric): FunnelsQuery | TrendsQuery | undefined {
     const commonTrendsQueryProps: Partial<TrendsQuery> = {
         kind: NodeKind.TrendsQuery,
         interval: 'day',
@@ -490,6 +490,26 @@ export function metricToQuery(metric: ExperimentMetric): TrendsQuery | undefined
                 },
             ],
         } as TrendsQuery
+    } else if (metric.metric_type === ExperimentMetricType.BINOMIAL) {
+        return {
+            kind: NodeKind.FunnelsQuery,
+            filterTestAccounts: !!metric.filterTestAccounts,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$feature_flag_called',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                },
+            ],
+        } as FunnelsQuery
     }
 
     return undefined
