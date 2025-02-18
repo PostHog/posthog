@@ -1,6 +1,5 @@
 from typing import cast
 from django.test import override_settings
-import pytest
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -170,16 +169,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "usage": "Int64",
             },
             credential=credential,
-        )
-
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=table_name,
-            source_table_key="userid",
-            joining_table_name="events",
-            joining_table_key="properties.$user_id",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
         )
         return table_name
 
@@ -1425,8 +1414,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                distinct_id_field="userid",
-                id_field="id",
+                exposure_entity_field="properties.$user_id",
+                after_exposure_entity_field="userid",
                 timestamp_field="ds",
                 math="avg",
                 math_property="usage",
@@ -1571,8 +1560,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                distinct_id_field="userid",
-                id_field="id",
+                exposure_entity_field="properties.$user_id",
+                after_exposure_entity_field="userid",
                 timestamp_field="ds",
                 math="avg",
                 math_property="usage",
@@ -1604,7 +1593,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 8)
         self.assertEqual(test_result.absolute_exposure, 10)
 
-    @pytest.mark.skip(reason="Doesn't work with the new query runner")
+    @snapshot_clickhouse_queries
     def test_query_runner_with_data_warehouse_subscriptions_table(self):
         table_name = self.create_data_warehouse_table_with_subscriptions()
 
