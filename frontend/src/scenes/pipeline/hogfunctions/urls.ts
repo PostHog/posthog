@@ -12,11 +12,13 @@ export function hogFunctionNewUrl(type: HogFunctionTypeType, template?: string):
         : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(type), template ? `hog-${template}` : undefined)
 }
 
-export function hogFunctionUrl(type: HogFunctionTypeType | PipelineStage, id?: string): string {
+export function hogFunctionUrl(type: HogFunctionTypeType | PipelineStage, id?: string, template?: string): string {
     if (type === 'email') {
         return id ? urls.messagingProvider(id) : urls.messagingProviders()
     } else if (type === 'broadcast') {
         return id ? urls.messagingBroadcast(id) : urls.messagingBroadcasts()
+    } else if (type === 'internal_destination' && template?.includes('error-tracking')) {
+        return id ? urls.errorTrackingAlert(id) : urls.errorTrackingConfiguration()
     }
     return id
         ? urls.pipelineNode(

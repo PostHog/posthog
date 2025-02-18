@@ -33,14 +33,18 @@ const setSimpleFilterValue = (value: string): HogFunctionFiltersType => {
     }
 }
 
-export function HogFunctionFiltersInternal(): JSX.Element {
+export function HogFunctionFiltersInternal({ templateId }: { templateId?: string }): JSX.Element {
+    const options = templateId?.includes('error-tracking')
+        ? FILTER_OPTIONS.filter((o) => o.value.includes('$error_tracking'))
+        : FILTER_OPTIONS
+
     return (
         <div className="p-3 space-y-2 border rounded bg-surface-primary">
             <LemonField name="filters" label="Trigger" help="Choose what event should trigger this destination">
                 {({ value, onChange }) => (
                     <>
                         <LemonSelect
-                            options={FILTER_OPTIONS}
+                            options={options}
                             value={getSimpleFilterValue(value)}
                             onChange={(value) => onChange(setSimpleFilterValue(value))}
                             placeholder="Select a filter"
