@@ -10,6 +10,7 @@
         "@posthog/frontend": "workspace:*"
     },
     "peerDependencies": {
-        "posthog-js": "*"
+        "posthog-js": "*",
+        "typescript": "*"
     }
 }
