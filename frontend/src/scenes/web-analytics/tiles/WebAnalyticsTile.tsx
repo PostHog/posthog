@@ -1,4 +1,4 @@
-import { IconRewindPlay, IconTrending, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconRewindPlay, IconTrending, IconWarning } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -6,9 +6,11 @@ import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage, UnexpectedNeverError } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { useCallback, useMemo } from 'react'
@@ -27,6 +29,7 @@ import {
     InsightVizNode,
     NodeKind,
     QuerySchema,
+    WebAnalyticsOrderByFields,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
@@ -268,6 +271,42 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     return null
 }
 
+const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): QueryContextColumnTitleComponent =>
+    function SortableCell() {
+        const { tablesOrderBy } = useValues(webAnalyticsLogic)
+        const { setTablesOrderBy } = useActions(webAnalyticsLogic)
+        const { featureFlags } = useValues(featureFlagLogic)
+
+        const isSortedByMyField = tablesOrderBy?.[0] === orderByField
+        const isAscending = tablesOrderBy?.[1] === 'ASC'
+
+        // Toggle between DESC, ASC, and no sort, in this order
+        const onClick = useCallback(() => {
+            if (!isSortedByMyField || isAscending) {
+                setTablesOrderBy(orderByField, 'DESC')
+            } else {
+                setTablesOrderBy(orderByField, 'ASC')
+            }
+        }, [isAscending, isSortedByMyField, setTablesOrderBy])
+
+        if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TABLE_SORTING]) {
+            return <span className="pr-5">{name}</span>
+        }
+
+        return (
+            <span onClick={onClick} className="group cursor-pointer inline-flex items-center">
+                {name}
+                <IconChevronDown
+                    fontSize="20px"
+                    className={clsx('-mr-1 ml-1 text-muted-alt opacity-0 group-hover:opacity-100', {
+                        'text-primary opacity-100': isSortedByMyField,
+                        'rotate-180': isSortedByMyField && isAscending,
+                    })}
+                />
+            </span>
+        )
+    }
+
 export const webStatsBreakdownToPropertyName = (
     breakdownBy: WebStatsBreakdown
 ):
@@ -330,52 +369,52 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: BreakdownValueCell,
         },
         bounce_rate: {
-            title: <span className="pr-5">Bounce Rate</span>,
+            renderTitle: SortableCell('Bounce Rate', WebAnalyticsOrderByFields.BounceRate),
             render: VariationCell({ isPercentage: true, reverseColors: true }),
             align: 'right',
         },
         views: {
-            title: <span className="pr-5">Views</span>,
+            renderTitle: SortableCell('Views', WebAnalyticsOrderByFields.Views),
             render: VariationCell(),
             align: 'right',
         },
         clicks: {
-            title: <span className="pr-5">Clicks</span>,
+            renderTitle: SortableCell('Clicks', WebAnalyticsOrderByFields.Clicks),
             render: VariationCell(),
             align: 'right',
         },
         visitors: {
-            title: <span className="pr-5">Visitors</span>,
+            renderTitle: SortableCell('Visitors', WebAnalyticsOrderByFields.Visitors),
             render: VariationCell(),
             align: 'right',
         },
         average_scroll_percentage: {
-            title: <span className="pr-5">Average Scroll</span>,
+            renderTitle: SortableCell('Average Scroll', WebAnalyticsOrderByFields.AverageScrollPercentage),
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         scroll_gt80_percentage: {
-            title: <span className="pr-5">Deep Scroll Rate</span>,
+            renderTitle: SortableCell('Deep Scroll Rate', WebAnalyticsOrderByFields.ScrollGt80Percentage),
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         total_conversions: {
-            title: <span className="pr-5">Total Conversions</span>,
+            renderTitle: SortableCell('Total Conversions', WebAnalyticsOrderByFields.TotalConversions),
             render: VariationCell(),
             align: 'right',
         },
         unique_conversions: {
-            title: <span className="pr-5">Unique Conversions</span>,
+            renderTitle: SortableCell('Unique Conversions', WebAnalyticsOrderByFields.UniqueConversions),
             render: VariationCell(),
             align: 'right',
         },
         conversion_rate: {
-            title: <span className="pr-5">Conversion Rate</span>,
+            renderTitle: SortableCell('Conversion Rate', WebAnalyticsOrderByFields.ConversionRate),
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         converting_users: {
-            title: <span className="pr-5">Converting Users</span>,
+            renderTitle: SortableCell('Converting Users', WebAnalyticsOrderByFields.ConvertingUsers),
             render: VariationCell(),
             align: 'right',
         },
