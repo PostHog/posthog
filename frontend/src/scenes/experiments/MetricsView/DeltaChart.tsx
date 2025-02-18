@@ -67,7 +67,11 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
         if (metric.metric_config?.kind === 'ExperimentEventMetricConfig') {
             const mathName = getMathDisplayName(metric.metric_config.math)
             const eventName = metric.metric_config.event
-            return <span className="truncate">{`${mathName} ${eventName}`}</span>
+            return (
+                <span className="truncate">{`${mathName} ${
+                    metric.metric_config.math_property ? `${metric.metric_config.math_property} ` : ''
+                }${eventName}`}</span>
+            )
         }
     }
 
