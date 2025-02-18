@@ -86,7 +86,7 @@ function generateViolinPath(x1: number, x2: number, y: number, height: number, d
         const t = i / steps
         const x = x1 + (deltaX - x1) * t
         // Standard normal distribution PDF from x1 to deltaX
-        const z = (t - 1) * 2.5 // Scale factor of 2.5 gives good visual width
+        const z = (t - 1) * 2 // Reduced scale factor from 2.5 to 2 for thicker tails
         const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 - width])
     }
@@ -96,7 +96,7 @@ function generateViolinPath(x1: number, x2: number, y: number, height: number, d
         const t = i / steps
         const x = deltaX + (x2 - deltaX) * t
         // Standard normal distribution PDF from deltaX to x2
-        const z = t * 2.5 // Scale factor of 2.5 gives good visual width
+        const z = t * 2 // Reduced scale factor from 2.5 to 2 for thicker tails
         const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 - width])
     }
@@ -105,14 +105,14 @@ function generateViolinPath(x1: number, x2: number, y: number, height: number, d
     for (let i = steps; i >= 0; i--) {
         const t = i / steps
         const x = deltaX + (x2 - deltaX) * t
-        const z = t * 2.5
+        const z = t * 2
         const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 + width])
     }
     for (let i = steps; i >= 0; i--) {
         const t = i / steps
         const x = x1 + (deltaX - x1) * t
-        const z = (t - 1) * 2.5
+        const z = (t - 1) * 2
         const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 + width])
     }
