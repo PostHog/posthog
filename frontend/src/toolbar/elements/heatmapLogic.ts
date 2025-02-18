@@ -56,7 +56,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
         }),
         enableHeatmap: true,
         disableHeatmap: true,
-        setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setCommonFilters: (filters: CommonFilters) => ({ filters }),
         setHeatmapFilters: (filters: HeatmapFilters) => ({ filters }),
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
@@ -94,12 +93,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 enableHeatmap: () => true,
                 disableHeatmap: () => false,
                 getElementStatsFailure: () => false,
-            },
-        ],
-        shiftPressed: [
-            false,
-            {
-                setShiftPressed: (_, { shiftPressed }) => shiftPressed,
             },
         ],
         commonFilters: [
@@ -601,18 +594,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
     afterMount(({ actions, values, cache }) => {
         actions.loadAllEnabled()
-        cache.keyDownListener = (event: KeyboardEvent) => {
-            if (event.shiftKey && !values.shiftPressed) {
-                actions.setShiftPressed(true)
-            }
-        }
-        cache.keyUpListener = (event: KeyboardEvent) => {
-            if (!event.shiftKey && values.shiftPressed) {
-                actions.setShiftPressed(false)
-            }
-        }
-        window.addEventListener('keydown', cache.keyDownListener)
-        window.addEventListener('keyup', cache.keyUpListener)
 
         cache.scrollCheckTimer = setInterval(() => {
             const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
@@ -623,8 +604,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
     }),
 
     beforeUnmount(({ cache }) => {
-        window.removeEventListener('keydown', cache.keyDownListener)
-        window.removeEventListener('keyup', cache.keyUpListener)
         clearInterval(cache.scrollCheckTimer)
     }),
 ])
