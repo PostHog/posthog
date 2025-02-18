@@ -7,7 +7,6 @@ import { dataWarehouseTableLogic } from 'scenes/data-warehouse/new/dataWarehouse
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import { PipelineNodeTab, PipelineStage } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
