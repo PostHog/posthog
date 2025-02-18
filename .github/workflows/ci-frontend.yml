@@ -117,7 +117,8 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               uses: preactjs/compressed-size-action@v2
               with:
-                  build-script: 'build'
+                  build-script: '--filter=@posthog/frontend build'
+                  install-script: 'pnpm --filter=@posthog/frontend... install'
                   compression: 'none'
                   pattern: 'frontend/dist/toolbar.js'
                   # we only care if the toolbar will increase a lot
