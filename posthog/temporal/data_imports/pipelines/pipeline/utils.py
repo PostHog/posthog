@@ -323,7 +323,7 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
             else:
                 return pa.decimal256(76, max(0, 76 - (precision - scale)))
 
-        return pa.decimal128(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
+        return pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
 
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
