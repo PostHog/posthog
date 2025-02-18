@@ -806,6 +806,23 @@ class FailureMessage(BaseModel):
     type: Literal["ai/failure"] = "ai/failure"
 
 
+class FileSystemType(StrEnum):
+    FEATURE_FLAG = "feature_flag"
+    INSIGHT = "insight"
+    DASHBOARD = "dashboard"
+    EXPERIMENT = "experiment"
+    NOTEBOOK = "notebook"
+    REPL = "repl"
+    SURVEY = "survey"
+    SQL = "sql"
+    SOURCE = "source"
+    DESTINATION = "destination"
+    SITE_APP = "site_app"
+    TRANSFORMATION = "transformation"
+    FOLDER = "folder"
+    AICHAT = "aichat"
+
+
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
@@ -2223,6 +2240,23 @@ class FeaturePropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class FileSystemEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    created_at: Optional[str] = Field(
+        default=None, description="Timestamp when file was added. Used to check persistence"
+    )
+    href: Optional[str] = Field(default=None, description="Object's URL")
+    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
+    meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
+    path: str = Field(..., description="Object's name and folder")
+    ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    type: Optional[FileSystemType] = Field(
+        default=None, description="Type of object, used for icon, e.g. feature_flag, insight, etc"
+    )
 
 
 class FunnelCorrelationResult(BaseModel):

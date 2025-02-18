@@ -79,6 +79,7 @@ settings.yml
 share/GeoLite2-City.mmdb
 staticfiles
 storybook-static
+frontend/storybook-static
 temp_test_run_data.json
 # ignore all dagster tmp directories that may be created
 tmp*/
@@ -89,3 +90,5 @@ yalc.lock
 .flox/env/manifest.lock
 
 playwright/.auth/
+playwright-report/
+test-results/

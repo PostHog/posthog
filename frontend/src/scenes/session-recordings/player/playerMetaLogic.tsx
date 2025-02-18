@@ -2,9 +2,10 @@ import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
+import { getCoreFilterDefinition, getFirstFilterTypeFor } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, humanFriendlyDuration, percentage } from 'lib/utils'
 import posthog from 'posthog-js'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
@@ -16,14 +17,12 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { PersonType } from '~/types'
+import { PersonType, PropertyFilterType } from '~/types'
 
 import { SimpleTimeLabel } from '../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 
-const browserPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os', '$referring_domain']
-const mobilePropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
 export interface SessionSummaryResponse {
@@ -221,30 +220,53 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     : {}
                 const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
 
-                const deviceType =
-                    recordingProperties['$device_type'] ||
-                    personProperties['$device_type'] ||
-                    personProperties['$initial_device_type']
-                const deviceTypePropertyKeys = deviceType === 'Mobile' ? mobilePropertyKeys : browserPropertyKeys
-
-                deviceTypePropertyKeys.forEach((property) => {
-                    if (recordingProperties[property] || personProperties[property]) {
-                        const propertyType = recordingProperties[property]
-                            ? TaxonomicFilterGroupType.EventProperties
-                            : TaxonomicFilterGroupType.PersonProperties
-                        const value = recordingProperties[property] || personProperties[property]
-
-                        items.push({
-                            label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
-                            value,
-                            tooltipTitle:
-                                property === '$geoip_country_code' && value in countryCodeToName
-                                    ? countryTitleFrom(recordingProperties, personProperties)
-                                    : value,
-                            type: 'property',
-                            property,
-                        })
+                const propertiesToUse = Object.keys(recordingProperties).length ? recordingProperties : personProperties
+                if (propertiesToUse['$os_name'] && propertiesToUse['$os']) {
+                    // we don't need both, prefer $os_name in case mobile sends better value in that field
+                    delete propertiesToUse['$os']
+                }
+                Object.entries(propertiesToUse).forEach(([property, value]) => {
+                    if (value == null) {
+                        return
                     }
+                    if (property === '$geoip_subdivision_1_name' || property === '$geoip_city_name') {
+                        // they're just shown in the title for Country
+                        return
+                    }
+
+                    const propertyType = recordingProperties[property]
+                        ? // HogQL query can return multiple types, so we need to check
+                          // but if it doesn't match a core definition it must be an event property
+                          getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
+                        : TaxonomicFilterGroupType.PersonProperties
+
+                    items.push({
+                        icon: (
+                            <PropertyFilterIcon
+                                type={
+                                    propertyType === TaxonomicFilterGroupType.EventProperties
+                                        ? PropertyFilterType.Event
+                                        : TaxonomicFilterGroupType.SessionProperties
+                                        ? PropertyFilterType.Session
+                                        : PropertyFilterType.Person
+                                }
+                            />
+                        ),
+                        label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
+                        value,
+                        keyTooltip:
+                            propertyType === TaxonomicFilterGroupType.EventProperties
+                                ? 'Event property'
+                                : TaxonomicFilterGroupType.SessionProperties
+                                ? 'Session property'
+                                : 'Person property',
+                        valueTooltip:
+                            property === '$geoip_country_code' && value in countryCodeToName
+                                ? countryTitleFrom(recordingProperties, personProperties)
+                                : value,
+                        type: 'property',
+                        property,
+                    })
                 })
 
                 return items

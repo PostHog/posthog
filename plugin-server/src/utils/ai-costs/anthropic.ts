@@ -30,14 +30,14 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'claude-3.5-sonnet:beta',
+        model: 'claude-3.5-sonnet',
         cost: {
             prompt_token: 0.000003,
             completion_token: 0.000015,
         },
     },
     {
-        model: 'claude-3.5-sonnet',
+        model: 'claude-3.5-sonnet:beta',
         cost: {
             prompt_token: 0.000003,
             completion_token: 0.000015,

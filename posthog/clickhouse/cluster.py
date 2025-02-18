@@ -299,6 +299,15 @@ def get_cluster(
 
 
 @dataclass
+class Query:
+    query: str
+    parameters: Any | None = None
+
+    def __call__(self, client: Client):
+        return client.execute(self.query, self.parameters)
+
+
+@dataclass
 class Mutation:
     table: str
     mutation_id: str
@@ -330,6 +339,12 @@ class MutationRunner:
     def __post_init__(self) -> None:
         if invalid_keys := {key for key in self.parameters.keys() if key.startswith("__")}:
             raise ValueError(f"invalid parameter names: {invalid_keys!r} (keys cannot start with double underscore)")
+
+    def __call__(self, client: Client) -> Mutation:
+        """Shorthand method to find or enqueue a mutation, and block until its completion."""
+        mutation = self.enqueue(client)
+        mutation.wait(client)
+        return mutation
 
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""

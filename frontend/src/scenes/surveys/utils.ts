@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify'
 
-import { SurveyAppearance } from '~/types'
+import { PropertyOperator, SurveyAppearance, SurveyMatchType } from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 
@@ -30,6 +30,10 @@ export function validateColor(color: string | undefined, fieldName: string): str
     return !isValidColor ? `Invalid color value for ${fieldName}. Please use a valid CSS color.` : undefined
 }
 
+export function getSurveyResponseKey(questionIndex: number): string {
+    return questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+}
+
 export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): SurveyAppearance | null {
     if (!appearance) {
         return null
@@ -43,5 +47,28 @@ export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): S
         ratingButtonColor: sanitizeColor(appearance.ratingButtonColor),
         submitButtonColor: sanitizeColor(appearance.submitButtonColor),
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
+    }
+}
+
+export function getSurveyMatchTypeToPropertyOperator(surveyMatchType?: SurveyMatchType): PropertyOperator {
+    if (!surveyMatchType) {
+        return PropertyOperator.IContains
+    }
+
+    switch (surveyMatchType) {
+        case SurveyMatchType.Contains:
+            return PropertyOperator.IContains
+        case SurveyMatchType.NotIContains:
+            return PropertyOperator.NotIContains
+        case SurveyMatchType.Regex:
+            return PropertyOperator.Regex
+        case SurveyMatchType.NotRegex:
+            return PropertyOperator.NotRegex
+        case SurveyMatchType.Exact:
+            return PropertyOperator.Exact
+        case SurveyMatchType.IsNot:
+            return PropertyOperator.IsNot
+        default:
+            return PropertyOperator.IContains
     }
 }
