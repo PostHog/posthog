@@ -2115,11 +2115,11 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-<<<<<<< HEAD
-  WHERE "posthog_grouptypemapping"."project_id" = 510
-=======
   WHERE "posthog_grouptypemapping"."project_id" = 517
+  '''
+# ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags.1
+  '''
   SELECT (((("posthog_person"."properties" -> 'number') >= '"20"'::jsonb
             AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = ('string'))
            OR (("posthog_person"."properties" -> 'number') >= '20.0'::jsonb
