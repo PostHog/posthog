@@ -1,9 +1,0 @@
-{
-    "name": "@posthog/playwright",
-    "scripts": {},
-    "dependencies": {
-        "@playwright/test": "1.45.0",
-        "@posthog/frontend": "workspace:*"
-    },
-    "peerDependencies": {}
-}

@@ -9,7 +9,7 @@
             "command": "pnpm start",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}/frontend",
+            "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
             },
@@ -20,7 +20,7 @@
             "command": "pnpm start-http",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}/frontend",
+            "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
             },
@@ -31,7 +31,7 @@
             "command": "pnpm start",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}/frontend",
+            "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
             },
