@@ -162,12 +162,12 @@ describe('getDefaultMetricTitle', () => {
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 math: 'total',
-                math_property: 'revenue',
-                event: 'purchase',
+                math_property: undefined,
+                event: 'purchase completed',
             },
         }
 
-        expect(getDefaultMetricTitle(metric)).toBe('Total Revenue Purchase')
+        expect(getDefaultMetricTitle(metric)).toBe('Total purchase completed')
     })
 
     it('handles ExperimentEventMetricConfig without math_property', () => {
@@ -181,7 +181,7 @@ describe('getDefaultMetricTitle', () => {
             },
         }
 
-        expect(getDefaultMetricTitle(metric)).toBe('Total Signup')
+        expect(getDefaultMetricTitle(metric)).toBe('Total signup')
     })
 
     it('handles ExperimentActionMetricConfig with name', () => {
@@ -197,7 +197,7 @@ describe('getDefaultMetricTitle', () => {
             },
         }
 
-        expect(getDefaultMetricTitle(metric)).toBe('Average Value Completed Purchase')
+        expect(getDefaultMetricTitle(metric)).toBe('Avg value completed purchase')
     })
 
     it('handles ExperimentActionMetricConfig without name', () => {
@@ -212,7 +212,7 @@ describe('getDefaultMetricTitle', () => {
             },
         }
 
-        expect(getDefaultMetricTitle(metric)).toBe('Average Value Action 123')
+        expect(getDefaultMetricTitle(metric)).toBe('Avg value action 123')
     })
 
     it('handles snake_case conversion correctly', () => {
@@ -227,7 +227,7 @@ describe('getDefaultMetricTitle', () => {
             },
         }
 
-        expect(getDefaultMetricTitle(metric)).toBe('Total User Revenue Completed Purchase')
+        expect(getDefaultMetricTitle(metric)).toBe('Total user revenue completed purchase')
     })
 
     it('handles camelCase conversion correctly', () => {
@@ -242,6 +242,6 @@ describe('getDefaultMetricTitle', () => {
             },
         }
 
-        expect(getDefaultMetricTitle(metric)).toBe('Total User Revenue Completed Purchase')
+        expect(getDefaultMetricTitle(metric)).toBe('Total user revenue completed purchase')
     })
 })
