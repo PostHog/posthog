@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    build_pyarrow_decimal_type,
     table_from_iterator,
 )
 from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE
@@ -127,12 +128,8 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
             case "numeric" | "decimal":
                 precision = col.numeric_precision or DEFAULT_NUMERIC_PRECISION
                 scale = col.numeric_scale or DEFAULT_NUMERIC_SCALE
-                if precision <= 38:
-                    arrow_type = pa.decimal128(precision, scale)
-                elif precision <= 76:
-                    arrow_type = pa.decimal256(precision, scale)
-                else:
-                    arrow_type = pa.decimal256(76, max(0, 76 - (precision - scale)))
+
+                arrow_type = build_pyarrow_decimal_type(precision, scale)
             case "real":
                 arrow_type = pa.float32()
             case "double precision":

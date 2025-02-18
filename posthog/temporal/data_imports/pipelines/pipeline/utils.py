@@ -288,6 +288,32 @@ def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None
     return table_from_iterator(iter(table_data), schema=schema)
 
 
+def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type | pa.Decimal256Type:
+    if precision <= 38:
+        return pa.decimal128(precision, scale)
+    elif precision <= 76:
+        return pa.decimal256(precision, scale)
+    else:
+        return pa.decimal256(76, max(0, 76 - (precision - scale)))
+
+
+def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | pa.Decimal256Type:
+    max_precision = 1
+    max_scale = 0
+
+    for value in values:
+        sign, digits, exponent = value.as_tuple()
+        if not isinstance(exponent, int):
+            continue
+        precision = len(digits)
+        scale = -exponent if exponent < 0 else 0
+
+        max_precision = max(precision, max_precision)
+        max_scale = max(scale, max_scale)
+
+    return build_pyarrow_decimal_type(max_precision, max_scale)
+
+
 def _python_type_to_pyarrow_type(type_: type, value: Any):
     python_to_pa = {
         int: pa.int64(),
@@ -316,12 +342,7 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
             precision = len(digits)
             scale = -exponent if exponent < 0 else 0
 
-            if precision <= 38:
-                return pa.decimal128(precision, scale)
-            elif precision <= 76:
-                return pa.decimal256(precision, scale)
-            else:
-                return pa.decimal256(76, max(0, 76 - (precision - scale)))
+            return build_pyarrow_decimal_type(precision, scale)
 
         return pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
 
@@ -437,6 +458,15 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # Remove any NaN or infinite values from decimal columns
         if issubclass(py_type, decimal.Decimal) or issubclass(py_type, float):
+            all_values = columnar_table_data[field_name].tolist()
+            has_decimals = any(isinstance(value, decimal.Decimal) for value in all_values)
+            if has_decimals:
+                new_field_type = _get_max_decimal_type(
+                    [value for value in all_values if isinstance(value, decimal.Decimal)]
+                )
+            else:
+                new_field_type = _python_type_to_pyarrow_type(py_type, val)
+
             number_arr = pa.array(
                 [
                     None
@@ -449,7 +479,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                     else x
                     for x in columnar_table_data[field_name].tolist()
                 ],
-                type=_python_type_to_pyarrow_type(py_type, val),
+                type=new_field_type,
             )
             columnar_table_data[field_name] = number_arr
 
