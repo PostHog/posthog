@@ -6,7 +6,7 @@ import { Team } from '../types'
 
 export const posthog = new PostHog('sTMFPsFhdP1Ssg', {
     host: 'https://us.i.posthog.com',
-    enableExceptionAutocapture: true,
+    enableExceptionAutocapture: process.env.NODE_ENV === 'production',
 })
 
 if (process.env.NODE_ENV && ['test', 'development'].includes(process.env.NODE_ENV)) {
@@ -47,14 +47,17 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
         sentryId = captureSentryException(exception, hint)
     }
 
-    let additionalProperties = {}
-    if (hint) {
-        additionalProperties = {
-            ...(hint.level ? { level: hint.level } : {}),
-            ...(hint.tags || {}),
-            ...(hint.extra || {}),
+    if (process.env.NODE_ENV === 'production') {
+        let additionalProperties = {}
+        if (hint) {
+            additionalProperties = {
+                ...(hint.level ? { level: hint.level } : {}),
+                ...(hint.tags || {}),
+                ...(hint.extra || {}),
+            }
         }
+        posthog.captureException(exception, undefined, additionalProperties)
     }
-    posthog.captureException(exception, undefined, additionalProperties)
+
     return sentryId
 }
