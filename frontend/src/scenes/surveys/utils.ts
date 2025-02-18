@@ -30,6 +30,10 @@ export function validateColor(color: string | undefined, fieldName: string): str
     return !isValidColor ? `Invalid color value for ${fieldName}. Please use a valid CSS color.` : undefined
 }
 
+export function getSurveyResponseKey(questionIndex: number): string {
+    return questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+}
+
 export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): SurveyAppearance | null {
     if (!appearance) {
         return null

@@ -1,9 +1,8 @@
 import type { Monaco } from '@monaco-editor/react'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 // Note: we can only import types and not values from monaco-editor, because otherwise some Monaco code breaks
@@ -17,7 +16,6 @@ import type { editor } from 'monaco-editor'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urls } from 'scenes/urls'
 
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
@@ -83,16 +81,6 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     })),
     selectors({
         aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
-        multitab: [
-            (s) => [s.featureFlags, () => !!dataWarehouseSceneLogic.findMounted()?.values.editingView],
-            (featureFlags, isEditingView) =>
-                !!(
-                    featureFlags[FEATURE_FLAGS.MULTITAB_EDITOR] &&
-                    router.values.location.pathname.includes(urls.dataWarehouse()) &&
-                    Object.keys(router.values.hashParams).length === 0 &&
-                    !isEditingView
-                ),
-        ],
     }),
     listeners(({ actions, props, values }) => ({
         saveQuery: ({ queryOverride }) => {

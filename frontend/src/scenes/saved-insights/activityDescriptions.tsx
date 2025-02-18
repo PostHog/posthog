@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { InsightQueryNode, QuerySchema, TrendsQuery } from '~/queries/schema'
+import { InsightQueryNode, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode, isValidBreakdown } from '~/queries/utils'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 

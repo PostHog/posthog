@@ -9,9 +9,7 @@ from dagster import (
     OpExecutionContext,
     Config,
     MetadataValue,
-    InitResourceContext,
     ResourceParam,
-    ConfigurableResource,
 )
 from django.conf import settings
 from functools import partial
@@ -22,27 +20,10 @@ from posthog.clickhouse.cluster import (
     Mutation,
     MutationRunner,
     NodeRole,
-    get_cluster,
 )
-from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-
-
-class ClickhouseClusterResource(ConfigurableResource):
-    """
-    The ClickHouse cluster used to run the job.
-    """
-
-    client_settings: dict[str, str] = {
-        "max_execution_time": "0",
-        "max_memory_usage": "0",
-        "receive_timeout": f"{24 * 60 * 60}",  # wait 24 hours for a response from CH
-        "mutations_sync": "0",
-        "lightweight_deletes_sync": "0",
-    }
-
-    def create_resource(self, context: InitResourceContext) -> ClickhouseCluster:
-        return get_cluster(context.log, client_settings=self.client_settings)
+from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
 class DeleteConfig(Config):
@@ -267,13 +248,32 @@ class PendingDeletesDictionary:
 
 
 @op
+def get_oldest_person_override_timestamp(
+    cluster: ResourceParam[ClickhouseCluster],
+) -> datetime:
+    """Get the oldest person override timestamp from the person_distinct_id_overrides table."""
+
+    query = f"""
+    SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
+    """
+    [[result]] = cluster.any_host_by_role(lambda client: client.execute(query), NodeRole.DATA).result()
+    return result
+
+
+@op
 def create_pending_person_deletions_table(
     config: DeleteConfig,
     cluster: ResourceParam[ClickhouseCluster],
+    oldest_person_override_timestamp: datetime,
 ) -> PendingPersonEventDeletesTable:
-    """Create a merge tree table in ClickHouse to store pending deletes."""
+    """
+    Create a merge tree table in ClickHouse to store pending deletes.
+
+    Important to note: we only get pending deletions for requests that happened before the oldest person override timestamp.
+    """
+
     table = PendingPersonEventDeletesTable(
-        timestamp=config.parsed_timestamp,
+        timestamp=oldest_person_override_timestamp,
         team_id=config.team_id,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
@@ -306,21 +306,35 @@ def load_pending_person_deletions(
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
     if create_pending_person_deletions_table.is_reporting:
-        pending_deletions = AsyncDeletion.objects.all().iterator()
+        pending_deletions = (
+            AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+            )
+            .values("team_id", "key", "created_at")
+            .iterator()
+        )
     else:
         if not create_pending_person_deletions_table.team_id:
-            pending_deletions = AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_person_deletions_table.timestamp,
-            ).iterator()
+            pending_deletions = (
+                AsyncDeletion.objects.filter(
+                    deletion_type=DeletionType.Person,
+                    delete_verified_at__isnull=True,
+                    created_at__lte=create_pending_person_deletions_table.timestamp,
+                )
+                .values("team_id", "key", "created_at")
+                .iterator()
+            )
         else:
-            pending_deletions = AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                team_id=create_pending_person_deletions_table.team_id,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_person_deletions_table.timestamp,
-            ).iterator()
+            pending_deletions = (
+                AsyncDeletion.objects.filter(
+                    deletion_type=DeletionType.Person,
+                    team_id=create_pending_person_deletions_table.team_id,
+                    delete_verified_at__isnull=True,
+                    created_at__lte=create_pending_person_deletions_table.timestamp,
+                )
+                .values("team_id", "key", "created_at")
+                .iterator()
+            )
 
     # Process and insert in chunks
     chunk_size = 10000
@@ -338,9 +352,9 @@ def load_pending_person_deletions(
     for deletion in pending_deletions:
         current_chunk.append(
             {
-                "team_id": deletion.team_id,
-                "key": deletion.key,
-                "created_at": deletion.created_at,
+                "team_id": deletion["team_id"],
+                "key": deletion["key"],
+                "created_at": deletion["created_at"],
             }
         )
 
@@ -448,6 +462,7 @@ def delete_person_events(
             .items()
         )
     }
+
     return (load_and_verify_deletes_dictionary, shard_mutations)
 
 
@@ -504,8 +519,9 @@ def cleanup_delete_assets(
 @job
 def deletes_job():
     """Job that handles deletion of person events."""
+    oldest_override_timestamp = get_oldest_person_override_timestamp()
     report_person_table = create_reporting_pending_person_deletions_table()
-    person_table = create_pending_person_deletions_table()
+    person_table = create_pending_person_deletions_table(oldest_override_timestamp)
     loaded_person_table = load_pending_person_deletions(person_table)
     create_deletes_dict_op = create_deletes_dict(loaded_person_table)
     load_dict = load_and_verify_deletes_dictionary(create_deletes_dict_op)

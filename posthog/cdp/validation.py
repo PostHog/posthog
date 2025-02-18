@@ -85,6 +85,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     required = serializers.BooleanField(default=False)  # type: ignore
     default = serializers.JSONField(required=False)
     secret = serializers.BooleanField(default=False)
+    hidden = serializers.BooleanField(default=False)
     description = serializers.CharField(required=False)
     integration = serializers.CharField(required=False)
     integration_key = serializers.CharField(required=False)

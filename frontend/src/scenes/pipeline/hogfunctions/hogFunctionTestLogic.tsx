@@ -35,7 +35,6 @@ const convertToTransformationEvent = (result: any): HogTransformationEvent => {
     // We don't want to use these values given they will change in the test invocation
     delete properties.$transformations_failed
     delete properties.$transformations_succeeded
-
     return {
         event: result.event,
         uuid: result.uuid,
@@ -155,24 +154,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             {
                 loadSampleGlobals: () => false,
                 cancelSampleGlobalsLoading: () => true,
-                // Reset when expanded changes to allow future fetches
                 toggleExpanded: () => false,
-            },
-        ],
-
-        isGlobalLoadingCancelled: [
-            false as boolean,
-            {
-                loadSampleGlobals: () => false,
-                cancelSampleGlobalsLoading: () => true,
-                loadSampleGlobalsSuccess: () => false,
             },
         ],
     }),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
-            // Only process the new globals if we're expanded and the fetch wasn't cancelled
-            if (values.expanded && !values.fetchCancelled) {
+            if (values.expanded && !values.fetchCancelled && values.sampleGlobals) {
                 actions.receiveExampleGlobals(values.sampleGlobals)
             }
         },

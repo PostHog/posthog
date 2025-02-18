@@ -38,6 +38,7 @@ from posthog.helpers.dashboard_templates import (
 from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads,
+    REDACTED_PAYLOAD_VALUE,
 )
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import (
@@ -416,7 +417,13 @@ class FeatureFlagSerializer(
                 key=validated_key, team__project_id=instance.team.project_id, deleted=True
             ).delete()
         self._update_filters(validated_data)
-        encrypt_flag_payloads(validated_data)
+
+        if validated_data.get("has_encrypted_payloads", False):
+            if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
+                # Don't write the redacted payload to the db, keep the current value instead
+                validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
+            else:
+                encrypt_flag_payloads(validated_data)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -548,6 +555,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "deleted",
             "active",
             "ensure_experience_continuity",
+            "has_encrypted_payloads",
         ]
 
 
@@ -797,7 +805,9 @@ class FeatureFlagViewSet(
     )
     def local_evaluation(self, request: request.Request, **kwargs):
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team__project_id=self.project_id, deleted=False
+            ~Q(is_remote_configuration=True),
+            team__project_id=self.project_id,
+            deleted=False,
         )
 
         should_send_cohorts = "send_cohorts" in request.GET

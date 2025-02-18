@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode } from '~/queries/schema'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'

@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseTableLogic } from 'scenes/data-warehouse/new/dataWarehouseTableLogic'
 
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
+import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
