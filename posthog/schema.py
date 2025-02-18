@@ -820,6 +820,7 @@ class FileSystemType(StrEnum):
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
     FOLDER = "folder"
+    AICHAT = "aichat"
 
 
 class FilterLogicalOperator(StrEnum):
@@ -1521,6 +1522,24 @@ class VizSpecificOptions(BaseModel):
     RETENTION: Optional[RETENTION] = None
 
 
+class WebAnalyticsOrderByDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+class WebAnalyticsOrderByFields(StrEnum):
+    VISITORS = "Visitors"
+    VIEWS = "Views"
+    CLICKS = "Clicks"
+    BOUNCE_RATE = "BounceRate"
+    AVERAGE_SCROLL_PERCENTAGE = "AverageScrollPercentage"
+    SCROLL_GT80_PERCENTAGE = "ScrollGt80Percentage"
+    TOTAL_CONVERSIONS = "TotalConversions"
+    UNIQUE_CONVERSIONS = "UniqueConversions"
+    CONVERSION_RATE = "ConversionRate"
+    CONVERTING_USERS = "ConvertingUsers"
+
+
 class Sampling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2220,8 +2239,8 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    distinct_id_field: str
-    id_field: str
+    after_exposure_identifier_field: str
+    exposure_identifier_field: str
     kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
     math: Optional[ExperimentMetricMath] = None
     math_hogql: Optional[str] = None
@@ -2249,7 +2268,7 @@ class FileSystemEntry(BaseModel):
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
     href: Optional[str] = Field(default=None, description="Object's URL")
-    id: str = Field(..., description="Unique UUID for tree entry")
+    id: Optional[str] = Field(default=None, description="Unique UUID for tree entry")
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
@@ -5887,6 +5906,7 @@ class WebExternalClicksTableQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebExternalClicksTableQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -5909,6 +5929,7 @@ class WebGoalsQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -5929,6 +5950,7 @@ class WebOverviewQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -5953,6 +5975,7 @@ class WebStatsTableQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -6806,6 +6829,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     percentile: WebVitalsPercentile
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebVitalsPathBreakdownQueryResponse] = None
@@ -7799,6 +7823,7 @@ class WebVitalsQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[Sampling] = None

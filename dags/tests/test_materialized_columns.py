@@ -15,7 +15,7 @@ from dags.materialized_columns import (
     materialize_column,
     run_materialize_mutations,
 )
-from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.test.base import materialized
 
 
@@ -66,10 +66,10 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
         cluster.any_host(populate_test_data).result()
 
         # stop merges on all hosts so that we don't inadvertently write data for the materialized column due to merges
-        cluster.map_all_hosts(lambda c: c.execute(f"SYSTEM STOP MERGES")).result()
+        cluster.map_all_hosts(Query("SYSTEM STOP MERGES")).result()
 
         # try our best to make sure that merges resume after this test, even if we throw in the test block below
-        resume_merges = cluster.map_all_hosts(lambda c: c.execute("SYSTEM START MERGES")).result()
+        resume_merges = lambda: cluster.map_all_hosts(Query("SYSTEM START MERGES")).result()
         exit_handlers = contextlib.ExitStack()
         exit_handlers.callback(resume_merges)
 

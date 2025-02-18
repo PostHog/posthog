@@ -2,7 +2,7 @@ import { actions, kea, key, listeners, path, props, propsChanged, reducers, sele
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { QueryEditorProps } from '~/queries/QueryEditor/QueryEditor'
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 
 import type { queryEditorLogicType } from './queryEditorLogicType'
 

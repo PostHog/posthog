@@ -8,7 +8,7 @@ import { ErrorTrackingTile } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {

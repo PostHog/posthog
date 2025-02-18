@@ -28,6 +28,8 @@ async fn main() {
         println!("Sending {} exception kafka", exceptions.len());
         send_iter_to_kafka(&producer, "exception_symbolification_events", &exceptions)
             .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
             .unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }

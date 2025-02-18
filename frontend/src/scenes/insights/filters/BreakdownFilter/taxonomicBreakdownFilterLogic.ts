@@ -15,7 +15,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { Breakdown, BreakdownFilter } from '~/queries/schema'
+import { Breakdown, BreakdownFilter } from '~/queries/schema/schema-general'
 import { BreakdownType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
