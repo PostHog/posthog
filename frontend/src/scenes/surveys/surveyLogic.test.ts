@@ -6,6 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
+    EventPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     Survey,
@@ -1557,13 +1558,61 @@ describe('survey filters', () => {
     })
 })
 
-describe('surveyLogic', () => {
+describe('surveyLogic filters for surveys responses', () => {
     let logic: ReturnType<typeof surveyLogic.build>
 
     beforeEach(() => {
         initKeaTests()
         logic = surveyLogic({ id: 'new' })
         logic.mount()
+    })
+
+    it('applies answer filters to queries', async () => {
+        const answerFilter: EventPropertyFilter = {
+            key: '$survey_response',
+            value: 'test response',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Event,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setAnswerFilters([answerFilter])
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setAnswerFilters'])
+            .toMatchValues({
+                answerFilters: [answerFilter],
+                dataTableQuery: partial({
+                    source: partial({
+                        properties: expect.arrayContaining([
+                            // Survey ID property should still be present
+                            {
+                                key: '$survey_id',
+                                operator: 'exact',
+                                type: 'event',
+                                value: MULTIPLE_CHOICE_SURVEY.id,
+                            },
+                            answerFilter,
+                        ]),
+                    }),
+                }),
+            })
+    })
+    it('reloads survey results when answer filters change', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        const answerFilter: EventPropertyFilter = {
+            key: '$survey_response',
+            value: 'test response',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Event,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.setAnswerFilters([answerFilter])
+        }).toDispatchActions(['setAnswerFilters', 'loadSurveyUserStats', 'loadSurveyMultipleChoiceResults'])
     })
 
     describe('interval selection', () => {

@@ -593,20 +593,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.earlyAccessFeatures(),
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.SQL_EDITOR]
-                            ? {
-                                  identifier: Scene.SQLEditor,
-                                  label: 'SQL editor',
-                                  icon: <IconServer />,
-                                  to: urls.sqlEditor(),
-                                  logic: editorSidebarLogic,
-                              }
-                            : {
-                                  identifier: Scene.DataWarehouse,
-                                  label: 'Data warehouse',
-                                  icon: <IconDatabase />,
-                                  to: isUsingSidebar ? undefined : urls.dataWarehouse(),
-                              },
+                        {
+                            identifier: Scene.SQLEditor,
+                            label: 'SQL editor',
+                            icon: <IconServer />,
+                            to: urls.sqlEditor(),
+                            logic: editorSidebarLogic,
+                        },
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,
@@ -704,7 +697,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         activeNavbarItemId: [
             (s) => [s.activeNavbarItemIdRaw, featureFlagLogic.selectors.featureFlags],
             (activeNavbarItemIdRaw, featureFlags): string | null => {
-                if (featureFlags[FEATURE_FLAGS.SQL_EDITOR] && activeNavbarItemIdRaw === Scene.SQLEditor) {
+                if (activeNavbarItemIdRaw === Scene.SQLEditor) {
                     return Scene.SQLEditor
                 }
                 if (!featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]) {

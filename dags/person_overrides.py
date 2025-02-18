@@ -13,25 +13,9 @@ from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     Mutation,
     MutationRunner,
-    get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
-
-
-class ClickhouseClusterResource(dagster.ConfigurableResource):
-    """
-    The ClickHouse cluster used to run the job.
-    """
-
-    client_settings: dict[str, str] = {
-        "max_execution_time": "0",
-        "max_memory_usage": "0",
-        "receive_timeout": f"{10 * 60}",  # some queries like dictionary checksumming can be very slow
-    }
-
-    def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
-        return get_cluster(context.log, client_settings=self.client_settings)
 
 
 @dataclass
@@ -404,5 +388,4 @@ def squash_person_overrides():
     dictionary_after_override_delete_mutations = wait_for_overrides_delete_mutations(
         start_overrides_delete_mutations(dictionary_after_person_id_update_mutations)
     )
-
     drop_snapshot_table(drop_snapshot_dictionary(dictionary_after_override_delete_mutations))

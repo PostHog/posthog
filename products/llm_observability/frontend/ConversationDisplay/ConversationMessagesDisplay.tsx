@@ -1,9 +1,9 @@
-import { IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { IconExclamation } from 'lib/lemon-ui/icons'
+import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
 import React from 'react'
@@ -87,6 +87,7 @@ export const LLMMessageDisplay = React.memo(
     ({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
         const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
+        const [show, setShow] = React.useState(true)
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, or headings)
@@ -128,7 +129,7 @@ export const LLMMessageDisplay = React.memo(
             }
 
             // Fallback: render as plain text.
-            return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+            return <span className="text-xs whitespace-pre-wrap">{content}</span>
         }
 
         return (
@@ -148,12 +149,19 @@ export const LLMMessageDisplay = React.memo(
                     <span className="grow">{role}</span>
                     {content && (
                         <>
+                            <LemonButton
+                                size="small"
+                                noPadding
+                                icon={show ? <IconEyeHidden /> : <IconEye />}
+                                tooltip="Toggle message content"
+                                onClick={() => setShow((prev) => !prev)}
+                            />
                             {isMarkdownCandidate && (
                                 <LemonButton
                                     size="small"
                                     noPadding
                                     icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
-                                    tooltip="Toggle Markdown rendering"
+                                    tooltip="Toggle markdown rendering"
                                     onClick={() => setIsRenderingMarkdown((prev) => !prev)}
                                 />
                             )}
@@ -165,8 +173,8 @@ export const LLMMessageDisplay = React.memo(
                         </>
                     )}
                 </div>
-                {!!content && <div className="p-2 border-t">{renderMessageContent(content)}</div>}
-                {Object.keys(additionalKwargsEntries).length > 0 && (
+                {show && !!content && <div className="p-2 border-t">{renderMessageContent(content)}</div>}
+                {show && Object.keys(additionalKwargsEntries).length > 0 && (
                     <div className="p-2 text-xs border-t">
                         <JSONViewer src={additionalKwargsEntries} name={null} collapsed={5} />
                     </div>

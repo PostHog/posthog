@@ -45,7 +45,7 @@ export interface QueryTile {
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
 
-    connect({ values: [sceneLogic, ['sceneKey']] }),
+    connect({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] }),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -126,6 +126,8 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     return 'generations'
                 } else if (sceneKey === 'llmObservabilityTraces') {
                     return 'traces'
+                } else if (sceneKey === 'llmObservabilityUsers') {
+                    return 'users'
                 }
                 return 'dashboard'
             },
@@ -455,7 +457,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 ],
             }),
         ],
-
+        generationsQuery: [
+            (s) => [s.generationsQueryOverride, s.defaultGenerationsQuery],
+            (override, defQuery) => override || defQuery,
+        ],
         defaultGenerationsQuery: [
             (s) => [
                 s.dateFilter,
@@ -477,8 +482,8 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                          </a> -- Trace ID`,
                         'person',
                         "f'{properties.$ai_model}' -- Model",
-                        "f'{round(properties.$ai_latency, 2)} s' -- Latency",
-                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
+                        "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
+                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
                         "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
                         'timestamp',
                     ],
@@ -505,10 +510,60 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 showActions: false,
             }),
         ],
-
-        generationsQuery: [
-            (s) => [s.generationsQueryOverride, s.defaultGenerationsQuery],
-            (override, defQuery) => override || defQuery,
+        usersQuery: [
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                groupsModel.selectors.groupsTaxonomicTypes,
+            ],
+            (dateFilter, shouldFilterTestAccounts, propertyFilters): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                SELECT
+                    argMax(user_tuple, timestamp) as user,
+                    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
+                    count() as generations,
+                    round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
+                    min(timestamp) as first_seen,
+                    max(timestamp) as last_seen
+                FROM (
+                    SELECT 
+                        distinct_id,
+                        timestamp,
+                        JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
+                        JSONExtractRaw(properties, '$ai_total_cost_usd') as ai_total_cost_usd,
+                        tuple(
+                            distinct_id,
+                            person.created_at,
+                            person.properties
+                        ) as user_tuple
+                    FROM events
+                    WHERE event = '$ai_generation' AND {filters}
+                )
+                GROUP BY distinct_id
+                ORDER BY total_cost DESC
+                LIMIT 50
+                    `,
+                    filters: {
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || null,
+                            date_to: dateFilter.dateTo || null,
+                        },
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        properties: propertyFilters,
+                    },
+                },
+                columns: ['user', 'traces', 'generations', 'total_cost', 'first_seen', 'last_seen'],
+                showDateRange: true,
+                showReload: true,
+                showSearch: true,
+                showTestAccountFilters: true,
+                showExport: true,
+                showColumnConfigurator: true,
+            }),
         ],
     }),
 
@@ -535,6 +590,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             [urls.llmObservabilityDashboard()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmObservabilityGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmObservabilityTraces()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmObservabilityUsers()]: (_, searchParams) => applySearchParams(searchParams),
         }
     }),
 
