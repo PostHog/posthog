@@ -77,7 +77,7 @@ export function MaxInstance(): JSX.Element {
         <>
             <PageHeader delimited buttons={headerButtons} />
             {!threadGrouped.length ? (
-                <div className="@container relative flex flex-col gap-3 px-4 pb-8 items-center grow justify-center">
+                <div className="@container/max-welcome relative flex flex-col gap-3 px-4 pb-8 items-center grow justify-center">
                     <Intro />
                     <QuestionInput />
                     <QuestionSuggestions />
