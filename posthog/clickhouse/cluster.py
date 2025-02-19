@@ -171,12 +171,15 @@ class ClickhouseCluster:
         if logger is None:
             logger = logging.getLogger(__name__)
 
-        self.__shards: dict[int, set[HostInfo]] = defaultdict(set)
-        self.__extra_hosts: set[HostInfo] = set()
-
         cluster_hosts = bootstrap_client.execute(
             """
-            SELECT host_address, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            SELECT
+                host_address,
+                port,
+                shard_num,
+                replica_num,
+                getMacro('hostClusterType') as host_cluster_type,
+                getMacro('hostClusterRole') as host_cluster_role
             FROM clusterAllReplicas(%(name)s, system.clusters)
             WHERE name = %(name)s and is_local
             ORDER BY shard_num, replica_num
@@ -184,9 +187,8 @@ class ClickhouseCluster:
             {"name": cluster or settings.CLICKHOUSE_CLUSTER},
         )
 
-        for row in cluster_hosts:
-            (host_address, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
-            host_info = HostInfo(
+        host_info_set = {
+            HostInfo(
                 ConnectionInfo(
                     host_address,
                     # We only use the port from system.clusters if we're running in E2E tests or debug mode,
@@ -198,37 +200,25 @@ class ClickhouseCluster:
                 host_cluster_type,
                 host_cluster_role,
             )
-            (self.__shards[shard_num] if host_info.shard_num is not None else self.__extra_hosts).add(host_info)
+            for (host_address, port, shard_num, replica_num, host_cluster_type, host_cluster_role) in cluster_hosts
+        }
 
         if extra_hosts is not None and len(extra_hosts) > 0:
-            self.__extra_hosts.update(
-                [
-                    HostInfo(
-                        connection_info,
-                        shard_num=None,
-                        replica_num=None,
-                        host_cluster_type=None,
-                        host_cluster_role=None,
-                    )
-                    for connection_info in extra_hosts
-                ]
+            host_info_set.update(
+                HostInfo(
+                    connection_info,
+                    shard_num=None,
+                    replica_num=None,
+                    host_cluster_type=None,
+                    host_cluster_role=None,
+                )
+                for connection_info in extra_hosts
             )
 
-        self.__pools: dict[HostInfo, ChPool] = {}
-        self.__logger = logger
-        self.__client_settings = client_settings
-        self.hosts: HostSet
-
-    @property
-    def __hosts(self) -> set[HostInfo]:
-        """Set containing all hosts in the cluster."""
-        hosts = set(self.__extra_hosts)
-        for shard_hosts in self.__shards.values():
-            hosts.update(shard_hosts)
-        return hosts
-
-    def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
-        return self.hosts.any(fn)
+        self.hosts = HostSet(
+            ThreadPoolExecutor(),
+            {Host(info, info.connection_info.make_pool(client_settings)) for info in host_info_set},
+        )
 
     def any_host_by_role(self, fn: Callable[[Client], T], node_role: NodeRole) -> Future[T]:
         """
