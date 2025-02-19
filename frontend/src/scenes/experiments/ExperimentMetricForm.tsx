@@ -44,6 +44,8 @@ export function ExperimentMetricForm({
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
 
+    const isDataWarehouseMetric = metric.metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig
+
     return (
         <div className="space-y-4">
             <div>
@@ -114,19 +116,20 @@ export function ExperimentMetricForm({
             />
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
             {(metric.metric_type === ExperimentMetricType.COUNT ||
-                metric.metric_type === ExperimentMetricType.CONTINUOUS) && (
-                <Query
-                    query={{
-                        kind: NodeKind.InsightVizNode,
-                        source: metricToQuery(metric),
-                        showTable: false,
-                        showLastComputation: true,
-                        showLastComputationRefresh: false,
-                    }}
-                    readOnly
-                />
-            )}
-            {metric.metric_type === ExperimentMetricType.BINOMIAL && (
+                metric.metric_type === ExperimentMetricType.CONTINUOUS) &&
+                !isDataWarehouseMetric && (
+                    <Query
+                        query={{
+                            kind: NodeKind.InsightVizNode,
+                            source: metricToQuery(metric),
+                            showTable: false,
+                            showLastComputation: true,
+                            showLastComputationRefresh: false,
+                        }}
+                        readOnly
+                    />
+                )}
+            {metric.metric_type === ExperimentMetricType.BINOMIAL && !isDataWarehouseMetric && (
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
