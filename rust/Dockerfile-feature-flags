@@ -22,16 +22,10 @@ RUN cargo build --release --bin $BIN
 
 FROM debian:bookworm-slim AS runtime
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    libssl-dev "ca-certificates" \
-    && \
-    rm -rf /var/lib/apt/lists/*
-
 # Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    "ca-certificates" \
+    libssl-dev "ca-certificates" \
     "curl" \
     "brotli" \
     && \
