@@ -356,8 +356,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.stats_config = {"version": 2}
         experiment.save()
 
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.FUNNEL,
+            metric_type=ExperimentMetricType.BINOMIAL,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
         )
 
@@ -371,6 +373,22 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.save()
 
         self.create_standard_test_events(feature_flag)
+
+        # Extra success events that should be ignored
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_1",
+            timestamp="2020-01-03T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test_1",
+            timestamp="2020-01-03T12:01:00Z",
+            properties={feature_flag_property: "test"},
+        )
 
         flush_persons_and_events()
 
@@ -772,7 +790,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=ExperimentMetric(
-                metric_type=ExperimentMetricType.FUNNEL,
+                metric_type=ExperimentMetricType.BINOMIAL,
                 metric_config=ExperimentEventMetricConfig(event="purchase"),
                 filterTestAccounts=True,
             ),
