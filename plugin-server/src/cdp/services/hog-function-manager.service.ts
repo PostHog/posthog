@@ -247,30 +247,36 @@ export class HogFunctionManagerService {
 
     public sanitize(items: HogFunctionType[]): void {
         items.forEach((item) => {
-            const encryptedInputsString = item.encrypted_inputs as string | undefined
+            const encryptedInputs = item.encrypted_inputs
 
             if (!Array.isArray(item.inputs_schema)) {
                 // NOTE: The sql lib can sometimes return an empty object instead of an empty array
                 item.inputs_schema = []
             }
 
-            if (encryptedInputsString) {
+            // Handle case where encrypted_inputs is already an object
+            if (encryptedInputs && typeof encryptedInputs === 'object' && !Array.isArray(encryptedInputs)) {
+                return
+            }
+
+            // Handle case where encrypted_inputs is a string that needs decryption
+            if (typeof encryptedInputs === 'string') {
                 try {
-                    const decrypted = this.hub.encryptedFields.decrypt(encryptedInputsString || '')
-                    item.encrypted_inputs = decrypted ? JSON.parse(decrypted) : {}
+                    const decrypted = this.hub.encryptedFields.decrypt(encryptedInputs)
+                    if (decrypted) {
+                        item.encrypted_inputs = JSON.parse(decrypted)
+                    }
                 } catch (error) {
-                    status.error('🍿', 'Error parsing encrypted inputs:', {
-                        encStrTyoe: typeof encryptedInputsString,
-                        encStr: encryptedInputsString,
-                        cause: error,
-                    })
-                    captureException(error)
-                    // Quietly fail - not ideal but better then crashing out
+                    if (encryptedInputs) {
+                        status.warn('🍿', 'Could not parse encrypted inputs - preserving original value', {
+                            error: error instanceof Error ? error.message : 'Unknown error',
+                        })
+                        captureException(error)
+                    }
                 }
             }
+            // For any other case (null, undefined, unexpected types), leave as-is
         })
-
-        return
     }
 
     public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
