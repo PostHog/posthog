@@ -1,13 +1,19 @@
-from collections import defaultdict
-from unittest.mock import Mock, patch
 import uuid
+from collections import defaultdict
 from collections.abc import Callable, Iterator
+from unittest.mock import Mock, patch
 
 import pytest
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.cluster import T, ClickhouseCluster, HostInfo, MutationRunner, get_cluster
+from posthog.clickhouse.cluster import (
+    ClickhouseCluster,
+    HostInfo,
+    MutationRunner,
+    T,
+    get_cluster,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
 
