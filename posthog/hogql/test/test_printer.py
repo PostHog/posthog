@@ -212,7 +212,15 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            "SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\n(SELECT\n    2 AS id\nUNION ALL\nSELECT\n    3 AS id)",
+            "SELECT\n"
+            "    1 AS id\n"
+            "LIMIT 50000\n"
+            "INTERSECT\n"
+            "(SELECT\n"
+            "    2 AS id\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    3 AS id)",
         )
 
     # INTERSECT has higher priority than union
