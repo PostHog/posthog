@@ -123,7 +123,7 @@ export const LOADING_MESSAGES = [
     'Rolling through data like a spiky ball of insights…',
     'Gathering nuts and numbers from the data forest…',
     <>
-        Reticulating <s>splines</s> spines…'
+        Reticulating <s>splines</s> spines…
     </>,
 ]
 
