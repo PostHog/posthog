@@ -1101,11 +1101,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 actions.personsCountQueryChanged(personsCountQuery)
             }
         },
-        lastEventQuery: (lastEventQuery) => {
-            if (lastEventQuery) {
-                actions.loadSampleGlobals()
-            }
-        },
     })),
 
     beforeUnload(({ values, cache }) => ({

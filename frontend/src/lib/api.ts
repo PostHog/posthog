@@ -379,7 +379,7 @@ class ApiRequest {
         }
         return path
     }
-    public fileSystemDetail(id: FileSystemEntry['id'], teamId?: TeamType['id']): ApiRequest {
+    public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystem(teamId).addPathComponent(id)
     }
 
@@ -1190,10 +1190,10 @@ const api = {
         async create(data: FileSystemEntry): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystem().create({ data })
         },
-        async update(id: FileSystemEntry['id'], data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
+        async update(id: NonNullable<FileSystemEntry['id']>, data: Partial<FileSystemEntry>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).update({ data })
         },
-        async delete(id: FileSystemEntry['id']): Promise<FileSystemEntry> {
+        async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).delete()
         },
     },
