@@ -20,6 +20,7 @@ export function QuestionSuggestions(): JSX.Element {
                 type="primary"
                 onClick={() => askMax('Ready, steady, go!')}
                 disabledReason={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}
+                center
             >
                 Let's get started with me learning about your project!
             </LemonButton>
@@ -76,7 +77,7 @@ export function QuestionSuggestions(): JSX.Element {
                                 size="xsmall"
                                 type="secondary"
                                 icon={<IconGear />}
-                                tooltip="Edit product description"
+                                tooltip="Edit Max's memory"
                             />
                         </div>
                     </>

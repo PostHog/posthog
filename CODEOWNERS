@@ -13,3 +13,5 @@ posthog/tasks/test/test_stop_surveys_reached_target.py @PostHog/team-surveys
 plugin-server/src/ @PostHog/team-cdp
 posthog/clickhouse/migrations/** @PostHog/clickhouse
 posthog/clickhouse/migrations2/** @PostHog/clickhouse
+cypress/** @pauldambra
+playwright/** @pauldambra

@@ -35,7 +35,9 @@ export const getTierDescription = (
     interval: string
 ): string => {
     return i === 0
-        ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
+        ? tiers[i].up_to
+            ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
+            : `All ${product.unit}s`
         : tiers[i].up_to
         ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
         : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`

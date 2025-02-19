@@ -1,6 +1,5 @@
 import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { PostHogFeature } from 'posthog-js/react'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
@@ -12,9 +11,9 @@ import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
-import { CumulativeExposuresChart } from './CumulativeExposuresChart'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { Exposures } from './Exposures'
 import { Info } from './Info'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
@@ -45,7 +44,7 @@ const ResultsTab = (): JSX.Element => {
             )}
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && (
-                <div className="mb-4">
+                <div className="mb-4 mt-2">
                     <Overview />
                 </div>
             )}
@@ -77,13 +76,12 @@ const ResultsTab = (): JSX.Element => {
 }
 
 const VariantsTab = (): JSX.Element => {
+    const { shouldUseExperimentMetrics, isExperimentRunning } = useValues(experimentLogic)
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 mt-2">
+            {shouldUseExperimentMetrics && isExperimentRunning && <Exposures />}
             <ReleaseConditionsTable />
             <DistributionTable />
-            <PostHogFeature flag="experiments-cumulative-exposures-chart" match="test">
-                <CumulativeExposuresChart />
-            </PostHogFeature>
         </div>
     )
 }
