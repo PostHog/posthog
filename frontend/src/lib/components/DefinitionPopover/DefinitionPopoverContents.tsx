@@ -308,30 +308,34 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <form className="definition-popover-data-warehouse-schema-form">
                 <div className="flex flex-col justify-between gap-4">
                     <DefinitionPopover.Section>
-                        {dataWarehousePopoverFields.map(({ key, label, allowHogQL }: DataWarehousePopoverField) => {
-                            const fieldValue = key in localDefinition ? localDefinition[key] : undefined
-                            const isHogQL = isUsingHogQLExpression(fieldValue)
+                        {dataWarehousePopoverFields.map(
+                            ({ key, label, allowHogQL, hogQLOnly, tableName }: DataWarehousePopoverField) => {
+                                const fieldValue = key in localDefinition ? localDefinition[key] : undefined
+                                const isHogQL = isUsingHogQLExpression(fieldValue)
 
-                            return (
-                                <Fragment key={key}>
-                                    <label className="definition-popover-edit-form-label" htmlFor={key}>
-                                        <span className="label-text">{label}</span>
-                                    </label>
-                                    <LemonSelect
-                                        value={isHogQL ? '' : fieldValue}
-                                        options={allowHogQL ? [...columnOptions, hogqlOption] : columnOptions}
-                                        onChange={(value) => setLocalDefinition({ [key]: value })}
-                                    />
-                                    {allowHogQL && isHogQL && (
-                                        <HogQLDropdown
-                                            hogQLValue={fieldValue || ''}
-                                            tableName={_definition.name}
-                                            onHogQLValueChange={(value) => setLocalDefinition({ [key]: value })}
-                                        />
-                                    )}
-                                </Fragment>
-                            )
-                        })}
+                                return (
+                                    <Fragment key={key}>
+                                        <label className="definition-popover-edit-form-label" htmlFor={key}>
+                                            <span className="label-text">{label}</span>
+                                        </label>
+                                        {!hogQLOnly && (
+                                            <LemonSelect
+                                                value={isHogQL ? '' : fieldValue}
+                                                options={allowHogQL ? [...columnOptions, hogqlOption] : columnOptions}
+                                                onChange={(value) => setLocalDefinition({ [key]: value })}
+                                            />
+                                        )}
+                                        {((allowHogQL && isHogQL) || hogQLOnly) && (
+                                            <HogQLDropdown
+                                                hogQLValue={fieldValue || ''}
+                                                tableName={tableName || _definition.name}
+                                                onHogQLValueChange={(value) => setLocalDefinition({ [key]: value })}
+                                            />
+                                        )}
+                                    </Fragment>
+                                )
+                            }
+                        )}
                     </DefinitionPopover.Section>
                     <div className="flex justify-end">
                         <LemonButton
