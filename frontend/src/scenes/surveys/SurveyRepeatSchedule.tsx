@@ -24,7 +24,7 @@ function SurveyIterationOptions(): JSX.Element {
         <>
             <LemonField.Pure>
                 <LemonRadio
-                    value={survey.schedule}
+                    value={survey.schedule ?? SurveySchedule.Once}
                     onChange={(newValue) => {
                         setSurveyValue('schedule', newValue)
                         if (newValue === SurveySchedule.Once || newValue === SurveySchedule.Always) {

@@ -84,19 +84,20 @@ function SurveySchedule(): JSX.Element {
         )
     }
 
-    if (survey.schedule === SurveyScheduleEnum.Once) {
+    if (survey.schedule === SurveyScheduleEnum.Always) {
         return (
             <>
                 <span className="card-secondary">Schedule</span>
-                <span>Once</span>
+                <span>Always</span>
             </>
         )
     }
 
+    // Default case: survey is scheduled to run once
     return (
         <>
             <span className="card-secondary">Schedule</span>
-            <span>Always</span>
+            <span>Once</span>
         </>
     )
 }

@@ -2785,7 +2785,7 @@ export interface Survey {
     name: string
     type: SurveyType
     description: string
-    schedule: SurveySchedule
+    schedule?: SurveySchedule | null
     linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
