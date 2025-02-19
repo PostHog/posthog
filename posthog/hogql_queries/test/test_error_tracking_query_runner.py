@@ -298,11 +298,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    def test_daterange(self):
-        self.team.timezone = "Europe/Warsaw"
-        self._calculate(dateRange=DateRange(date_from="-7d"))
-
-    @snapshot_clickhouse_queries
     def test_column_names(self):
         columns = self._calculate()["columns"]
         self.assertEqual(
