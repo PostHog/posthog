@@ -2,7 +2,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { StickinessComputationModes } from '~/queries/schema'
+import { StickinessComputationModes } from '~/queries/schema/schema-general'
 import { EditorFilterProps } from '~/types'
 
 export function CumulativeStickinessFilter({ insightProps }: EditorFilterProps): JSX.Element {
