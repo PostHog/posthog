@@ -1141,7 +1141,8 @@ class _Printer(Visitor):
                         relevant_clickhouse_name == "now64"
                         and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
                     ) or (
-                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
+                        relevant_clickhouse_name
+                        in ("parseDateTime64BestEffortOrNull", "toDateTime64", "parseDateTime64")
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone
