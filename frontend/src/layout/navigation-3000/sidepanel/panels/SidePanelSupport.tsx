@@ -1,6 +1,7 @@
 import {
     IconAI,
     IconBook,
+    IconBug,
     IconChevronDown,
     IconDatabase,
     IconFeatures,
@@ -364,6 +365,17 @@ export const SidePanelSupport = (): JSX.Element => {
                                             targetBlank
                                         >
                                             Request a feature
+                                        </LemonButton>
+                                    </li>
+                                    <li>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="alt"
+                                            to="https://github.com/PostHog/posthog/issues/new?template=bug_report.yml"
+                                            icon={<IconBug />}
+                                            targetBlank
+                                        >
+                                            Report a bug
                                         </LemonButton>
                                     </li>
                                 </ul>
