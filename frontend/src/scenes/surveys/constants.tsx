@@ -6,6 +6,7 @@ import {
     SurveyMatchType,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
 } from '~/types'
 
@@ -161,7 +162,7 @@ export const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
-    schedule: 'once',
+    schedule: SurveySchedule.Once,
     questions: [
         {
             type: SurveyQuestionType.Open,

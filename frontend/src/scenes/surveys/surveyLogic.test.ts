@@ -12,6 +12,7 @@ import {
     Survey,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
 } from '~/types'
 
@@ -61,7 +62,7 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
-    schedule: 'once',
+    schedule: SurveySchedule.Once,
 }
 
 const SINGLE_CHOICE_SURVEY: Survey = {
@@ -110,7 +111,7 @@ const SINGLE_CHOICE_SURVEY: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
-    schedule: 'once',
+    schedule: SurveySchedule.Once,
 }
 
 const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
@@ -160,7 +161,7 @@ const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
-    schedule: 'once',
+    schedule: SurveySchedule.Once,
 }
 
 const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
@@ -210,7 +211,7 @@ const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
-    schedule: 'once',
+    schedule: SurveySchedule.Once,
 }
 
 describe('multiple choice survey logic', () => {
@@ -459,7 +460,7 @@ describe('set response-based survey branching', () => {
         archived: false,
         targeting_flag_filters: undefined,
         responses_limit: null,
-        schedule: 'once',
+        schedule: SurveySchedule.Once,
     }
 
     describe('main', () => {

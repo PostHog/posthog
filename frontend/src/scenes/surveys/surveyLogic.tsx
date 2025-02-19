@@ -31,6 +31,7 @@ import {
     SurveyQuestionBase,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
+    SurveySchedule,
 } from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
@@ -1099,7 +1100,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 return survey.questions.length > 1
             },
         ],
-        showSurveyRepeatSchedule: [(s) => [s.survey], (survey: Survey) => survey.schedule === 'recurring'],
+        showSurveyRepeatSchedule: [(s) => [s.survey], (survey: Survey) => survey.schedule === SurveySchedule.Recurring],
         descriptionContentType: [
             (s) => [s.survey],
             (survey: Survey) => (questionIndex: number) => {
