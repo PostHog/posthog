@@ -1039,7 +1039,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (!values.hogFunction) {
                 return
             }
-            const { id, name, type } = values.hogFunction
+            const { id, name, type, template } = values.hogFunction
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -1048,12 +1048,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
                 callback(undo) {
                     if (undo) {
-                        router.actions.replace(hogFunctionUrl(type, id))
+                        router.actions.replace(hogFunctionUrl(type, id, template?.id))
                     }
                 },
             })
 
-            router.actions.replace(hogFunctionUrl(type))
+            router.actions.replace(hogFunctionUrl(type, undefined, template?.id))
         },
 
         persistForUnload: () => {
