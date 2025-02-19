@@ -15,7 +15,7 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
-import { EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
+import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { sharedMetricLogic } from './sharedMetricLogic'
 
@@ -67,7 +67,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                     showSeriesIndicator={true}
                                     entitiesLimit={1}
                                     showNumericalPropsOnly={true}
-                                    allowedMathTypes={EXPERIMENT_ALLOWED_MATH_TYPES}
+                                    allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                     {...commonActionFilterProps}
                                 />
                                 <div className="mt-4 space-y-4">
@@ -225,7 +225,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                             showSeriesIndicator={true}
                                             entitiesLimit={1}
                                             showNumericalPropsOnly={true}
-                                            allowedMathTypes={EXPERIMENT_ALLOWED_MATH_TYPES}
+                                            allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                             {...commonActionFilterProps}
                                         />
                                         <div className="mt-4 space-y-4">
