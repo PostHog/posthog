@@ -11,7 +11,7 @@ import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { percentage, UnexpectedNeverError } from 'lib/utils'
+import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
@@ -194,9 +194,13 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     switch (breakdownBy) {
         case WebStatsBreakdown.ExitPage:
         case WebStatsBreakdown.InitialPage:
-        case WebStatsBreakdown.Page:
-            return <>{source.doPathCleaning ? parseAliasToReadable(value as string) : value}</>
-
+        case WebStatsBreakdown.Page: {
+            if (typeof value !== 'string') {
+                return <>{value}</>
+            }
+            const decoded = tryDecodeURIComponent(value)
+            return <>{source.doPathCleaning ? parseAliasToReadable(decoded) : decoded}</>
+        }
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
                 const [width, height] = value
