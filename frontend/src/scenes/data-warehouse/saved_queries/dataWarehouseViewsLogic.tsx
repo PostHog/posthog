@@ -63,7 +63,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         id: string
                         types: string[][]
                         sync_frequency?: string
-                        lifecycle?: 'insert' | 'update'
+                        lifecycle?: 'create' | 'update'
                     }
                 ) => {
                     // in the case where we are scheduling a materialized view, send an event

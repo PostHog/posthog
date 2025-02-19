@@ -133,7 +133,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                                 id: editingView.id,
                                                 sync_frequency: '24hour',
                                                 types: [[]],
-                                                lifecycle: 'insert',
+                                                lifecycle: 'create',
                                             })
                                         )
                                     }}
