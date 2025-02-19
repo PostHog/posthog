@@ -101,6 +101,7 @@ export enum NodeKind {
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
+    ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
     ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
@@ -167,6 +168,7 @@ export type QuerySchema =
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | ExperimentQuery
+    | ExperimentExposureQuery
 
     // Web Analytics + Web Vitals
     | WebOverviewQuery
@@ -1729,20 +1731,22 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
 export type FileSystemType =
-    | 'feature_flag'
-    | 'insight'
+    | 'aichat'
+    | 'broadcast'
     | 'dashboard'
+    | 'destination'
     | 'experiment'
+    | 'feature_flag'
+    | 'feature'
+    | 'folder'
+    | 'insight'
     | 'notebook'
     | 'repl'
-    | 'survey'
-    | 'sql'
-    | 'source'
-    | 'destination'
     | 'site_app'
+    | 'source'
+    | 'sql'
+    | 'survey'
     | 'transformation'
-    | 'folder'
-    | 'aichat'
 
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
@@ -1895,6 +1899,11 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     name?: string
 }
 
+export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
+    kind: NodeKind.ExperimentExposureQuery
+    experiment_id?: integer
+}
+
 export interface ExperimentQueryResponse {
     kind: NodeKind.ExperimentQuery
     insight: Record<string, any>[]
@@ -1908,7 +1917,22 @@ export interface ExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
 }
 
+export interface ExperimentExposureTimeSeries {
+    variant: string
+    days: string[]
+    exposure_counts: number[]
+}
+
+export interface ExperimentExposureQueryResponse {
+    kind: NodeKind.ExperimentExposureQuery
+    timeseries: ExperimentExposureTimeSeries[]
+    total_exposures: Record<string, number>
+    date_range: DateRange
+}
+
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
+
+export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
 
 /**
  * @discriminator kind

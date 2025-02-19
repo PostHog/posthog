@@ -1389,7 +1389,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_conversion_goal_one_pageview_conversion(self):
@@ -1427,7 +1427,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_conversion_goal_one_custom_event_conversion(self):
@@ -1453,7 +1453,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_conversion_goal_one_custom_action_conversion(self):
@@ -1489,7 +1489,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_conversion_goal_one_autocapture_conversion(self):
@@ -1527,7 +1527,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_conversion_rate(self):
@@ -1581,7 +1581,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_sorting_by_visitors(self):
