@@ -27,31 +27,12 @@ import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
 
 export function getDefaultMetricTitle(metric: ExperimentMetric): string {
-    let parts: (string | undefined)[] = []
     if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
-        parts = [metric.metric_config.math || 'Total', metric.metric_config.math_property, metric.metric_config.event]
+        return metric.metric_config.event
     } else if (metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
-        parts = [
-            metric.metric_config.math || 'Total',
-            metric.metric_config.math_property,
-            metric.metric_config.name || `Action ${metric.metric_config.action}`,
-        ]
+        return metric.metric_config.name || `Action ${metric.metric_config.action}`
     }
-    return (
-        parts
-            .filter(Boolean)
-            .join(' ')
-            // replace underscores with spaces
-            .replace(/_/g, ' ')
-            // add spaces before capital letters and convert to lowercase
-            .replace(/([A-Z])/g, ' $1')
-            .toLowerCase()
-            // capitalize first letter
-            .replace(/^./, (str) => str.toUpperCase())
-            // normalize spaces (remove double spaces)
-            .replace(/\s+/g, ' ')
-            .trim()
-    )
+    return 'Untitled metric'
 }
 
 function formatTickValue(value: number): string {
@@ -336,7 +317,12 @@ export function DeltaChart({
                             </div>
                             <div className="space-x-1">
                                 <LemonTag type="muted" size="small">
-                                    {metric.kind === NodeKind.ExperimentFunnelsQuery ? 'Funnel' : 'Trend'}
+                                    {(metric.kind === NodeKind.ExperimentMetric
+                                        ? metric.metric_config.math
+                                        : metric.kind === NodeKind.ExperimentFunnelsQuery
+                                        ? 'Funnel'
+                                        : 'Total'
+                                    ).toUpperCase()}
                                 </LemonTag>
                                 {metric.isSharedMetric && (
                                     <LemonTag type="option" size="small">
