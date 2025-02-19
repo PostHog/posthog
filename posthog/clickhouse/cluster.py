@@ -82,10 +82,10 @@ K = TypeVar("K")
 
 class HostInfo(NamedTuple):
     connection_info: ConnectionInfo
-    shard_num: int | None
-    replica_num: int | None
-    host_cluster_type: str | None
-    host_cluster_role: str | None
+    shard_num: int | None = None
+    replica_num: int | None = None
+    host_cluster_type: str | None = None
+    host_cluster_role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -287,15 +287,7 @@ def get_cluster(
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         connection_info = ConnectionInfo(host_config.pop("host"), None)
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
-        host_info_set.add(
-            HostInfo(
-                connection_info,
-                shard_num=None,
-                replica_num=None,
-                host_cluster_type=None,
-                host_cluster_role=None,
-            )
-        )
+        host_info_set.add(HostInfo(connection_info))
 
     return ClickhouseCluster(host_info_set, logger=logger, client_settings=client_settings)
 
