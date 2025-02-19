@@ -63,7 +63,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         id: string
                         types: string[][]
                         sync_frequency?: string
-                        lifecycle?: 'create' | 'update'
+                        lifecycle?: string
                     }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
