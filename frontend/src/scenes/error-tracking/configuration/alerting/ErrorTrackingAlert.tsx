@@ -1,5 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
-// import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
+import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -7,9 +7,11 @@ import { Breadcrumb } from '~/types'
 
 import type { errorTrackingAlertSceneLogicType } from './ErrorTrackingAlertType'
 
+export type ErrorTrackingAlertSceneLogicProps = { id: string }
+
 export const errorTrackingAlertSceneLogic = kea<errorTrackingAlertSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingAlertSceneLogic', key]),
-    props({} as { id: string }),
+    props({} as ErrorTrackingAlertSceneLogicProps),
     selectors({
         breadcrumbs: [
             (_, p) => [p.id],
@@ -39,7 +41,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): (typeof errorTrackingAlertSceneLogic)['props'] => ({ id }),
 }
 
-export function ErrorTrackingAlertScene(): JSX.Element | null {
-    return null
-    // return <HogFunctionConfiguration id={null} templateId="template-error-tracking-alert" />
+export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneLogicProps> = {}): JSX.Element {
+    const props = id === 'new' ? { id: null, templateId: 'template-slack-error-tracking-issue-created' } : { id }
+    return <HogFunctionConfiguration {...props} />
 }

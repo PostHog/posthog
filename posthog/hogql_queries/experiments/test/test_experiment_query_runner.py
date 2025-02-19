@@ -1,6 +1,5 @@
 from typing import cast
 from django.test import override_settings
-import pytest
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -171,16 +170,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             },
             credential=credential,
         )
-
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=table_name,
-            source_table_key="userid",
-            joining_table_name="events",
-            joining_table_key="properties.$user_id",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
-        )
         return table_name
 
     def create_data_warehouse_table_with_subscriptions(self):
@@ -327,16 +316,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             field_name="subscription_customer",
         )
 
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=subscription_table_name,
-            source_table_key="subscription_customer.customer_email",
-            joining_table_name="events",
-            joining_table_key="person.properties.email",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "subscription_created_at"},
-        )
-
         return subscription_table_name
 
     def create_standard_test_events(self, feature_flag):
@@ -377,8 +356,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.stats_config = {"version": 2}
         experiment.save()
 
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.FUNNEL,
+            metric_type=ExperimentMetricType.BINOMIAL,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
         )
 
@@ -392,6 +373,22 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.save()
 
         self.create_standard_test_events(feature_flag)
+
+        # Extra success events that should be ignored
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_1",
+            timestamp="2020-01-03T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test_1",
+            timestamp="2020-01-03T12:01:00Z",
+            properties={feature_flag_property: "test"},
+        )
 
         flush_persons_and_events()
 
@@ -793,7 +790,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=ExperimentMetric(
-                metric_type=ExperimentMetricType.FUNNEL,
+                metric_type=ExperimentMetricType.BINOMIAL,
                 metric_config=ExperimentEventMetricConfig(event="purchase"),
                 filterTestAccounts=True,
             ),
@@ -1435,8 +1432,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                distinct_id_field="userid",
-                id_field="id",
+                exposure_identifier_field="properties.$user_id",
+                after_exposure_identifier_field="userid",
                 timestamp_field="ds",
                 math="avg",
                 math_property="usage",
@@ -1581,8 +1578,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                distinct_id_field="userid",
-                id_field="id",
+                exposure_identifier_field="properties.$user_id",
+                after_exposure_identifier_field="userid",
                 timestamp_field="ds",
                 math="avg",
                 math_property="usage",
@@ -1614,7 +1611,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 8)
         self.assertEqual(test_result.absolute_exposure, 10)
 
-    @pytest.mark.skip(reason="Doesn't work with the new query runner")
+    @snapshot_clickhouse_queries
     def test_query_runner_with_data_warehouse_subscriptions_table(self):
         table_name = self.create_data_warehouse_table_with_subscriptions()
 
@@ -1631,8 +1628,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                distinct_id_field="subscription_customer_id",
-                id_field="id",
+                exposure_identifier_field="person.properties.email",
+                after_exposure_identifier_field="subscription_customer.customer_email",
                 timestamp_field="subscription_created_at",
             ),
         )

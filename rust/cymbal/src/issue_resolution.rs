@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::{
     error::UnhandledError,
     metric_consts::{ISSUE_CREATED, ISSUE_REOPENED},
+    posthog_utils::{capture_issue_created, capture_issue_reopened},
 };
 
 pub struct IssueFingerprintOverride {
@@ -137,6 +138,7 @@ impl Issue {
         let reopened = !res.is_empty();
         if reopened {
             metrics::counter!(ISSUE_REOPENED).increment(1);
+            capture_issue_reopened(self.team_id, self.id)
         }
 
         Ok(reopened)
@@ -247,6 +249,7 @@ where
         conn.rollback().await?;
     } else {
         conn.commit().await?;
+        capture_issue_created(team_id, issue_override.issue_id);
     }
 
     // This being None is /almost/ impossible, unless between the transaction above finishing and

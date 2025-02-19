@@ -1,5 +1,5 @@
-import { expect, test } from '../utils/playwright-test-base'
 import { LoginPage } from '../page-models/loginPage'
+import { expect, test } from '../utils/playwright-test-base'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
