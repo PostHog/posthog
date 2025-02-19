@@ -284,7 +284,7 @@ function VisualizationAnswer({
         ? null
         : query && (
               <>
-                  <MessageTemplate type="ai" className="w-full" boxClassName="w-full">
+                  <MessageTemplate type="ai" className="min-h-60 w-full" boxClassName="w-full">
                       <Query query={query} readOnly embedded />
                       <div className="flex items-center justify-between mt-2">
                           <LemonButton
