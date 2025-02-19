@@ -93,23 +93,24 @@ class Host:
     info: HostInfo
     pool: ChPool = dataclass.field(hash=False)
 
-    def build_task(self, fn: Callable[[Client], T], logger: logging.Logger | None = None) -> Callable[[], T]:
-        if logger is None:
-            logger = logging.getLogger(__name__)
 
-        def task():
-            with self.pool.get_client() as client:
-                logger.info("Executing %r on %r...", fn, self.info)
-                try:
-                    result = fn(client)
-                except Exception:
-                    logger.warn("Failed to execute %r on %r!", fn, self.info, exc_info=True)
-                    raise
-                else:
-                    logger.info("Successfully executed %r on %r.", fn, self.info)
-                return result
+@dataclass(frozen=True)
+class Task(Generic[T]):
+    fn: Callable[[Client], T]
+    host: Host
+    logger: logging.Logger = field(default=logging.getLogger(__name__), repr=False)
 
-        return task
+    def __call__(self) -> T:
+        self.logger.info("Executing %r...", self)
+        try:
+            with self.host.pool.get_client() as client:
+                result = self.fn(client)
+        except Exception:
+            self.logger.warn("Failed to execute %r!", self, exc_info=True)
+            raise
+        else:
+            self.logger.info("Successfully executed %r.", self)
+        return result
 
 
 @dataclass(frozen=True)
@@ -119,10 +120,10 @@ class HostSet:
 
     def any(self, fn: Callable[[Client], T]) -> Future[T]:  # todo: find a way to augment with HostInfo?
         host = next(iter(self.hosts))
-        return self.executor.submit(host.build_task(fn))
+        return self.executor.submit(Task(fn, host))
 
     def all(self, fn: Callable[[Client], T]) -> set[Future[T]]:  # todo: helper type to allow waiting on all at once
-        return {self.executor.submit(host.build_task(fn)) for host in self.hosts}
+        return {self.executor.submit(Task(fn, host)) for host in self.hosts}
 
     def filter(self, fn: Callable[[HostInfo], bool]) -> HostSet:
         # todo: handle node role filtering for convenience
