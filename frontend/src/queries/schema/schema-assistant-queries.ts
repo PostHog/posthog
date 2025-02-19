@@ -433,7 +433,7 @@ export interface AssistantRetentionFilter {
     /** DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
     showMean?: RetentionFilterLegacy['show_mean']
     /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
-    showMeanRetention?: RetentionFilterLegacy['show_mean_retention']
+    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
     /**
      * Whether retention should be rolling (aka unbounded, cumulative).
      * Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.

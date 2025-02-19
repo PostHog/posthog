@@ -144,15 +144,15 @@ class AssistantMessageType(StrEnum):
     AI_FAILURE = "ai/failure"
 
 
-class RetentionReference(StrEnum):
-    TOTAL = "total"
-    PREVIOUS = "previous"
-
-
-class ShowMeanRetention(StrEnum):
+class MeanRetentionCalculation(StrEnum):
     SIMPLE = "simple"
     WEIGHTED = "weighted"
     NONE = "none"
+
+
+class RetentionReference(StrEnum):
+    TOTAL = "total"
+    PREVIOUS = "previous"
 
 
 class AssistantSetPropertyFilterOperator(StrEnum):
@@ -5887,6 +5887,7 @@ class RetentionFilter(BaseModel):
         extra="forbid",
     )
     cumulative: Optional[bool] = None
+    meanRetentionCalculation: Optional[MeanRetentionCalculation] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = Field(
         default=None,
@@ -5895,7 +5896,6 @@ class RetentionFilter(BaseModel):
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
     showMean: Optional[bool] = None
-    showMeanRetention: Optional[ShowMeanRetention] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = 8
 
@@ -5905,6 +5905,7 @@ class RetentionFilterLegacy(BaseModel):
         extra="forbid",
     )
     cumulative: Optional[bool] = None
+    mean_retention_calculation: Optional[MeanRetentionCalculation] = None
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = Field(
         default=None,
@@ -5913,7 +5914,6 @@ class RetentionFilterLegacy(BaseModel):
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
     show_mean: Optional[bool] = None
-    show_mean_retention: Optional[ShowMeanRetention] = None
     target_entity: Optional[RetentionEntity] = None
     total_intervals: Optional[int] = None
 
@@ -6275,6 +6275,12 @@ class AssistantRetentionFilter(BaseModel):
             " coming back in period 5 makes them count towards all the previous periods."
         ),
     )
+    meanRetentionCalculation: Optional[MeanRetentionCalculation] = Field(
+        default=None,
+        description=(
+            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+        ),
+    )
     period: Optional[RetentionPeriod] = Field(
         default=RetentionPeriod.DAY, description="Retention period, the interval to track cohorts by."
     )
@@ -6299,12 +6305,6 @@ class AssistantRetentionFilter(BaseModel):
         description=(
             "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
             " across cohorts."
-        ),
-    )
-    showMeanRetention: Optional[ShowMeanRetention] = Field(
-        default=None,
-        description=(
-            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
         ),
     )
     targetEntity: Optional[RetentionEntity] = Field(
