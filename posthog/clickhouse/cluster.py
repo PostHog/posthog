@@ -36,12 +36,10 @@ V = TypeVar("V")
 
 
 def format_exception_summary(e: Exception, max_length: int = 256) -> str:
-    if isinstance(e, ServerException):
-        try:
-            if match := re.match(r"^DB::Exception:\s*(.*)\s*Stack trace:", e.message, re.MULTILINE):
-                value = match.group(1)
-        except Exception:
-            value = str(e)
+    if isinstance(e, ServerException) and (
+        match := re.match(r"^DB::Exception:\s*(.*)\s*Stack trace:", e.message, re.MULTILINE)
+    ):
+        value = match.group(1)
     else:
         value = str(e)
 
@@ -81,7 +79,6 @@ class FuturesMap(dict[K, Future[V]]):
                     errors[k] = e
 
         if errors:
-            # TODO: messaging could be improved here
             raise ExceptionGroup(
                 f"{len(errors)} future(s) did not return a result:\n\n"
                 + "\n".join([f"* {key}: {format_exception_summary(e)}" for key, e in errors.items()]),
