@@ -261,7 +261,12 @@ def get_decide(request: HttpRequest):
         # Set up logging and context
         is_request_sampled_for_logging = random() < settings.DECIDE_REQUEST_LOGGING_SAMPLING_RATE
         if is_request_sampled_for_logging:
-            logger.warn("DECIDE_REQUEST_STARTED", team_id=team.id, distinct_id=data.get("distinct_id"))
+            logger.warn(
+                "DECIDE_REQUEST_STARTED",
+                team_id=team.id,
+                distinct_id=data.get("distinct_id", None),
+                user_agent=request.headers.get("User-Agent", ""),
+            )
 
         # Check if team is allowed to use decide
         if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
@@ -376,7 +381,7 @@ def get_feature_flags_response(
     )
 
     # Record metrics and handle billing
-    _record_feature_flag_metrics(team, feature_flags, errors, data, is_request_sampled_for_logging)
+    _record_feature_flag_metrics(team, feature_flags, errors, data, is_request_sampled_for_logging, request)
 
     # Format response based on API version
     return _format_feature_flags_response(feature_flags, feature_flag_payloads, errors, api_version)
@@ -401,7 +406,7 @@ def _format_feature_flags_response(
 
 
 def _record_feature_flag_metrics(
-    team: Team, feature_flags: dict, errors: bool, data: dict, is_request_sampled_for_logging: bool
+    team: Team, feature_flags: dict, errors: bool, data: dict, is_request_sampled_for_logging: bool, request: HttpRequest
 ):
     """Record metrics and handle billing for feature flag computations."""
     if not feature_flags:
@@ -419,6 +424,7 @@ def _record_feature_flag_metrics(
             "DECIDE_REQUEST_SUCCEEDED",
             team_id=team.id,
             distinct_id=data.get("distinct_id"),
+            user_agent=request.headers.get("User-Agent", ""),
             errors_while_computing=errors or False,
             has_hash_key_override=bool(data.get("$anon_distinct_id")),
         )
