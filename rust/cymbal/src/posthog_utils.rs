@@ -8,21 +8,21 @@ const SYMBOL_SET_SAVED: &str = "error_tracking_symbol_set_saved";
 
 pub fn capture_issue_created(team_id: i32, issue_id: Uuid) {
     // TODO - @david, anything against using the team id here?
-    let mut event = Event::new(ISSUE_CREATED, &get_distinct_id(team_id));
+    let mut event = Event::new_anon(ISSUE_CREATED);
     event.insert_prop("team_id", team_id).unwrap();
     event.insert_prop("issue_id", issue_id.to_string()).unwrap();
     spawning_capture(event);
 }
 
 pub fn capture_issue_reopened(team_id: i32, issue_id: Uuid) {
-    let mut event = Event::new(ISSUE_REOPENED, &get_distinct_id(team_id));
+    let mut event = Event::new_anon(ISSUE_REOPENED);
     event.insert_prop("team_id", team_id).unwrap();
     event.insert_prop("issue_id", issue_id.to_string()).unwrap();
     spawning_capture(event);
 }
 
 pub fn capture_symbol_set_saved(team_id: i32, set_ref: &str, storage_ptr: &str, was_retry: bool) {
-    let mut event = Event::new(SYMBOL_SET_SAVED, &get_distinct_id(team_id));
+    let mut event = Event::new_anon(SYMBOL_SET_SAVED);
     event.insert_prop("team_id", team_id).unwrap();
     event.insert_prop("set_ref", set_ref).unwrap();
     event.insert_prop("storage_ptr", storage_ptr).unwrap();
@@ -36,8 +36,4 @@ pub fn spawning_capture(event: Event) {
             error!("Error capturing issue created event: {:?}", e);
         }
     });
-}
-
-fn get_distinct_id(team_id: i32) -> String {
-    format!("error_tracking_user_team_{}", team_id)
 }
