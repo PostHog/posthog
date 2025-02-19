@@ -4,7 +4,8 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '../../queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+
 import { assigneeSelectLogic } from './assigneeSelectLogic'
 
 type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
@@ -35,12 +36,10 @@ export const AssigneeSelect = ({
     }
 
     useEffect(() => {
-        if (showPopover) {
-            ensureAssigneeTypesLoaded()
-        }
-    }, [showPopover, ensureAssigneeTypesLoaded])
+        ensureAssigneeTypesLoaded()
+    }, [])
 
-    const displayAssignee = useMemo(() => computeAssignee(assignee), [assignee])
+    const displayAssignee = useMemo(() => computeAssignee(assignee), [assignee, computeAssignee])
 
     return (
         <LemonDropdown

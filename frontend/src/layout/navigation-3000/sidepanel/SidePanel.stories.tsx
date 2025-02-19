@@ -2,12 +2,14 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator, setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { SidePanelTab } from '~/types'
 
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -27,6 +29,11 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/dashboard_templates/': {},
                 '/api/projects/:id/integrations': { results: [] },
+                '/api/organizations/@current/pipeline_destinations/': { results: [] },
+                '/api/projects/:id/pipeline_destination_configs/': { results: [] },
+                '/api/projects/:id/batch_exports/': { results: [] },
+                '/api/projects/:id/surveys/': { results: [] },
+                '/api/projects/:id/surveys/responses_count/': { results: [] },
             },
             post: {
                 '/api/environments/:team_id/query': {},
@@ -60,6 +67,80 @@ export const SidePanelActivation: StoryFn = () => {
 
 export const SidePanelNotebooks: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Notebooks} />
+}
+
+export const SidePanelMax: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/core_memory': EMPTY_PAGINATED_RESPONSE,
+        },
+    })
+
+    return <BaseTemplate panel={SidePanelTab.Max} />
+}
+SidePanelMax.parameters = {
+    featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG],
+}
+
+export const SidePanelFeaturePreviews: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            'https://us.i.posthog.com/api/early_access_features/': {
+                earlyAccessFeatures: [
+                    {
+                        name: 'Feature 1',
+                        description:
+                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                        stage: 'beta',
+                        documentationUrl: 'https://docs.example.com',
+                        flagKey: 'feature-1',
+                    },
+                    {
+                        name: 'Feature 2',
+                        description:
+                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                        stage: 'beta',
+                        documentationUrl: 'https://docs.example.com',
+                        flagKey: 'feature-2',
+                    },
+                    {
+                        name: 'Feature 3',
+                        description:
+                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                        stage: 'beta',
+                        documentationUrl: 'https://docs.example.com',
+                        flagKey: 'feature-3',
+                    },
+                    {
+                        name: 'Feature 4',
+                        description:
+                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                        stage: 'beta',
+                        documentationUrl: 'https://docs.example.com',
+                        flagKey: 'feature-4',
+                    },
+                    {
+                        name: 'Feature 5',
+                        description:
+                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                        stage: 'beta',
+                        documentationUrl: 'https://docs.example.com',
+                        flagKey: 'feature-5',
+                    },
+                    {
+                        name: 'Not enabled',
+                        description:
+                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
+                        stage: 'beta',
+                        documentationUrl: 'https://docs.example.com',
+                        flagKey: 'not-enabled',
+                    },
+                ],
+            },
+        },
+    })
+    setFeatureFlags(['feature-1', 'feature-2', 'feature-3', 'feature-4', 'feature-5'])
+    return <BaseTemplate panel={SidePanelTab.FeaturePreviews} />
 }
 
 export const SidePanelSupportNoEmail: StoryFn = () => {

@@ -29,6 +29,10 @@ export function LoadingBar({ className, loadId }: SpinnerProps): JSX.Element {
                 if (newProgress >= 85) {
                     newProgress = prevProgress + 0.001
                 }
+                if (newProgress >= 99) {
+                    newProgress = prevProgress
+                }
+
                 return newProgress
             })
         }, 50)

@@ -24,6 +24,8 @@ type SurveyQuestionHeaderProps = {
     setSurveyValue: (key: string, value: any) => void
 }
 
+const MAX_NUMBER_OF_OPTIONS = 15
+
 export function SurveyEditQuestionHeader({
     index,
     survey,
@@ -205,7 +207,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Link && (
-                    <LemonField name="link" label="Link" info="Make sure to include https:// in the url.">
+                    <LemonField name="link" label="Link" info="Only https:// or mailto: links are supported.">
                         <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
                     </LemonField>
                 )}
@@ -309,7 +311,8 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                 )
                                             })}
                                             <div className="w-fit flex flex-row flex-wrap gap-2">
-                                                {((value || []).length < 6 || survey.type != SurveyType.Popover) && (
+                                                {((value || []).length < MAX_NUMBER_OF_OPTIONS ||
+                                                    survey.type != SurveyType.Popover) && (
                                                     <>
                                                         <LemonButton
                                                             icon={<IconPlusSmall />}

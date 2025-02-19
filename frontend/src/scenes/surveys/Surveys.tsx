@@ -23,26 +23,21 @@ import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
-import { Customization } from 'scenes/surveys/SurveyCustomization'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { defaultSurveyAppearance, NEW_SURVEY, SurveyQuestionLabel } from './constants'
-import { openSurveysSettingsDialog } from './SurveySettings'
+import { SurveyQuestionLabel } from './constants'
+import { openSurveysSettingsDialog, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
 export const scene: SceneExport = {
@@ -67,19 +62,7 @@ export function Surveys(): JSX.Element {
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const [editableSurveyConfig, setEditableSurveyConfig] = useState(
-        currentTeam?.survey_config?.appearance || defaultSurveyAppearance
-    )
-
-    const [templatedSurvey, setTemplatedSurvey] = useState(NEW_SURVEY)
-
-    if (templatedSurvey.appearance === defaultSurveyAppearance) {
-        templatedSurvey.appearance = editableSurveyConfig
-    }
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
@@ -137,65 +120,12 @@ export function Surveys(): JSX.Element {
                     globalSurveyAppearanceConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
                 ]}
             />
-            {tab === SurveysTabs.Settings && (
-                <>
-                    <div className="flex items-center gap-2 mb-2">
-                        <LemonField.Pure className="mt-2" label="Appearance">
-                            <span>These settings apply to new surveys in this organization.</span>
-                        </LemonField.Pure>
-
-                        <div className="flex-1" />
-                        {globalSurveyAppearanceConfigAvailable && (
-                            <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    updateCurrentTeam({
-                                        survey_config: {
-                                            ...currentTeam?.survey_config,
-                                            appearance: {
-                                                ...currentTeam?.survey_config?.appearance,
-                                                ...editableSurveyConfig,
-                                            },
-                                        },
-                                    })
-                                }}
-                            >
-                                Save settings
-                            </LemonButton>
-                        )}
-                    </div>
-                    <LemonDivider />
-                    <div className="flex gap-2 mb-2 align-top">
-                        <Customization
-                            key="survey-settings-customization"
-                            appearance={editableSurveyConfig}
-                            hasBranchingLogic={false}
-                            customizeRatingButtons={true}
-                            customizePlaceholderText={true}
-                            onAppearanceChange={(appearance) => {
-                                setEditableSurveyConfig({
-                                    ...editableSurveyConfig,
-                                    ...appearance,
-                                })
-                                setTemplatedSurvey({
-                                    ...templatedSurvey,
-                                    ...{ appearance: appearance },
-                                })
-                            }}
-                        />
-                        <div className="flex-1" />
-                        <div className="mt-10 mr-5 survey-view">
-                            {globalSurveyAppearanceConfigAvailable && (
-                                <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
-                            )}
-                        </div>
-                    </div>
-                </>
-            )}
+            {tab === SurveysTabs.Settings && <SurveySettings />}
             {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
                     <LinkedHogFunctions
+                        logicKey="surveys"
                         type="destination"
                         subTemplateId="survey-response"
                         filters={{

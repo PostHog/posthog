@@ -1,14 +1,14 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconArrowCircleRight } from '@posthog/icons'
-import { LemonSnack, Popover, Tooltip } from '@posthog/lemon-ui'
+import { LemonSnack, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { isValidRegexp } from 'lib/utils/regexp'
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
 
-import { PathRegexPopover } from './PathRegexPopover'
+import { PathRegexModal } from './PathRegexModal'
 
 interface PathCleanFilterItem {
     filter: PathCleaningFilter
@@ -24,21 +24,18 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
     const isInvalidRegex = !isValidRegexp(regex)
 
     return (
-        <Popover
-            visible={visible}
-            onClickOutside={() => setVisible(false)}
-            overlay={
-                <PathRegexPopover
+        <>
+            {visible && (
+                <PathRegexModal
                     filter={filter}
+                    isOpen={visible}
+                    onClose={() => setVisible(false)}
                     onSave={(filter: PathCleaningFilter) => {
                         onChange(filter)
                         setVisible(false)
                     }}
-                    onCancel={() => setVisible(false)}
                 />
-            }
-        >
-            {/* required for popover placement */}
+            )}
             <div
                 className="relative"
                 ref={setNodeRef}
@@ -63,7 +60,7 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                     </LemonSnack>
                 </Tooltip>
             </div>
-        </Popover>
+        </>
     )
 }
 

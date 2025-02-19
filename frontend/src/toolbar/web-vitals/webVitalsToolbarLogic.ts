@@ -1,10 +1,10 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { encodeParams } from 'kea-router'
+import { encodeParams, router, urlToAction } from 'kea-router'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { WebVitalsMetric } from '~/queries/schema'
+import { WebVitalsMetric } from '~/queries/schema/schema-general'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 
 import type { webVitalsToolbarLogicType } from './webVitalsToolbarLogicType'
@@ -87,35 +87,18 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
         ],
     })),
 
-    listeners(({ actions }) => ({
-        urlChanged: () => {
-            actions.resetLocalWebVitals()
-            actions.getWebVitals()
+    urlToAction(({ actions, cache }) => ({
+        '*': () => {
+            const { pathname } = router.values.location
+            if (!cache.previousURL || cache.previousURL !== pathname) {
+                actions.resetLocalWebVitals()
+                actions.getWebVitals()
+                cache.previousURL = pathname
+            }
         },
     })),
+
     afterMount(({ values, actions }) => {
-        // Listen to history state changes for SPA navigation
-        window.addEventListener('popstate', () => {
-            actions.resetLocalWebVitals()
-            actions.getWebVitals()
-        })
-
-        // Listen to pushState and replaceState calls
-        const originalPushState = window.history.pushState.bind(window.history)
-        const originalReplaceState = window.history.replaceState.bind(window.history)
-
-        window.history.pushState = function (...args) {
-            originalPushState(...args)
-            actions.resetLocalWebVitals()
-            actions.getWebVitals()
-        }
-
-        window.history.replaceState = function (...args) {
-            originalReplaceState(...args)
-            actions.resetLocalWebVitals()
-            actions.getWebVitals()
-        }
-
         // Listen to posthog events and capture them
         // Guarantee that we won't even attempt to show web vitals data if the feature is disabled
         if (!values.posthog?.webVitalsAutocapture?.isEnabled && !inStorybook() && !inStorybookTestRunner()) {
@@ -140,7 +123,7 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
             })
         }
 
-        // Collect the web vitals metrics from the server
+        // Collect the web vitals metrics from the server when the page is loaded
         actions.getWebVitals()
     }),
     permanentlyMount(),

@@ -193,7 +193,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_HOST: '',
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
-        CDP_CYCLOTRON_BATCH_SIZE: 500,
+        CDP_CYCLOTRON_BATCH_SIZE: 300,
 
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
 
@@ -221,10 +221,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
-
-        // Hog Transformations (Alpha)
-        HOG_TRANSFORMATIONS_ENABLED: false,
-        HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: 0,
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

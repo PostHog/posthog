@@ -1,13 +1,17 @@
 import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useValues } from 'kea'
+import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { AvailableFeature, SurveyAppearance as SurveyAppearanceType } from '~/types'
+import { AvailableFeature, SurveyAppearance, SurveyAppearance as SurveyAppearanceType } from '~/types'
 
 import { defaultSurveyAppearance, WEB_SAFE_FONTS } from './constants'
 import { surveysLogic } from './surveysLogic'
+
+const IGNORE_ERROR_BORDER_CLASS = 'ignore-error-border'
 
 interface CustomizationProps {
     appearance: SurveyAppearanceType
@@ -17,6 +21,7 @@ interface CustomizationProps {
     deleteBranchingLogic?: () => void
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
     isCustomFontsEnabled?: boolean
+    validationErrors?: DeepPartialMap<SurveyAppearance, ValidationErrorType> | null
 }
 
 interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
@@ -29,6 +34,7 @@ export function Customization({
     onAppearanceChange,
     deleteBranchingLogic,
     isCustomFontsEnabled = false,
+    validationErrors,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const surveyShufflingQuestionsAvailable = true
@@ -50,14 +56,22 @@ export function Customization({
                         value={appearance?.backgroundColor}
                         onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
                         disabled={!surveysStylingAvailable}
+                        className={clsx(
+                            validationErrors?.backgroundColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
+                        )}
                     />
+                    {validationErrors?.backgroundColor && (
+                        <LemonField.Error error={validationErrors?.backgroundColor} />
+                    )}
                 </LemonField.Pure>
                 <LemonField.Pure className="mt-2" label="Border color">
                     <LemonInput
                         value={appearance?.borderColor || defaultSurveyAppearance.borderColor}
                         onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
                         disabled={!surveysStylingAvailable}
+                        className={clsx(validationErrors?.borderColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS)}
                     />
+                    {validationErrors?.borderColor && <LemonField.Error error={validationErrors?.borderColor} />}
                 </LemonField.Pure>
                 <>
                     <LemonField.Pure className="mt-2" label="Position">
@@ -91,7 +105,13 @@ export function Customization({
                                     onAppearanceChange({ ...appearance, ratingButtonColor })
                                 }
                                 disabled={!surveysStylingAvailable}
+                                className={clsx(
+                                    validationErrors?.ratingButtonColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
+                                )}
                             />
+                            {validationErrors?.ratingButtonColor && (
+                                <LemonField.Error error={validationErrors?.ratingButtonColor} />
+                            )}
                         </LemonField.Pure>
                         <LemonField.Pure className="mt-2" label="Rating button active color">
                             <LemonInput
@@ -100,7 +120,15 @@ export function Customization({
                                     onAppearanceChange({ ...appearance, ratingButtonActiveColor })
                                 }
                                 disabled={!surveysStylingAvailable}
+                                className={clsx(
+                                    validationErrors?.ratingButtonActiveColor
+                                        ? 'border-danger'
+                                        : IGNORE_ERROR_BORDER_CLASS
+                                )}
                             />
+                            {validationErrors?.ratingButtonActiveColor && (
+                                <LemonField.Error error={validationErrors?.ratingButtonActiveColor} />
+                            )}
                         </LemonField.Pure>
                     </>
                 )}
@@ -109,7 +137,13 @@ export function Customization({
                         value={appearance?.submitButtonColor}
                         onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
                         disabled={!surveysStylingAvailable}
+                        className={clsx(
+                            validationErrors?.submitButtonColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
+                        )}
                     />
+                    {validationErrors?.submitButtonColor && (
+                        <LemonField.Error error={validationErrors?.submitButtonColor} />
+                    )}
                 </LemonField.Pure>
 
                 <LemonField.Pure className="mt-2" label="Button text color">
@@ -119,7 +153,13 @@ export function Customization({
                             onAppearanceChange({ ...appearance, submitButtonTextColor })
                         }
                         disabled={!surveysStylingAvailable}
+                        className={clsx(
+                            validationErrors?.submitButtonTextColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
+                        )}
                     />
+                    {validationErrors?.submitButtonTextColor && (
+                        <LemonField.Error error={validationErrors?.submitButtonTextColor} />
+                    )}
                 </LemonField.Pure>
 
                 <LemonField.Pure
@@ -134,6 +174,7 @@ export function Customization({
                         disabled={!surveysStylingAvailable}
                         placeholder="99999"
                         defaultValue="99999"
+                        className="ignore-error-border"
                     />
                 </LemonField.Pure>
                 {customizePlaceholderText && (
@@ -146,6 +187,7 @@ export function Customization({
                             }
                             onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
                             disabled={!surveysStylingAvailable}
+                            className="ignore-error-border"
                         />
                     </LemonField.Pure>
                 )}
@@ -164,6 +206,7 @@ export function Customization({
                                     value: font,
                                 }
                             })}
+                            className="ignore-error-border"
                         />
                     </LemonField.Pure>
                 )}
@@ -251,7 +294,7 @@ export function Customization({
                                         })
                                     }
                                 }}
-                                className="w-12"
+                                className="w-12 ignore-error-border"
                             />{' '}
                             seconds.
                         </div>
