@@ -489,7 +489,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 class TeamConfigSerializer(
     serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
 ):
-    """This serializer for meant for updating team configuration settings - it has different permissions checks than TeamSerializer"""
+    """This serializer is meant for updating team configuration settings - it has different permissions checks than TeamSerializer"""
 
     class Meta:
         model = Team
