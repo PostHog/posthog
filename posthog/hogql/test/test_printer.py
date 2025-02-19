@@ -31,10 +31,10 @@ class TestPrinter(BaseTest):
 
     # Helper to always translate HogQL with a blank context
     def _expr(
-            self,
-            query: str,
-            context: Optional[HogQLContext] = None,
-            dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ) -> str:
         node = parse_expr(query)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -52,22 +52,22 @@ class TestPrinter(BaseTest):
 
     # Helper to always translate HogQL with a blank context,
     def _select(
-            self,
-            query: str,
-            context: Optional[HogQLContext] = None,
-            placeholders: Optional[dict[str, ast.Expr]] = None,
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        placeholders: Optional[dict[str, ast.Expr]] = None,
     ) -> str:
         return print_ast(
             parse_select(query, placeholders=placeholders),
             context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
-            )
+        )
 
     def _assert_expr_error(
-            self,
-            expr,
-            expected_error,
-            dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        self,
+        expr,
+        expected_error,
+        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ):
         with self.assertRaises(ExposedHogQLError) as context:
             self._expr(expr, None, dialect)
@@ -212,15 +212,7 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            "SELECT\n"
-            "    1 AS id\n"
-            "LIMIT 50000\n"
-            "INTERSECT\n"
-            "(SELECT\n"
-            "    2 AS id\n"
-            "UNION ALL\n"
-            "SELECT\n"
-            "    3 AS id)",
+            "SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\n(SELECT\n    2 AS id\nUNION ALL\nSELECT\n    3 AS id)",
         )
 
     # INTERSECT has higher priority than union
@@ -521,11 +513,11 @@ class TestPrinter(BaseTest):
             )
 
     def _test_property_group_comparison(
-            self,
-            input_expression: str,
-            expected_optimized_query: str | None,
-            expected_context_values: Mapping[str, Any] | None = None,
-            expected_skip_indexes_used: set[str] | None = None,
+        self,
+        input_expression: str,
+        expected_optimized_query: str | None,
+        expected_context_values: Mapping[str, Any] | None = None,
+        expected_skip_indexes_used: set[str] | None = None,
     ) -> None:
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
             return HogQLContext(
@@ -2151,7 +2143,7 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         assert (
-                f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(7, 8, 9)), in(id, tuple(1, 2, 3)))"
-                in printed
+            f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(7, 8, 9)), in(id, tuple(1, 2, 3)))"
+            in printed
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(4, 5, 6)))" in printed

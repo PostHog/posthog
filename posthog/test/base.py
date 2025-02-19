@@ -360,7 +360,7 @@ class ErrorResponsesMixin:
         }
 
     def permission_denied_response(
-            self, message: str = "You do not have permission to perform this action."
+        self, message: str = "You do not have permission to perform this action."
     ) -> dict[str, Optional[str]]:
         return {
             "type": "authentication_error",
@@ -378,9 +378,9 @@ class ErrorResponsesMixin:
         }
 
     def unauthenticated_response(
-            self,
-            message: str = "Authentication credentials were not provided.",
-            code: str = "not_authenticated",
+        self,
+        message: str = "Authentication credentials were not provided.",
+        code: str = "not_authenticated",
     ) -> dict[str, Optional[str]]:
         return {
             "type": "authentication_error",
@@ -390,10 +390,10 @@ class ErrorResponsesMixin:
         }
 
     def validation_error_response(
-            self,
-            message: str = "Malformed request",
-            code: str = "invalid_input",
-            attr: Optional[str] = None,
+        self,
+        message: str = "Malformed request",
+        code: str = "invalid_input",
+        attr: Optional[str] = None,
     ) -> dict[str, Optional[str]]:
         return {
             "type": "validation_error",
@@ -519,7 +519,7 @@ class MemoryLeakTestMixin:
         self.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
         )
 
 
@@ -643,9 +643,9 @@ def materialized(table, property) -> Iterator[MaterializedColumn]:
 
 
 def also_test_with_materialized_columns(
-        event_properties=None,
-        person_properties=None,
-        verify_no_jsonextract=True,
+    event_properties=None,
+    person_properties=None,
+    verify_no_jsonextract=True,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -711,11 +711,11 @@ class QueryMatchingTest:
 
 @contextmanager
 def snapshot_postgres_queries_context(
-        testcase: QueryMatchingTest,
-        replace_all_numbers: bool = True,
-        using: str = "default",
-        capture_all_queries: bool = False,
-        custom_query_matcher: Optional[Callable] = None,
+    testcase: QueryMatchingTest,
+    replace_all_numbers: bool = True,
+    using: str = "default",
+    capture_all_queries: bool = False,
+    custom_query_matcher: Optional[Callable] = None,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -754,11 +754,11 @@ def snapshot_postgres_queries_context(
         elif capture_all_queries:
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
         elif (
-                query
-                and "SELECT" in query
-                and "django_session" not in query
-                and not re.match(r"^\s*INSERT", query)
-                and 'FROM "posthog_instancesetting"' not in query
+            query
+            and "SELECT" in query
+            and "django_session" not in query
+            and not re.match(r"^\s*INSERT", query)
+            and 'FROM "posthog_instancesetting"' not in query
         ):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
@@ -797,9 +797,9 @@ class BaseTestMigrations(QueryMatchingTest):
     assert_snapshots = False
 
     def setUp(self):
-        assert hasattr(self, "migrate_from") and hasattr(
-            self, "migrate_to"
-        ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
+            "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        )
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
@@ -925,7 +925,7 @@ def _create_person(*args, **kwargs):
     persons_ordering_int += 1
     # If we've done freeze_time just create straight away
     if kwargs.get("immediate") or (
-            hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
+        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
     ):
         if kwargs.get("immediate"):
             del kwargs["immediate"]
@@ -1203,7 +1203,7 @@ def also_test_with_person_on_events_v2(fn):
 
 
 def _create_insight(
-        team: Team, insight_filters: dict[str, Any], dashboard_filters: dict[str, Any]
+    team: Team, insight_filters: dict[str, Any], dashboard_filters: dict[str, Any]
 ) -> tuple[Insight, Dashboard, DashboardTile]:
     dashboard = Dashboard.objects.create(team=team, filters=dashboard_filters)
     insight = Insight.objects.create(team=team, filters=insight_filters)
@@ -1216,7 +1216,7 @@ def _create_insight(
 # `distinct_id_to` such that with person_on_events_mode set to V2_ENABLED these
 # persons will both count as 1
 def create_person_id_override_by_distinct_id(
-        distinct_id_from: str, distinct_id_to: str, team_id: int, version: int = 0
+    distinct_id_from: str, distinct_id_to: str, team_id: int, version: int = 0
 ):
     # XXX: No guarantees that data has been written to ``person_distinct_id2``
     # in tests, so just assume that the data in ``events`` is up-to-date.

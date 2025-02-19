@@ -241,7 +241,7 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_dashboard_must_be_in_current_team(
-            self, _mock_capture, _mock_identify_task
+        self, _mock_capture, _mock_identify_task
     ):
         a_third_team = Team.objects.create(name="A Third Team", organization=self.organization)
 
@@ -349,7 +349,7 @@ class TestUserAPI(APIBaseTest):
         )
 
     def _assert_set_scene_choice(
-            self, scene: str, dashboard: Dashboard, user: User, expected_choices: list[dict]
+        self, scene: str, dashboard: Dashboard, user: User, expected_choices: list[dict]
     ) -> None:
         response = self.client.post(
             "/api/users/@me/scene_personalisation",
@@ -369,7 +369,7 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.api.user.is_email_available", return_value=False)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_no_notifications_when_user_email_is_changed_and_email_not_available(
-            self, mock_send_email_change_emails, mock_is_email_available
+        self, mock_send_email_change_emails, mock_is_email_available
     ):
         self.user.email = "alpha@example.com"
         self.user.save()
@@ -393,10 +393,10 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     @patch("posthog.api.email_verification.send_email_verification")
     def test_notifications_sent_when_user_email_is_changed_and_email_available(
-            self,
-            mock_send_email_verification,
-            mock_send_email_change_emails,
-            mock_is_email_available,
+        self,
+        mock_send_email_verification,
+        mock_send_email_change_emails,
+        mock_is_email_available,
     ):
         """Test that when a user updates their email, they receive a verification email before the switch actually happens."""
         self.user.email = "alpha@example.com"
@@ -443,7 +443,7 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_no_notifications_when_user_email_is_changed_and_only_case_differs(
-            self, mock_send_email_change_emails, mock_is_email_available
+        self, mock_send_email_change_emails, mock_is_email_available
     ):
         self.user.email = "alpha@example.com"
         self.user.save()
@@ -879,8 +879,8 @@ class TestUserAPI(APIBaseTest):
         self.assertIn("22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22", locationHeader)
         self.maxDiff = None
         assert (
-                unquote(locationHeader)
-                == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            unquote(locationHeader)
+            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -895,8 +895,8 @@ class TestUserAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert (
-                unquote(response.json()["toolbarParams"])
-                == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+            unquote(response.json()["toolbarParams"])
+            == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -977,9 +977,9 @@ class TestUserAPI(APIBaseTest):
 
         for field, value in fields.items():
             response = self.client.patch("/api/users/@me/", {field: value})
-            assert (
-                    response.json()[field] == initial_user[field]
-            ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            assert response.json()[field] == initial_user[field], (
+                f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            )
 
     def test_can_update_notification_settings(self):
         response = self.client.patch(
@@ -1388,13 +1388,13 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.client.logout()
 
         assert (
-                self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": token}).status_code
-                == status.HTTP_400_BAD_REQUEST
+            self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": token}).status_code
+            == status.HTTP_400_BAD_REQUEST
         )
 
         assert (
-                self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": other_token}).status_code
-                == status.HTTP_400_BAD_REQUEST
+            self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": other_token}).status_code
+            == status.HTTP_400_BAD_REQUEST
         )
 
     def test_does_not_apply_pending_email_for_old_tokens(self):
