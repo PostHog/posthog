@@ -406,7 +406,12 @@ def _format_feature_flags_response(
 
 
 def _record_feature_flag_metrics(
-    team: Team, feature_flags: dict, errors: bool, data: dict, is_request_sampled_for_logging: bool, request: HttpRequest
+    team: Team,
+    feature_flags: dict,
+    errors: bool,
+    data: dict,
+    is_request_sampled_for_logging: bool,
+    request: HttpRequest,
 ):
     """Record metrics and handle billing for feature flag computations."""
     if not feature_flags:
