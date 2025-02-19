@@ -78,20 +78,18 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     bin/turbo --filter=@posthog/plugin-transpiler build
 
-WORKDIR /code/plugin-server
-
 # Build the plugin server.
 #
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
-COPY ./plugin-server/src/ ./src/
-COPY ./plugin-server/tests/ ./tests/
+COPY ./plugin-server/src/ ./plugin-server/src/
+COPY ./plugin-server/tests/ ./plugin-server/tests/
 
 # Build cyclotron first with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=4096" ../bin/turbo --filter=@posthog/cyclotron build
+RUN NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/cyclotron build
 
 # Then build the plugin server with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=4096" ../bin/turbo --filter=@posthog/plugin-server build
+RUN NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-server build
 
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
