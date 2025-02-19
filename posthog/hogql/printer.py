@@ -1144,8 +1144,8 @@ class _Printer(Visitor):
                     if (
                         relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
                         and len(node.args) == 1
-                        and isinstance(node.args[0].type, StringType)
                         and isinstance(node.args[0], Constant)
+                        and isinstance(node.args[0].type, StringType)
                     ):
                         try:
                             _ = parser.isoparse(node.args[0].value)
