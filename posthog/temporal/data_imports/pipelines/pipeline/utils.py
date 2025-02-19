@@ -110,6 +110,39 @@ def _handle_null_columns_with_definitions(table: pa.Table, source: SourceRespons
     return table
 
 
+def get_default_value_for_pyarrow_type(arrow_type: pa.DataType) -> Any:
+    if pa.types.is_integer(arrow_type):
+        return 0
+    elif pa.types.is_floating(arrow_type):
+        return 0.0
+    elif pa.types.is_boolean(arrow_type):
+        return False
+    elif pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
+        return ""
+    elif pa.types.is_binary(arrow_type) or pa.types.is_large_binary(arrow_type):
+        return b""
+    elif pa.types.is_timestamp(arrow_type):
+        return pa.scalar(0, type=arrow_type).as_py()
+    elif pa.types.is_date(arrow_type):
+        return pa.scalar(0, type=arrow_type).as_py()
+    elif pa.types.is_time(arrow_type):
+        return pa.scalar(0, type=arrow_type).as_py()
+    elif pa.types.is_list(arrow_type):
+        return []
+    elif pa.types.is_struct(arrow_type):
+        return {}
+    elif pa.types.is_dictionary(arrow_type):
+        return {}
+    elif pa.types.is_decimal(arrow_type):
+        return decimal.Decimal(0)
+    elif pa.types.is_duration(arrow_type):
+        return 0
+    elif pa.types.is_null(arrow_type):
+        return None
+    else:
+        raise ValueError(f"Unsupported PyArrow type: {arrow_type}")
+
+
 def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
     py_table_field_names = table.schema.names
 
@@ -192,6 +225,16 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                         field.name,
                         table.column(field.name).cast(field.type),
                     )
+
+            py_arrow_table_field = table.field(field.name)
+            # If the deltalake schema expects no nulls, but the pyarrow schema is nullable, then fill the nulls
+            if not field.nullable and py_arrow_table_field.nullable and py_arrow_table_column.null_count > 0:
+                filled_nulls_arr = py_arrow_table_column.fill_null(
+                    fill_value=get_default_value_for_pyarrow_type(py_arrow_table_field.type)
+                )
+                table = table.set_column(
+                    table.schema.get_field_index(field.name), field.name, filled_nulls_arr.combine_chunks()
+                )
 
     # Change types based on what deltalake tables support
     return table.cast(ensure_delta_compatible_arrow_schema(table.schema))
