@@ -122,6 +122,7 @@ export const LOADING_MESSAGES = [
     'Polishing graphs with tiny hedgehog paws…',
     'Rolling through data like a spiky ball of insights…',
     'Gathering nuts and numbers from the data forest…',
+    'Reticulating spines…', // not a typo, hedgehogs have spines, not splines
 ]
 
 export function StatelessInsightLoadingState({
