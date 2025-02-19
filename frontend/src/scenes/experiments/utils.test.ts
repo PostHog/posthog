@@ -1,4 +1,4 @@
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
 import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
@@ -698,6 +698,9 @@ describe('metricToQuery', () => {
                 date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                 date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                 explicitDate: true,
+            },
+            funnelsFilter: {
+                layout: FunnelLayout.horizontal,
             },
             series: [
                 {

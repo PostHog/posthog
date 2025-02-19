@@ -77,16 +77,32 @@ export function ExperimentMetricForm({
                 mathAvailability={MathAvailability.All}
                 {...commonActionFilterProps}
             />
-            <Query
-                query={{
-                    kind: NodeKind.InsightVizNode,
-                    source: metricToQuery(metric),
-                    showTable: false,
-                    showLastComputation: true,
-                    showLastComputationRefresh: false,
-                }}
-                readOnly
-            />
+            {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
+            {(metric.metric_type === ExperimentMetricType.COUNT ||
+                metric.metric_type === ExperimentMetricType.CONTINUOUS) && (
+                <Query
+                    query={{
+                        kind: NodeKind.InsightVizNode,
+                        source: metricToQuery(metric),
+                        showTable: false,
+                        showLastComputation: true,
+                        showLastComputationRefresh: false,
+                    }}
+                    readOnly
+                />
+            )}
+            {metric.metric_type === ExperimentMetricType.BINOMIAL && (
+                <Query
+                    query={{
+                        kind: NodeKind.InsightVizNode,
+                        source: metricToQuery(metric),
+                        showTable: false,
+                        showLastComputation: true,
+                        showLastComputationRefresh: false,
+                    }}
+                    readOnly
+                />
+            )}
         </div>
     )
 }

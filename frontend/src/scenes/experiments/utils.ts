@@ -499,6 +499,9 @@ export function metricToQuery(metric: ExperimentMetric): FunnelsQuery | TrendsQu
                 date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                 explicitDate: true,
             },
+            funnelsFilter: {
+                layout: FunnelLayout.horizontal,
+            },
             series: [
                 {
                     kind: NodeKind.EventsNode,
