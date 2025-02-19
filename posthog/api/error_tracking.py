@@ -50,9 +50,7 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
 
 
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
-    # Might not be entirely accurate if an issue is merged but it's a good
-    # approximation to use in absence of doing a ClickHouse query
-    first_seen = serializers.DateTimeField(source="created_at")
+    first_seen = serializers.DateTimeField()
     assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
 
     class Meta:
@@ -62,7 +60,7 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
 
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = ErrorTrackingIssue.objects.all()
+    queryset = ErrorTrackingIssue.objects.with_first_seen().all()
     serializer_class = ErrorTrackingIssueSerializer
 
     def safely_get_queryset(self, queryset):

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, UTC
 from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
@@ -19,6 +19,7 @@ from posthog.schema import (
     IntervalType,
     CachedExperimentExposureQueryResponse,
 )
+from typing import Optional
 
 
 class ExperimentExposuresQueryRunner(QueryRunner):
@@ -132,6 +133,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
+        response.results = self._fill_date_gaps(response.results)
         variant_series: dict[str, ExperimentExposureTimeSeries] = {}
 
         # Organize results by variant
@@ -150,7 +152,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
             for day in sorted_days:
                 running_total += daily_counts[day]
-                cumulative_counts.append(running_total)
+                cumulative_counts.append(int(running_total))
 
             variant_series[variant] = ExperimentExposureTimeSeries(
                 variant=variant, days=sorted_days, exposure_counts=cumulative_counts
@@ -158,9 +160,47 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         return ExperimentExposureQueryResponse(
             timeseries=list(variant_series.values()),
-            total_exposures={variant: series.exposure_counts[-1] for variant, series in variant_series.items()},
+            total_exposures={variant: int(series.exposure_counts[-1]) for variant, series in variant_series.items()},
             date_range=self.date_range,
         )
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError("Cannot convert exposure query to raw query")
+
+    def _fill_date_gaps(self, results):
+        """
+        Ensures the exposure data includes all dates within the experiment's date range.
+        For initial dates with no data, adds entries with zero exposures for each variant.
+        """
+        date_range = self._get_date_range()
+        if not date_range.date_from:
+            raise ValidationError("Start date is required for experiment exposure data")
+        start_date = datetime.fromisoformat(date_range.date_from).date()
+        end_date = datetime.fromisoformat(date_range.date_to).date() if date_range.date_to else datetime.now().date()
+
+        result_dict = {}
+        variants = set()
+        for date, variant, count in results:
+            result_dict[(date, variant)] = count
+            variants.add(variant)
+
+        complete_results = []
+        current_date = start_date
+        while current_date <= end_date:
+            for variant in variants:
+                count = result_dict.get((current_date, variant), 0)
+                complete_results.append((current_date, variant, count))
+            current_date += timedelta(days=1)
+
+        return complete_results
+
+    # Cache results for 24 hours
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        return last_refresh + timedelta(hours=24)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        if not last_refresh:
+            return True
+        return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)
