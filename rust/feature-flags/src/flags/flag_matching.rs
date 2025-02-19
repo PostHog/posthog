@@ -560,7 +560,7 @@ impl FeatureFlagMatcher {
                     }
                     Err(e) => {
                         errors_while_computing_flags = true;
-                        // TODO add sentry exception tracking
+                        // TODO add posthog error tracking
                         error!(
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
@@ -774,9 +774,25 @@ impl FeatureFlagMatcher {
                     break; // Exit early if we've found a super condition match
                 }
 
-                let variant = self
-                    .get_matching_variant(flag, hash_key_overrides.clone())
-                    .await?;
+                // Check for variant override in the condition
+                let variant = if let Some(variant_override) = &condition.variant {
+                    // Check if the override is a valid variant
+                    if flag
+                        .get_variants()
+                        .iter()
+                        .any(|v| &v.key == variant_override)
+                    {
+                        Some(variant_override.clone())
+                    } else {
+                        // If override isn't valid, fall back to computed variant
+                        self.get_matching_variant(flag, hash_key_overrides.clone())
+                            .await?
+                    }
+                } else {
+                    // No override, use computed variant
+                    self.get_matching_variant(flag, hash_key_overrides.clone())
+                        .await?
+                };
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
                 return Ok(FeatureFlagMatch {
@@ -975,7 +991,11 @@ impl FeatureFlagMatcher {
         {
             Ok(overrides)
         } else {
-            self.get_person_properties_from_cache_or_db().await
+            match self.get_person_properties_from_cache_or_db().await {
+                Ok(props) => Ok(props),
+                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: If we can't find a person ID associated with the distinct ID, return an empty map
+                Err(e) => Err(e),
+            }
         }
     }
 
@@ -2121,10 +2141,10 @@ mod tests {
             None,
             None,
         );
-        let match_result = matcher.get_match(&flag, None, None).await;
+        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
 
-        // Expecting an error for non-existent distinct_id
-        assert!(match_result.is_err());
+        // Expecting false for non-existent distinct_id
+        assert!(!match_result.matches);
     }
 
     #[tokio::test]
@@ -4895,5 +4915,140 @@ mod tests {
             Some(&FlagValue::Boolean(true)),
             "Non-continuity flag should be evaluated based on properties"
         );
+    }
+
+    #[tokio::test]
+    async fn test_variant_override_in_condition() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let distinct_id = "test_user".to_string();
+
+        // Insert a person with properties that will match our condition
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            distinct_id.clone(),
+            Some(json!({"email": "test@example.com"})),
+        )
+        .await
+        .unwrap();
+
+        // Create a flag with multiple variants and a condition with a variant override
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("test_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: json!("test@example.com"),
+                        operator: None,
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: Some("control".to_string()), // Override to always show "control" variant
+                }],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            name: Some("Control".to_string()),
+                            key: "control".to_string(),
+                            rollout_percentage: 25.0,
+                        },
+                        MultivariateFlagVariant {
+                            name: Some("Test".to_string()),
+                            key: "test".to_string(),
+                            rollout_percentage: 25.0,
+                        },
+                        MultivariateFlagVariant {
+                            name: Some("Test2".to_string()),
+                            key: "test2".to_string(),
+                            rollout_percentage: 50.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            team.id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result = matcher.get_match(&flag, None, None).await.unwrap();
+
+        // The condition matches and has a variant override, so it should return "control"
+        // regardless of what the hash-based variant computation would return
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("control".to_string()));
+
+        // Now test with an invalid variant override
+        let flag_invalid_override = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("test_flag_invalid".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: json!("test@example.com"),
+                        operator: None,
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: Some("nonexistent_variant".to_string()), // Override with invalid variant
+                }],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            name: Some("Control".to_string()),
+                            key: "control".to_string(),
+                            rollout_percentage: 25.0,
+                        },
+                        MultivariateFlagVariant {
+                            name: Some("Test".to_string()),
+                            key: "test".to_string(),
+                            rollout_percentage: 75.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let result_invalid = matcher
+            .get_match(&flag_invalid_override, None, None)
+            .await
+            .unwrap();
+
+        // The condition matches but has an invalid variant override,
+        // so it should fall back to hash-based variant computation
+        assert!(result_invalid.matches);
+        assert!(result_invalid.variant.is_some()); // Will be either "control" or "test" based on hash
     }
 }

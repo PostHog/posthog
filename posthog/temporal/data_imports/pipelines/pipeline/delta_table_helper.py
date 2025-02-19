@@ -7,7 +7,7 @@ from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 import deltalake as deltalake
 from django.conf import settings
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.warehouse.models import ExternalDataJob
@@ -46,8 +46,7 @@ class DeltaTableHelper:
 
     def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention().normalize_identifier(self._resource_name)
-        # Appended __v2 on to the end of the url so that data of the V2 pipeline isn't the same as V1
-        return f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}__v2"
+        return f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}"
 
     def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
         delta_table = self.get_delta_table()
@@ -154,3 +153,16 @@ class DeltaTableHelper:
         assert delta_table is not None
 
         return delta_table
+
+    def compact_table(self) -> None:
+        table = self.get_delta_table()
+        if table is None:
+            raise Exception("Deltatable not found")
+
+        self._logger.debug("Compacting table...")
+        table.optimize.compact()
+
+        self._logger.debug("Vacuuming table...")
+        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+
+        self._logger.debug("Compacting and vacuuming complete")

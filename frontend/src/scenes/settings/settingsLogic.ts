@@ -22,7 +22,7 @@ export const settingsLogic = kea<settingsLogicType>([
             userLogic,
             ['hasAvailableFeature'],
             preflightLogic,
-            ['preflight'],
+            ['preflight', 'isCloudOrDev'],
             teamLogic,
             ['currentTeam'],
         ],
@@ -38,21 +38,21 @@ export const settingsLogic = kea<settingsLogicType>([
 
     reducers(({ props }) => ({
         selectedLevelRaw: [
-            (props.settingLevelId ?? 'project') as SettingLevelId,
+            props.settingLevelId ?? 'project',
             {
                 selectLevel: (_, { level }) => level,
                 selectSection: (_, { level }) => level,
             },
         ],
         selectedSectionIdRaw: [
-            (props.sectionId ?? null) as SettingSectionId | null,
+            props.sectionId ?? null,
             {
                 selectLevel: () => null,
                 selectSection: (_, { section }) => section,
             },
         ],
         selectedSettingId: [
-            (props.settingId ?? null) as SettingId | null,
+            props.settingId ?? null,
             {
                 selectLevel: () => null,
                 selectSection: () => null,
@@ -85,9 +85,15 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.featureFlags],
-            (doesMatchFlags, featureFlags): SettingSection[] => {
-                const sections = SETTINGS_MAP.filter(doesMatchFlags)
+            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev],
+            (doesMatchFlags, featureFlags, isCloudOrDev): SettingSection[] => {
+                const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
+                    if (section.hideSelfHost && !isCloudOrDev) {
+                        return false
+                    }
+
+                    return true
+                })
                 if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
                     return sections
                         .filter((section) => section.level !== 'project')
@@ -97,7 +103,10 @@ export const settingsLogic = kea<settingsLogicType>([
                             level: section.level === 'environment' ? 'project' : section.level,
                             settings: section.settings.map((setting) => ({
                                 ...setting,
-                                title: setting.title.replace('environment', 'project'),
+                                title:
+                                    typeof setting.title === 'string'
+                                        ? setting.title.replace('environment', 'project')
+                                        : setting.title,
                                 id: setting.id.replace('environment-', 'project-') as SettingId,
                             })),
                         }))

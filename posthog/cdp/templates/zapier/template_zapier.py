@@ -2,11 +2,12 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="free",
+    status="stable",
+    free=True,
     type="destination",
     id="template-zapier",
     name="Zapier",
-    description="Trigger Zaps in Zapier based on PostHog events.",
+    description="Trigger Zaps in Zapier based on PostHog events. NOTE: Typically this is created from within Zapier using the PostHog app there.",
     icon_url="/static/services/zapier.png",
     category=["Custom"],
     hog="""
@@ -28,6 +29,7 @@ if (inputs.debug) {
             "description": "The path of the Zapier webhook. You can create your own or use our native Zapier integration https://zapier.com/apps/posthog/integrations",
             "secret": False,
             "required": True,
+            "hidden": False,
         },
         {
             "key": "body",
@@ -52,6 +54,7 @@ if (inputs.debug) {
             },
             "secret": False,
             "required": False,
+            "hidden": False,
         },
         {
             "key": "debug",
@@ -61,6 +64,7 @@ if (inputs.debug) {
             "secret": False,
             "required": False,
             "default": False,
+            "hidden": False,
         },
     ],
 )

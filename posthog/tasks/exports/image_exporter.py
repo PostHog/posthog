@@ -8,14 +8,16 @@ import structlog
 from django.conf import settings
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.wait import WebDriverWait
-from sentry_sdk import capture_exception, configure_scope, push_scope
+from sentry_sdk import configure_scope, push_scope
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.api.services.query import process_query_dict
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -44,16 +46,20 @@ CSSSelector = Literal[".InsightCard", ".ExportedInsight"]
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
     options = Options()
-    options.headless = True
+    options.add_argument("--headless=new")  # Hint: Try removing this line when debugging
     options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image
     options.add_argument("--use-gl=swiftshader")
     options.add_argument("--disable-software-rasterizer")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")  # This flag can make things slower but more reliable
+    options.add_experimental_option(
+        "excludeSwitches", ["enable-automation"]
+    )  # Removes the "Chrome is being controlled by automated test software" bar
 
     if os.environ.get("CHROMEDRIVER_BIN"):
-        return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
+        service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
+        return webdriver.Chrome(service=service, options=options)
 
     return webdriver.Chrome(
         service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
@@ -121,6 +127,12 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         raise
 
 
+# Newer versions of selenium seem to include the search bar in the height calculation.
+# This is a manually determined offset to ensure the screenshot is the correct height.
+# See https://github.com/SeleniumHQ/selenium/issues/14660.
+HEIGHT_OFFSET = 85
+
+
 def _screenshot_asset(
     image_path: str,
     url_to_render: str,
@@ -130,12 +142,15 @@ def _screenshot_asset(
     driver: Optional[webdriver.Chrome] = None
     try:
         driver = get_driver()
-        driver.set_window_size(screenshot_width, screenshot_width * 0.5)
+        # Note: When the content height is smaller than the height set here,
+        # elements with `h-full` can expand the scroll height we read
+        # further below. This can lead to a screenshot that is too tall.
+        driver.set_window_size(screenshot_width, 200)
         driver.get(url_to_render)
-        WebDriverWait(driver, 20).until(lambda x: x.find_element_by_css_selector(wait_for_css_selector))
+        WebDriverWait(driver, 20).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
         # Also wait until nothing is loading
         try:
-            WebDriverWait(driver, 20).until_not(lambda x: x.find_element_by_class_name("Spinner"))
+            WebDriverWait(driver, 20).until_not(lambda x: x.find_element(By.CLASS_NAME, "Spinner"))
         except TimeoutException:
             logger.exception(
                 "image_exporter.timeout",
@@ -152,21 +167,23 @@ def _screenshot_asset(
                     pass
                 capture_exception()
         # For example funnels use a table that can get very wide, so try to get its width
-        width = driver.execute_script("""
+        width = driver.execute_script(
+            """
             tableElement = document.querySelector('table');
             if (tableElement) {
                 return tableElement.offsetWidth * 1.5;
             }
-        """)
+        """
+        )
         height = driver.execute_script("return document.body.scrollHeight")
         if isinstance(width, int):
             width = max(int(screenshot_width), min(1800, width or screenshot_width))
         else:
             width = screenshot_width
-        driver.set_window_size(width, height)
+        driver.set_window_size(width, height + HEIGHT_OFFSET)
         # The needed height might have changed when setting width, so we need to get it again
         height = driver.execute_script("return document.body.scrollHeight")
-        driver.set_window_size(width, height)
+        driver.set_window_size(width, height + HEIGHT_OFFSET)
         driver.save_screenshot(image_path)
     except Exception as e:
         # To help with debugging, add a screenshot and any chrome logs

@@ -115,7 +115,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
                             </Link>
                         </LemonBanner>
                         <CodeSnippet language={Language.JavaScript} wrap>
-                            {`posthog.group('${singular}', 'id:5', {\n` +
+                            {`posthog.group('${singular}', your_${singular}_id, {\n` +
                                 `    name: 'Awesome ${singular}',\n` +
                                 '    value: 11\n' +
                                 '});'}

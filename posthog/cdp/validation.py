@@ -85,12 +85,15 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     required = serializers.BooleanField(default=False)  # type: ignore
     default = serializers.JSONField(required=False)
     secret = serializers.BooleanField(default=False)
+    hidden = serializers.BooleanField(default=False)
     description = serializers.CharField(required=False)
     integration = serializers.CharField(required=False)
     integration_key = serializers.CharField(required=False)
     requires_field = serializers.CharField(required=False)
     integration_field = serializers.CharField(required=False)
     requiredScopes = serializers.CharField(required=False)
+    # Indicates if hog templating should be used for this input
+    templating = serializers.BooleanField(required=False)
 
     # TODO Validate choices if type=choice
 
@@ -106,7 +109,6 @@ class AnyInputField(serializers.Field):
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
-    # input_deps = serializers.ListField(required=False)
     order = serializers.IntegerField(required=False)
     transpiled = serializers.JSONField(required=False)
 
@@ -148,7 +150,8 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"inputs": {name: f"Either 'text' or 'html' is required."}})
 
         try:
-            if value:
+            if value and schema.get("templating", True):
+                # If we have a value and hog templating is enabled, we need to transpile the value
                 if item_type in ["string", "dictionary", "json", "email"]:
                     if item_type == "email" and isinstance(value, dict):
                         # We want to exclude the "design" property

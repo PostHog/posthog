@@ -170,6 +170,26 @@ impl OutputErrProps {
     }
 }
 
+impl Stacktrace {
+    pub fn resolve(&self, lookup_table: &HashMap<String, Frame>) -> Option<Self> {
+        let Stacktrace::Raw { frames } = self else {
+            return Some(self.clone());
+        };
+
+        let mut resolved_frames = Vec::with_capacity(frames.len());
+        for frame in frames {
+            match lookup_table.get(&frame.frame_id()) {
+                Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
+                None => return None,
+            }
+        }
+
+        Some(Stacktrace::Resolved {
+            frames: resolved_frames,
+        })
+    }
+}
+
 #[cfg(test)]
 mod test {
     use common_types::ClickHouseEvent;
@@ -207,7 +227,7 @@ mod test {
             panic!("Expected a Raw stacktrace")
         };
         assert_eq!(frames.len(), 2);
-        let RawFrame::JavaScript(frame) = &frames[0] else {
+        let RawFrame::JavaScriptWeb(frame) = &frames[0] else {
             panic!("Expected a JavaScript frame")
         };
 
@@ -220,7 +240,7 @@ mod test {
         assert_eq!(frame.location.as_ref().unwrap().line, 64);
         assert_eq!(frame.location.as_ref().unwrap().column, 25112);
 
-        let RawFrame::JavaScript(frame) = &frames[1] else {
+        let RawFrame::JavaScriptWeb(frame) = &frames[1] else {
             panic!("Expected a JavaScript frame")
         };
         assert_eq!(

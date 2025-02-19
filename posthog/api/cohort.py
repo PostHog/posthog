@@ -31,7 +31,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.person import get_funnel_actor_class
@@ -76,7 +76,7 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_feature_flag,
     insert_cohort_from_insight_filter,
-    update_cohort,
+    increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_query,
 )
 from posthog.utils import format_query_params_absolute_url
@@ -161,7 +161,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
-            update_cohort(cohort, initiating_user=request.user)
+            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -274,9 +274,9 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
                 else:
-                    update_cohort(cohort, initiating_user=request.user)
+                    increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
             else:
-                update_cohort(cohort, initiating_user=request.user)
+                increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
 
         report_user_action(
             request.user,
@@ -687,7 +687,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         return []
 
     cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
-    matcher_cache = FlagsMatcherCache(team_id=team_id)
+    matcher_cache = FlagsMatcherCache(project_id=project_id)
     uuids_to_add_to_cohort = []
     cohorts_cache: dict[int, CohortOrEmpty] = {}
 
@@ -761,6 +761,8 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
                     try:
                         match = FeatureFlagMatcher(
+                            team_id,
+                            project_id,
                             [feature_flag],
                             distinct_id,
                             groups={},

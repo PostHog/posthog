@@ -1,5 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
-import { customEvent, EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from '@posthog/rrweb-types'
 import { captureException } from '@sentry/react'
 import { gunzipSync, strFromU8, strToU8 } from 'fflate'
 import {
@@ -120,7 +120,10 @@ function isCompressedEvent(ev: unknown): ev is compressedEventWithTime {
     return typeof ev === 'object' && ev !== null && 'cv' in ev
 }
 
-function unzip(compressedStr: string): any {
+function unzip(compressedStr: string | undefined): any {
+    if (!compressedStr) {
+        return undefined
+    }
     return JSON.parse(strFromU8(gunzipSync(strToU8(compressedStr, true))))
 }
 
@@ -133,17 +136,23 @@ function unzip(compressedStr: string): any {
  * you can't return a union of `KnownType | unknown`
  * so even though this returns `eventWithTime | unknown`
  * it has to be typed as only unknown
+ *
+ * KLUDGE: we shouldn't need so many type assertions on ev.data but TS is not smart enough to figure it out
  */
 function decompressEvent(ev: unknown): unknown {
     try {
         if (isCompressedEvent(ev)) {
             if (ev.cv === '2024-10') {
-                if (ev.type === EventType.FullSnapshot) {
+                if (ev.type === EventType.FullSnapshot && typeof ev.data === 'string') {
                     return {
                         ...ev,
                         data: unzip(ev.data),
                     }
-                } else if (ev.type === EventType.IncrementalSnapshot) {
+                } else if (
+                    ev.type === EventType.IncrementalSnapshot &&
+                    typeof ev.data === 'object' &&
+                    'source' in ev.data
+                ) {
                     if (ev.data.source === IncrementalSource.StyleSheetRule) {
                         return {
                             ...ev,
@@ -154,7 +163,7 @@ function decompressEvent(ev: unknown): unknown {
                                 removes: unzip(ev.data.removes),
                             },
                         }
-                    } else if (ev.data.source === IncrementalSource.Mutation) {
+                    } else if (ev.data.source === IncrementalSource.Mutation && 'texts' in ev.data) {
                         return {
                             ...ev,
                             data: {

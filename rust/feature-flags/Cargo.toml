@@ -44,6 +44,8 @@ tower-http = { workspace = true }
 derive_builder = "0.20.1"
 petgraph = "0.6.5"
 moka = { workspace = true }
+serde_urlencoded = { workspace = true }
+urlencoding = "2.1.3"
 
 [lints]
 workspace = true

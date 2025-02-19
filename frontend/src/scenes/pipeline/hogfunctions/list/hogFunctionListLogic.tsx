@@ -26,6 +26,7 @@ export type HogFunctionListFilters = {
 }
 
 export type HogFunctionListLogicProps = {
+    logicKey?: string
     type: HogFunctionTypeType
     defaultFilters?: HogFunctionListFilters
     forceFilters?: HogFunctionListFilters
@@ -44,7 +45,7 @@ export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserT
 
 export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
     props({} as HogFunctionListLogicProps),
-    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default')),
+    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default') + (props.logicKey || props.type)),
     path((id) => ['scenes', 'pipeline', 'hogFunctionListLogic', id]),
     connect({
         values: [
@@ -85,7 +86,8 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
-                    return (await api.hogFunctions.list(values.filters?.filters, props.type)).results
+                    return (await api.hogFunctions.list({ filters: values.filters?.filters, types: [props.type] }))
+                        .results
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({
@@ -167,7 +169,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             (s) => [s.canEnableNewDestinations],
             (canEnableNewDestinations): ((hogFunction: HogFunctionType) => boolean) => {
                 return (hogFunction: HogFunctionType) => {
-                    return hogFunction?.template?.status === 'free' || canEnableNewDestinations
+                    return hogFunction?.template?.free || canEnableNewDestinations
                 }
             },
         ],

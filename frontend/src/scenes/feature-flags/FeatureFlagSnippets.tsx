@@ -6,13 +6,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { GroupType } from '~/types'
 
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
-
 export interface FeatureFlagSnippet {
     flagKey: string
     multivariant?: boolean
     groupType?: GroupType
     localEvaluation?: boolean
     payload?: boolean
+    remoteConfiguration?: boolean
+    encryptedPayload?: boolean
     samplePropertyName?: string
     instantlyAvailableProperties?: boolean
 }
@@ -20,18 +21,36 @@ export interface FeatureFlagSnippet {
 const LOCAL_EVAL_REMINDER = `Remember to set a personal API key in the SDK to enable local evaluation.
 `
 
+const REMOTE_CONFIG_REMINDER = `Must initialize SDK with a personal API key to enable remote configuration.`
+const ENCRYPTED_PAYLOAD_REMINDER = `Encrypted payloads are automatically decrypted on the server before being sent to the client.`
+
 export function NodeJSSnippet({
     flagKey,
     groupType,
     multivariant,
     localEvaluation,
     payload,
+    remoteConfiguration,
+    encryptedPayload,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'await client.'
     const flagFunction = payload ? 'getFeatureFlagPayload' : multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
     const propertyName = samplePropertyName || 'is_authorized'
+
+    if (remoteConfiguration) {
+        const reminder = REMOTE_CONFIG_REMINDER + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+
+        return (
+            <>
+                <CodeSnippet language={Language.JavaScript} wrap>
+                    {`// ${reminder}
+const remoteConfigPayload = await client.getRemoteConfigPayload('${flagKey}')`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -155,15 +174,31 @@ if (${conditional}) {
 export function GolangSnippet({
     flagKey,
     groupType,
+    payload,
+    remoteConfiguration,
+    encryptedPayload,
     multivariant,
     localEvaluation,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'client.'
 
-    const flagFunction = multivariant ? 'GetFeatureFlag' : 'IsFeatureEnabled'
+    const flagFunction = payload ? 'GetFeatureFlagPayload' : multivariant ? 'GetFeatureFlag' : 'IsFeatureEnabled'
 
     const propertyName = samplePropertyName || 'is_authorized'
+
+    if (remoteConfiguration) {
+        const reminder = REMOTE_CONFIG_REMINDER + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+
+        return (
+            <>
+                <CodeSnippet language={Language.Go} wrap>
+                    {`// ${reminder}
+remoteConfigPayload, err := ${clientSuffix}GetRemoteConfigPayload("${flagKey}")`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -213,12 +248,27 @@ export function RubySnippet({
     multivariant,
     localEvaluation,
     payload,
+    remoteConfiguration,
+    encryptedPayload,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
     const flagFunction = payload ? 'get_feature_flag_payload' : multivariant ? 'get_feature_flag' : 'is_feature_enabled'
 
     const propertyName = samplePropertyName || 'is_authorized'
+
+    if (remoteConfiguration) {
+        const reminder = `# ` + REMOTE_CONFIG_REMINDER + (encryptedPayload ? `\n# ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+
+        return (
+            <>
+                <CodeSnippet language={Language.Ruby} wrap>
+                    {`${reminder}
+remote_config_payload = posthog.get_remote_config_payload('${flagKey}')`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -271,12 +321,27 @@ export function PythonSnippet({
     multivariant,
     localEvaluation,
     payload,
+    remoteConfiguration,
+    encryptedPayload,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
     const flagFunction = payload ? 'get_feature_flag_payload' : multivariant ? 'get_feature_flag' : 'feature_enabled'
 
     const propertyName = samplePropertyName || 'is_authorized'
+
+    if (remoteConfiguration) {
+        const reminder = `# ` + REMOTE_CONFIG_REMINDER + (encryptedPayload ? `\n# ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+
+        return (
+            <>
+                <CodeSnippet language={Language.Python} wrap>
+                    {`${reminder}
+remote_config_payload = posthog.get_remote_config_payload('${flagKey}')`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     const localEvalAddition = localEvaluation
         ? groupType
@@ -318,6 +383,101 @@ if ${conditional}:
         <>
             <CodeSnippet language={Language.Python} wrap>
                 {`${localEvaluation ? '# ' + LOCAL_EVAL_REMINDER : ''}${variableName} = ${flagSnippet}${followUpCode}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function CSharpSnippet({
+    flagKey,
+    groupType,
+    multivariant,
+    localEvaluation,
+    payload,
+    remoteConfiguration,
+    encryptedPayload,
+    samplePropertyName,
+}: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'posthog.'
+    const flagFunction = payload
+        ? 'GetFeatureFlagAsync'
+        : multivariant
+        ? 'GetFeatureFlagAsync'
+        : 'IsFeatureEnabledAsync'
+
+    const propertyName = samplePropertyName || 'isAuthorized'
+
+    if (remoteConfiguration) {
+        const reminder = `// ` + REMOTE_CONFIG_REMINDER + (encryptedPayload ? `\n// ${ENCRYPTED_PAYLOAD_REMINDER}` : '')
+
+        return (
+            <>
+                <CodeSnippet language={Language.CSharp} wrap>
+                    {`${reminder}
+var remoteConfigPayload = await posthog.GetRemoteConfigPayloadAsync("${flagKey}");`}
+                </CodeSnippet>
+            </>
+        )
+    }
+
+    const localEvalCommentAddition = localEvaluation
+        ? groupType
+            ? `// add group properties used in the flag to ensure the flag
+        // is evaluated locally, vs. going to our servers
+        `
+            : `// add person properties used in the flag to ensure the flag
+        // is evaluated locally, vs. going to our servers
+        `
+        : ''
+
+    const localEvalCodeAddition = localEvaluation
+        ? groupType
+            ? `{ ["${propertyName}"] = "value", ["name"] = "xyz" }`
+            : `
+    personProperties: new() { ["${propertyName}"] = "value" }`
+        : ''
+
+    const flagSnippet = groupType
+        ? `await ${clientSuffix}${flagFunction}(
+    "${flagKey}",
+    "user distinct id",
+    new FeatureFlagOptions
+    {
+        ${localEvalCommentAddition}Groups = [new Group("${groupType.group_type}", "<${
+              groupType.name_singular || 'group'
+          } ID>")${localEvalCodeAddition}]
+    }
+);`
+        : localEvalCodeAddition
+        ? `await ${clientSuffix}${flagFunction}(
+    "${flagKey}",
+    "user distinct id",${localEvalCodeAddition}
+);`
+        : `await ${clientSuffix}${flagFunction}("${flagKey}", "user distinct id");`
+    const variableName = payload ? 'matchedFlagPayload' : multivariant ? 'enabledVariant' : 'isMyFlagEnabled'
+
+    const conditional = multivariant ? `${variableName} == 'example-variant'` : `${variableName}`
+
+    const followUpCode = payload
+        ? `
+if (matchedFlagPayload is { Payload: {} payload })
+{
+    // The payload is a JsonDocument.
+    Console.WriteLine(payload.RootElement.GetRawText());
+}`
+        : `
+
+if (${conditional}) {
+    // Do something differently for this ${groupType ? groupType.name_singular || 'group' : 'user'}
+}
+`
+
+    return (
+        <>
+            <CodeSnippet language={Language.CSharp} wrap>
+                {`${
+                    localEvaluation ? '// ' + LOCAL_EVAL_REMINDER : ''
+                }var ${variableName} = ${flagSnippet}${followUpCode}`}
             </CodeSnippet>
         </>
     )
@@ -458,13 +618,27 @@ function App() {
     )
 }
 
-export function APISnippet({ groupType }: FeatureFlagSnippet): JSX.Element {
+export function APISnippet({ flagKey, groupType, remoteConfiguration }: FeatureFlagSnippet): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const groupAddition = groupType
-        ? `
+        ? `,
     "groups": { "${groupType.group_type}": "<${groupType.name_singular || 'group'} ID>" },`
         : ''
+
+    if (remoteConfiguration) {
+        return (
+            <>
+                <CodeSnippet language={Language.Bash} wrap>
+                    {`curl ${apiHostOrigin()}/api/projects/${currentTeam?.id || ':projectId'}/feature_flags/${
+                        flagKey || ':featureFlagKey'
+                    }/remote_config/ \\
+-H 'Content-Type: application/json' \\
+-H 'Authorization: Bearer [personal_api_key]'`}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     return (
         <>
@@ -473,7 +647,7 @@ export function APISnippet({ groupType }: FeatureFlagSnippet): JSX.Element {
 -X POST -H 'Content-Type: application/json' \\
 -d '{
     "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",
-    "distinct_id": "[user distinct id]",${groupAddition}
+    "distinct_id": "[user distinct id]"${groupAddition}
 }'
                 `}
             </CodeSnippet>

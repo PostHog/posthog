@@ -1,6 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
 import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
@@ -51,6 +50,7 @@ import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
+import { captureException } from '../posthog'
 import { status } from '../status'
 import {
     castTimestampOrNow,
@@ -206,7 +206,7 @@ export class DB {
             try {
                 client = await this.redisPool.acquire()
             } catch (error) {
-                throw new RedisOperationError('Failed to acquire redis client from pool', error)
+                throw new RedisOperationError('Failed to acquire redis client from pool', error, operationName)
             }
 
             // Don't use a single try/catch/finally for this, as there are 2 potential errors that could be thrown
@@ -234,11 +234,12 @@ export class DB {
                 throw new RedisOperationError(
                     `${operationName} failed for ${JSON.stringify(logContext)}`,
                     operationResult.error,
+                    operationName,
                     logContext
                 )
             }
             if (cleanupError) {
-                throw new RedisOperationError('Failed to release redis client from pool', cleanupError)
+                throw new RedisOperationError('Failed to release redis client from pool', cleanupError, operationName)
             }
             return operationResult.value
         })

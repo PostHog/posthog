@@ -1,33 +1,39 @@
 import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { PostHogFeature } from 'posthog-js/react'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import { MetricModal } from '../Metrics/MetricModal'
+import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
+import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
-import { ExperimentLoadingAnimation, ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
-import { CumulativeExposuresChart } from './CumulativeExposuresChart'
+import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
+import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { Exposures } from './Exposures'
 import { Info } from './Info'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
 
 const ResultsTab = (): JSX.Element => {
-    const { experiment, metricResults, firstPrimaryMetric, primaryMetricsLengthWithSharedMetrics } =
-        useValues(experimentLogic)
+    const {
+        experiment,
+        metricResults,
+        firstPrimaryMetric,
+        primaryMetricsLengthWithSharedMetrics,
+        metricResultsLoading,
+    } = useValues(experimentLogic)
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
     return (
         <>
-            {!hasSomeResults && (
+            {!hasSomeResults && !metricResultsLoading && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
@@ -38,7 +44,7 @@ const ResultsTab = (): JSX.Element => {
             )}
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && (
-                <div className="mb-4">
+                <div className="mb-4 mt-2">
                     <Overview />
                 </div>
             )}
@@ -49,12 +55,19 @@ const ResultsTab = (): JSX.Element => {
                     <div className="pb-4">
                         <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
                     </div>
-                    <div className="flex justify-end">
-                        <ExploreButton result={metricResults?.[0] || null} size="xsmall" />
-                    </div>
-                    <div className="pb-4">
-                        <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
-                    </div>
+                    {/* TODO: Only show explore button results viz if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                    {metricResults?.[0] &&
+                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
+                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
+                            <>
+                                <div className="flex justify-end">
+                                    <ExploreButton result={metricResults[0]} size="xsmall" />
+                                </div>
+                                <div className="pb-4">
+                                    <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
+                                </div>
+                            </>
+                        )}
                 </div>
             )}
             <MetricsView isSecondary={true} />
@@ -63,20 +76,18 @@ const ResultsTab = (): JSX.Element => {
 }
 
 const VariantsTab = (): JSX.Element => {
+    const { shouldUseExperimentMetrics, isExperimentRunning } = useValues(experimentLogic)
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 mt-2">
+            {shouldUseExperimentMetrics && isExperimentRunning && <Exposures />}
             <ReleaseConditionsTable />
             <DistributionTable />
-            <PostHogFeature flag="experiments-cumulative-exposures-chart" match="test">
-                <CumulativeExposuresChart />
-            </PostHogFeature>
         </div>
     )
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, metricResultsLoading, secondaryMetricResultsLoading, experimentId, tabKey } =
-        useValues(experimentLogic)
+    const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
@@ -89,44 +100,50 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {metricResultsLoading || secondaryMetricResultsLoading ? (
-                            <ExperimentLoadingAnimation />
-                        ) : (
-                            <>
-                                <div className="xl:flex">
-                                    <div className="w-1/2 mt-8 xl:mt-0">
-                                        <DataCollection />
-                                    </div>
-                                </div>
-                                <LemonTabs
-                                    activeKey={tabKey}
-                                    onChange={(key) => setTabKey(key)}
-                                    tabs={[
-                                        {
-                                            key: 'results',
-                                            label: 'Results',
-                                            content: <ResultsTab />,
-                                        },
-                                        {
-                                            key: 'variants',
-                                            label: 'Variants',
-                                            content: <VariantsTab />,
-                                        },
-                                    ]}
-                                />
-                            </>
-                        )}
+                        <div className="xl:flex">
+                            <div className="w-1/2 mt-8 xl:mt-0">
+                                <DataCollection />
+                            </div>
+                        </div>
+                        <LemonTabs
+                            activeKey={tabKey}
+                            onChange={(key) => setTabKey(key)}
+                            tabs={[
+                                {
+                                    key: 'results',
+                                    label: 'Results',
+                                    content: <ResultsTab />,
+                                },
+                                {
+                                    key: 'variants',
+                                    label: 'Variants',
+                                    content: <VariantsTab />,
+                                },
+                            ]}
+                        />
+
                         <MetricSourceModal experimentId={experimentId} isSecondary={true} />
                         <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 
-                        <MetricModal experimentId={experimentId} isSecondary={true} />
-                        <MetricModal experimentId={experimentId} isSecondary={false} />
+                        {shouldUseExperimentMetrics ? (
+                            <>
+                                <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
+                                <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
+                            </>
+                        ) : (
+                            <>
+                                <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
+                                <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
+                            </>
+                        )}
 
                         <SharedMetricModal experimentId={experimentId} isSecondary={true} />
                         <SharedMetricModal experimentId={experimentId} isSecondary={false} />
 
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
+
+                        <VariantDeltaTimeseries />
                     </>
                 )}
             </div>

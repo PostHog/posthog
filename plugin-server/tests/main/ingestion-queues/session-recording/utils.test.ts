@@ -383,6 +383,7 @@ describe('session-recording utils', () => {
                                 uuid: eventUuids[0],
                                 event: '$snapshot_items',
                                 properties: {
+                                    $lib: 'the value we will use',
                                     $snapshot_items: [
                                         {
                                             type: 6,

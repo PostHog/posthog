@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
 import posthoganalytics
+import structlog
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
@@ -38,6 +39,7 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
+    AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
@@ -52,15 +54,18 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
 }
 
 STREAMING_NODES: set[AssistantNodeName] = {
+    AssistantNodeName.ROOT,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
-    AssistantNodeName.SUMMARIZER,
 }
 """Nodes that can stream messages to the client."""
 
 
 VERBOSE_NODES = STREAMING_NODES | {AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT}
 """Nodes that can send messages to the client."""
+
+
+logger = structlog.get_logger(__name__)
 
 
 class Assistant:
@@ -138,14 +143,17 @@ class Assistant:
             state = self._graph.get_state(config)
             if state.next:
                 interrupt_value = state.tasks[0].interrupts[0].value
-                yield self._serialize_message(
+                feedback_message = (
                     AssistantMessage(content=interrupt_value, id=str(uuid4()))
                     if isinstance(interrupt_value, str)
                     else interrupt_value
                 )
+                self._graph.update_state(config, PartialAssistantState(messages=[feedback_message]))
+                yield self._serialize_message(feedback_message)
             else:
                 self._report_conversation_state(last_viz_message)
-        except:
+        except Exception as e:
+            logger.exception("Error in assistant stream", error=e)
             # This is an unhandled error, so we just stop further generation at this point
             yield self._serialize_message(FailureMessage())
             raise  # Re-raise, so that the error is printed or goes into Sentry
@@ -157,7 +165,7 @@ class Assistant:
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
-            "recursion_limit": 24,
+            "recursion_limit": 48,
             "callbacks": callbacks,
             "configurable": {"thread_id": self._conversation.id},
         }
@@ -180,8 +188,6 @@ class Assistant:
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.ROUTER:
-                return ReasoningMessage(content="Identifying type of analysis")
             case (
                 AssistantNodeName.TRENDS_PLANNER
                 | AssistantNodeName.TRENDS_PLANNER_TOOLS
@@ -235,10 +241,7 @@ class Assistant:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
 
-        if node_val := state_update.get(AssistantNodeName.ROUTER):
-            if isinstance(node_val, PartialAssistantState) and node_val.messages:
-                return node_val.messages[0]
-        elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
+        if intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
@@ -255,7 +258,14 @@ class Assistant:
             if node_val := state_update.get(node_name):
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
-                    return node_val.messages[0]
+                    message = node_val.messages[0]
+                    # Filter out tool calls and empty assistant messages
+                    if not isinstance(message, AssistantToolCallMessage) and (
+                        not isinstance(message, AssistantMessage)
+                        or isinstance(message, AssistantMessage)
+                        and message.content
+                    ):
+                        return message
 
         return None
 
@@ -263,13 +273,7 @@ class Assistant:
         langchain_message, langgraph_state = update[1]
         if isinstance(langchain_message, AIMessageChunk):
             node_name = langgraph_state["langgraph_node"]
-            if node_name in VISUALIZATION_NODES.keys():
-                self._chunks += langchain_message  # type: ignore
-                parsed_message = VISUALIZATION_NODES[node_name].parse_output(self._chunks.tool_calls[0]["args"])
-                if parsed_message:
-                    initiator_id = self._state.start_id if self._state is not None else None
-                    return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
-            elif node_name in STREAMING_NODES:
+            if node_name in STREAMING_NODES:
                 self._chunks += langchain_message  # type: ignore
                 if node_name == AssistantNodeName.MEMORY_INITIALIZER:
                     if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
@@ -278,7 +282,9 @@ class Assistant:
                         return AssistantMessage(
                             content=MemoryInitializerNode.format_message(cast(str, self._chunks.content))
                         )
-                return AssistantMessage(content=self._chunks.content)
+                if self._chunks.content:
+                    # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
+                    return AssistantMessage(content=self._chunks.content)
         return None
 
     def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
@@ -295,7 +301,7 @@ class Assistant:
             output += f"event: {AssistantEventType.STATUS}\n"
         else:
             output += f"event: {AssistantEventType.MESSAGE}\n"
-        return output + f"data: {message.model_dump_json(exclude_none=True)}\n\n"
+        return output + f"data: {message.model_dump_json(exclude_none=True, exclude={'tool_calls'})}\n\n"
 
     def _serialize_conversation(self) -> str:
         output = f"event: {AssistantEventType.CONVERSATION}\n"

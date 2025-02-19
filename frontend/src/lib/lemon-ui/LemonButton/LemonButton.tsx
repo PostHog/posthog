@@ -62,7 +62,7 @@ export interface LemonButtonPropsBase
     /** @deprecated Buttons should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string | null | false
+    disabledReason?: React.ReactElement | string | null | false
     noPadding?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
@@ -75,6 +75,7 @@ export type SideAction = Pick<
     LemonButtonProps,
     | 'onClick'
     | 'to'
+    | 'loading'
     | 'disableClientSideRouting'
     | 'disabled'
     | 'disabledReason'

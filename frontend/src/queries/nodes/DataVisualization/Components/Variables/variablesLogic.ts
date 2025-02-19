@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
-import { DataVisualizationNode, HogQLVariable } from '~/queries/schema'
+import { DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
 import { DashboardType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
@@ -146,7 +146,10 @@ export const variablesLogic = kea<variablesLogicType>([
     }),
     listeners(({ props, values, actions }) => ({
         addVariable: () => {
-            actions.updateSourceQuery()
+            // dashboard items handle source query separately
+            if (!props.readOnly) {
+                actions.updateSourceQuery()
+            }
         },
         removeVariable: () => {
             actions.updateSourceQuery()

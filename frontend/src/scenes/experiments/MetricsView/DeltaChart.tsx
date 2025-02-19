@@ -11,6 +11,7 @@ import {
 import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -62,16 +63,66 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
 
             return (
                 <span className="inline-flex items-center gap-1 min-w-0">
-                    <IconFunnels className="text-muted flex-shrink-0" fontSize="14" />
+                    <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
                     <span className="truncate">{firstStep}</span>
-                    <IconArrowRight className="text-muted flex-shrink-0" fontSize="14" />
+                    <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
                     <span className="truncate">{lastStep}</span>
                 </span>
             )
         }
     }
 
-    return <span className="text-muted truncate">Untitled metric</span>
+    return <span className="text-secondary truncate">Untitled metric</span>
+}
+
+export function generateViolinPath(x1: number, x2: number, y: number, height: number, deltaX: number): string {
+    // Create points for the violin curve
+    const points: [number, number][] = []
+    const steps = 20
+    const maxWidth = height / 2
+
+    // Generate left side points (x1 to deltaX)
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps
+        const x = x1 + (deltaX - x1) * t
+        // Standard normal distribution PDF from x1 to deltaX
+        const z = (t - 1) * 2 // Reduced scale factor from 2.5 to 2 for thicker tails
+        const width = Math.exp(-0.5 * z * z) * maxWidth
+        points.push([x, y + height / 2 - width])
+    }
+
+    // Generate right side points (deltaX to x2)
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps
+        const x = deltaX + (x2 - deltaX) * t
+        // Standard normal distribution PDF from deltaX to x2
+        const z = t * 2 // Reduced scale factor from 2.5 to 2 for thicker tails
+        const width = Math.exp(-0.5 * z * z) * maxWidth
+        points.push([x, y + height / 2 - width])
+    }
+
+    // Generate bottom curve points (mirror of top)
+    for (let i = steps; i >= 0; i--) {
+        const t = i / steps
+        const x = deltaX + (x2 - deltaX) * t
+        const z = t * 2
+        const width = Math.exp(-0.5 * z * z) * maxWidth
+        points.push([x, y + height / 2 + width])
+    }
+    for (let i = steps; i >= 0; i--) {
+        const t = i / steps
+        const x = x1 + (deltaX - x1) * t
+        const z = (t - 1) * 2
+        const width = Math.exp(-0.5 * z * z) * maxWidth
+        points.push([x, y + height / 2 + width])
+    }
+
+    // Create SVG path
+    return `
+        M ${points[0][0]} ${points[0][1]}
+        ${points.map((point) => `L ${point[0]} ${point[1]}`).join(' ')}
+        Z
+    `
 }
 
 export function DeltaChart({
@@ -101,17 +152,21 @@ export function DeltaChart({
         credibleIntervalForVariant,
         conversionRateForVariant,
         experimentId,
+        experiment,
         countDataForVariant,
         exposureCountDataForVariant,
         metricResultsLoading,
+        secondaryMetricResultsLoading,
+        featureFlags,
+        primaryMetricsLengthWithSharedMetrics,
     } = useValues(experimentLogic)
 
-    const { experiment } = useValues(experimentLogic)
     const {
         openPrimaryMetricModal,
         openSecondaryMetricModal,
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
+        openVariantDeltaTimeseriesModal,
     } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
@@ -131,7 +186,9 @@ export function DeltaChart({
         return 0
     }
 
-    const BAR_HEIGHT = 8 + getScaleAddition(variants.length)
+    const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
+
+    const BAR_HEIGHT = 10 + getScaleAddition(variants.length)
     const BAR_PADDING = 10 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
@@ -142,7 +199,7 @@ export function DeltaChart({
 
     const { isDarkModeOn } = useValues(themeLogic)
     const COLORS = {
-        TICK_TEXT_COLOR: 'var(--text-secondary-3000)',
+        TICK_TEXT_COLOR: 'var(--text-tertiary)',
         BOUNDARY_LINES: 'var(--border-primary)',
         ZERO_LINE: 'var(--border-bold)',
         BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',
@@ -198,7 +255,7 @@ export function DeltaChart({
         return () => {
             resizeObserver.disconnect()
         }
-    }, [])
+    }, [result])
 
     return (
         <div className="rounded bg-[var(--bg-table)]">
@@ -309,7 +366,7 @@ export function DeltaChart({
                         <div className="absolute top-2 left-2" style={{ zIndex: 102 }}>
                             <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
                         </div>
-                        {(isSecondary || (!isSecondary && experiment.metrics.length > 1)) && (
+                        {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                             <div
                                 className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)]"
                                 // Chart is z-index 100, so we need to be above it
@@ -401,6 +458,16 @@ export function DeltaChart({
                                                 })
                                             }}
                                             onMouseLeave={() => setTooltipData(null)}
+                                            onClick={() => {
+                                                if (featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]) {
+                                                    openVariantDeltaTimeseriesModal()
+                                                }
+                                            }}
+                                            className={
+                                                featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]
+                                                    ? 'cursor-pointer'
+                                                    : ''
+                                            }
                                         >
                                             {/* Add variant name using VariantTag */}
                                             <foreignObject
@@ -420,101 +487,87 @@ export function DeltaChart({
                                             </foreignObject>
 
                                             {variant.key === 'control' ? (
-                                                // Control variant - single gray bar
-                                                <>
-                                                    <rect
-                                                        x={x1}
-                                                        y={y}
-                                                        width={x2 - x1}
-                                                        height={BAR_HEIGHT}
-                                                        fill="transparent"
-                                                    />
-                                                    <rect
-                                                        x={x1}
-                                                        y={y}
-                                                        width={x2 - x1}
-                                                        height={BAR_HEIGHT}
-                                                        fill={COLORS.BAR_CONTROL}
-                                                        stroke={COLORS.BOUNDARY_LINES}
-                                                        strokeWidth={1}
-                                                        strokeDasharray="2,2"
-                                                        rx={4}
-                                                        ry={4}
-                                                    />
-                                                </>
+                                                // Control variant - dashed violin
+                                                <path
+                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
+                                                    fill={COLORS.BAR_CONTROL}
+                                                    stroke={COLORS.BOUNDARY_LINES}
+                                                    strokeWidth={1}
+                                                    strokeDasharray="2,2"
+                                                />
                                             ) : (
-                                                // Test variants - split into positive and negative sections if needed
+                                                // Test variants - single violin with gradient fill
                                                 <>
-                                                    <rect
-                                                        x={x1}
-                                                        y={y}
-                                                        width={x2 - x1}
-                                                        height={BAR_HEIGHT}
-                                                        fill="transparent"
+                                                    <defs>
+                                                        <linearGradient
+                                                            id={`gradient-${metricIndex}-${variant.key}-${
+                                                                isSecondary ? 'secondary' : 'primary'
+                                                            }`}
+                                                            x1="0"
+                                                            x2="1"
+                                                            y1="0"
+                                                            y2="0"
+                                                        >
+                                                            {lower < 0 && upper > 0 ? (
+                                                                <>
+                                                                    <stop offset="0%" stopColor={COLORS.BAR_NEGATIVE} />
+                                                                    <stop
+                                                                        offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                                        stopColor={COLORS.BAR_NEGATIVE}
+                                                                    />
+                                                                    <stop
+                                                                        offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                                        stopColor={COLORS.BAR_POSITIVE}
+                                                                    />
+                                                                    <stop
+                                                                        offset="100%"
+                                                                        stopColor={COLORS.BAR_POSITIVE}
+                                                                    />
+                                                                </>
+                                                            ) : (
+                                                                <stop
+                                                                    offset="100%"
+                                                                    stopColor={
+                                                                        upper <= 0
+                                                                            ? COLORS.BAR_NEGATIVE
+                                                                            : COLORS.BAR_POSITIVE
+                                                                    }
+                                                                />
+                                                            )}
+                                                        </linearGradient>
+                                                    </defs>
+                                                    <path
+                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
+                                                        fill={`url(#gradient-${metricIndex}-${variant.key}-${
+                                                            isSecondary ? 'secondary' : 'primary'
+                                                        })`}
                                                     />
-                                                    {lower < 0 && upper > 0 ? (
-                                                        // Bar spans across zero - need to split
-                                                        <>
-                                                            <path
-                                                                d={`
-                                                                M ${x1 + 4} ${y}
-                                                                H ${valueToX(0)}
-                                                                V ${y + BAR_HEIGHT}
-                                                                H ${x1 + 4}
-                                                                Q ${x1} ${y + BAR_HEIGHT} ${x1} ${y + BAR_HEIGHT - 4}
-                                                                V ${y + 4}
-                                                                Q ${x1} ${y} ${x1 + 4} ${y}
-                                                            `}
-                                                                fill={COLORS.BAR_NEGATIVE}
-                                                            />
-                                                            <path
-                                                                d={`
-                                                                M ${valueToX(0)} ${y}
-                                                                H ${x2 - 4}
-                                                                Q ${x2} ${y} ${x2} ${y + 4}
-                                                                V ${y + BAR_HEIGHT - 4}
-                                                                Q ${x2} ${y + BAR_HEIGHT} ${x2 - 4} ${y + BAR_HEIGHT}
-                                                                H ${valueToX(0)}
-                                                                V ${y}
-                                                            `}
-                                                                fill={COLORS.BAR_POSITIVE}
-                                                            />
-                                                        </>
-                                                    ) : (
-                                                        // Bar is entirely positive or negative
-                                                        <rect
-                                                            x={x1}
-                                                            y={y}
-                                                            width={x2 - x1}
-                                                            height={BAR_HEIGHT}
-                                                            fill={
-                                                                upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_POSITIVE
-                                                            }
-                                                            rx={4}
-                                                            ry={4}
-                                                        />
-                                                    )}
                                                 </>
                                             )}
                                             {/* Delta marker */}
-                                            <rect
-                                                x={deltaX - CONVERSION_RATE_RECT_WIDTH / 2}
-                                                y={y}
-                                                width={CONVERSION_RATE_RECT_WIDTH}
-                                                height={BAR_HEIGHT}
-                                                fill={
-                                                    variant.key === 'control'
-                                                        ? COLORS.BAR_MIDDLE_POINT_CONTROL
-                                                        : COLORS.BAR_MIDDLE_POINT
-                                                }
-                                            />
+                                            <g transform={`translate(${deltaX}, 0)`}>
+                                                <line
+                                                    x1={0}
+                                                    y1={y}
+                                                    x2={0}
+                                                    y2={y + BAR_HEIGHT}
+                                                    stroke={
+                                                        variant.key === 'control'
+                                                            ? COLORS.BAR_MIDDLE_POINT_CONTROL
+                                                            : COLORS.BAR_MIDDLE_POINT
+                                                    }
+                                                    strokeWidth={CONVERSION_RATE_RECT_WIDTH}
+                                                    vectorEffect="non-scaling-stroke"
+                                                    shapeRendering="crispEdges"
+                                                />
+                                            </g>
                                         </g>
                                     )
                                 })}
                             </svg>
                         </div>
                     </div>
-                ) : metricResultsLoading ? (
+                ) : resultsLoading ? (
                     <svg
                         ref={chartSvgRef}
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
@@ -527,7 +580,7 @@ export function DeltaChart({
                             height="20"
                         >
                             <div
-                                className="flex items-center justify-center text-muted cursor-default"
+                                className="flex items-center justify-center text-secondary cursor-default"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ fontSize: '10px', fontWeight: 400 }}
                             >
@@ -544,7 +597,7 @@ export function DeltaChart({
                         {!experiment.start_date ? (
                             <foreignObject x="0" y={chartHeight / 2 - 10} width={VIEW_BOX_WIDTH} height="20">
                                 <div
-                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-muted cursor-default"
+                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ fontSize: '10px', fontWeight: 400 }}
                                 >
@@ -571,7 +624,7 @@ export function DeltaChart({
                                 onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                             >
                                 <div
-                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-muted cursor-default"
+                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ fontSize: '10px', fontWeight: 400 }}
                                 >
@@ -590,7 +643,7 @@ export function DeltaChart({
                                             </span>
                                             /
                                             <span className="font-semibold">
-                                                {metricType === InsightType.TRENDS ? '5' : '4'}
+                                                {metricType === InsightType.TRENDS ? '3' : '2'}
                                             </span>
                                         </LemonTag>
                                     ) : (
@@ -614,8 +667,8 @@ export function DeltaChart({
                             left: tooltipData.x,
                             top: tooltipData.y,
                             transform: 'translate(-50%, -100%)',
-                            backgroundColor: 'var(--bg-light)',
-                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-surface-primary)',
+                            border: '1px solid var(--border-primary)',
                             padding: '8px 12px',
                             borderRadius: '6px',
                             fontSize: '13px',
@@ -628,7 +681,7 @@ export function DeltaChart({
                         <div className="flex flex-col gap-1">
                             <VariantTag experimentId={experimentId} variantKey={tooltipData.variant} />
                             <div className="inline-flex">
-                                <span className="text-muted font-semibold mb-1">Win probability:</span>
+                                <span className="text-secondary font-semibold mb-1">Win probability:</span>
                                 {result?.probability?.[tooltipData.variant] !== undefined ? (
                                     <span className="flex items-center justify-between flex-1 pl-6">
                                         <LemonProgress
@@ -646,7 +699,7 @@ export function DeltaChart({
                             {metricType === InsightType.TRENDS ? (
                                 <>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">
+                                        <span className="text-secondary font-semibold">
                                             {metricType === InsightType.TRENDS &&
                                             result.exposure_query?.series?.[0]?.math
                                                 ? 'Total'
@@ -661,7 +714,7 @@ export function DeltaChart({
                                         </span>
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Exposure:</span>
+                                        <span className="text-secondary font-semibold">Exposure:</span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const exposure = exposureCountDataForVariant(
@@ -673,7 +726,7 @@ export function DeltaChart({
                                         </span>
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Mean:</span>
+                                        <span className="text-secondary font-semibold">Mean:</span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const variant = result.variants.find(
@@ -688,17 +741,17 @@ export function DeltaChart({
                                 </>
                             ) : (
                                 <div className="flex justify-between items-center">
-                                    <span className="text-muted font-semibold">Conversion rate:</span>
+                                    <span className="text-secondary font-semibold">Conversion rate:</span>
                                     <span className="font-semibold">
                                         {conversionRateForVariant(result, tooltipData.variant)?.toFixed(2)}%
                                     </span>
                                 </div>
                             )}
                             <div className="flex justify-between items-center">
-                                <span className="text-muted font-semibold">Delta:</span>
+                                <span className="text-secondary font-semibold">Delta:</span>
                                 <span className="font-semibold">
                                     {tooltipData.variant === 'control' ? (
-                                        <em className="text-muted">Baseline</em>
+                                        <em className="text-secondary">Baseline</em>
                                     ) : (
                                         (() => {
                                             if (metricType === InsightType.TRENDS) {
@@ -749,7 +802,7 @@ export function DeltaChart({
                                 </span>
                             </div>
                             <div className="flex justify-between items-center">
-                                <span className="text-muted font-semibold">Credible interval:</span>
+                                <span className="text-secondary font-semibold">Credible interval:</span>
                                 <span className="font-semibold">
                                     {(() => {
                                         const interval = credibleIntervalForVariant(
@@ -779,18 +832,19 @@ export function DeltaChart({
                             left: tooltipPosition.x,
                             top: tooltipPosition.y,
                             transform: 'translate(-50%, -100%)',
-                            backgroundColor: 'var(--bg-light)',
-                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-surface-primary)',
+                            border: '1px solid var(--border-primary)',
                             padding: '8px 12px',
                             borderRadius: '6px',
                             fontSize: '13px',
                             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                            pointerEvents: 'none',
                             zIndex: 100,
                             minWidth: '200px',
                         }}
+                        onMouseEnter={() => setEmptyStateTooltipVisible(true)}
+                        onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                     >
-                        <NoResultEmptyState error={error} />
+                        <NoResultEmptyState error={error} metric={metric} />
                     </div>
                 )}
             </div>
@@ -810,17 +864,23 @@ export function DeltaChart({
                     </LemonButton>
                 }
             >
-                <div className="flex justify-end">
-                    <ExploreButton result={result} />
-                </div>
-                <LemonBanner type="info" className="mb-4">
+                {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                {result && (result.kind === 'ExperimentTrendsQuery' || result.kind === 'ExperimentFunnelsQuery') && (
+                    <div className="flex justify-end">
+                        <ExploreButton result={result} />
+                    </div>
+                )}
+                <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
                         <WinningVariantText result={result} experimentId={experimentId} />
                         <SignificanceText metricIndex={metricIndex} />
                     </div>
                 </LemonBanner>
                 <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
-                <ResultsQuery result={result} showTable={true} />
+                {/* TODO: Only show results query if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                {result && (result.kind === 'ExperimentTrendsQuery' || result.kind === 'ExperimentFunnelsQuery') && (
+                    <ResultsQuery result={result} showTable={true} />
+                )}
             </LemonModal>
         </div>
     )

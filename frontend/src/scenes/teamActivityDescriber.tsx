@@ -13,7 +13,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isNotNil, isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, RevenueTrackingEventItem, TeamSurveyConfigType, TeamType } from '~/types'
+import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
+import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from './dataThemeLogic'
 
@@ -443,6 +444,7 @@ const teamActionsMapping: Record<
     week_start_day: () => null,
     default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
+    onboarding_tasks: () => null,
 
     // should never come from the backend
     created_at: () => null,
@@ -454,6 +456,7 @@ const teamActionsMapping: Record<
     live_events_token: () => null,
     product_intents: () => null,
     cookieless_server_hash_mode: () => null,
+    access_control_version: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

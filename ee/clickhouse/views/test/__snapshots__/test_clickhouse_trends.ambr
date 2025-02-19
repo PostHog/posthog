@@ -448,9 +448,6 @@
                         count(DISTINCT e.actor_id) AS counts,
                         e.breakdown_value AS breakdown_value
                  FROM
-                   (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-15 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
-                    FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-15 23:59:59', 6, 'UTC')))) AS numbers) AS d
-                 CROSS JOIN
                    (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                            if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                            ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
@@ -475,6 +472,9 @@
                     WHERE and(equals(e.team_id, 99999), and(equals(e.event, '$pageview'), ifNull(equals(e__person.properties___key, 'some_val'), 0), ifNull(equals(e__person.properties___key, 'some_val'), 0)), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-15 23:59:59', 6, 'UTC'))))
                     GROUP BY timestamp, actor_id,
                                         breakdown_value) AS e
+                 CROSS JOIN
+                   (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-15 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
+                    FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-15 23:59:59', 6, 'UTC')))) AS numbers) AS d
                  WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
                  GROUP BY d.timestamp,
                           breakdown_value

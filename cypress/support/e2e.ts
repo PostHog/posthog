@@ -16,14 +16,13 @@ const E2E_TESTING = Cypress.env('E2E_TESTING')
 
 // Add console errors into cypress logs. This helps with failures in Github Actions which otherwise swallows them.
 // From: https://github.com/cypress-io/cypress/issues/300#issuecomment-688915086
-Cypress.on('window:before:load', (win) => {
+Cypress.on('window:before:load', (win: any) => {
     cy.spy(win.console, 'error')
     cy.spy(win.console, 'warn')
-
     win._cypress_posthog_captures = []
 })
 
-Cypress.on('window:load', (win) => {
+Cypress.on('window:load', (win: any) => {
     // This is an absolutely mad fix for the Cypress renderer process crashing in CI:
     // https://github.com/cypress-io/cypress/issues/27415#issuecomment-2169155274
     // Hopefully one day #27415 is solved and this becomes unnecessary
@@ -118,8 +117,8 @@ afterEach(function () {
     const event = state === 'passed' ? 'e2e_testing_test_passed' : 'e2e_testing_test_failed'
 
     if (E2E_TESTING) {
-        cy.window().then((win) => {
-            ;(win as any).posthog?.capture(event, { state, duration })
+        cy.window().then((win: any) => {
+            win.posthog?.capture(event, { state, duration })
         })
     }
 })

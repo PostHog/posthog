@@ -4,7 +4,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { LLMTrace } from '~/queries/schema'
+import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
 

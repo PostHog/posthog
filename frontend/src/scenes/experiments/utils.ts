@@ -1,13 +1,39 @@
 import { getSeriesColor } from 'lib/colors'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import merge from 'lodash.merge'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
-import { AnyEntityNode, NodeKind } from '~/queries/schema/schema-general'
 import {
+    AnyEntityNode,
+    EventsNode,
+    ExperimentActionMetricConfig,
+    ExperimentDataWarehouseMetricConfig,
+    ExperimentEventMetricConfig,
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentMetricMath,
+    ExperimentMetricType,
+    ExperimentTrendsQuery,
+    type FunnelsQuery,
+    NodeKind,
+    type TrendsQuery,
+} from '~/queries/schema/schema-general'
+import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
+import {
+    BaseMathType,
+    ChartDisplayType,
     FeatureFlagFilters,
+    FeatureFlagType,
+    FilterType,
+    FunnelConversionWindowTimeUnit,
     FunnelTimeConversionMetrics,
+    FunnelVizType,
     InsightType,
     PropertyFilterType,
+    PropertyMathType,
     PropertyOperator,
+    type QueryBasedInsightModel,
     TrendResult,
     UniversalFiltersGroupValue,
 } from '~/types'
@@ -18,6 +44,17 @@ export function getExperimentInsightColour(variantIndex: number | null): string 
 
 export function formatUnitByQuantity(value: number, unit: string): string {
     return value === 1 ? unit : unit + 's'
+}
+
+export function percentageDistribution(variantCount: number): number[] {
+    const basePercentage = Math.floor(100 / variantCount)
+    const percentages = new Array(variantCount).fill(basePercentage)
+    let remaining = 100 - basePercentage * variantCount
+    for (let i = 0; remaining > 0; i++, remaining--) {
+        // try to equally distribute `remaining` across variants
+        percentages[i] += 1
+    }
+    return percentages
 }
 
 export function getMinimumDetectableEffect(
@@ -131,12 +168,31 @@ function seriesToFilter(
 }
 
 export function getViewRecordingFilters(
-    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery,
+    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
-    if (metric.kind === NodeKind.ExperimentTrendsQuery) {
+    if (metric.kind === NodeKind.ExperimentMetric) {
+        if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+            return [
+                {
+                    id: metric.metric_config.event,
+                    name: metric.metric_config.event,
+                    type: 'events',
+                    properties: [
+                        {
+                            key: `$feature/${featureFlagKey}`,
+                            type: PropertyFilterType.Event,
+                            value: [variantKey],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ]
+        }
+        return []
+    } else if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
             const exposure_filter = seriesToFilter(metric.exposure_query.series[0], featureFlagKey, variantKey)
             if (exposure_filter) {
@@ -176,4 +232,323 @@ export function getViewRecordingFilters(
         }
     })
     return filters
+}
+
+export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
+    if (featureFlag.experiment_set && featureFlag.experiment_set.length > 0) {
+        throw new Error('Feature flag is already associated with an experiment.')
+    }
+
+    if (featureFlag.filters.multivariate?.variants?.length && featureFlag.filters.multivariate.variants.length > 1) {
+        if (featureFlag.filters.multivariate.variants[0].key !== 'control') {
+            throw new Error('Feature flag must have control as the first variant.')
+        }
+        return true
+    }
+
+    throw new Error('Feature flag must use multiple variants with control as the first variant.')
+}
+
+export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
+    return {
+        kind: NodeKind.ExperimentTrendsQuery,
+        count_query: {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+            ],
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+        },
+    }
+}
+
+export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
+    return {
+        kind: NodeKind.ExperimentFunnelsQuery,
+        funnels_query: {
+            kind: NodeKind.FunnelsQuery,
+            filterTestAccounts: true,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+            ],
+            funnelsFilter: {
+                funnelVizType: FunnelVizType.Steps,
+                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                funnelWindowInterval: 14,
+                layout: FunnelLayout.horizontal,
+            },
+        },
+    }
+}
+
+export function getDefaultBinomialMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.BINOMIAL,
+        metric_config: {
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+        },
+    }
+}
+
+export function getDefaultCountMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.COUNT,
+        metric_config: {
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+        },
+    }
+}
+
+export function getDefaultContinuousMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.CONTINUOUS,
+        metric_config: {
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+            math: 'sum',
+        },
+    }
+}
+
+export function getExperimentMetricFromInsight(
+    insight: QueryBasedInsightModel | null
+): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
+    if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
+        return undefined
+    }
+
+    const metricName = (insight?.name || insight?.derived_name) ?? undefined
+
+    if (isFunnelsQuery(insight.query.source)) {
+        const defaultFunnelsQuery = getDefaultFunnelsMetric().funnels_query
+
+        const funnelsQuery: FunnelsQuery = merge(defaultFunnelsQuery, {
+            series: insight.query.source.series,
+            funnelsFilter: {
+                funnelAggregateByHogQL: insight.query.source.funnelsFilter?.funnelAggregateByHogQL,
+                funnelWindowInterval: insight.query.source.funnelsFilter?.funnelWindowInterval,
+                funnelWindowIntervalUnit: insight.query.source.funnelsFilter?.funnelWindowIntervalUnit,
+                layout: insight.query.source.funnelsFilter?.layout,
+                breakdownAttributionType: insight.query.source.funnelsFilter?.breakdownAttributionType,
+                breakdownAttributionValue: insight.query.source.funnelsFilter?.breakdownAttributionValue,
+            },
+            filterTestAccounts: insight.query.source.filterTestAccounts,
+        })
+
+        return {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: funnelsQuery,
+            name: metricName,
+        }
+    }
+
+    if (isTrendsQuery(insight.query.source)) {
+        const defaultTrendsQuery = getDefaultTrendsMetric().count_query
+
+        const trendsQuery: TrendsQuery = merge(defaultTrendsQuery, {
+            series: insight.query.source.series,
+            filterTestAccounts: insight.query.source.filterTestAccounts,
+        })
+
+        return {
+            kind: NodeKind.ExperimentTrendsQuery,
+            count_query: trendsQuery,
+            name: metricName,
+        }
+    }
+
+    return undefined
+}
+
+export function metricConfigToFilter(
+    metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+): FilterType {
+    if (metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+        return {
+            events: [
+                {
+                    id: metric_config.event,
+                    name: metric_config.event,
+                    kind: NodeKind.EventsNode,
+                    type: 'events',
+                    math: metric_config.math,
+                    math_property: metric_config.math_property,
+                    math_hogql: metric_config.math_hogql,
+                    properties: metric_config.properties,
+                } as EventsNode,
+            ],
+            actions: [],
+        }
+    } else if (metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
+        return {
+            events: [],
+            actions: [
+                {
+                    id: metric_config.action,
+                    name: metric_config.name,
+                    kind: NodeKind.EventsNode,
+                    type: 'actions',
+                    math: metric_config.math,
+                    math_property: metric_config.math_property,
+                    math_hogql: metric_config.math_hogql,
+                    properties: metric_config.properties,
+                } as EventsNode,
+            ],
+        }
+    }
+
+    return {}
+}
+
+export function filterToMetricConfig(
+    entity: Record<string, any> | undefined
+): ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig | undefined {
+    if (!entity) {
+        return undefined
+    }
+
+    if (entity.kind === NodeKind.EventsNode) {
+        if (entity.type === 'events') {
+            return {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                event: entity.id as string,
+                name: entity.name,
+                math: (entity.math as ExperimentMetricMath) || 'total',
+                math_property: entity.math_property,
+                math_hogql: entity.math_hogql,
+                properties: entity.properties,
+            }
+        } else if (entity.type === 'actions') {
+            return {
+                kind: NodeKind.ExperimentActionMetricConfig,
+                action: entity.id,
+                name: entity.name,
+                math: (entity.math as ExperimentMetricMath) || 'total',
+                math_property: entity.math_property,
+                math_hogql: entity.math_hogql,
+                properties: entity.properties,
+            }
+        }
+    }
+}
+
+export function metricToQuery(metric: ExperimentMetric): FunnelsQuery | TrendsQuery | undefined {
+    const commonTrendsQueryProps: Partial<TrendsQuery> = {
+        kind: NodeKind.TrendsQuery,
+        interval: 'day',
+        dateRange: {
+            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+            explicitDate: true,
+        },
+        trendsFilter: {
+            display: ChartDisplayType.ActionsLineGraph,
+        },
+        filterTestAccounts: !!metric.filterTestAccounts,
+    }
+
+    if (metric.metric_type === ExperimentMetricType.COUNT) {
+        return {
+            ...commonTrendsQueryProps,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: (metric.metric_config as ExperimentEventMetricConfig).name,
+                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                },
+            ],
+        } as TrendsQuery
+    } else if (metric.metric_type === ExperimentMetricType.CONTINUOUS) {
+        return {
+            ...commonTrendsQueryProps,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                    name: (metric.metric_config as ExperimentEventMetricConfig).name,
+                    math: PropertyMathType.Sum,
+                    math_property: (metric.metric_config as ExperimentEventMetricConfig).math_property,
+                },
+            ],
+        } as TrendsQuery
+    } else if (metric.metric_type === ExperimentMetricType.BINOMIAL) {
+        return {
+            kind: NodeKind.FunnelsQuery,
+            filterTestAccounts: !!metric.filterTestAccounts,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            funnelsFilter: {
+                layout: FunnelLayout.horizontal,
+            },
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$feature_flag_called',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                },
+            ],
+        } as FunnelsQuery
+    }
+
+    return undefined
+}
+
+export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {
+    switch (metricType) {
+        case ExperimentMetricType.COUNT:
+            return MathAvailability.None
+        case ExperimentMetricType.CONTINUOUS:
+            return MathAvailability.All
+        default:
+            return MathAvailability.None
+    }
+}
+
+export function getAllowedMathTypes(metricType: ExperimentMetricType): string[] {
+    switch (metricType) {
+        case ExperimentMetricType.COUNT:
+            return [BaseMathType.TotalCount]
+        case ExperimentMetricType.CONTINUOUS:
+            return [PropertyMathType.Sum]
+        default:
+            return [BaseMathType.TotalCount]
+    }
 }

@@ -1,14 +1,15 @@
 import './PlayerFrame.scss'
 
+import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 import useSize from '@react-hook/size'
-import { Handler, viewportResizeDimension } from '@rrweb/types'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { player, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
+    const { player, sessionRecordingId, maskingWindow } = useValues(sessionRecordingPlayerLogic)
     const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
 
     const frameRef = useRef<HTMLDivElement | null>(null)
@@ -67,7 +68,10 @@ export const PlayerFrame = (): JSX.Element => {
 
     return (
         <div ref={containerRef} className="PlayerFrame ph-no-capture">
-            <div className="PlayerFrame__content" ref={frameRef} />
+            <div
+                className={clsx('PlayerFrame__content', maskingWindow && 'PlayerFrame__content--masking-window')}
+                ref={frameRef}
+            />
         </div>
     )
 }

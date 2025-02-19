@@ -75,11 +75,21 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
             submit: async (updatedAction, breakpoint) => {
                 let action: ActionType
+                // Remove URL from steps if it's not an autocapture or a pageview
+                let updatedSteps = updatedAction.steps
+                if (updatedSteps !== undefined) {
+                    updatedSteps = updatedSteps.map((step) => ({
+                        ...step,
+                        ...(step.event === '$autocapture' || step.event === '$pageview'
+                            ? {}
+                            : { url: null, url_matching: null }),
+                    }))
+                }
                 try {
                     if (updatedAction.id) {
-                        action = await api.actions.update(updatedAction.id, updatedAction)
+                        action = await api.actions.update(updatedAction.id, { ...updatedAction, steps: updatedSteps })
                     } else {
-                        action = await api.actions.create(updatedAction)
+                        action = await api.actions.create({ ...updatedAction, steps: updatedSteps })
                     }
                     breakpoint()
                 } catch (response: any) {

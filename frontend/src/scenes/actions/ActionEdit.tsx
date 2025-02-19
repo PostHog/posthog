@@ -154,7 +154,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     <p>
                         Your action will be triggered whenever <b>any of your match groups</b> are received.
                         <Link to="https://posthog.com/docs/product-analytics/retention" target="_blank">
-                            <IconInfo className="ml-1 text-muted text-xl" />
+                            <IconInfo className="ml-1 text-secondary text-xl" />
                         </Link>
                     </p>
                     <LemonField name="steps">

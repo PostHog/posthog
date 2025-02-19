@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import {
     AnthropicInputMessage,
@@ -229,4 +229,21 @@ export function normalizeMessages(output: unknown, defaultRole?: string): Compat
 
 export function removeMilliseconds(timestamp: string): string {
     return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
+export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
+    if (isLLMTraceEvent(event)) {
+        if (event.event === '$ai_generation') {
+            const title = event.properties.$ai_model || 'Generation'
+            if (event.properties.$ai_provider) {
+                return `${title} (${event.properties.$ai_provider})`
+            }
+
+            return title
+        }
+
+        return event.properties.$ai_span_name ?? 'Span'
+    }
+
+    return event.traceName ?? 'Trace'
 }

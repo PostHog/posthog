@@ -10,7 +10,7 @@ import {
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import {
     AnyFilterLike,
     AnyPropertyFilter,

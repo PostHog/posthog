@@ -4,7 +4,8 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '../../queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+
 import { assigneeSelectLogic } from './assigneeSelectLogic'
 
 type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
@@ -35,12 +36,10 @@ export const AssigneeSelect = ({
     }
 
     useEffect(() => {
-        if (showPopover) {
-            ensureAssigneeTypesLoaded()
-        }
-    }, [showPopover, ensureAssigneeTypesLoaded])
+        ensureAssigneeTypesLoaded()
+    }, [])
 
-    const displayAssignee = useMemo(() => computeAssignee(assignee), [assignee])
+    const displayAssignee = useMemo(() => computeAssignee(assignee), [assignee, computeAssignee])
 
     return (
         <LemonDropdown
@@ -88,7 +87,7 @@ export const AssigneeSelect = ({
                                     icon={<IconPlusSmall />}
                                     to={urls.settings('environment-error-tracking', 'user-groups')}
                                 >
-                                    <div className="text-muted-alt">Create user group</div>
+                                    <div className="text-secondary">Create user group</div>
                                 </LemonButton>
                             }
                         />
@@ -158,10 +157,10 @@ const Section = ({
                 ))}
 
                 {loading ? (
-                    <div className="p-2 text-muted-alt italic truncate border-t">Loading...</div>
+                    <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
                 ) : items.length === 0 ? (
                     search ? (
-                        <div className="p-2 text-muted-alt italic truncate border-t">
+                        <div className="p-2 text-secondary italic truncate border-t">
                             <span>No matches</span>
                         </div>
                     ) : (

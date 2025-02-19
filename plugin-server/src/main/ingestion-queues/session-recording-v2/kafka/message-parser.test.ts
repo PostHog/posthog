@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
 import { gzip } from 'zlib'
@@ -65,8 +66,8 @@ describe('KafkaMessageParser', () => {
                     window1: snapshotItems,
                 },
                 eventsRange: {
-                    start: 1234567890,
-                    end: 1234567891,
+                    start: DateTime.fromMillis(1234567890),
+                    end: DateTime.fromMillis(1234567891),
                 },
                 snapshot_source: undefined,
             })
@@ -103,8 +104,8 @@ describe('KafkaMessageParser', () => {
                     window1: snapshotItems,
                 },
                 eventsRange: {
-                    start: 1234567890,
-                    end: 1234567891,
+                    start: DateTime.fromMillis(1234567890),
+                    end: DateTime.fromMillis(1234567891),
                 },
             })
             expect(KafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
@@ -213,6 +214,70 @@ describe('KafkaMessageParser', () => {
             expect(results).toHaveLength(2)
             expect(results[0]?.session_id).toBe('session1')
             expect(results[1]?.session_id).toBe('session2')
+        })
+
+        it('filters out events with zero or negative timestamps', async () => {
+            const snapshotItems = [
+                { type: 1, timestamp: 1234567890 },
+                { type: 2, timestamp: 0 },
+                { type: 3, timestamp: -1000 },
+                { type: 4, timestamp: 1234567891 },
+            ]
+            const messages = [
+                createMessage({
+                    data: JSON.stringify({
+                        event: '$snapshot_items',
+                        properties: {
+                            $session_id: 'session1',
+                            $window_id: 'window1',
+                            $snapshot_items: snapshotItems,
+                        },
+                    }),
+                }),
+            ]
+
+            const results = await parser.parseBatch(messages)
+
+            expect(results).toHaveLength(1)
+            expect(results[0]?.eventsByWindowId['window1']).toHaveLength(2)
+            expect(results[0]?.eventsByWindowId['window1']).toEqual([
+                { type: 1, timestamp: 1234567890 },
+                { type: 4, timestamp: 1234567891 },
+            ])
+            expect(results[0]?.eventsRange).toEqual({
+                start: DateTime.fromMillis(1234567890),
+                end: DateTime.fromMillis(1234567891),
+            })
+        })
+
+        it('uses min/max for timestamp range instead of first/last', async () => {
+            const snapshotItems = [
+                { type: 1, timestamp: 1234567890 }, // Not the smallest
+                { type: 2, timestamp: 1234567889 }, // Smallest
+                { type: 3, timestamp: 1234567892 }, // Not the largest
+                { type: 4, timestamp: 1234567893 }, // Largest
+                { type: 5, timestamp: 1234567891 }, // Middle
+            ]
+            const messages = [
+                createMessage({
+                    data: JSON.stringify({
+                        event: '$snapshot_items',
+                        properties: {
+                            $session_id: 'session1',
+                            $window_id: 'window1',
+                            $snapshot_items: snapshotItems,
+                        },
+                    }),
+                }),
+            ]
+
+            const results = await parser.parseBatch(messages)
+
+            expect(results).toHaveLength(1)
+            expect(results[0]?.eventsRange).toEqual({
+                start: DateTime.fromMillis(1234567889), // Should be smallest timestamp
+                end: DateTime.fromMillis(1234567893), // Should be largest timestamp
+            })
         })
     })
 })

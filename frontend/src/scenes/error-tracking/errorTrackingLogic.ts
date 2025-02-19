@@ -1,15 +1,18 @@
 import type { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isDefinitionStale } from 'lib/utils/definitions'
 
 import {
     DateRange,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignee,
     ErrorTrackingSparklineConfig,
-} from '~/queries/schema'
-import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+} from '~/queries/schema/schema-general'
+import { EventDefinitionType, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { errorTrackingLogicType } from './errorTrackingLogicType'
 
@@ -20,12 +23,16 @@ const lastYear = { value: 'yStart', label: 'Year' }
 
 export type SparklineOption = LemonSegmentedButtonOption<string>
 
-const customOptions: Record<string, [SparklineOption, SparklineOption]> = {
-    dStart: [lastDay, lastHour], // today
-    '-24h': [lastDay, lastHour],
-    mStart: [lastMonth, lastDay],
-    yStart: [lastYear, lastMonth],
-    all: [lastYear, lastMonth],
+const customOptions: Record<string, { custom: SparklineOption; default: SparklineOption }> = {
+    // ordering of the keys is important here
+    // the shorter period should always be on the rhs
+    // this will maintain the order when we call Object.values()
+    // to render the options in the sparkline header
+    dStart: { default: lastDay, custom: lastHour }, // today
+    '-24h': { default: lastDay, custom: lastHour },
+    mStart: { custom: lastMonth, default: lastDay },
+    yStart: { custom: lastYear, default: lastMonth },
+    all: { custom: lastYear, default: lastMonth },
 }
 
 export const DEFAULT_ERROR_TRACKING_DATE_RANGE = { date_from: '-7d', date_to: null }
@@ -115,44 +122,59 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             },
         ],
     }),
+    loaders({
+        hasSentExceptionEvent: {
+            __default: undefined as boolean | undefined,
+            loadExceptionEventDefinition: async (): Promise<boolean> => {
+                const exceptionDefinition = await api.eventDefinitions.list({
+                    event_type: EventDefinitionType.Event,
+                    search: '$exception',
+                })
+                const definition = exceptionDefinition.results.find((r) => r.name === '$exception')
+                return definition ? !isDefinitionStale(definition) : false
+            },
+        },
+    }),
     selectors({
         sparklineOptions: [
             (s) => [s.dateRange],
-            ({ date_from }): SparklineOption[] => {
+            ({ date_from }): { custom: SparklineOption; default: SparklineOption } | null => {
                 if (!date_from) {
-                    return []
+                    return null
                 }
 
                 const isRelative = date_from.match(/-\d+[hdmy]/)
-                let options: [SparklineOption, SparklineOption] | null = null
                 if (date_from in customOptions) {
-                    options = customOptions[date_from]
+                    return customOptions[date_from]
                 } else if (isRelative) {
                     const value = date_from?.replace('-', '')
-                    options = [{ value: value, label: value }, lastDay]
-                } else {
-                    return []
+                    return { custom: { value: value, label: value }, default: lastDay }
                 }
-
-                return options
+                return null
             },
         ],
         customSparklineConfig: [
-            (s) => [s.sparklineSelectedPeriod],
-            (sparklineSelectedPeriod): ErrorTrackingSparklineConfig | null =>
-                sparklineSelectedPeriod ? constructSparklineConfig(sparklineSelectedPeriod) : null,
+            (s) => [s.sparklineOptions],
+            (sparklineOptions): ErrorTrackingSparklineConfig | null =>
+                sparklineOptions ? constructSparklineConfig(sparklineOptions.custom.value) : null,
         ],
     }),
     subscriptions(({ values, actions }) => ({
-        sparklineOptions: (sparklineOptions: SparklineOption[]) => {
-            const options = sparklineOptions.map((o) => o.value)
-            const validOption = values.sparklineSelectedPeriod && options.includes(values.sparklineSelectedPeriod)
-
-            if (options.length === 0) {
+        sparklineOptions: (sparklineOptions: { custom: SparklineOption; default: SparklineOption } | null) => {
+            if (!sparklineOptions) {
                 actions.setSparklineSelectedPeriod(null)
-            } else if (!validOption) {
-                actions.setSparklineSelectedPeriod(options[0])
+            } else {
+                const options = Object.values(sparklineOptions).map((o) => o.value)
+                const validOption = values.sparklineSelectedPeriod && options.includes(values.sparklineSelectedPeriod)
+
+                if (!validOption) {
+                    actions.setSparklineSelectedPeriod(sparklineOptions.custom.value)
+                }
             }
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadExceptionEventDefinition()
+    }),
 ])

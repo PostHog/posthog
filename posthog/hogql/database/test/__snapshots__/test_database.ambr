@@ -397,6 +397,8 @@
                       "$entry_gclid",
                       "$entry_fbclid",
                       "$entry_gad_source",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -996,6 +998,8 @@
                       "$entry_gclid",
                       "$entry_fbclid",
                       "$entry_gad_source",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -1509,6 +1513,26 @@
                   "table": null,
                   "type": "string"
               },
+              "$entry__kx": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry__kx`",
+                  "id": null,
+                  "name": "$entry__kx",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_irclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_irclid`",
+                  "id": null,
+                  "name": "$entry_irclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "$pageview_count": {
                   "chain": null,
                   "fields": null,
@@ -1792,6 +1816,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "float"
+              },
+              "hogql_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hogql_name",
+                  "id": null,
+                  "name": "hogql_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_by": {
                   "chain": null,
@@ -2259,6 +2293,8 @@
                       "$entry_gclid",
                       "$entry_fbclid",
                       "$entry_gad_source",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -2831,6 +2867,8 @@
                       "$entry_gclid",
                       "$entry_fbclid",
                       "$entry_gad_source",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -3344,6 +3382,26 @@
                   "table": null,
                   "type": "string"
               },
+              "$entry__kx": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry__kx`",
+                  "id": null,
+                  "name": "$entry__kx",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_irclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_irclid`",
+                  "id": null,
+                  "name": "$entry_irclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "$pageview_count": {
                   "chain": null,
                   "fields": null,
@@ -3627,6 +3685,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "float"
+              },
+              "hogql_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hogql_name",
+                  "id": null,
+                  "name": "hogql_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_by": {
                   "chain": null,

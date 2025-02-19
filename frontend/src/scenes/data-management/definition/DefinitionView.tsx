@@ -174,7 +174,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 />
 
                 <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
-                <div className="flex flex-wrap items-center gap-2 text-muted-alt">
+                <div className="flex flex-wrap items-center gap-2 text-secondary">
                     <div>Raw event name:</div>
                     <LemonTag className="font-mono">{definition.name}</LemonTag>
                 </div>
@@ -218,6 +218,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
 
                     <LinkedHogFunctions
+                        logicKey="event-definitions"
                         type="destination"
                         filters={{
                             events: [

@@ -33,7 +33,16 @@ type ManagedSourceId = {
     backend: PipelineBackend.ManagedSource
     id: string
 }
-export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId | HogFunctionNodeId | ManagedSourceId
+type DataWarehouseId = {
+    backend: PipelineBackend.SelfManagedSource
+    id: number | string
+}
+export type PipelineNodeLimitedType =
+    | PluginNodeId
+    | BatchExportNodeId
+    | HogFunctionNodeId
+    | ManagedSourceId
+    | DataWarehouseId
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
@@ -108,6 +117,10 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
 
                     if (id.indexOf('managed') === 0) {
                         return { backend: PipelineBackend.ManagedSource, id: `${id}`.replace('managed-', '') }
+                    }
+
+                    if (id.indexOf('self-managed') === 0) {
+                        return { backend: PipelineBackend.SelfManagedSource, id: `${id}`.replace('self-managed-', '') }
                     }
 
                     return { backend: PipelineBackend.BatchExport, id }

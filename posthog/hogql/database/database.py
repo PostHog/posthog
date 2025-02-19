@@ -3,9 +3,9 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from pydantic import BaseModel, ConfigDict
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -91,8 +91,6 @@ from posthog.schema import (
     SessionTableVersion,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import (
     DataWarehouseTable,
     DataWarehouseTableColumns,
@@ -226,6 +224,7 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
             "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
             start=None,
         ),
+        isolate_scope=True,
     )
 
 
@@ -374,7 +373,7 @@ def create_hogql_database(
                     def to_printed_clickhouse(self, context):
                         return self.parent_table.to_printed_clickhouse(context)
 
-                s3_table.fields["properties"] = WarehouseProperties()
+                s3_table.fields["properties"] = WarehouseProperties(hidden=True)
 
             warehouse_tables[table.name] = s3_table
 
@@ -385,7 +384,9 @@ def create_hogql_database(
                 expr=parse_expr(warehouse_modifier.id_field),
             )
 
-        if "timestamp" not in warehouse[warehouse_modifier.table_name].fields.keys():
+        if "timestamp" not in warehouse[warehouse_modifier.table_name].fields.keys() or not isinstance(
+            warehouse[warehouse_modifier.table_name].fields.get("timestamp"), DateTimeDatabaseField
+        ):
             table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
             timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
 
@@ -409,10 +410,24 @@ def create_hogql_database(
             )
 
         if "person_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
-            warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
-                name="person_id",
-                expr=parse_expr(warehouse_modifier.distinct_id_field),
+            events_join = (
+                DataWarehouseJoin.objects.filter(
+                    team_id=team.pk,
+                    source_table_name=warehouse_modifier.table_name,
+                    joining_table_name="events",
+                )
+                .exclude(deleted=True)
+                .first()
             )
+            if events_join:
+                warehouse[warehouse_modifier.table_name].fields["person_id"] = FieldTraverser(
+                    chain=[events_join.field_name, "person_id"]
+                )
+            else:
+                warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+                    name="person_id",
+                    expr=parse_expr(warehouse_modifier.distinct_id_field),
+                )
 
         return warehouse
 
@@ -572,27 +587,34 @@ def serialize_database(
         fields_dict = {field.name: field for field in fields}
         tables[table_key] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_key, name=table_key)
 
-    # Data Warehouse Tables
+    # Data Warehouse Tables and Views - Fetch all related data in one go
     warehouse_table_names = context.database.get_warehouse_tables()
-    warehouse_tables = (
-        list(
-            DataWarehouseTable.objects.select_related("credential", "external_data_source")
-            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
-            .all()
+    views = context.database.get_views()
+
+    # Fetch warehouse tables with related data in a single query
+    warehouse_tables_with_data = (
+        DataWarehouseTable.objects.select_related("credential", "external_data_source")
+        .prefetch_related(
+            "externaldataschema_set",
+            Prefetch(
+                "external_data_source__jobs",
+                queryset=ExternalDataJob.objects.filter(status="Completed", team_id=context.team_id).order_by(
+                    "-created_at"
+                )[:1],
+                to_attr="latest_completed_job",
+            ),
         )
-        if len(warehouse_table_names) > 0
+        .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
+        .all()
+        if warehouse_table_names
         else []
     )
-    warehouse_schemas = (
-        list(
-            ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(team_id=context.team_id, table_id__in=[table.id for table in warehouse_tables])
-            .all()
-        )
-        if len(warehouse_tables) > 0
-        else []
-    )
-    for warehouse_table in warehouse_tables:
+
+    # Fetch all views in a single query
+    all_views = DataWarehouseSavedQuery.objects.filter(team_id=context.team_id, deleted=False).all() if views else []
+
+    # Process warehouse tables
+    for warehouse_table in warehouse_tables_with_data:
         table_key = warehouse_table.name
 
         field_input = {}
@@ -603,14 +625,12 @@ def serialize_database(
         fields = serialize_fields(field_input, context, table_key, warehouse_table.columns, table_type="external")
         fields_dict = {field.name: field for field in fields}
 
-        # Schema
-        schema_filter: list[ExternalDataSchema] = list(
-            filter(lambda schema: schema.table_id == warehouse_table.id, warehouse_schemas)
-        )
-        if len(schema_filter) == 0:
-            schema: DatabaseSchemaSchema | None = None
+        # Get schema from prefetched data
+        schema_data = list(warehouse_table.externaldataschema_set.all())
+        if not schema_data:
+            schema = None
         else:
-            db_schema = schema_filter[0]
+            db_schema = schema_data[0]
             schema = DatabaseSchemaSchema(
                 id=str(db_schema.id),
                 name=db_schema.name,
@@ -620,15 +640,15 @@ def serialize_database(
                 last_synced_at=str(db_schema.last_synced_at),
             )
 
-        # Source
+        # Get source from prefetched data
         if warehouse_table.external_data_source is None:
-            source: DatabaseSchemaSource | None = None
+            source = None
         else:
-            db_source: ExternalDataSource = warehouse_table.external_data_source
+            db_source = warehouse_table.external_data_source
             latest_completed_run = (
-                ExternalDataJob.objects.filter(pipeline_id=db_source.pk, status="Completed", team_id=context.team_id)
-                .order_by("-created_at")
-                .first()
+                db_source.latest_completed_job[0]
+                if hasattr(db_source, "latest_completed_job") and db_source.latest_completed_job
+                else None
             )
             source = DatabaseSchemaSource(
                 id=str(db_source.source_id),
@@ -648,9 +668,8 @@ def serialize_database(
             source=source,
         )
 
-    # Views
-    views = context.database.get_views()
-    all_views = list(DataWarehouseSavedQuery.objects.filter(team_id=context.team_id).exclude(deleted=True))
+    # Process views using prefetched data
+    views_dict = {view.name: view for view in all_views}
     for view_name in views:
         view: SavedQuery | None = getattr(context.database, view_name, None)
         if view is None:
@@ -659,15 +678,13 @@ def serialize_database(
         fields = serialize_fields(view.fields, context, view_name, table_type="external")
         fields_dict = {field.name: field for field in fields}
 
-        saved_query: list[DataWarehouseSavedQuery] = list(
-            filter(lambda saved_query: saved_query.name == view_name, all_views)
-        )
-        if len(saved_query) != 0:
+        saved_query = views_dict.get(view_name)
+        if saved_query:
             tables[view_name] = DatabaseSchemaViewTable(
                 fields=fields_dict,
-                id=str(saved_query[0].pk),
+                id=str(saved_query.pk),
                 name=view.name,
-                query=HogQLQuery(query=saved_query[0].query["query"]),
+                query=HogQLQuery(query=saved_query.query["query"]),
             )
 
     return tables
@@ -728,12 +745,13 @@ def serialize_fields(
         else:
             hogql_value = str(field_key)
 
-        if field_key == "team_id" and table_type == "posthog":
-            pass
-        elif isinstance(field, DatabaseField):
+        if isinstance(field, FieldOrTable):
             if field.hidden:
                 continue
 
+        if field_key == "team_id" and table_type == "posthog":
+            pass
+        elif isinstance(field, DatabaseField):
             if isinstance(field, IntegerDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(

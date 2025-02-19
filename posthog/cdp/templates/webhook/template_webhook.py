@@ -3,6 +3,7 @@ from posthog.cdp.templates.hog_function_template import SUB_TEMPLATE_COMMON, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-webhook",
     name="HTTP Webhook",
@@ -33,6 +34,7 @@ if (inputs.debug) {
             "label": "Webhook URL",
             "secret": False,
             "required": True,
+            "hidden": False,
         },
         {
             "key": "method",
@@ -63,6 +65,7 @@ if (inputs.debug) {
             ],
             "default": "POST",
             "required": False,
+            "hidden": False,
         },
         {
             "key": "body",
@@ -71,6 +74,7 @@ if (inputs.debug) {
             "default": {"event": "{event}", "person": "{person}"},
             "secret": False,
             "required": False,
+            "hidden": False,
         },
         {
             "key": "headers",
@@ -79,6 +83,7 @@ if (inputs.debug) {
             "secret": False,
             "required": False,
             "default": {"Content-Type": "application/json"},
+            "hidden": False,
         },
         {
             "key": "debug",
@@ -88,6 +93,7 @@ if (inputs.debug) {
             "secret": False,
             "required": False,
             "default": False,
+            "hidden": False,
         },
     ],
     sub_templates=[

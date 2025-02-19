@@ -1,4 +1,3 @@
-import asyncio
 import datetime as dt
 import json
 import operator
@@ -9,13 +8,10 @@ from django.test import override_settings
 
 from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.batch_exports.batch_exports import (
-    RecordBatchProducerError,
-    TaskNotDoneError,
     generate_query_ranges,
     get_data_interval,
     iter_model_records,
     iter_records,
-    raise_on_produce_task_failure,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
@@ -56,8 +52,8 @@ def assert_records_match_events(records, events):
 async def test_iter_records(clickhouse_client):
     """Test the rows returned by iter_records."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -88,8 +84,8 @@ async def test_iter_records(clickhouse_client):
 async def test_iter_records_handles_duplicates(clickhouse_client):
     """Test the rows returned by iter_records are de-duplicated."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -120,8 +116,8 @@ async def test_iter_records_handles_duplicates(clickhouse_client):
 async def test_iter_records_can_exclude_events(clickhouse_client):
     """Test the rows returned by iter_records can exclude events."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -155,8 +151,8 @@ async def test_iter_records_can_exclude_events(clickhouse_client):
 async def test_iter_records_can_include_events(clickhouse_client):
     """Test the rows returned by iter_records can include events."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -209,6 +205,7 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
         duplicate=True,
         person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
         inserted_at=inserted_at,
+        table="sharded_events",
     )
 
     records = [
@@ -251,8 +248,8 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
 async def test_iter_records_with_single_field_and_alias(clickhouse_client, field):
     """Test iter_records can return a single aliased field."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -272,7 +269,7 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
             client=clickhouse_client,
             model=BatchExportModel(name="events", schema={"fields": [field], "values": {}}),
             team_id=team_id,
-            is_backfill=False,
+            backfill_details=None,
             interval_start=data_interval_start.isoformat(),
             interval_end=data_interval_end.isoformat(),
         )
@@ -300,8 +297,8 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
 async def test_iter_records_can_flatten_properties(clickhouse_client):
     """Test iter_records can flatten properties as indicated by a field expression."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -345,10 +342,10 @@ async def test_iter_records_can_flatten_properties(clickhouse_client):
 
 
 async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
-    """Test iter_records can flatten properties as indicated by a field expression."""
+    """Test iter_records can use extra query parameters"""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -409,48 +406,6 @@ def test_get_data_interval(interval, data_interval_end, expected):
     """Test get_data_interval returns the expected data interval tuple."""
     result = get_data_interval(interval, data_interval_end)
     assert result == expected
-
-
-async def test_raise_on_produce_task_failure_raises_record_batch_producer_error():
-    """Test a `RecordBatchProducerError` is raised with the right cause."""
-    cause = ValueError("Oh no!")
-
-    async def fake_produce_task():
-        raise cause
-
-    task = asyncio.create_task(fake_produce_task())
-    await asyncio.wait([task])
-
-    with pytest.raises(RecordBatchProducerError) as exc_info:
-        await raise_on_produce_task_failure(task)
-
-    assert exc_info.type == RecordBatchProducerError
-    assert exc_info.value.__cause__ == cause
-
-
-async def test_raise_on_produce_task_failure_raises_task_not_done():
-    """Test a `TaskNotDoneError` is raised if we don't let the task start."""
-    cause = ValueError("Oh no!")
-
-    async def fake_produce_task():
-        raise cause
-
-    task = asyncio.create_task(fake_produce_task())
-
-    with pytest.raises(TaskNotDoneError):
-        await raise_on_produce_task_failure(task)
-
-
-async def test_raise_on_produce_task_failure_does_not_raise():
-    """Test nothing is raised if task finished succesfully."""
-
-    async def fake_produce_task():
-        return True
-
-    task = asyncio.create_task(fake_produce_task())
-    await asyncio.wait([task])
-
-    await raise_on_produce_task_failure(task)
 
 
 @pytest.mark.parametrize(

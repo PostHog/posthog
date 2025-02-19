@@ -29,7 +29,7 @@ from ee.hogai.schema_generator.prompts import (
     QUESTION_PROMPT,
 )
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
-from ee.hogai.utils.helpers import find_last_message_of_type, slice_messages_to_conversation_start
+from ee.hogai.utils.helpers import slice_messages_to_conversation_start
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -55,7 +55,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True, stream_usage=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="function_calling",
             include_raw=False,
@@ -86,7 +86,14 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         chain = generation_prompt | merger | self._model | parser
 
         try:
-            message: SchemaGeneratorOutput[Q] = chain.invoke({}, config)
+            message: SchemaGeneratorOutput[Q] = chain.invoke(
+                {
+                    "project_datetime": self.project_now,
+                    "project_timezone": self.project_timezone,
+                    "project_name": self._team.name,
+                },
+                config,
+            )
         except PydanticOutputParserException as e:
             # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
             if len(intermediate_steps) >= 2:
@@ -137,11 +144,11 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         )
         return ET.tostring(root, encoding="unicode")
 
-    def _get_human_viz_message_mapping(self, messages: Sequence[AssistantMessageUnion]) -> dict[str, int]:
-        mapping: dict[str, int] = {}
+    def _get_human_viz_message_mapping(self, messages: Sequence[AssistantMessageUnion]) -> dict[str, set[int]]:
+        mapping: dict[str, set[int]] = {}
         for idx, msg in enumerate(messages):
             if isinstance(msg, VisualizationMessage) and msg.initiator is not None:
-                mapping[msg.initiator] = idx
+                mapping[msg.initiator] = mapping.get(msg.initiator, set()) | {idx}
         return mapping
 
     def _construct_messages(
@@ -167,22 +174,22 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         msg_mapping = self._get_human_viz_message_mapping(messages)
         initiator_message = messages[-1]
-        last_viz_message = find_last_message_of_type(messages, VisualizationMessage)
 
         for message in messages:
             # The initial human message and the new plan are added to the end of the conversation.
             if message == initiator_message:
                 continue
             if isinstance(message, HumanMessage):
-                if message.id and (viz_message_idx := msg_mapping.get(message.id)):
+                if message.id and (viz_message_indexes := msg_mapping.get(message.id)):
                     # Plans go first.
-                    viz_message = messages[viz_message_idx]
-                    if isinstance(viz_message, VisualizationMessage):
-                        conversation.append(
-                            HumanMessagePromptTemplate.from_template(PLAN_PROMPT, template_format="mustache").format(
-                                plan=viz_message.plan or ""
+                    for viz_message_idx in viz_message_indexes:
+                        viz_message = messages[viz_message_idx]
+                        if isinstance(viz_message, VisualizationMessage):
+                            conversation.append(
+                                HumanMessagePromptTemplate.from_template(
+                                    PLAN_PROMPT, template_format="mustache"
+                                ).format(plan=viz_message.plan or "")
                             )
-                        )
 
                     # Augment with the prompt previous initiator messages.
                     conversation.append(
@@ -190,22 +197,18 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                             question=message.content
                         )
                     )
-                # Otherwise, just append the human message.
+                # Otherwise, just append the human message. This is most likely a human-in-the-loop or just
+                # a message that didn't require an insight.
                 else:
                     conversation.append(LangchainHumanMessage(content=message.content))
             # Summary, human-in-the-loop messages.
             elif isinstance(message, AssistantMessage):
                 conversation.append(LangchainAssistantMessage(content=message.content))
-
-        # Include only last generated schema because it doesn't need more context.
-        if last_viz_message:
-            conversation.append(
-                LangchainAssistantMessage(
-                    content=last_viz_message.answer.model_dump_json() if last_viz_message.answer else ""
-                )
-            )
+            elif isinstance(message, VisualizationMessage) and message.answer:
+                conversation.append(LangchainAssistantMessage(content=message.answer.model_dump_json()))
         # Add the initiator message and the generated plan to the end, so instructions are clear.
         if isinstance(initiator_message, HumanMessage):
+            insight_plan = state.root_tool_insight_plan or initiator_message.content
             if generated_plan:
                 plan_prompt = PLAN_PROMPT if messages[0] == initiator_message else NEW_PLAN_PROMPT
                 conversation.append(
@@ -215,7 +218,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 )
             conversation.append(
                 HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
-                    question=initiator_message.content
+                    question=insight_plan
                 )
             )
 

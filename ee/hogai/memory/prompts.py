@@ -25,7 +25,7 @@ If the given website doesn't exist OR the URL is not a valid website OR the URL 
 Do NOT make speculative or assumptive statements, just output that sentence when lacking data.
 </format_instructions>
 
-The provided URL is "{{url}}".
+The provided URL is "{{{url}}}".
 """.strip()
 
 INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT = """
@@ -64,7 +64,7 @@ SCRAPING_INITIAL_MESSAGE = (
 )
 
 FAILED_SCRAPING_MESSAGE = """
-Unfortunately, I couldn't find any information about your product. You could edit my initial memory in Settings. Let me help with your request.
+Unfortunately, I couldn't find any information about your product – but please tell me to remember specific information, and I'll do so. You can also edit my initial memory directly in Settings.
 """.strip()
 
 SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your product does?"
@@ -75,7 +75,9 @@ SCRAPING_REJECTION_MESSAGE = "No, not quite right"
 
 SCRAPING_TERMINATION_MESSAGE = "All right, let's skip this step then. You can always ask me to update my memory."
 
-SCRAPING_MEMORY_SAVED_MESSAGE = "Thanks! I've updated my initial memory. Let me help with your request."
+SCRAPING_MEMORY_SAVED_MESSAGE = (
+    "Thanks! I've updated my initial memory. Remember that you can always ask me to remember information!"
+)
 
 COMPRESSION_PROMPT = """
 Your goal is to shorten paragraphs in the given text to have only a single sentence for each paragraph, preserving the original meaning and maintaining the cohesiveness of the text. Remove all found headers. You must keep the original structure. Remove linking words. Do not use markdown or any other text formatting.
@@ -89,6 +91,10 @@ Here is the initial core memory about the user's product:
 <product_core_memory>
 {{core_memory}}
 </product_core_memory>
+
+<basic_functions>
+When you send a message, treat its content as your private inner dialogue that represents your thought process. Use it for planning or personal reflection, as it can reveal your reasoning, introspection, and growth during interactions. Do not answer to the user. They won't see your message, as it's your inner monologue. Remember, always keep this monologue brief—under 40 words—and do not share it with the user.
+</basic_functions>
 
 <responsibilities>
 Your responsibilities include:
@@ -108,14 +114,14 @@ Memory Types to Collect:
 
 <instructions>
 When new information is provided, follow these steps:
-1. Analyze the information inside <information_processing> tags:
+1. Analyze the information:
    - Determine if the information is relevant and which memory type it belongs to.
    - If relevant, formulate a clear, factual statement based on the information.
    - Consider the implications of this new information on existing memory.
    - Decide whether to append this new information or replace existing information in the core memory, providing reasoning for your decision.
    - Keep reasoning short and concise under 50 words.
 2. If relevant, update the core memory using the 'core_memory_append' or 'core_memory_replace' function as appropriate.
-3. Output "[Done]" when you have finished processing the information.
+3. Output "[Done]" when you have finished processing the information. IMPORTANT: If the input does not contain new product-related information, return "[Done]" without any explanation.
 
 Ignore phrases that:
 - Are too vague or generic without specific details (e.g., "pageview trend").
@@ -148,8 +154,9 @@ Do not return anything from the custom few shot example prompts provided above.
 - All users have their personal event and property taxonomy. Manage your memory to capture specifics of their taxonomy.
 - Infer broader implications from specific statements when appropriate.
 - Reformulate user inputs into clear, factual statements about the product or company.
+- Save information the user explicitly asked to save using indicative verbs like "remember," "save," "note," etc even if it's not relevant to the product or company.
 - Do not use markdown or add notes.
-- Today's date is {{date}}.
+- Today's date is {{{date}}}.
 </remember>
 
 When you receive new information, begin your response with an information processing analysis, then proceed with the memory update if applicable, and conclude with "[Done]".
@@ -161,4 +168,11 @@ The arguments of the tool call are invalid and raised a Pydantic validation erro
 {{validation_error_message}}
 
 Fix the error and return the correct response.
-"""
+""".strip()
+
+MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT = """
+I previously generated an insight with the following JSON schema:
+```json
+{{{schema}}}
+```
+""".strip()

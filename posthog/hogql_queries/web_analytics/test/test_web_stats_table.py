@@ -17,6 +17,8 @@ from posthog.schema import (
     CustomEventConversionGoal,
     ActionConversionGoal,
     BounceRatePageViewMode,
+    WebAnalyticsOrderByFields,
+    WebAnalyticsOrderByDirection,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -24,10 +26,14 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
 
+@snapshot_clickhouse_queries
 class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
@@ -135,29 +141,32 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
+        orderBy=None,
     ):
-        modifiers = HogQLQueryModifiers(
-            sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
-        )
-        query = WebStatsTableQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
-            properties=properties or [],
-            breakdownBy=breakdown_by,
-            limit=limit,
-            doPathCleaning=bool(path_cleaning_filters),
-            includeBounceRate=include_bounce_rate,
-            includeScrollDepth=include_scroll_depth,
-            compareFilter=compare_filter,
-            conversionGoal=ActionConversionGoal(actionId=action.id)
-            if action
-            else CustomEventConversionGoal(customEventName=custom_event)
-            if custom_event
-            else None,
-            filterTestAccounts=filter_test_accounts,
-        )
-        self.team.path_cleaning_filters = path_cleaning_filters or []
-        runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
-        return runner.calculate()
+        with freeze_time(self.QUERY_TIMESTAMP):
+            modifiers = HogQLQueryModifiers(
+                sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
+            )
+            query = WebStatsTableQuery(
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
+                properties=properties or [],
+                breakdownBy=breakdown_by,
+                limit=limit,
+                doPathCleaning=bool(path_cleaning_filters),
+                includeBounceRate=include_bounce_rate,
+                includeScrollDepth=include_scroll_depth,
+                compareFilter=compare_filter,
+                conversionGoal=ActionConversionGoal(actionId=action.id)
+                if action
+                else CustomEventConversionGoal(customEventName=custom_event)
+                if custom_event
+                else None,
+                filterTestAccounts=filter_test_accounts,
+                orderBy=orderBy,
+            )
+            self.team.path_cleaning_filters = path_cleaning_filters or []
+            runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
+            return runner.calculate()
 
     def test_no_crash_when_no_data(self):
         results = self._run_web_stats_table_query(
@@ -306,7 +315,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ] == response_2.results
         assert response_2.hasMore is False
 
-    def test_path_filters(self):
+    def test_path_cleaning_filters(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-10"))
         s3 = str(uuid7("2023-12-10"))
@@ -338,6 +347,97 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/cleaned/:id/path/:id", (1, None), (1, None), ""],
             ["/not-cleaned", (1, None), (1, None), ""],
             ["/thing_c", (1, None), (1, None), ""],
+        ] == results
+
+    def test_path_cleaning_filters_with_cleaned_path_property(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-10"))
+        s4 = str(uuid7("2023-12-11"))
+        s5 = str(uuid7("2023-12-11"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/cleaned/123/path/456")]),
+                ("p2", [("2023-12-10", s2, "/cleaned/123")]),
+                ("p3", [("2023-12-10", s3, "/cleaned/456")]),
+                ("p4", [("2023-12-11", s4, "/not-cleaned")]),
+                ("p5", [("2023-12-11", s5, "/thing_a")]),
+            ]
+        )
+
+        # Send a property filter that it's just like a cleaned path filter
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"},
+                {"regex": "\\/path\\/\\d+", "alias": "/path/:id"},
+                {"regex": "thing_a", "alias": "thing_b"},
+                {"regex": "thing_b", "alias": "thing_c"},
+            ],
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.IS_CLEANED_PATH_EXACT, value="/cleaned/:id"
+                )
+            ],
+        ).results
+
+        # 2 events because we have 2 events that match this cleaned path
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), ""],
+        ] == results
+
+        # Send a property filter that when cleaned will look like a cleaned path filter
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"},
+                {"regex": "\\/path\\/\\d+", "alias": "/path/:id"},
+                {"regex": "thing_a", "alias": "thing_b"},
+                {"regex": "thing_b", "alias": "thing_c"},
+            ],
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.IS_CLEANED_PATH_EXACT, value="/cleaned/123456"
+                )
+            ],
+        ).results
+
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), ""],
+        ] == results
+
+    def test_path_cleaning_filters_with_cleanable_path_property(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-10"))
+        s4 = str(uuid7("2023-12-11"))
+        s5 = str(uuid7("2023-12-11"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/cleaned/123/path/456")]),
+                ("p2", [("2023-12-10", s2, "/cleaned/123")]),
+                ("p3", [("2023-12-10", s3, "/cleaned/456")]),
+                ("p4", [("2023-12-11", s4, "/not-cleaned")]),
+                ("p5", [("2023-12-11", s5, "/thing_a")]),
+            ]
+        )
+
+        # Send a property filter that when cleaned will look like a cleaned path filter
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[{"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"}],
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.IS_CLEANED_PATH_EXACT, value="/cleaned/123456"
+                )
+            ],
+        ).results
+
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), ""],
         ] == results
 
     def test_scroll_depth_bounce_rate_one_user(self):
@@ -1289,7 +1389,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_conversion_goal_one_pageview_conversion(self):
@@ -1327,7 +1427,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_conversion_goal_one_custom_event_conversion(self):
@@ -1353,7 +1453,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_conversion_goal_one_custom_action_conversion(self):
@@ -1389,7 +1489,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_conversion_goal_one_autocapture_conversion(self):
@@ -1427,7 +1527,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
 
     def test_conversion_rate(self):
@@ -1481,5 +1581,240 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.replay_url",
+            "context.columns.cross_sell",
         ] == response.columns
+
+    def test_sorting_by_visitors(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "/path1")]),
+                ("p2", [("2023-12-01", s2, "/path1"), ("2023-12-01", s2, "/path2")]),
+                ("p3", [("2023-12-01", s3, "/path1"), ("2023-12-01", s3, "/path2"), ("2023-12-01", s3, "/path3")]),
+            ]
+        )
+
+        # Test ascending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.ASC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path3", "/path2", "/path1"]
+
+        # Test descending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path1", "/path2", "/path3"]
+
+    def test_sorting_by_views(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "/path1")]),
+                ("p2", [("2023-12-01", s2, "/path2"), ("2023-12-01", s2, "/path2")]),
+                ("p3", [("2023-12-01", s3, "/path3"), ("2023-12-01", s3, "/path3"), ("2023-12-01", s3, "/path3")]),
+            ]
+        )
+
+        # Test ascending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.ASC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path1", "/path2", "/path3"]
+
+        # Test descending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.DESC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path3", "/path2", "/path1"]
+
+    def test_sorting_by_bounce_rate(self):
+        self._create_pageviews(
+            "p1",
+            [
+                ("/path1", "2023-12-02T12:00:00", 0.1),  # Bounce
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                ("/path2", "2023-12-02T12:00:00", 0.1),
+                ("/path2", "2023-12-02T12:00:01", 0.2),  # No bounce
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                ("/path3", "2023-12-02T12:00:00", 0.1),
+                ("/path3", "2023-12-02T12:00:01", 0.1),
+                ("/path3", "2023-12-02T12:00:02", 0.2),  # No bounce
+            ],
+        )
+
+        # Test ascending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            orderBy=(WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.ASC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path2", "/path3", "/path1"]
+
+        # Test descending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            orderBy=(WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.DESC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path1", "/path3", "/path2"]
+
+    def test_sorting_by_scroll_depth(self):
+        self._create_pageviews(
+            "p1",
+            [
+                ("/path1", "2023-12-02T12:00:00", 0.1),  # Low scroll
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                ("/path2", "2023-12-02T12:00:00", 0.5),  # Medium scroll
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                ("/path3", "2023-12-02T12:00:00", 0.9),  # High scroll
+            ],
+        )
+
+        flush_persons_and_events()
+
+        # Test ascending order by average scroll percentage
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_scroll_depth=True,
+            include_bounce_rate=True,
+            orderBy=(WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE, WebAnalyticsOrderByDirection.ASC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path1", "/path2", "/path3"]
+
+        # Test descending order by average scroll percentage
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_scroll_depth=True,
+            include_bounce_rate=True,
+            orderBy=(WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE, WebAnalyticsOrderByDirection.DESC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path3", "/path2", "/path1"]
+
+    def test_sorting_by_total_conversions(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "/foo"), ("2023-12-01", s1, "/foo")]),
+                ("p2", [("2023-12-01", s2, "/foo"), ("2023-12-01", s2, "/bar")]),
+                ("p3", [("2023-12-01", s3, "/bar")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[{"event": "$pageview", "url": "/foo", "url_matching": "regex"}],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.TOTAL_CONVERSIONS, WebAnalyticsOrderByDirection.ASC),
+            action=action,
+        )
+
+        assert [row[0] for row in response.results] == ["/bar", "/foo"]
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.TOTAL_CONVERSIONS, WebAnalyticsOrderByDirection.DESC),
+            action=action,
+        )
+
+        assert [row[0] for row in response.results] == ["/foo", "/bar"]
+
+    def test_sorting_by_conversion_rate(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "/foo"), ("2023-12-01", s1, "/foo")]),
+                ("p2", [("2023-12-01", s2, "/foo"), ("2023-12-01", s2, "/bar")]),
+                ("p3", [("2023-12-01", s3, "/bar")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[{"event": "$pageview", "url": "/foo", "url_matching": "regex"}],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.CONVERSION_RATE, WebAnalyticsOrderByDirection.ASC),
+            action=action,
+        )
+
+        assert [row[0] for row in response.results] == ["/bar", "/foo"]
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.CONVERSION_RATE, WebAnalyticsOrderByDirection.DESC),
+            action=action,
+        )
+
+        assert [row[0] for row in response.results] == ["/foo", "/bar"]

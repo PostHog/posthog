@@ -7,8 +7,12 @@ use super::TransformContext;
 
 pub fn captured_parse_fn(
     context: TransformContext,
-) -> impl Fn(RawEvent) -> Result<InternallyCapturedEvent, Error> {
+    event_transform: impl Fn(RawEvent) -> Result<Option<RawEvent>, Error>,
+) -> impl Fn(RawEvent) -> Result<Option<InternallyCapturedEvent>, Error> {
     move |raw| {
+        let Some(raw) = event_transform(raw)? else {
+            return Ok(None);
+        };
         let Some(distinct_id) = raw.extract_distinct_id() else {
             return Err(Error::msg("No distinct_id found"));
         };
@@ -17,7 +21,7 @@ pub fn captured_parse_fn(
         // Grab the events timestamp, or make one up
         let timestamp = get_timestamp(&raw);
 
-        let event = CapturedEvent {
+        let inner = CapturedEvent {
             uuid,
             distinct_id,
             ip: "127.0.0.1".to_string(),
@@ -25,12 +29,13 @@ pub fn captured_parse_fn(
             now: timestamp,
             sent_at: None, // We don't know when it was sent at, since it's a historical import
             token: context.token.clone(),
+            is_cookieless_mode: false,
         };
 
-        Ok(InternallyCapturedEvent {
+        Ok(Some(InternallyCapturedEvent {
             team_id: context.team_id,
-            inner: event,
-        })
+            inner,
+        }))
     }
 }
 

@@ -81,3 +81,7 @@ export function isHogUpValue(obj: any): obj is HogUpValue {
         'value' in obj
     )
 }
+
+export function isHogAST(obj: any): boolean {
+    return obj && ((typeof obj === 'object' && '__hx_ast' in obj) || (obj instanceof Map && obj.get('__hx_ast')))
+}

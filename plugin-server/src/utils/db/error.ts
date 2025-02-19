@@ -1,7 +1,7 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig, PluginError, PluginLogEntrySource, PluginLogEntryType } from '../../types'
+import { captureException } from '../posthog'
 
 export class DependencyUnavailableError extends Error {
     constructor(message: string, dependencyName: string, error: Error) {
@@ -26,14 +26,16 @@ export class MessageSizeTooLarge extends Error {
 }
 
 export class RedisOperationError extends Error {
-    constructor(message: string, error: Error, logContext?: Record<string, any>) {
+    constructor(message: string, error: Error, operation: string, logContext?: Record<string, any>) {
         super(message)
         this.name = 'RedisOperationError'
         this.error = error
+        this.operation = operation
         this.logContext = logContext
     }
     readonly error: Error
     readonly logContext?: Record<string, any>
+    readonly operation: string
 }
 
 export async function processError(

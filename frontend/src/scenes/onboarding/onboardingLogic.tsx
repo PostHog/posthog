@@ -10,16 +10,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    AvailableOnboardingProducts,
-    BillingProductV2AddonType,
-    Breadcrumb,
-    OnboardingProduct,
-    ProductKey,
-    ReplayTabs,
-} from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { Breadcrumb, OnboardingProduct, ProductKey, ReplayTabs } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
+import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
@@ -40,61 +35,6 @@ export enum OnboardingStepKey {
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
-
-export const availableOnboardingProducts: AvailableOnboardingProducts = {
-    [ProductKey.PRODUCT_ANALYTICS]: {
-        name: 'Product Analytics',
-        icon: 'IconGraph',
-        iconColor: 'rgb(47 128 250)',
-        url: urls.insights(),
-        scene: Scene.SavedInsights,
-    },
-    [ProductKey.WEB_ANALYTICS]: {
-        name: 'Web Analytics',
-        icon: 'IconPieChart',
-        iconColor: 'rgb(54 196 111)',
-        url: urls.webAnalytics(),
-        scene: Scene.WebAnalytics,
-    },
-    [ProductKey.DATA_WAREHOUSE]: {
-        name: 'Data Warehouse',
-        icon: 'IconDatabase',
-        iconColor: 'rgb(133 103 255)',
-        breadcrumbsName: 'Data Warehouse',
-        url: urls.dataWarehouse(),
-        scene: Scene.DataWarehouse,
-    },
-    [ProductKey.SESSION_REPLAY]: {
-        name: 'Session Replay',
-        icon: 'IconRewindPlay',
-        iconColor: 'rgb(247 165 1)',
-        url: urls.replay(),
-        scene: Scene.Replay,
-    },
-    [ProductKey.FEATURE_FLAGS]: {
-        name: 'Feature Flags',
-        breadcrumbsName: 'Feature Flags',
-        icon: 'IconToggle',
-        iconColor: 'rgb(48 171 198)',
-        url: urls.featureFlags(),
-        scene: Scene.FeatureFlags,
-    },
-    [ProductKey.EXPERIMENTS]: {
-        name: 'Experiments',
-        breadcrumbsName: 'Experiments',
-        icon: 'IconTestTube',
-        iconColor: 'rgb(182 42 217)',
-        url: urls.experiments(),
-        scene: Scene.Experiments,
-    },
-    [ProductKey.SURVEYS]: {
-        name: 'Surveys',
-        icon: 'IconMessage',
-        iconColor: 'rgb(243 84 84)',
-        url: urls.surveys(),
-        scene: Scene.Surveys,
-    },
-}
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
     return (
@@ -148,6 +88,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['loadBillingSuccess'],
             teamLogic,
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
         ],
     }),
     actions({
@@ -226,12 +168,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     {
                         key: Scene.Onboarding,
                         name:
-                            availableOnboardingProducts[productKey as ProductKey].breadcrumbsName ??
-                            availableOnboardingProducts[productKey as ProductKey].name,
-                        path: availableOnboardingProducts[productKey as ProductKey].url,
+                            availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]
+                                ?.breadcrumbsName ??
+                            availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.name,
+                        path: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.url,
                     },
                     {
-                        key: availableOnboardingProducts[productKey as ProductKey].scene,
+                        key: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.scene,
                         name: stepKeyToTitle(stepKey),
                         path: urls.onboarding(productKey ?? '', stepKey),
                     },
@@ -282,10 +225,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 if (!isCloudOrDev || !billing?.products || !billingProduct) {
                     return false
                 }
-                const hasAllAddons = billingProduct?.addons?.every(
-                    (addon: BillingProductV2AddonType) => addon.subscribed
-                )
-                return !billingProduct?.subscribed || !hasAllAddons || subscribedDuringOnboarding
+
+                return !billingProduct?.subscribed || subscribedDuringOnboarding
             },
         ],
         shouldShowReverseProxyStep: [

@@ -20,6 +20,7 @@ import {
 import { BindLogic, useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -28,78 +29,44 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { getPropertyKey } from 'lib/taxonomy'
 import { formatDate } from 'lib/utils'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 
 import {
     ActionType,
     LinkSurveyQuestion,
+    PropertyFilterType,
+    PropertyOperator,
     RatingSurveyQuestion,
+    SurveyMatchType,
     SurveyQuestion,
     SurveyQuestionType,
     SurveyType,
-    SurveyUrlMatchType,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
+import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { Customization, WidgetCustomization } from './SurveyCustomization'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { ScheduleType, SurveyEditSection, surveyLogic } from './surveyLogic'
+import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
-export default function SurveyEdit(): JSX.Element {
-    const {
-        survey,
-        urlMatchTypeValidationError,
-        hasTargetingSet,
-        selectedPageIndex,
-        selectedSection,
-        isEditingSurvey,
-        targetingFlagFilters,
-        showSurveyRepeatSchedule,
-        schedule,
-        hasBranchingLogic,
-        surveyRepeatedActivationAvailable,
-        dataCollectionType,
-        surveyUsesLimit,
-        surveyUsesAdaptiveLimit,
-    } = useValues(surveyLogic)
-    const {
-        setSurveyValue,
-        resetTargeting,
-        resetSurveyResponseLimits,
-        resetSurveyAdaptiveSampling,
-        setSelectedPageIndex,
-        setSelectedSection,
-        setFlagPropertyErrors,
-        setSchedule,
-        deleteBranchingLogic,
-        setDataCollectionType,
-    } = useActions(surveyLogic)
-    const {
-        surveysMultipleQuestionsAvailable,
-        surveysRecurringScheduleAvailable,
-        surveysEventsAvailable,
-        surveysActionsAvailable,
-    } = useValues(surveysLogic)
+function SurveyCompletionConditions(): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { survey, dataCollectionType } = useValues(surveyLogic)
+    const { setSurveyValue, resetSurveyResponseLimits, resetSurveyAdaptiveSampling, setDataCollectionType } =
+        useActions(surveyLogic)
+    const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
     const [visible, setVisible] = useState(false)
-    const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
-    const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
-    const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
-        ? undefined
-        : 'Upgrade your plan to use repeating surveys'
-    const surveysAdaptiveLimitsDisabledReason = surveysRecurringScheduleAvailable
-        ? undefined
-        : 'Upgrade your plan to use an adaptive limit on survey responses'
 
-    const surveyLimitOptions: LemonRadioOption<'until_stopped' | 'until_limit' | 'until_adaptive_limit'>[] = [
+    const surveyLimitOptions: LemonRadioOption<DataCollectionType>[] = [
         {
             value: 'until_stopped',
             label: 'Keep collecting responses until the survey is stopped',
@@ -119,19 +86,170 @@ export default function SurveyEdit(): JSX.Element {
             value: 'until_adaptive_limit',
             label: 'Collect a certain number of surveys per day, week or month',
             'data-attr': 'survey-collection-until-adaptive-limit',
-            disabledReason: surveysAdaptiveLimitsDisabledReason,
-        } as unknown as LemonRadioOption<'until_stopped' | 'until_limit' | 'until_adaptive_limit'>)
+            disabledReason: surveysRecurringScheduleAvailable
+                ? undefined
+                : 'Upgrade your plan to use an adaptive limit on survey responses',
+        } as unknown as LemonRadioOption<DataCollectionType>)
     }
 
-    useMemo(() => {
-        if (surveyUsesLimit) {
-            setDataCollectionType('until_limit')
-        } else if (surveyUsesAdaptiveLimit && adaptiveLimitFFEnabled) {
-            setDataCollectionType('until_adaptive_limit')
-        } else {
-            setDataCollectionType('until_stopped')
-        }
-    }, [surveyUsesLimit, surveyUsesAdaptiveLimit, adaptiveLimitFFEnabled, setDataCollectionType])
+    return (
+        <>
+            <div className="mt-2">
+                <h3> How long would you like to collect survey responses? </h3>
+                <LemonField.Pure>
+                    <LemonRadio
+                        value={dataCollectionType}
+                        onChange={(newValue: DataCollectionType) => {
+                            if (newValue === 'until_limit') {
+                                resetSurveyAdaptiveSampling()
+                                setSurveyValue('responses_limit', survey.responses_limit || 100)
+                            } else if (newValue === 'until_adaptive_limit') {
+                                resetSurveyResponseLimits()
+                                setSurveyValue('response_sampling_interval', survey.response_sampling_interval || 1)
+                                setSurveyValue(
+                                    'response_sampling_interval_type',
+                                    survey.response_sampling_interval_type || 'month'
+                                )
+                                setSurveyValue('response_sampling_limit', survey.response_sampling_limit || 100)
+                                setSurveyValue(
+                                    'response_sampling_start_date',
+                                    survey.response_sampling_start_date || dayjs()
+                                )
+                            } else {
+                                resetSurveyResponseLimits()
+                                resetSurveyAdaptiveSampling()
+                            }
+                            setDataCollectionType(newValue)
+                        }}
+                        options={surveyLimitOptions}
+                    />
+                </LemonField.Pure>
+            </div>
+            {dataCollectionType == 'until_adaptive_limit' && (
+                <LemonField.Pure className="mt-4">
+                    <div className="flex flex-row gap-2 items-center ml-5">
+                        Starting on{' '}
+                        <Popover
+                            actionable
+                            overlay={
+                                <LemonCalendarSelect
+                                    value={dayjs(survey.response_sampling_start_date)}
+                                    onChange={(value) => {
+                                        setSurveyValue('response_sampling_start_date', value)
+                                        setVisible(false)
+                                    }}
+                                    showTimeToggle={false}
+                                    onClose={() => setVisible(false)}
+                                />
+                            }
+                            visible={visible}
+                            onClickOutside={() => setVisible(false)}
+                        >
+                            <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
+                                {formatDate(dayjs(survey.response_sampling_start_date || ''))}
+                            </LemonButton>
+                        </Popover>
+                        , capture up to
+                        <LemonInput
+                            type="number"
+                            size="small"
+                            min={1}
+                            onChange={(newValue) => {
+                                setSurveyValue('response_sampling_limit', newValue)
+                            }}
+                            value={survey.response_sampling_limit || 0}
+                        />
+                        responses, every
+                        <LemonInput
+                            type="number"
+                            size="small"
+                            min={1}
+                            onChange={(newValue) => {
+                                setSurveyValue('response_sampling_interval', newValue)
+                            }}
+                            value={survey.response_sampling_interval || 0}
+                        />
+                        <LemonSelect
+                            value={survey.response_sampling_interval_type}
+                            size="small"
+                            onChange={(newValue) => {
+                                setSurveyValue('response_sampling_interval_type', newValue)
+                            }}
+                            options={[
+                                { value: 'day', label: 'Day(s)' },
+                                { value: 'week', label: 'Week(s)' },
+                                { value: 'month', label: 'Month(s)' },
+                            ]}
+                        />
+                        <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
+                            <IconInfo />
+                        </Tooltip>
+                    </div>
+                </LemonField.Pure>
+            )}
+            {dataCollectionType == 'until_limit' && (
+                <LemonField name="responses_limit" className="mt-4 ml-5">
+                    {({ onChange, value }) => {
+                        return (
+                            <div className="flex flex-row gap-2 items-center">
+                                Stop the survey once
+                                <LemonInput
+                                    type="number"
+                                    data-attr="survey-responses-limit-input"
+                                    size="small"
+                                    min={1}
+                                    value={value || NaN}
+                                    onChange={(newValue) => {
+                                        if (newValue && newValue > 0) {
+                                            onChange(newValue)
+                                        } else {
+                                            onChange(null)
+                                        }
+                                    }}
+                                    className="w-16"
+                                />{' '}
+                                responses are received.
+                                <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
+                                    <IconInfo />
+                                </Tooltip>
+                            </div>
+                        )
+                    }}
+                </LemonField>
+            )}
+            <SurveyRepeatSchedule />
+        </>
+    )
+}
+
+export default function SurveyEdit(): JSX.Element {
+    const {
+        survey,
+        urlMatchTypeValidationError,
+        hasTargetingSet,
+        selectedPageIndex,
+        selectedSection,
+        isEditingSurvey,
+        targetingFlagFilters,
+        hasBranchingLogic,
+        surveyRepeatedActivationAvailable,
+        surveyErrors,
+        deviceTypesMatchTypeValidationError,
+    } = useValues(surveyLogic)
+    const {
+        setSurveyValue,
+        resetTargeting,
+        setSelectedPageIndex,
+        setSelectedSection,
+        setFlagPropertyErrors,
+        setSchedule,
+        deleteBranchingLogic,
+    } = useActions(surveyLogic)
+    const { surveysMultipleQuestionsAvailable, surveysEventsAvailable, surveysActionsAvailable } =
+        useValues(surveysLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
+    const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
 
     if (survey.iteration_count && survey.iteration_count > 0) {
         setSchedule('recurring')
@@ -171,7 +289,7 @@ export default function SurveyEdit(): JSX.Element {
                     onChange={(section) => {
                         setSelectedSection(section)
                     }}
-                    className="bg-bg-light"
+                    className="bg-surface-primary"
                     panels={[
                         {
                             key: SurveyEditSection.Presentation,
@@ -463,7 +581,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 icon={<IconPlus />}
                                                 sideIcon={
                                                     surveysMultipleQuestionsAvailable ? null : (
-                                                        <IconLock className="ml-1 text-base text-muted" />
+                                                        <IconLock className="ml-1 text-base text-secondary" />
                                                     )
                                                 }
                                                 disabledReason={
@@ -557,6 +675,7 @@ export default function SurveyEdit(): JSX.Element {
                                                           isCustomFontsEnabled={
                                                               !!featureFlags[FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS]
                                                           }
+                                                          validationErrors={surveyErrors?.appearance}
                                                       />
                                                   </>
                                               )}
@@ -594,7 +713,7 @@ export default function SurveyEdit(): JSX.Element {
                                         data-attr="survey-display-conditions-select"
                                     />
                                     {!hasTargetingSet ? (
-                                        <span className="text-muted">
+                                        <span className="text-secondary">
                                             Survey <b>will be released to everyone</b>
                                         </span>
                                     ) : (
@@ -639,8 +758,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 URL
                                                                 <LemonSelect
                                                                     value={
-                                                                        value?.urlMatchType ||
-                                                                        SurveyUrlMatchType.Contains
+                                                                        value?.urlMatchType || SurveyMatchType.Contains
                                                                     }
                                                                     onChange={(matchTypeVal) => {
                                                                         onChange({
@@ -649,9 +767,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                         })
                                                                     }}
                                                                     data-attr="survey-url-matching-type"
-                                                                    options={Object.keys(SurveyUrlMatchTypeLabels).map(
+                                                                    options={Object.keys(SurveyMatchTypeLabels).map(
                                                                         (key) => ({
-                                                                            label: SurveyUrlMatchTypeLabels[key],
+                                                                            label: SurveyMatchTypeLabels[key],
                                                                             value: key,
                                                                         })
                                                                     )}
@@ -664,6 +782,83 @@ export default function SurveyEdit(): JSX.Element {
                                                                     placeholder="ex: https://app.posthog.com"
                                                                     fullWidth
                                                                 />
+                                                            </div>
+                                                        </LemonField.Pure>
+                                                        <LemonField.Pure
+                                                            label="Device Types"
+                                                            error={deviceTypesMatchTypeValidationError}
+                                                            info={
+                                                                <>
+                                                                    Add the device types to show the survey on. Possible
+                                                                    values: 'Desktop', 'Mobile', 'Tablet'. For the full
+                                                                    list and caveats,{' '}
+                                                                    <Link to="https://posthog.com/docs/surveys/creating-surveys#display-conditions">
+                                                                        check the documentation here
+                                                                    </Link>
+                                                                    . Requires at least version 1.214 of posthog-js
+                                                                </>
+                                                            }
+                                                        >
+                                                            <div className="flex flex-row gap-2 items-center">
+                                                                Device Types
+                                                                <LemonSelect
+                                                                    value={
+                                                                        value?.deviceTypesMatchType ||
+                                                                        SurveyMatchType.Contains
+                                                                    }
+                                                                    onChange={(matchTypeVal) => {
+                                                                        onChange({
+                                                                            ...value,
+                                                                            deviceTypesMatchType: matchTypeVal,
+                                                                        })
+                                                                    }}
+                                                                    data-attr="survey-device-types-matching-type"
+                                                                    options={Object.keys(SurveyMatchTypeLabels).map(
+                                                                        (key) => ({
+                                                                            label: SurveyMatchTypeLabels[key],
+                                                                            value: key,
+                                                                        })
+                                                                    )}
+                                                                />
+                                                                {[
+                                                                    SurveyMatchType.Regex,
+                                                                    SurveyMatchType.NotRegex,
+                                                                ].includes(
+                                                                    value?.deviceTypesMatchType ||
+                                                                        SurveyMatchType.Contains
+                                                                ) ? (
+                                                                    <LemonInput
+                                                                        value={value?.deviceTypes?.join('|')}
+                                                                        onChange={(deviceTypesVal) =>
+                                                                            onChange({
+                                                                                ...value,
+                                                                                deviceTypes: [deviceTypesVal],
+                                                                            })
+                                                                        }
+                                                                        // regex placeholder for device type
+                                                                        className="flex-1"
+                                                                        placeholder="ex: Desktop|Mobile"
+                                                                    />
+                                                                ) : (
+                                                                    <PropertyValue
+                                                                        propertyKey={getPropertyKey(
+                                                                            'Device Type',
+                                                                            TaxonomicFilterGroupType.EventProperties
+                                                                        )}
+                                                                        type={PropertyFilterType.Event}
+                                                                        onSet={(deviceTypes: string | string[]) => {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                deviceTypes: Array.isArray(deviceTypes)
+                                                                                    ? deviceTypes
+                                                                                    : [deviceTypes],
+                                                                            })
+                                                                        }}
+                                                                        operator={PropertyOperator.Exact}
+                                                                        value={value?.deviceTypes}
+                                                                        inputClassName="flex-1"
+                                                                    />
+                                                                )}
                                                             </div>
                                                         </LemonField.Pure>
                                                         <LemonField.Pure label="CSS selector matches:">
@@ -906,224 +1101,7 @@ export default function SurveyEdit(): JSX.Element {
                         {
                             key: SurveyEditSection.CompletionConditions,
                             header: 'Completion conditions',
-                            content: (
-                                <>
-                                    <div className="mt-2">
-                                        <h3> How long would you like to collect survey responses? </h3>
-                                        <LemonField.Pure>
-                                            <LemonRadio
-                                                value={dataCollectionType}
-                                                onChange={(
-                                                    newValue: 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
-                                                ) => {
-                                                    if (newValue === 'until_limit') {
-                                                        resetSurveyAdaptiveSampling()
-                                                        setSurveyValue('responses_limit', survey.responses_limit || 100)
-                                                    } else if (newValue === 'until_adaptive_limit') {
-                                                        resetSurveyResponseLimits()
-                                                        setSurveyValue(
-                                                            'response_sampling_interval',
-                                                            survey.response_sampling_interval || 1
-                                                        )
-                                                        setSurveyValue(
-                                                            'response_sampling_interval_type',
-                                                            survey.response_sampling_interval_type || 'month'
-                                                        )
-                                                        setSurveyValue(
-                                                            'response_sampling_limit',
-                                                            survey.response_sampling_limit || 100
-                                                        )
-                                                        setSurveyValue(
-                                                            'response_sampling_start_date',
-                                                            survey.response_sampling_start_date || dayjs()
-                                                        )
-                                                    } else {
-                                                        resetSurveyResponseLimits()
-                                                        resetSurveyAdaptiveSampling()
-                                                    }
-                                                    setDataCollectionType(newValue)
-                                                }}
-                                                options={surveyLimitOptions}
-                                            />
-                                        </LemonField.Pure>
-                                    </div>
-                                    {dataCollectionType == 'until_adaptive_limit' && (
-                                        <LemonField.Pure className="mt-4">
-                                            <div className="flex flex-row gap-2 items-center ml-5">
-                                                Starting on{' '}
-                                                <Popover
-                                                    actionable
-                                                    overlay={
-                                                        <LemonCalendarSelect
-                                                            value={dayjs(survey.response_sampling_start_date)}
-                                                            onChange={(value) => {
-                                                                setSurveyValue('response_sampling_start_date', value)
-                                                                setVisible(false)
-                                                            }}
-                                                            showTimeToggle={false}
-                                                            onClose={() => setVisible(false)}
-                                                        />
-                                                    }
-                                                    visible={visible}
-                                                    onClickOutside={() => setVisible(false)}
-                                                >
-                                                    <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
-                                                        {formatDate(dayjs(survey.response_sampling_start_date || ''))}
-                                                    </LemonButton>
-                                                </Popover>
-                                                , capture up to
-                                                <LemonInput
-                                                    type="number"
-                                                    size="small"
-                                                    min={1}
-                                                    onChange={(newValue) => {
-                                                        setSurveyValue('response_sampling_limit', newValue)
-                                                    }}
-                                                    value={survey.response_sampling_limit || 0}
-                                                />
-                                                responses, every
-                                                <LemonInput
-                                                    type="number"
-                                                    size="small"
-                                                    min={1}
-                                                    onChange={(newValue) => {
-                                                        setSurveyValue('response_sampling_interval', newValue)
-                                                    }}
-                                                    value={survey.response_sampling_interval || 0}
-                                                />
-                                                <LemonSelect
-                                                    value={survey.response_sampling_interval_type}
-                                                    size="small"
-                                                    onChange={(newValue) => {
-                                                        setSurveyValue('response_sampling_interval_type', newValue)
-                                                    }}
-                                                    options={[
-                                                        { value: 'day', label: 'Day(s)' },
-                                                        { value: 'week', label: 'Week(s)' },
-                                                        { value: 'month', label: 'Month(s)' },
-                                                    ]}
-                                                />
-                                                <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
-                                                    <IconInfo />
-                                                </Tooltip>
-                                            </div>
-                                        </LemonField.Pure>
-                                    )}
-                                    {dataCollectionType == 'until_limit' && (
-                                        <LemonField name="responses_limit" className="mt-4 ml-5">
-                                            {({ onChange, value }) => {
-                                                return (
-                                                    <div className="flex flex-row gap-2 items-center">
-                                                        Stop the survey once
-                                                        <LemonInput
-                                                            type="number"
-                                                            data-attr="survey-responses-limit-input"
-                                                            size="small"
-                                                            min={1}
-                                                            value={value || NaN}
-                                                            onChange={(newValue) => {
-                                                                if (newValue && newValue > 0) {
-                                                                    onChange(newValue)
-                                                                } else {
-                                                                    onChange(null)
-                                                                }
-                                                            }}
-                                                            className="w-16"
-                                                        />{' '}
-                                                        responses are received.
-                                                        <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
-                                                            <IconInfo />
-                                                        </Tooltip>
-                                                    </div>
-                                                )
-                                            }}
-                                        </LemonField>
-                                    )}
-                                    <div className="mt-4">
-                                        <h3> How often should we show this survey? </h3>
-                                        <LemonField.Pure>
-                                            <LemonRadio
-                                                value={schedule}
-                                                onChange={(newValue) => {
-                                                    setSchedule(newValue as ScheduleType)
-                                                    if (newValue === 'once') {
-                                                        setSurveyValue('iteration_count', 0)
-                                                        setSurveyValue('iteration_frequency_days', 0)
-                                                    } else if (newValue === 'recurring') {
-                                                        setSurveyValue('iteration_count', 1)
-                                                        setSurveyValue('iteration_frequency_days', 90)
-                                                    }
-                                                }}
-                                                options={[
-                                                    {
-                                                        value: 'once',
-                                                        label: 'Once',
-                                                        'data-attr': 'survey-iteration-frequency-days',
-                                                    },
-                                                    {
-                                                        value: 'recurring',
-                                                        label: 'Repeat on a schedule',
-                                                        'data-attr': 'survey-iteration-frequency-days',
-                                                        disabledReason: surveysRecurringScheduleDisabledReason,
-                                                    },
-                                                ]}
-                                            />
-                                        </LemonField.Pure>
-
-                                        {showSurveyRepeatSchedule && (
-                                            <div className="flex flex-row gap-2 items-center mt-2 ml-5">
-                                                Repeat this survey{' '}
-                                                <LemonField name="iteration_count">
-                                                    {({ onChange, value }) => {
-                                                        return (
-                                                            <LemonInput
-                                                                type="number"
-                                                                data-attr="survey-iteration-count"
-                                                                size="small"
-                                                                min={1}
-                                                                // NB this is enforced in the API too
-                                                                max={500}
-                                                                value={value || 1}
-                                                                onChange={(newValue) => {
-                                                                    if (newValue && newValue > 0) {
-                                                                        onChange(newValue)
-                                                                    } else {
-                                                                        onChange(null)
-                                                                    }
-                                                                }}
-                                                                className="w-16"
-                                                            />
-                                                        )
-                                                    }}
-                                                </LemonField>{' '}
-                                                times, once every
-                                                <LemonField name="iteration_frequency_days">
-                                                    {({ onChange, value }) => {
-                                                        return (
-                                                            <LemonInput
-                                                                type="number"
-                                                                data-attr="survey-iteration-frequency-days"
-                                                                size="small"
-                                                                min={1}
-                                                                value={value || 90}
-                                                                onChange={(newValue) => {
-                                                                    if (newValue && newValue > 0) {
-                                                                        onChange(newValue)
-                                                                    } else {
-                                                                        onChange(null)
-                                                                    }
-                                                                }}
-                                                                className="w-16"
-                                                            />
-                                                        )
-                                                    }}
-                                                </LemonField>{' '}
-                                                days
-                                            </div>
-                                        )}
-                                    </div>
-                                </>
-                            ),
+                            content: <SurveyCompletionConditions />,
                         },
                     ]}
                 />

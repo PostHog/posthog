@@ -9,7 +9,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
-import { EventsQuery } from '~/queries/schema'
+import { EventsQuery } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     ActivityTab,
@@ -536,6 +536,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
+    [urls.revenue()]: [Scene.DataManagement, 'revenue'],
     [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],

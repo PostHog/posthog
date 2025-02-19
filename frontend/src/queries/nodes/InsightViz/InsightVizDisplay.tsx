@@ -84,9 +84,12 @@ export function InsightVizDisplay({
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             return (
-                <div className="flex flex-col flex-1 justify-center items-center p-2">
-                    <InsightLoadingState queryId={queryId} key={queryId} insightProps={insightProps} />
-                </div>
+                <InsightLoadingState
+                    queryId={queryId}
+                    key={queryId}
+                    insightProps={insightProps}
+                    renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                />
             )
         }
 
@@ -229,7 +232,7 @@ export function InsightVizDisplay({
             <div
                 className={clsx(
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()} ph-no-capture`,
-                    !embedded && 'border rounded bg-bg-light'
+                    !embedded && 'border rounded bg-surface-primary'
                 )}
                 data-attr="insights-graph"
             >

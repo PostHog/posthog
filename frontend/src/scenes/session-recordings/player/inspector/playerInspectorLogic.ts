@@ -1,4 +1,4 @@
-import { customEvent, EventType, eventWithTime, fullSnapshotEvent, pluginEvent } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent, pluginEvent } from '@posthog/rrweb-types'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -23,7 +23,7 @@ import {
     MatchingEventsMatchType,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
-import { RecordingsQuery } from '~/queries/schema'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
 import {
     FilterableInspectorListItemTypes,
     MatchedRecordingEvent,

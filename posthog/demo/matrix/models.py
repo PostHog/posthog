@@ -1,15 +1,14 @@
-from contextlib import contextmanager
 import datetime as dt
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Callable, Generator, Iterable
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum, auto
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Generic, Literal, Optional, TypeVar
-from collections.abc import Generator
-from collections.abc import Callable, Iterable
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
 import tiktoken
@@ -228,7 +227,7 @@ class SimServerClient(SimClient):
                 {
                     "$ai_input_state": input_state,
                     "$ai_output_state": output_state,
-                    "$ai_trace_name": "SpikeChain",
+                    "$ai_span_name": "SpikeChain",
                     "$ai_trace_id": trace_id,
                 },
                 distinct_id=distinct_id,

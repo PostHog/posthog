@@ -12,6 +12,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { hogFunctionNewUrl, hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -45,6 +46,7 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
     PersonType,
+    PipelineStage,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -63,6 +65,7 @@ const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
+    free: false,
     type: 'destination',
     name: '',
     description: '',
@@ -197,11 +200,12 @@ export function convertToHogFunctionInvocationGlobals(
 }
 
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
+    path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
         return id ?? templateId ?? 'new'
     }),
-    connect({
+    connect(({ id }: HogFunctionConfigurationLogicProps) => ({
         values: [
             projectLogic,
             ['currentProjectId', 'currentProject'],
@@ -210,8 +214,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             userLogic,
             ['hasAvailableFeature'],
         ],
-    }),
-    path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
+        actions: [pipelineNodeLogic({ id: `hog-${id}`, stage: PipelineStage.Destination }), ['setBreadcrumbTitle']],
+    })),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: true,
@@ -507,7 +511,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         showPaygate: [
             (s) => [s.template, s.hasAddon],
             (template, hasAddon) => {
-                return template && template.status !== 'free' && !hasAddon
+                return template && !template.free && !hasAddon
             },
         ],
         useMapping: [
@@ -523,6 +527,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
                 return hogFunction ?? null
             },
+        ],
+
+        templateId: [
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction) => template?.id || hogFunction?.template?.id,
         ],
 
         loading: [
@@ -890,8 +899,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
     listeners(({ actions, values, cache }) => ({
         loadTemplateSuccess: () => actions.resetForm(),
-        loadHogFunctionSuccess: () => actions.resetForm(),
-        upsertHogFunctionSuccess: () => actions.resetForm(),
+        loadHogFunctionSuccess: () => {
+            actions.resetForm()
+            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
+        },
+        upsertHogFunctionSuccess: () => {
+            actions.resetForm()
+            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
+        },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
             const maybeValidationError = errorObject.data
@@ -1024,7 +1039,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (!values.hogFunction) {
                 return
             }
-            const { id, name, type } = values.hogFunction
+            const { id, name, type, template } = values.hogFunction
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -1033,12 +1048,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
                 callback(undo) {
                     if (undo) {
-                        router.actions.replace(hogFunctionUrl(type, id))
+                        router.actions.replace(hogFunctionUrl(type, id, template?.id))
                     }
                 },
             })
 
-            router.actions.replace(hogFunctionUrl(type))
+            router.actions.replace(hogFunctionUrl(type, undefined, template?.id))
         },
 
         persistForUnload: () => {
@@ -1084,11 +1099,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         personsCountQuery: async (personsCountQuery) => {
             if (personsCountQuery) {
                 actions.personsCountQueryChanged(personsCountQuery)
-            }
-        },
-        lastEventQuery: (lastEventQuery) => {
-            if (lastEventQuery) {
-                actions.loadSampleGlobals()
             }
         },
     })),

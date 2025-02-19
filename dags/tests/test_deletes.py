@@ -1,114 +1,132 @@
-import os
-import uuid
+from datetime import datetime, timedelta
+from uuid import UUID
+
 import pytest
-import pandas as pd
-from unittest.mock import patch, MagicMock
-from dagster import build_asset_context
+from clickhouse_driver import Client
 
-from ..deletes import (
-    pending_person_deletions,
-    create_pending_deletes_table,
-    create_pending_deletes_dictionary,
-    DeleteConfig,
-    get_versioned_names,
+from dags.deletes import (
+    deletes_job,
+    PendingPersonEventDeletesTable,
+    PendingDeletesDictionary,
 )
-from posthog.models.async_deletion import AsyncDeletion
+
+from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
-@pytest.fixture
-def mock_async_deletion():
-    return MagicMock(spec=AsyncDeletion)
+@pytest.mark.django_db
+def test_full_job(cluster: ClickhouseCluster):
+    timestamp = (datetime.now() + timedelta(days=31)).replace(
+        microsecond=0
+    )  # we don't freeze time because we are namespaced by time
+    hour_delay = 745  # 31 * 24
+    event_count = 10000
+    delete_count = 1000
 
+    events = [(i, f"distinct_id_{i}", UUID(int=i), timestamp - timedelta(hours=i)) for i in range(event_count)]
 
-@pytest.fixture
-def test_config():
-    return DeleteConfig(team_id=1, file_path="/tmp/test_pending_deletions.parquet", run_id="test_run")
+    def insert_events(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp)
+            VALUES
+            """,
+            events,
+        )
 
+    cluster.any_host(insert_events).result()
 
-@pytest.fixture
-def test_config_no_team():
-    return DeleteConfig(file_path="/tmp/test_pending_deletions.parquet", run_id="test_run")
+    def get_oldest_override_timestamp(client: Client) -> datetime:
+        result = client.execute(f"SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}")
+        if not result or result[0][0] is None:
+            return datetime.max
+        return result[0][0]
 
+    # Insert some person overrides - we need this to establish high watermark for pending deletes
+    def insert_overrides(client: Client) -> None:
+        client.execute(
+            "INSERT INTO person_distinct_id_overrides (distinct_id, person_id, _timestamp, version) VALUES",
+            [(f"{i}", UUID(int=i), timestamp - timedelta(hours=i), 1) for i in range(hour_delay)],
+        )
 
-@pytest.fixture
-def expected_names():
-    return get_versioned_names("test_run")
+    cluster.any_host(insert_overrides).result()
 
+    def get_events_by_person_team(client: Client) -> dict[tuple[int, UUID], int]:
+        result = client.execute("SELECT team_id, person_id, count(1) FROM writable_events GROUP BY team_id, person_id")
+        if not isinstance(result, list):
+            return {}
+        return {(row[0], row[1]): row[2] for row in result}
 
-def test_pending_person_deletions_with_team_id():
-    # Setup test data
-    mock_deletions = [
-        {"team_id": 1, "key": str(uuid.uuid4()), "created_at": "2025-01-15T00:00:00Z"},
-        {"team_id": 1, "key": str(uuid.uuid4()), "created_at": "2025-01-15T00:00:00Z"},
-    ]
+    # Insert some pending deletions
+    def insert_pending_deletes() -> None:
+        deletes = [(events[i][0], DeletionType.Person, events[i][2], None) for i in range(delete_count)]
 
-    with patch("dags.deletes.AsyncDeletion.objects") as mock_objects:
-        mock_filter = MagicMock()
-        mock_filter.values.return_value = mock_deletions
-        mock_objects.filter.return_value = mock_filter
+        # insert the deletes into django
+        for i, delete in enumerate(deletes):
+            d = AsyncDeletion.objects.create(
+                team_id=delete[0],
+                deletion_type=delete[1],
+                key=delete[2],
+                delete_verified_at=delete[3],
+            )
+            d.created_at = events[i][3] + timedelta(hours=1)
+            d.save()
 
-        context = build_asset_context()
-        config = DeleteConfig(team_id=1, file_path="/tmp/test_pending_deletions.parquet", run_id="test_run")
+    insert_pending_deletes()
 
-        result = pending_person_deletions(context, config)
+    def get_pending_deletes() -> list[AsyncDeletion]:
+        return list(AsyncDeletion.objects.filter(delete_verified_at__isnull=True))
 
-        assert result["total_rows"] == "2"
-        assert result["file_path"] == "/tmp/test_pending_deletions.parquet"
+    # Check preconditions
+    initial_events = cluster.any_host(get_events_by_person_team).result()
+    assert len(initial_events) == event_count  # All events present initially
 
-        # Verify the parquet file was created with correct data
-        df = pd.read_parquet("/tmp/test_pending_deletions.parquet")
-        assert len(df) == 2
-        assert list(df.columns) == ["team_id", "key", "created_at"]
+    pending_deletes = get_pending_deletes()
+    assert len(pending_deletes) == delete_count
 
+    # Check overrides is correct
+    oldest_override_timestamp = cluster.any_host(get_oldest_override_timestamp).result()
+    assert oldest_override_timestamp == timestamp - timedelta(hours=hour_delay - 1)
 
-def test_pending_person_deletions_without_team_id(test_config_no_team):
-    # Setup test data
-    mock_deletions = [
-        {"team_id": 1, "key": str(uuid.uuid4()), "created_at": "2025-01-15T00:00:00Z"},
-        {"team_id": 2, "key": str(uuid.uuid4()), "created_at": "2025-01-15T00:00:00Z"},
-    ]
+    # Run the deletion job
+    deletes_job.execute_in_process(
+        run_config={"ops": {"create_pending_person_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
+        resources={"cluster": cluster},
+    )
 
-    with patch("dags.deletes.AsyncDeletion.objects") as mock_objects:
-        mock_filter = MagicMock()
-        mock_filter.values.return_value.iterator.return_value = mock_deletions
-        mock_objects.filter.return_value = mock_filter
+    # Check postconditions
+    final_events = cluster.any_host(get_events_by_person_team).result()
+    assert len(final_events) == event_count - (delete_count - hour_delay)  # Only events for non-deleted persons remain
 
-        context = build_asset_context()
+    # Check that events after the deletion window remain
+    target_uuid = UUID(int=hour_delay - 2)
+    assert any(
+        target_uuid == uuid for _, uuid in final_events.keys()
+    ), f"Expected to find UUID {target_uuid} in remaining events"
 
-        result = pending_person_deletions(context, test_config_no_team)
+    # Check that early events were deleted
+    deleted_uuid = UUID(int=hour_delay + 2)
+    assert not any(
+        deleted_uuid == uuid for _, uuid in final_events.keys()
+    ), f"Expected UUID {deleted_uuid} to be deleted"
 
-        assert result["total_rows"] == "2"
-        assert result["file_path"] == "/tmp/test_pending_deletions.parquet"
+    # Verify that the deletions before oldest override timestamp have been marked verified
+    pre_override_deletions = AsyncDeletion.objects.filter(created_at__lte=oldest_override_timestamp)
+    assert len(pre_override_deletions) == delete_count - hour_delay
+    assert all(deletion.delete_verified_at is not None for deletion in pre_override_deletions)
 
+    # Verify that the deletions after oldest override timestamp have not been marked verified
+    post_override_deletions = AsyncDeletion.objects.filter(created_at__gt=oldest_override_timestamp)
+    assert len(post_override_deletions) == hour_delay
+    assert not all(deletion.delete_verified_at is not None for deletion in post_override_deletions)
 
-@patch("dags.deletes.sync_execute")
-def test_create_pending_deletes_table(mock_sync_execute, test_config, expected_names):
-    result = create_pending_deletes_table(build_asset_context(), test_config)
+    # Verify the temporary tables were cleaned up
+    table = PendingPersonEventDeletesTable(timestamp=timestamp)
+    assert not any(cluster.map_all_hosts(table.exists).result().values())
+    deletes_dict = PendingDeletesDictionary(source=table)
+    assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())
+    report_table = PendingPersonEventDeletesTable(timestamp=timestamp, is_reporting=True)
+    assert all(cluster.map_all_hosts(report_table.exists).result().values())
 
-    assert result["table_name"] == expected_names["table"]
-    mock_sync_execute.assert_called_once()
-    # Verify the SQL contains the expected table creation
-    call_args = mock_sync_execute.call_args[0][0]
-    assert f"CREATE TABLE IF NOT EXISTS {expected_names['table']}" in call_args
-    assert "team_id Int64" in call_args
-    assert "person_id UUID" in call_args
-
-
-@patch("dags.deletes.sync_execute")
-def test_create_pending_deletes_dictionary(mock_sync_execute, test_config, expected_names):
-    result = create_pending_deletes_dictionary(build_asset_context(), test_config)
-
-    assert result["dictionary_name"] == expected_names["dictionary"]
-    mock_sync_execute.assert_called_once()
-    # Verify the SQL contains the expected dictionary creation
-    call_args = mock_sync_execute.call_args[0][0]
-    assert f"CREATE DICTIONARY IF NOT EXISTS {expected_names['dictionary']}" in call_args
-    assert f"TABLE {expected_names['table']}" in call_args
-
-
-def teardown_module(module):
-    # Clean up test files
-    try:
-        os.remove("/tmp/test_pending_deletions.parquet")
-    except FileNotFoundError:
-        pass
+    # clean up the reporting table
+    cluster.map_all_hosts(report_table.drop).result()

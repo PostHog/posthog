@@ -22,11 +22,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [
-            FEATURE_FLAGS.WEB_VITALS,
-            FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS,
-            FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON,
-        ],
+        featureFlags: [FEATURE_FLAGS.WEB_VITALS],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
@@ -83,7 +79,7 @@ export function WebAnalyticsDashboard(): JSX.Element {
 
         // Set the device tab to browsers
         setDeviceTab(DeviceTab.BROWSER)
-    }, [])
+    }, [setDeviceTab, setSourceTab])
 
     return <App />
 }

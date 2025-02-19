@@ -8,7 +8,8 @@ import { urls } from 'scenes/urls'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
@@ -19,11 +20,12 @@ export interface QueryCardProps extends Pick<InsightCardProps, 'highlighted' | '
     query: Node
     title: string
     description?: string
+    context?: QueryContext
 }
 
 /** This is like InsightCard, except for presentation of queries that aren't saved insights. */
 export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(function QueryCard(
-    { query, title, description, highlighted, ribbonColor, className, ...divProps },
+    { query, title, description, context, highlighted, ribbonColor, className, ...divProps },
     ref
 ): JSX.Element {
     const { theme } = useValues(themeLogic)
@@ -57,7 +59,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
                             items={[
                                 {
                                     label: 'Open as new insight',
-                                    to: urls.insightNew(undefined, undefined, query),
+                                    to: urls.insightNew({ query }),
                                 },
                             ]}
                         />
@@ -65,7 +67,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
                     showEditingControls
                 />
                 <div className="InsightCard__viz">
-                    <Query query={query} readOnly embedded />
+                    <Query query={query} readOnly embedded context={context} />
                 </div>
             </ErrorBoundary>
         </div>

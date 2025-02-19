@@ -742,3 +742,197 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn it_handles_not_contains_property_filter() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "not-contains-flag",
+        "name": "Not Contains Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "value": "@posthog.com",
+                            "operator": "not_icontains",
+                            "type": "person"
+                        }
+                    ],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test without any person properties - should match since the property doesn't exist
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "not-contains-flag": true
+            }
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "not-equal-flag",
+            "name": "Not Equal Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "test@posthog.com",
+                                "operator": "is_not",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        },
+        {
+            "id": 2,
+            "key": "not-regex-flag",
+            "name": "Not Regex Flag",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": ".*@posthog\\.com$",
+                                "operator": "not_regex",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Test 1: Without any person properties - should match since properties don't exist
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "not-equal-flag": true,
+                "not-regex-flag": true
+            }
+        })
+    );
+
+    // Test 2: With non-matching properties - should match
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "email": "other@example.com"
+        }
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "not-equal-flag": true,
+                "not-regex-flag": true
+            }
+        })
+    );
+
+    // Test 3: With matching properties - should not match
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": {
+            "email": "test@posthog.com"
+        }
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "not-equal-flag": false,
+                "not-regex-flag": false
+            }
+        })
+    );
+
+    Ok(())
+}
