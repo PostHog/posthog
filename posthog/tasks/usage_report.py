@@ -122,6 +122,8 @@ class UsageReportCounters:
     symbol_sets_count: int
     resolved_symbol_sets_count: int
     exceptions_captured_in_period: int
+    # LLM Observability
+    ai_event_count_in_period: int
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
@@ -648,6 +650,27 @@ def get_teams_with_survey_responses_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_ai_event_count_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, COUNT() as count
+        FROM events
+        WHERE event LIKE '$ai_%%' AND timestamp between %(begin)s AND %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
         ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end, billable=True)
@@ -966,6 +989,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_hog_function_fetch_calls_in_period": get_teams_with_hog_function_fetch_calls_in_period(
             period_start, period_end
         ),
+        "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
     }
 
 
@@ -1056,6 +1080,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         python_events_count_in_period=all_data["teams_with_python_events_count_in_period"].get(team.id, 0),
         php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
         exceptions_captured_in_period=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
+        ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
     )
 
 

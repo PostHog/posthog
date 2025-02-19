@@ -13,6 +13,7 @@ use crate::{
         SAVE_SYMBOL_SET, SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES,
         SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
+    posthog_utils::capture_symbol_set_saved,
 };
 
 use super::{Fetcher, Parser, S3Client};
@@ -109,6 +110,8 @@ impl<F> Saving<F> {
             deleted, record.id
         );
         metrics::counter!(FRAME_RESOLUTION_RESULTS_DELETED).increment(deleted);
+
+        capture_symbol_set_saved(team_id, &record.set_ref, &key, deleted > 0);
 
         start.label("outcome", "success").fin();
         Ok(key)
