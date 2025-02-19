@@ -43,7 +43,7 @@ module.exports = {
         'scss/at-rule-no-unknown': [
             true,
             {
-                ignoreAtRules: ['tailwind'],
+                ignoreAtRules: ['tailwind', 'config'],
             },
         ],
         'scss/operator-no-newline-after': null, // Doesn't always play well with prettier
