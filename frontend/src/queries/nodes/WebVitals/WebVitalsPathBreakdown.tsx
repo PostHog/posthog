@@ -113,8 +113,8 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
     return (
         <div className="flex flex-row justify-between">
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <span className="flex flex-row gap-1 items-center" style={{ color: WEB_VITALS_COLORS[band] }}>
-                <Icon />
+            <span className="flex flex-row gap-1 items-center font-semibold" style={{ color: WEB_VITALS_COLORS[band] }}>
+                <Icon className="w-6 h-6" />
                 {label}
             </span>
             <span className="text-sm text-secondary">{thresholdText}</span>
