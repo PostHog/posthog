@@ -122,7 +122,7 @@ class SQLValueEscaper:
     def visit_datetime(self, value: datetime):
         datetime_string = value.astimezone(ZoneInfo(self._timezone)).strftime("%Y-%m-%d %H:%M:%S.%f")
         if self._dialect == "hogql":
-            return f"toDateTime({self.visit(datetime_string)})"  # no timezone for hogql
+            return f"ch_toDateTime64({self.visit(datetime_string)})"  # no timezone for hogql
         return f"toDateTime64({self.visit(datetime_string)}, 6, {self.visit(self._timezone)})"
 
     def visit_fakedate(self, value: date):

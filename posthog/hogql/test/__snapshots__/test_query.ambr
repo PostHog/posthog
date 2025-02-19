@@ -20,7 +20,7 @@
   
   SELECT issue_id AS id, count(DISTINCT uuid) AS occurrences, count(DISTINCT nullIf($session_id, '')) AS sessions, count(DISTINCT distinct_id) AS users, max(timestamp) AS last_seen, min(timestamp) AS first_seen, reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(24))) AS volumeDay, reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(timestamp), toStartOfDay(now()))), x), range(31))) AS volumeMonth, reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(168))) AS customVolume 
   FROM events 
-  WHERE and(equals(event, '$exception'), isNotNull(issue_id), and(1, greaterOrEquals(timestamp, toDateTime('2025-02-10 23:53:03.175952')))) 
+  WHERE and(equals(event, '$exception'), isNotNull(issue_id), and(1, greaterOrEquals(timestamp, ch_toDateTime64('2025-02-10 23:53:03.175952')))) 
   GROUP BY issue_id ORDER BY occurrences DESC 
   LIMIT 51 OFFSET 0
   '''
