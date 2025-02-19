@@ -81,6 +81,14 @@ export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 const REFRESH_DASHBOARD_ITEM_ACTION = 'refresh_dashboard_item'
+
+/**
+ * Once a dashboard has more tiles than this,
+ * we don't automatically preview dashboard date/filter/breakdown changes.
+ * Users will need to click the 'Apply and preview filters' button.
+ */
+const MAX_TILES_FOR_AUTOPREVIEW = 5
+
 export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType<QueryBasedInsightModel>
@@ -223,6 +231,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             filters,
             variables,
         }),
+        applyTemporary: true,
+        cancelTemporary: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
@@ -789,6 +799,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     selectors(() => ({
+        canAutoPreview: [
+            (s) => [s.dashboard],
+            (dashboard) => (dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW,
+        ],
+        filtersUpdated: [
+            (s) => [s.temporaryFilters, s.dashboard],
+            (temporaryFilters, dashboard) => {
+                const isDateFromUpdated =
+                    !!(temporaryFilters.date_from || dashboard?.filters.date_from) &&
+                    temporaryFilters.date_from !== dashboard?.filters.date_from
+                const isDateToUpdated =
+                    !!(temporaryFilters.date_to || dashboard?.filters.date_to) &&
+                    temporaryFilters.date_to !== dashboard?.filters.date_to
+                const isPropertiesUpdated =
+                    !!(temporaryFilters.properties || dashboard?.filters.properties) &&
+                    JSON.stringify(temporaryFilters.properties) !== JSON.stringify(dashboard?.filters.properties)
+                const isBreakdownUpdated =
+                    !!(temporaryFilters.breakdown_filter || dashboard?.filters.breakdown_filter) &&
+                    temporaryFilters.breakdown_filter !== dashboard?.filters.breakdown_filter
+
+                return isDateFromUpdated || isDateToUpdated || isPropertiesUpdated || isBreakdownUpdated
+            },
+        ],
         dashboardVariables: [
             (s) => [s.dashboard, s.variables, s.temporaryVariables],
             (
@@ -1478,14 +1511,32 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 insights_fetched_cached: 0,
             })
         },
-        setProperties: () => {
+        applyTemporary: () => {
             actions.loadDashboard({ action: 'preview' })
+        },
+        cancelTemporary: () => {
+            // reset to values from dashboard
+            actions.setDates(values.dashboard?.filters.date_from ?? null, values.dashboard?.filters.date_to ?? null)
+            actions.setProperties(values.dashboard?.filters.properties ?? null)
+            actions.setBreakdownFilter(values.dashboard?.filters.breakdown_filter ?? null)
+
+            actions.loadDashboard({ action: 'preview' })
+            actions.setDashboardMode(null, null)
+        },
+        setProperties: () => {
+            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+                actions.loadDashboard({ action: 'preview' })
+            }
         },
         setDates: () => {
-            actions.loadDashboard({ action: 'preview' })
+            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+                actions.loadDashboard({ action: 'preview' })
+            }
         },
         setBreakdownFilter: () => {
-            actions.loadDashboard({ action: 'preview' })
+            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+                actions.loadDashboard({ action: 'preview' })
+            }
         },
         overrideVariableValue: ({ editMode }) => {
             if (editMode) {
