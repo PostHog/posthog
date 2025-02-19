@@ -367,6 +367,19 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
     return build_pyarrow_decimal_type(max_precision, max_scale)
 
 
+def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
+    for decimal_type in [
+        pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
+        pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE),
+    ]:
+        try:
+            return pa.array(values, type=decimal_type)
+        except:
+            pass
+
+    raise ValueError("Cant build a decimal type from defaults")
+
+
 def _python_type_to_pyarrow_type(type_: type, value: Any):
     python_to_pa = {
         int: pa.int64(),
@@ -489,10 +502,15 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
             new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
 
-            number_arr = pa.array(
-                all_values_as_decimals_or_none,
-                type=new_field_type,
-            )
+            try:
+                number_arr = pa.array(
+                    all_values_as_decimals_or_none,
+                    type=new_field_type,
+                )
+            except pa.ArrowInvalid as e:
+                if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
+                    number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+
             columnar_table_data[field_name] = number_arr
             py_type = decimal.Decimal
             unique_types_in_column = {decimal.Decimal}
