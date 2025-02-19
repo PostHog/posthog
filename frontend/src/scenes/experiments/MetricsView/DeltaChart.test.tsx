@@ -1,3 +1,11 @@
+import {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentMetricType,
+    ExperimentTrendsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+
 import { generateViolinPath } from './DeltaChart'
 
 /**
@@ -150,98 +158,67 @@ describe('generateViolinPath', () => {
         expect(path).toContain('Z')
     })
 })
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 
-import { getDefaultMetricTitle } from './DeltaChart'
+import { getDefaultMetricTitle, getMetricTag } from './DeltaChart'
 
 describe('getDefaultMetricTitle', () => {
-    it('handles ExperimentEventMetricConfig correctly', () => {
+    it('handles ExperimentEventMetricConfig with math and math_property', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.COUNT,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
-                math: 'total',
-                math_property: undefined,
                 event: 'purchase completed',
             },
         }
-
-        expect(getDefaultMetricTitle(metric)).toBe('Total purchase completed')
+        expect(getDefaultMetricTitle(metric)).toBe('purchase completed')
     })
 
-    it('handles ExperimentEventMetricConfig without math_property', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.COUNT,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                math: 'total',
-                event: 'signup',
-            },
-        }
-
-        expect(getDefaultMetricTitle(metric)).toBe('Total signup')
-    })
-
-    it('handles ExperimentActionMetricConfig with name', () => {
+    it('returns action name for ExperimentActionMetricConfig', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.COUNT,
             metric_config: {
                 kind: NodeKind.ExperimentActionMetricConfig,
-                math: 'avg',
-                math_property: 'value',
-                name: 'Completed Purchase',
-                action: 123,
+                action: 1,
+                name: 'purchase',
             },
         }
 
-        expect(getDefaultMetricTitle(metric)).toBe('Avg value completed purchase')
+        expect(getDefaultMetricTitle(metric)).toBe('purchase')
     })
+})
 
-    it('handles ExperimentActionMetricConfig without name', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.COUNT,
-            metric_config: {
-                kind: NodeKind.ExperimentActionMetricConfig,
-                math: 'avg',
-                math_property: 'value',
-                action: 123,
-            },
-        }
-
-        expect(getDefaultMetricTitle(metric)).toBe('Avg value action 123')
-    })
-
-    it('handles snake_case conversion correctly', () => {
-        const metric: ExperimentMetric = {
+describe('getMetricTag', () => {
+    it('handles different metric types correctly', () => {
+        const experimentMetric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.COUNT,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 math: 'total',
-                math_property: 'user_revenue',
-                event: 'completed_purchase',
+                event: 'purchase',
             },
         }
 
-        expect(getDefaultMetricTitle(metric)).toBe('Total user revenue completed purchase')
-    })
-
-    it('handles camelCase conversion correctly', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.COUNT,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                math: 'total',
-                math_property: 'userRevenue',
-                event: 'completedPurchase',
+        const funnelMetric: ExperimentFunnelsQuery = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
             },
         }
 
-        expect(getDefaultMetricTitle(metric)).toBe('Total user revenue completed purchase')
+        const trendMetric: ExperimentTrendsQuery = {
+            kind: NodeKind.ExperimentTrendsQuery,
+            count_query: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+            },
+        }
+
+        expect(getMetricTag(experimentMetric)).toBe('Count')
+        expect(getMetricTag(funnelMetric)).toBe('Funnel')
+        expect(getMetricTag(trendMetric)).toBe('Trend')
     })
 })

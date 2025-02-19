@@ -17,7 +17,12 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -25,6 +30,15 @@ import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/compo
 import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
+
+export function getMetricTag(metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string {
+    if (metric.kind === NodeKind.ExperimentMetric) {
+        return metric.metric_type.charAt(0).toUpperCase() + metric.metric_type.slice(1).toLowerCase()
+    } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
+        return 'Funnel'
+    }
+    return 'Trend'
+}
 
 export function getDefaultMetricTitle(metric: ExperimentMetric): string {
     if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
@@ -317,12 +331,7 @@ export function DeltaChart({
                             </div>
                             <div className="space-x-1">
                                 <LemonTag type="muted" size="small">
-                                    {(metric.kind === NodeKind.ExperimentMetric
-                                        ? metric.metric_config.math
-                                        : metric.kind === NodeKind.ExperimentFunnelsQuery
-                                        ? 'Funnel'
-                                        : 'Total'
-                                    ).toUpperCase()}
+                                    {getMetricTag(metric)}
                                 </LemonTag>
                                 {metric.isSharedMetric && (
                                     <LemonTag type="option" size="small">
