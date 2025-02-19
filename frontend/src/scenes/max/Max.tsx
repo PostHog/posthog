@@ -12,6 +12,7 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SidePanelTab } from '~/types'
 
 import { Intro } from './Intro'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { QuestionInput } from './QuestionInput'
 import { QuestionSuggestions } from './QuestionSuggestions'
@@ -19,6 +20,7 @@ import { Thread } from './Thread'
 
 export const scene: SceneExport = {
     component: Max,
+    logic: maxGlobalLogic,
 }
 
 export function Max(): JSX.Element {
