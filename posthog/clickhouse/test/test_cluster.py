@@ -29,10 +29,18 @@ def test_mutation_runner_rejects_invalid_parameters() -> None:
 
 
 def test_exception_summary(cluster: ClickhouseCluster) -> None:
-    with pytest.raises(ExceptionGroup) as e:
+    with pytest.raises(ExceptionGroup):
         cluster.map_all_hosts(Query("invalid query")).result()
 
-    raise e.value  # todo
+    with pytest.raises(ExceptionGroup):
+        cluster.map_all_hosts(Query('SELECT throwIf(true, "Error")')).result()
+
+    with pytest.raises(ExceptionGroup):
+
+        def explode(_):
+            raise ValueError(1)
+
+        cluster.map_all_hosts(explode).result()
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:

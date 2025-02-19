@@ -35,10 +35,22 @@ K = TypeVar("K")
 V = TypeVar("V")
 
 
-def format_exception_summary(e: Exception) -> str:
+def format_exception_summary(e: Exception, max_length: int = 256) -> str:
     if isinstance(e, ServerException):
-        raise NotImplementedError  # todo
-    return str(e)
+        try:
+            if match := re.match(r"^DB::Exception:\s*(.*)\s*Stack trace:", e.message, re.MULTILINE):
+                value = match.group(1)
+        except Exception:
+            value = str(e)
+    else:
+        value = str(e)
+
+    value = value.splitlines()[0]
+
+    if len(value) > max_length:
+        value = value[:max_length] + "..."
+
+    return value
 
 
 class FuturesMap(dict[K, Future[V]]):
@@ -71,8 +83,8 @@ class FuturesMap(dict[K, Future[V]]):
         if errors:
             # TODO: messaging could be improved here
             raise ExceptionGroup(
-                "not all futures returned a result\n\n"
-                + "\n".join([f"- {key}: {format_exception_summary(e)}" for key, e in errors.items()]),
+                f"{len(errors)} future(s) did not return a result:\n\n"
+                + "\n".join([f"* {key}: {format_exception_summary(e)}" for key, e in errors.items()]),
                 [*errors.values()],
             )
 
