@@ -2,3 +2,7 @@
     border-block-end: 1px solid var(--border);
     border-inline-end: 1px solid var(--border);
 }
+
+.rdg-row:hover {
+    cursor: pointer;
+}
