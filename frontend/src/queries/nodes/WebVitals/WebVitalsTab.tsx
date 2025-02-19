@@ -28,14 +28,17 @@ export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabPr
             data-active={isActive ? 'true' : 'false'}
         >
             <div className="text-sm hidden sm:flex w-full flex-row justify-between">
-                <span>{label}</span>
+                <span>
+                    {label} ({metric})
+                </span>
                 <Tooltip title={METRIC_DESCRIPTION[metric]}>
                     <IconInfo />
                 </Tooltip>
             </div>
-            <span className="text-sm block sm:hidden">
-                <Tooltip title={label}>{metric}</Tooltip>
-            </span>
+            <div className="flex flex-col items-center sm:hidden">
+                <span className="text-sm font-bold">{metric}</span>
+                <span className="text-xs">{label}</span>
+            </div>
 
             <div className="flex flex-row items-end">
                 <span
