@@ -18,7 +18,7 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
-import { EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
+import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
@@ -99,7 +99,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     showSeriesIndicator={true}
                                     entitiesLimit={1}
                                     showNumericalPropsOnly={true}
-                                    allowedMathTypes={EXPERIMENT_ALLOWED_MATH_TYPES}
+                                    allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                     {...commonActionFilterProps}
                                 />
                                 <div className="mt-4 space-y-4">
