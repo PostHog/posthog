@@ -809,13 +809,13 @@ class FeatureFlagViewSet(
             from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
             limited_tokens_flags = list_limited_team_attributes(
-                QuotaResource.FEATURE_FLAGS_EVALUATED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
             )
             if self.team.api_token in limited_tokens_flags:
                 return Response(
                     {
                         "type": "quota_limited",
-                        "detail": "You have exceeded your feature flag quota",
+                        "detail": "You have exceeded your feature flag request quota",
                         "code": "payment_required",
                     },
                     status=status.HTTP_402_PAYMENT_REQUIRED,

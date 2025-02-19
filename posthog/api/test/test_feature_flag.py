@@ -3426,7 +3426,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ) as mock_quota_limited:
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
             mock_quota_limited.assert_called_once_with(
-                QuotaResource.FEATURE_FLAGS_EVALUATED,
+                QuotaResource.FEATURE_FLAG_REQUESTS,
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
 
@@ -3438,7 +3438,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 response_data,
                 {
                     "type": "quota_limited",
-                    "detail": "You have exceeded your feature flag quota",
+                    "detail": "You have exceeded your feature flag request quota",
                     "code": "payment_required",
                 },
             )
@@ -3466,7 +3466,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ) as mock_quota_limited:
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
             mock_quota_limited.assert_called_once_with(
-                QuotaResource.FEATURE_FLAGS_EVALUATED,
+                QuotaResource.FEATURE_FLAG_REQUESTS,
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
 

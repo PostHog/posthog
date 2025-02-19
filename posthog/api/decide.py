@@ -334,7 +334,7 @@ def get_feature_flags_response(
         from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
         limited_tokens_flags = list_limited_team_attributes(
-            QuotaResource.FEATURE_FLAGS_EVALUATED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
         if token in limited_tokens_flags:
             return {
