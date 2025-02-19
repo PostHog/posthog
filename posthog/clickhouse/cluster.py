@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import logging
 import re
 import time
@@ -13,7 +14,7 @@ from concurrent.futures import (
     as_completed,
 )
 from copy import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Generic, Literal, NamedTuple, TypeVar
 from collections.abc import Iterable
 
@@ -98,7 +99,7 @@ class Host:
 class Task(Generic[T]):
     fn: Callable[[Client], T]
     host: Host
-    logger: logging.Logger = field(default=logging.getLogger(__name__), repr=False)
+    logger: logging.Logger
 
     def __call__(self) -> T:
         self.logger.info("Executing %r...", self)
@@ -115,25 +116,26 @@ class Task(Generic[T]):
 
 @dataclass(frozen=True)
 class HostSet:
-    executor: ThreadPoolExecutor
     hosts: Set[Host]
+    executor: ThreadPoolExecutor = field(repr=False)
+    logger: logging.getLogger
 
     def any(self, fn: Callable[[Client], T]) -> Future[T]:  # todo: find a way to augment with HostInfo?
         host = next(iter(self.hosts))
-        return self.executor.submit(Task(fn, host))
+        return self.executor.submit(Task(fn, host, self.logger))
 
     def all(self, fn: Callable[[Client], T]) -> set[Future[T]]:  # todo: helper type to allow waiting on all at once
-        return {self.executor.submit(Task(fn, host)) for host in self.hosts}
+        return {self.executor.submit(Task(fn, host, self.logger)) for host in self.hosts}
 
     def filter(self, fn: Callable[[HostInfo], bool]) -> HostSet:
         # todo: handle node role filtering for convenience
-        return HostSet(self.executor, {host for host in self.hosts if fn(host)})
+        return replace(self, hosts={host for host in self.hosts if fn(host)})
 
     def group(self, fn: Callable[[HostInfo], K]) -> GroupedHostSet[K]:
         groups = defaultdict(set)
         for host in self.hosts:
             groups[fn(host)].append(host)
-        return GroupedHostSet({key: HostSet(self.executor, hosts) for key, hosts in groups.items()})
+        return GroupedHostSet({key: replace(self, hosts=hosts) for key, hosts in groups.items()})
 
     @property
     def shards(self) -> GroupedHostSet[int]:
@@ -167,54 +169,61 @@ class ClickhouseCluster:
         if logger is None:
             logger = logging.getLogger(__name__)
 
-        self.hosts = HostSet(
-            ThreadPoolExecutor(),
-            {Host(info, info.connection_info.make_pool(client_settings)) for info in host_infos},
-        )
+        self.__hosts = {Host(info, info.connection_info.make_pool(client_settings)) for info in host_infos}
+        self.__logger = logger
+
+    @contextmanager
+    def __get_host_set(self, concurrency: int | None = None) -> Iterator[HostSet]:
+        with ThreadPoolExecutor(concurrency) as executor:
+            yield HostSet(self.__hosts, executor, self.__logger)
 
     def any_host_by_role(self, fn: Callable[[Client], T], node_role: NodeRole) -> Future[T]:
         """
         Execute the callable once for any host with the given node role.
         """
-        return self.hosts.filter(lambda host: host.host_cluster_role == node_role).any(fn)
+        with self.__get_host_set() as hosts:
+            return hosts.filter(lambda host: host.host_cluster_role == node_role).any(fn)
 
-    def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
+    def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> set[Future[T]]:
         """
         Execute the callable once for each host in the cluster.
 
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        return self.hosts.all(fn)
+        with self.__get_host_set(concurrency) as hosts:
+            return hosts.all(fn)
 
     def map_hosts_by_role(
         self,
         fn: Callable[[Client], T],
         node_role: NodeRole,
         concurrency: int | None = None,
-    ) -> FuturesMap[HostInfo, T]:
+    ) -> set[Future[T]]:
         """
         Execute the callable once for each host in the cluster with the given node role.
 
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        return self.hosts.filter(lambda host: host.host_cluster_role == node_role).all(fn)
+        with self.__get_host_set(concurrency) as hosts:
+            return hosts.filter(lambda host: host.host_cluster_role == node_role).all(fn)
 
     def map_all_hosts_in_shard(
         self, shard_num: int, fn: Callable[[Client], T], concurrency: int | None = None
-    ) -> FuturesMap[HostInfo, T]:
+    ) -> set[Future[T]]:
         """
         Execute the callable once for each host in the specified shard.
 
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        return self.hosts.filter(lambda host: host.shard_num == shard_num).all(fn)
+        with self.__get_host_set(concurrency) as hosts:
+            return hosts.filter(lambda host: host.shard_num == shard_num).all(fn)
 
     def map_all_hosts_in_shards(
         self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
-    ) -> FuturesMap[HostInfo, T]:
+    ) -> Mapping[int, set[Future[T]]]:
         """
         Execute the callable once for each host in the specified shards.
 
@@ -223,29 +232,32 @@ class ClickhouseCluster:
 
         Wait for all to return before returning upon ``.values()``
         """
-        return self.hosts.shards.join_all(shard_fns)
+        with self.__get_host_set(concurrency) as hosts:
+            return hosts.shards.join_all(shard_fns)
 
     def map_any_host_in_shards(
         self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
-    ) -> FuturesMap[HostInfo, T]:
+    ) -> Mapping[int, Future[T]]:
         """
         Execute the callable on one host for each of the specified shards.
 
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        return self.hosts.shards.join_any(shard_fns)
+        with self.__get_host_set(concurrency) as hosts:
+            return hosts.shards.join_any(shard_fns)
 
     def map_one_host_per_shard(
         self, fn: Callable[[Client], T], concurrency: int | None = None
-    ) -> FuturesMap[HostInfo, T]:
+    ) -> Mapping[int, Future[T]]:
         """
         Execute the callable once for each shard in the cluster.
 
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        return self.hosts.shards.any(fn)
+        with self.__get_host_set(concurrency) as hosts:
+            return hosts.shards.any(fn)
 
 
 def get_cluster(
