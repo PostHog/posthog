@@ -2,7 +2,13 @@ import { connect, kea, path, props, selectors } from 'kea'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, LLMTrace, LLMTraceEvent, TracesQueryResponse } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DataTableNode,
+    LLMTrace,
+    LLMTraceEvent,
+    TracesQueryResponse,
+} from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import type { llmObservabilityTraceDataLogicType } from './llmObservabilityTraceDataLogicType'

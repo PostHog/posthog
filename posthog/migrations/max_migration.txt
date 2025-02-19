@@ -1,1 +1,1 @@
-0666_datawarehousesavedquery_sync_frequency
+0671_alter_errortrackingissuefingerprintv2_issue

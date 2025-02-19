@@ -1,6 +1,14 @@
 import './EmptyStates.scss'
 
-import { IconArchive, IconPieChart, IconPlus, IconPlusSmall, IconPlusSquare, IconWarning } from '@posthog/icons'
+import {
+    IconArchive,
+    IconInfo,
+    IconPieChart,
+    IconPlus,
+    IconPlusSmall,
+    IconPlusSquare,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -24,12 +32,13 @@ import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema'
+import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema/schema-general'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
+import { insightVizDataLogic } from '../insightVizDataLogic'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -41,7 +50,7 @@ export function InsightEmptyState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col flex-1 rounded p-4 m-2 w-full items-center justify-center"
+            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
         >
             <IconArchive className="text-5xl mb-2 text-tertiary" />
             <h2 className="text-xl leading-tight">{heading}</h2>
@@ -53,6 +62,7 @@ export function InsightEmptyState({
 function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
     const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
+
     return (
         <Tooltip
             title={`Calculate results from ${suggestedSamplingPercentage}% of the total dataset for this insight, speeding up the calculation of results.`}
@@ -73,19 +83,13 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
     )
 }
 
-function QueryIdDisplay({
-    queryId,
-    compact = false,
-}: {
-    queryId?: string | null
-    compact?: boolean
-}): JSX.Element | null {
+function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element | null {
     if (queryId == null) {
         return null
     }
 
     return (
-        <div className={clsx('text-muted text-xs', { 'mt-20': !compact })}>
+        <div className="text-muted text-xs">
             Query ID: <span className="font-mono">{queryId}</span>
         </div>
     )
@@ -124,12 +128,12 @@ export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
     suggestion,
-    compact = false,
+    renderEmptyStateAsSkeleton = false,
 }: {
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
     suggestion?: JSX.Element
-    compact?: boolean
+    renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
@@ -200,27 +204,49 @@ export function StatelessInsightLoadingState({
         (pollResponse?.status?.query_progress?.time_elapsed || 1) /
         10000
 
+    const suggestions = suggestion ? (
+        suggestion
+    ) : (
+        <div className="flex gap-3">
+            <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
+        </div>
+    )
+
     return (
-        <div data-attr="insight-empty-state" className="insights-loading-state rounded p-4 m-2 h-full">
+        <div
+            data-attr="insight-empty-state"
+            className={clsx('flex flex-col gap-1 rounded p-4 w-full h-full', {
+                'justify-center items-center': !renderEmptyStateAsSkeleton,
+                'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
+            })}
+        >
+            <span
+                className={clsx(
+                    'font-semibold transition-opacity duration-300 mb-1',
+                    isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
+                )}
+            >
+                {LOADING_MESSAGES[loadingMessageIndex]}
+            </span>
+
+            {/* On skeleton mode render the suggestions *above* the loading bar, otherwise render them below with a box around it */}
             <div className="flex flex-col gap-1">
-                <span
-                    className={clsx(
-                        'font-bold transition-opacity duration-300',
-                        isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
-                    )}
-                >
-                    {LOADING_MESSAGES[loadingMessageIndex]}
-                </span>
-                {suggestion ? (
-                    suggestion
+                {renderEmptyStateAsSkeleton ? (
+                    <>
+                        {suggestions}
+                        <LoadingBar />
+                    </>
                 ) : (
-                    <div className="flex gap-3">
-                        <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
-                    </div>
+                    <>
+                        <LoadingBar />
+                        <div className="flex items-center p-4 rounded bg-primary gap-x-3 max-w-120">
+                            <IconInfo className="text-xl shrink-0" />
+                            {suggestions}
+                        </div>
+                    </>
                 )}
             </div>
 
-            <LoadingBar />
             <p className="mx-auto text-center text-xs">
                 {rowsRead > 0 && bytesRead > 0 && (
                     <>
@@ -240,7 +266,76 @@ export function StatelessInsightLoadingState({
                 )}
             </p>
 
-            <QueryIdDisplay queryId={queryId} compact={compact} />
+            <div className="mt-auto">
+                <QueryIdDisplay queryId={queryId} />
+            </div>
+        </div>
+    )
+}
+
+const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
+    <code className="border border-1 border-border-bold rounded-sm text-xs px-1 py-0.5">{props.children}</code>
+)
+
+const SLOW_LOADING_TIME = 7
+const EVEN_SLOWER_LOADING_TIME = 12
+
+export function SlowQuerySuggestions({
+    insightProps,
+    suggestedSamplingPercentage,
+    samplingPercentage,
+    loadingTimeSeconds = 0,
+}: {
+    insightProps: InsightLogicProps
+    suggestedSamplingPercentage?: number | null
+    samplingPercentage?: number | null
+    loadingTimeSeconds?: number
+}): JSX.Element | null {
+    const { slowQueryPossibilities } = useValues(insightVizDataLogic(insightProps))
+
+    if (loadingTimeSeconds < SLOW_LOADING_TIME) {
+        return null
+    }
+
+    const steps = [
+        slowQueryPossibilities.includes('all_events') ? (
+            <li key="all_events">
+                Don't use the <CodeWrapper>All events</CodeWrapper> event type. Use a specific event instead.
+            </li>
+        ) : null,
+        slowQueryPossibilities.includes('first_time_for_user') ? (
+            <li key="first_time_for_user">
+                When possible, avoid <CodeWrapper>First time for user</CodeWrapper> metric types.
+            </li>
+        ) : null,
+        slowQueryPossibilities.includes('strict_funnel') ? (
+            <li key="strict_funnel">
+                When possible, use <CodeWrapper>Sequential</CodeWrapper> step order rather than{' '}
+                <CodeWrapper>Strict</CodeWrapper>.
+            </li>
+        ) : null,
+        <li key="reduce_date_range">Reduce the date range.</li>,
+        loadingTimeSeconds >= EVEN_SLOWER_LOADING_TIME && suggestedSamplingPercentage ? (
+            <li key="sampling">
+                {samplingPercentage ? (
+                    <>
+                        Reduce volume further with <SamplingLink insightProps={insightProps} />.
+                    </>
+                ) : (
+                    <>
+                        Turn on <SamplingLink insightProps={insightProps} />.
+                    </>
+                )}
+            </li>
+        ) : null,
+    ].filter((x) => x !== null)
+
+    return (
+        <div className="text-xs">
+            <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">
+                Need to speed things up? {steps.length > 0 ? <span>Some steps to optimize this query:</span> : null}
+            </p>
+            <ul className="mb-4 list-disc list-inside ml-2">{steps}</ul>
         </div>
     )
 }
@@ -248,12 +343,14 @@ export function StatelessInsightLoadingState({
 export function InsightLoadingState({
     queryId,
     insightProps,
+    renderEmptyStateAsSkeleton = false,
 }: {
     queryId?: string | null
     insightProps: InsightLogicProps
+    renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse } = useValues(insightDataLogic(insightProps))
+    const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
 
     const personsOnEventsMode =
@@ -263,6 +360,7 @@ export function InsightLoadingState({
         <StatelessInsightLoadingState
             queryId={queryId}
             pollResponse={insightPollResponse}
+            renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
             suggestion={
                 <div className="flex items-center rounded gap-x-3 max-w-120">
                     {personsOnEventsMode === 'person_id_override_properties_joined' ? (
@@ -273,24 +371,12 @@ export function InsightLoadingState({
                             </p>
                         </>
                     ) : (
-                        <>
-                            <p className="text-xs m-0">
-                                {suggestedSamplingPercentage && !samplingPercentage ? (
-                                    <span data-attr="insight-loading-waiting-message">
-                                        Need to speed things up? Try reducing the date range, removing breakdowns, or
-                                        turning on <SamplingLink insightProps={insightProps} />.
-                                    </span>
-                                ) : suggestedSamplingPercentage && samplingPercentage ? (
-                                    <>
-                                        Still waiting around? You must have lots of data! Kick it up a notch with{' '}
-                                        <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
-                                        removing breakdowns.
-                                    </>
-                                ) : (
-                                    <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
-                                )}
-                            </p>
-                        </>
+                        <SlowQuerySuggestions
+                            insightProps={insightProps}
+                            suggestedSamplingPercentage={suggestedSamplingPercentage}
+                            samplingPercentage={samplingPercentage}
+                            loadingTimeSeconds={insightLoadingTimeSeconds}
+                        />
                     )}
                 </div>
             }
@@ -302,7 +388,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <div data-attr="insight-empty-state" className="rounded p-4 m-2 h-full w-full">
+        <div data-attr="insight-empty-state" className="rounded p-4 h-full w-full">
             <h2 className="text-xl leading-tight mb-6">
                 <IconWarning className="text-xl shrink-0 mr-2" />
                 Your query took too long to complete
@@ -336,7 +422,7 @@ export function InsightValidationError({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center justify-center gap-2 rounded p-4 m-2 h-full w-full"
+            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full"
         >
             <IconWarning className="text-4xl shrink-0 text-muted" />
 
@@ -389,7 +475,7 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center gap-2 justify-center rounded p-4 m-2 h-full w-full"
+            className="flex flex-col items-center gap-2 justify-center rounded p-4 h-full w-full"
         >
             <IconErrorOutline className="text-5xl shrink-0" />
 
@@ -449,7 +535,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
-        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center m-2">
+        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center">
             <div className="text-5xl text-muted mb-2">
                 <IconPlusSquare />
             </div>

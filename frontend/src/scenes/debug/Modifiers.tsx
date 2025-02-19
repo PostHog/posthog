@@ -1,7 +1,7 @@
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
-import { HogQLQueryModifiers } from '~/queries/schema'
+import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
 
 export interface ModifiersProps<Q extends { response?: Record<string, any>; modifiers?: HogQLQueryModifiers }> {
     setQuery: (query: Q) => void

@@ -1,10 +1,13 @@
 import './SurveyView.scss'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -16,6 +19,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { SurveyAnswerFilters } from 'scenes/surveys/SurveyAnswerFilters'
+import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -42,13 +47,16 @@ function SurveyResultsFilters(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            <h4 className="text-base font-semibold mb-2">Filter results</h4>
-            <PropertyFilters
-                propertyFilters={propertyFilters}
-                onChange={setPropertyFilters}
-                pageKey="survey-results"
-                buttonText="Add filter to survey results"
-            />
+            <h3 className="text-base">Filter survey results</h3>
+            <SurveyAnswerFilters />
+            <div className="w-fit">
+                <PropertyFilters
+                    propertyFilters={propertyFilters}
+                    onChange={setPropertyFilters}
+                    pageKey="survey-results"
+                    buttonText="More filters"
+                />
+            </div>
         </div>
     )
 }
@@ -433,6 +441,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                           <div>
                                               <p>Get notified whenever a survey result is submitted</p>
                                               <LinkedHogFunctions
+                                                  logicKey="survey"
                                                   type="destination"
                                                   subTemplateId="survey-response"
                                                   filters={{
@@ -489,26 +498,32 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResultsReady,
         surveyNPSScore,
         surveyAsInsightURL,
+        isAnyResultsLoading,
     } = useValues(surveyLogic)
 
     return (
         <div className="space-y-4">
             <SurveyResultsFilters />
+            {isAnyResultsLoading && (
+                <div className="flex gap-1">
+                    <span className="text-sm text-secondary">Loading results...</span>
+                    <Spinner />
+                </div>
+            )}
             <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
-                        <>
+                        <div key={`survey-q-${i}`} className="space-y-2">
                             {question.scale === 10 && (
-                                <div>
-                                    <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                    <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
-                                    <SurveyNPSResults survey={survey as Survey} />
-                                </div>
+                                <SurveyNPSResults
+                                    survey={survey as Survey}
+                                    surveyNPSScore={surveyNPSScore}
+                                    questionIndex={i}
+                                />
                             )}
 
                             <RatingQuestionBarChart
-                                key={`survey-q-${i}`}
                                 surveyRatingResults={surveyRatingResults}
                                 surveyRatingResultsReady={surveyRatingResultsReady}
                                 questionIndex={i}
@@ -529,7 +544,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                         questionIndex={i}
                                     />
                                 )}
-                        </>
+                        </div>
                     )
                 } else if (question.type === SurveyQuestionType.SingleChoice) {
                     return (
@@ -575,83 +590,123 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     )
 }
 
-function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
+function SurveyNPSResults({
+    survey,
+    surveyNPSScore,
+    questionIndex,
+}: {
+    survey: Survey
+    surveyNPSScore?: string
+    questionIndex: number
+}): JSX.Element {
+    const { dateRange, interval, compareFilter, defaultInterval } = useValues(surveyLogic)
+    const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
+
     return (
-        <>
-            <Query
-                query={{
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        dateRange: {
-                            date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
-                            date_to: survey.end_date
-                                ? dayjs(survey.end_date).format('YYYY-MM-DD')
-                                : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+        <div>
+            <div className="text-4xl font-bold">{surveyNPSScore}</div>
+            <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
+            <div className="space-y-2 bg-surface-primary p-2 rounded">
+                <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-lg font-semibold">NPS Trend</h4>
+                    <div className="flex items-center gap-2">
+                        <DateFilter
+                            dateFrom={dateRange?.date_from ?? undefined}
+                            dateTo={dateRange?.date_to ?? undefined}
+                            onChange={(fromDate, toDate) =>
+                                setDateRange({
+                                    date_from: fromDate,
+                                    date_to: toDate,
+                                })
+                            }
+                        />
+                        <span>grouped by</span>
+                        <IntervalFilterStandalone
+                            interval={interval ?? defaultInterval}
+                            onIntervalChange={setInterval}
+                            options={[
+                                { value: 'hour', label: 'Hour' },
+                                { value: 'day', label: 'Day' },
+                                { value: 'week', label: 'Week' },
+                                { value: 'month', label: 'Month' },
+                            ]}
+                        />
+                        <CompareFilter
+                            compareFilter={compareFilter}
+                            updateCompareFilter={(compareFilter) => setCompareFilter(compareFilter)}
+                        />
+                    </div>
+                </div>
+                <Query
+                    query={{
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            interval: interval ?? defaultInterval,
+                            compareFilter: compareFilter,
+                            dateRange: dateRange ?? {
+                                date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
+                                date_to: survey.end_date
+                                    ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                                    : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+                            },
+                            series: [
+                                {
+                                    event: SURVEY_EVENT_NAME,
+                                    kind: NodeKind.EventsNode,
+                                    custom_name: 'Promoters',
+                                    properties: [
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: getSurveyResponseKey(questionIndex),
+                                            operator: PropertyOperator.Exact,
+                                            value: ['9', '10'],
+                                        },
+                                    ],
+                                },
+                                {
+                                    event: SURVEY_EVENT_NAME,
+                                    kind: NodeKind.EventsNode,
+                                    custom_name: 'Passives',
+                                    properties: [
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: getSurveyResponseKey(questionIndex),
+                                            operator: PropertyOperator.Exact,
+                                            value: ['7', '8'],
+                                        },
+                                    ],
+                                },
+                                {
+                                    event: SURVEY_EVENT_NAME,
+                                    kind: NodeKind.EventsNode,
+                                    custom_name: 'Detractors',
+                                    properties: [
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: getSurveyResponseKey(questionIndex),
+                                            operator: PropertyOperator.Exact,
+                                            value: ['0', '1', '2', '3', '4', '5', '6'],
+                                        },
+                                    ],
+                                },
+                            ],
+                            properties: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$survey_id',
+                                    operator: PropertyOperator.Exact,
+                                    value: survey.id,
+                                },
+                            ],
+                            trendsFilter: {
+                                formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
+                                display: 'ActionsBar',
+                            },
                         },
-                        series: [
-                            {
-                                event: SURVEY_EVENT_NAME,
-                                kind: NodeKind.EventsNode,
-                                custom_name: 'Promoters',
-                                properties: [
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_response',
-                                        operator: PropertyOperator.Exact,
-                                        value: ['9', '10'],
-                                    },
-                                ],
-                            },
-                            {
-                                event: SURVEY_EVENT_NAME,
-                                kind: NodeKind.EventsNode,
-                                custom_name: 'Passives',
-                                properties: [
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_response',
-                                        operator: PropertyOperator.Exact,
-                                        value: ['7', '8'],
-                                    },
-                                ],
-                            },
-                            {
-                                event: SURVEY_EVENT_NAME,
-                                kind: NodeKind.EventsNode,
-                                custom_name: 'Detractors',
-                                properties: [
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_response',
-                                        operator: PropertyOperator.Exact,
-                                        value: ['0', '1', '2', '3', '4', '5', '6'],
-                                    },
-                                ],
-                            },
-                        ],
-                        properties: [
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$survey_id',
-                                operator: PropertyOperator.Exact,
-                                value: survey.id,
-                            },
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$survey_iteration',
-                                operator: PropertyOperator.Exact,
-                                value: survey.current_iteration,
-                            },
-                        ],
-                        trendsFilter: {
-                            formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
-                            display: 'ActionsBar',
-                        },
-                    },
-                }}
-                readOnly={true}
-            />
-        </>
+                    }}
+                />
+            </div>
+        </div>
     )
 }

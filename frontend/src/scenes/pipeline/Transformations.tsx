@@ -1,10 +1,5 @@
-import { DndContext, DragEndEvent } from '@dnd-kit/core'
-import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { LemonBadge, LemonButton, LemonModal, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -19,15 +14,12 @@ import { TRANSFORMATION_TYPES } from './destinations/constants'
 import { Destinations } from './destinations/Destinations'
 import { NewButton } from './NewButton'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
-import { PluginImage } from './PipelinePluginImage'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { Transformation } from './types'
 import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function Transformations(): JSX.Element {
-    const { sortedEnabledTransformations, sortedTransformations, loading } = useValues(pipelineTransformationsLogic)
-    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
-    const { openReorderModal } = useActions(pipelineTransformationsLogic)
+    const { sortedTransformations, loading } = useValues(pipelineTransformationsLogic)
 
     const shouldShowEmptyState = sortedTransformations.length === 0 && !loading
 
@@ -47,37 +39,7 @@ export function Transformations(): JSX.Element {
                 isEmpty={shouldShowEmptyState}
             />
 
-            <FlaggedFeature flag="hog-transformations">
-                <Destinations types={TRANSFORMATION_TYPES} />
-            </FlaggedFeature>
-
-            <FlaggedFeature flag="hog-transformations">
-                <div className="mt-8">
-                    <h2>Legacy Transformations</h2>
-                    <p className="text-muted mt-2 mb-4">These transformations are deprecated.</p>
-                </div>
-            </FlaggedFeature>
-
-            {sortedEnabledTransformations.length > 1 && (
-                <>
-                    <ReorderModal />
-                    <div className="flex items-center gap-2">
-                        Processed sequentially.
-                        <LemonButton
-                            onClick={openReorderModal}
-                            noPadding
-                            id="app-reorder"
-                            disabledReason={
-                                canConfigurePlugins ? undefined : 'You do not have permission to reorder plugins.'
-                            }
-                        >
-                            Change order
-                        </LemonButton>
-                    </div>
-                </>
-            )}
-
-            <TransformationsTable />
+            <Destinations types={TRANSFORMATION_TYPES} />
         </>
     )
 }
@@ -180,93 +142,5 @@ export const TransformationsMoreOverlay = ({
                 ),
             ]}
         />
-    )
-}
-
-function ReorderModal(): JSX.Element {
-    const { reorderModalOpen, sortedEnabledTransformations, temporaryOrder, pluginConfigsLoading } =
-        useValues(pipelineTransformationsLogic)
-    const { closeReorderModal, setTemporaryOrder, savePluginConfigsOrder } = useActions(pipelineTransformationsLogic)
-
-    const handleDragEnd = ({ active, over }: DragEndEvent): void => {
-        if (active.id && over && active.id !== over.id) {
-            // Create new sortedEnabledPluginConfigs in the order after the move
-            const from = sortedEnabledTransformations.findIndex((t) => t.id === active.id)
-            const to = sortedEnabledTransformations.findIndex((t) => t.id === over.id)
-            const newSortedEnabledTransformations = arrayMove(sortedEnabledTransformations, from, to)
-            // Create new temporaryOrder by assinging pluginConfigIds to the index in the map of newSortedEnabledPluginConfigs
-            // See comment in savePluginConfigsOrder about races
-            const newTemporaryOrder = newSortedEnabledTransformations.reduce((acc, pluginConfig, index) => {
-                return {
-                    ...acc,
-                    [pluginConfig.id]: index + 1,
-                }
-            }, {})
-            setTemporaryOrder(newTemporaryOrder)
-        }
-    }
-
-    return (
-        <LemonModal
-            onClose={closeReorderModal}
-            isOpen={reorderModalOpen}
-            width={600}
-            title="Reorder apps"
-            description={
-                <p>
-                    The order of apps is important as they are processed sequentially. You can{' '}
-                    <b>drag and drop the apps below</b> to change their order.
-                </p>
-            }
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={closeReorderModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        loading={pluginConfigsLoading}
-                        type="primary"
-                        onClick={() => savePluginConfigsOrder(temporaryOrder)}
-                    >
-                        Save order
-                    </LemonButton>
-                </>
-            }
-        >
-            <div className="flex flex-col gap-2">
-                <DndContext modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={handleDragEnd}>
-                    <SortableContext items={sortedEnabledTransformations} strategy={verticalListSortingStrategy}>
-                        {sortedEnabledTransformations.map((t, index) => (
-                            <MinimalAppView key={t.id} transformation={t} order={index} />
-                        ))}
-                    </SortableContext>
-                </DndContext>
-            </div>
-        </LemonModal>
-    )
-}
-
-const MinimalAppView = ({ transformation, order }: { transformation: Transformation; order: number }): JSX.Element => {
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-        id: transformation.id,
-    })
-
-    return (
-        <div
-            ref={setNodeRef}
-            className="relative flex items-center gap-2 p-2 border rounded cursor-move bg-surface-primary"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                transform: CSS.Transform.toString(transform),
-                transition,
-                zIndex: isDragging ? 999999 : undefined,
-            }}
-            {...attributes}
-            {...listeners}
-        >
-            <LemonBadge.Number count={order + 1} maxDigits={3} />
-            <PluginImage plugin={transformation.plugin} size="small" />
-            <span className="font-semibold">{transformation.name}</span>
-        </div>
     )
 }

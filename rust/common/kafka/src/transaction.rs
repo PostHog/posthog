@@ -137,7 +137,7 @@ impl<'a, C: ClientContext> KafkaTransaction<'a, C> {
         topic: &str,
         key_extractor: impl Fn(&D) -> Option<String>,
         iter: impl IntoIterator<Item = D>,
-    ) -> Result<(), KafkaProduceError>
+    ) -> Vec<Result<(), KafkaProduceError>>
     where
         D: Serialize,
     {
@@ -148,7 +148,7 @@ impl<'a, C: ClientContext> KafkaTransaction<'a, C> {
         &self,
         topic: &str,
         iter: impl IntoIterator<Item = D>,
-    ) -> Result<(), KafkaProduceError>
+    ) -> Vec<Result<(), KafkaProduceError>>
     where
         D: Serialize,
     {

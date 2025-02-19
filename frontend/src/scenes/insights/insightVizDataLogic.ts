@@ -70,7 +70,7 @@ import {
     nodeKindToFilterProperty,
     supportsPercentStackView,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, SlowQueryPossibilities } from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
@@ -434,6 +434,52 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         theme: [(s) => [s.getTheme, s.querySource], (getTheme, querySource) => getTheme(querySource?.dataColorTheme)],
+
+        isAllEventsQuery: [
+            (s) => [s.querySource],
+            (querySource) => {
+                return (
+                    (querySource?.kind === NodeKind.TrendsQuery || querySource?.kind === NodeKind.FunnelsQuery) &&
+                    querySource?.series?.some((s) => s.name === 'All events')
+                )
+            },
+        ],
+        isFirstTimeForUserQuery: [
+            (s) => [s.querySource],
+            (querySource) => {
+                return (
+                    querySource?.kind === NodeKind.TrendsQuery &&
+                    querySource?.series?.some((s) =>
+                        ['first_matching_event_for_user', 'first_time_for_user'].includes(s.math || '')
+                    )
+                )
+            },
+        ],
+        isStrictFunnelQuery: [
+            (s) => [s.querySource],
+            (querySource) => {
+                return (
+                    querySource?.kind === NodeKind.FunnelsQuery &&
+                    querySource?.funnelsFilter?.funnelOrderType === 'strict'
+                )
+            },
+        ],
+        slowQueryPossibilities: [
+            (s) => [s.isAllEventsQuery, s.isFirstTimeForUserQuery, s.isStrictFunnelQuery],
+            (isAllEventsQuery, isFirstTimeForUserQuery, isStrictFunnelQuery): SlowQueryPossibilities[] => {
+                const possibilities: SlowQueryPossibilities[] = []
+                if (isAllEventsQuery) {
+                    possibilities.push('all_events')
+                }
+                if (isFirstTimeForUserQuery) {
+                    possibilities.push('first_time_for_user')
+                }
+                if (isStrictFunnelQuery) {
+                    possibilities.push('strict_funnel')
+                }
+                return possibilities
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({

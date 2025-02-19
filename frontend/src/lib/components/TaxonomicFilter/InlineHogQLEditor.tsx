@@ -1,7 +1,7 @@
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode } from '~/queries/schema/schema-general'
 
 export interface InlineHogQLEditorProps {
     value?: TaxonomicFilterValue
