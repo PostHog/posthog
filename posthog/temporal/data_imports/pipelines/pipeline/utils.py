@@ -62,6 +62,9 @@ def safe_parse_datetime(date_str):
 
             return parser.parse(scalar)
 
+        if isinstance(date_str, pa.TimestampScalar):
+            return date_str
+
         return parser.parse(date_str)
     except (ValueError, OverflowError, TypeError):
         return None
@@ -211,20 +214,34 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             py_arrow_table_column = table.column(field.name)
             if field.type != py_arrow_table_column.type:
                 if isinstance(field.type, pa.TimestampType):
-                    timestamp_array = pa.array(
-                        [safe_parse_datetime(s) for s in table.column(field.name)], type=field.type
-                    )
-                    table = table.set_column(
-                        table.schema.get_field_index(field.name),
-                        field.name,
-                        timestamp_array,
-                    )
+                    # If different timezones, cast to the correct tz
+                    if (
+                        isinstance(py_arrow_table_column.type, pa.TimestampType)
+                        and field.type.tz != py_arrow_table_column.type.tz
+                    ):
+                        casted_column = table.column(field.name).cast(field.type)
+                        table = table.set_column(
+                            table.schema.get_field_index(field.name),
+                            field.name,
+                            casted_column.combine_chunks(),
+                        )
+                    else:
+                        timestamp_array = pa.array(
+                            [safe_parse_datetime(s) for s in table.column(field.name)], type=field.type
+                        )
+                        table = table.set_column(
+                            table.schema.get_field_index(field.name),
+                            field.name,
+                            timestamp_array,
+                        )
                 else:
                     table = table.set_column(
                         table.schema.get_field_index(field.name),
                         field.name,
                         table.column(field.name).cast(field.type),
                     )
+
+                py_arrow_table_column = table.column(field.name)
 
             py_arrow_table_field = table.field(field.name)
             # If the deltalake schema expects no nulls, but the pyarrow schema is nullable, then fill the nulls
