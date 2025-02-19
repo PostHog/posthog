@@ -238,12 +238,12 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
             py_arrow_table_field = table.field(field.name)
             # If the deltalake schema expects no nulls, but the pyarrow schema is nullable, then fill the nulls
-            if not field.nullable and py_arrow_table_field.nullable and py_arrow_table_column.null_count > 0:
+            if not field.nullable and py_arrow_table_field.nullable:
                 filled_nulls_arr = py_arrow_table_column.fill_null(
                     fill_value=get_default_value_for_pyarrow_type(py_arrow_table_field.type)
                 )
                 table = table.set_column(
-                    table.schema.get_field_index(field.name), field.name, filled_nulls_arr.combine_chunks()
+                    table.schema.get_field_index(field.name), field, filled_nulls_arr.combine_chunks()
                 )
 
     # Change types based on what deltalake tables support
@@ -365,6 +365,19 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
         max_scale = max(scale, max_scale)
 
     return build_pyarrow_decimal_type(max_precision, max_scale)
+
+
+def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
+    for decimal_type in [
+        pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
+        pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE),
+    ]:
+        try:
+            return pa.array(values, type=decimal_type)
+        except:
+            pass
+
+    raise ValueError("Cant build a decimal type from defaults")
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):
@@ -489,10 +502,15 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
             new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
 
-            number_arr = pa.array(
-                all_values_as_decimals_or_none,
-                type=new_field_type,
-            )
+            try:
+                number_arr = pa.array(
+                    all_values_as_decimals_or_none,
+                    type=new_field_type,
+                )
+            except pa.ArrowInvalid as e:
+                if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
+                    number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+
             columnar_table_data[field_name] = number_arr
             py_type = decimal.Decimal
             unique_types_in_column = {decimal.Decimal}
