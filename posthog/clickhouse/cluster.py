@@ -18,6 +18,7 @@ from typing import Any, Literal, NamedTuple, TypeVar
 from collections.abc import Iterable
 
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 
 from posthog import settings
@@ -32,6 +33,12 @@ def ON_CLUSTER_CLAUSE(on_cluster=True):
 
 K = TypeVar("K")
 V = TypeVar("V")
+
+
+def format_exception_summary(e: Exception) -> str:
+    if isinstance(e, ServerException):
+        raise NotImplementedError  # todo
+    return str(e)
 
 
 class FuturesMap(dict[K, Future[V]]):
@@ -63,7 +70,11 @@ class FuturesMap(dict[K, Future[V]]):
 
         if errors:
             # TODO: messaging could be improved here
-            raise ExceptionGroup("not all futures returned a result", [*errors.values()])
+            raise ExceptionGroup(
+                "not all futures returned a result\n\n"
+                + "\n".join([f"- {key}: {format_exception_summary(e)}" for key, e in errors.items()]),
+                [*errors.values()],
+            )
 
         return results
 

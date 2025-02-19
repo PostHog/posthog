@@ -12,6 +12,7 @@ from posthog.clickhouse.cluster import (
     HostInfo,
     MutationRunner,
     T,
+    Query,
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -25,6 +26,13 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 def test_mutation_runner_rejects_invalid_parameters() -> None:
     with pytest.raises(ValueError):
         MutationRunner("table", "command", {"__invalid_key": True})
+
+
+def test_exception_summary(cluster: ClickhouseCluster) -> None:
+    with pytest.raises(ExceptionGroup) as e:
+        cluster.map_all_hosts(Query("invalid query")).result()
+
+    raise e.value  # todo
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:
