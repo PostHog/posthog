@@ -24,6 +24,7 @@ pub mod hack;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
+pub mod posthog_utils;
 pub mod symbol_store;
 pub mod types;
 
