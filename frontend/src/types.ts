@@ -2492,7 +2492,7 @@ export interface RetentionFilterType extends FilterType {
 
     //frontend only
     show_mean?: boolean // deprecated
-    show_mean_retention?: 'simple' | 'weighted' | typeof RETENTION_MEAN_NONE
+    mean_retention_calculation?: 'simple' | 'weighted' | typeof RETENTION_MEAN_NONE
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */

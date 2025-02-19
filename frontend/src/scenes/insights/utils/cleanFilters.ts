@@ -309,8 +309,8 @@ export function cleanFilters(
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
             show_mean: filters.show_mean,
-            ...(filters.show_mean_retention && filters.show_mean_retention !== RETENTION_MEAN_NONE
-                ? { show_mean_retention: filters.show_mean_retention }
+            ...(filters.mean_retention_calculation && filters.mean_retention_calculation !== RETENTION_MEAN_NONE
+                ? { mean_retention_calculation: filters.mean_retention_calculation }
                 : {}),
             cumulative: filters.cumulative,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),

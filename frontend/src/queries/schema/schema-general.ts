@@ -1114,7 +1114,7 @@ export type RetentionFilter = {
 
     //frontend only
     showMean?: RetentionFilterLegacy['show_mean']
-    showMeanRetention?: RetentionFilterLegacy['show_mean_retention']
+    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
     /** controls the display of the retention graph */
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType

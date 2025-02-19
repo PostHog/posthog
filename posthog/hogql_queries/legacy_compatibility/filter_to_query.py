@@ -539,7 +539,7 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 ),
                 period=filter.get("period"),
                 showMean=filter.get("show_mean"),
-                showMeanRetention=filter.get("show_mean_retention"),
+                meanRetentionCalculation=filter.get("mean_retention_calculation"),
                 cumulative=filter.get("cumulative"),
             )
         }

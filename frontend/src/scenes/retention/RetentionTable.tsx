@@ -20,7 +20,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
     const { openModal } = useActions(retentionModalLogic(insightProps))
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
-    const showMeanRetention = retentionFilter?.showMeanRetention ?? RETENTION_MEAN_NONE
+    const meanRetentionCalculation = retentionFilter?.meanRetentionCalculation ?? RETENTION_MEAN_NONE
 
     return (
         <table
@@ -40,7 +40,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                     ))}
                 </tr>
 
-                {showMeanRetention === 'weighted' && tableRows.length > 0 ? (
+                {meanRetentionCalculation === 'weighted' && tableRows.length > 0 ? (
                     <tr className="border-b" key={-2}>
                         {range(0, tableRows[0].length).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">
@@ -85,7 +85,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                     </tr>
                 ) : undefined}
 
-                {showMeanRetention === 'simple' && tableRows.length > 0 ? (
+                {meanRetentionCalculation === 'simple' && tableRows.length > 0 ? (
                     <tr className="border-b" key={-1}>
                         {range(0, tableRows[0].length).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">
@@ -139,7 +139,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                         {row.map((column, columnIndex) => (
                             <td
                                 key={columnIndex}
-                                className={clsx({ 'pt-2': rowIndex === 0 && showMeanRetention !== 'none' })}
+                                className={clsx({ 'pt-2': rowIndex === 0 && meanRetentionCalculation !== 'none' })}
                             >
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     <span className="RetentionTable__TextTab">{column}</span>

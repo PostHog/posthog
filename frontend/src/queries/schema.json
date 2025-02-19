@@ -1247,6 +1247,11 @@
                     "description": "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.",
                     "type": "boolean"
                 },
+                "meanRetentionCalculation": {
+                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day",
@@ -1268,11 +1273,6 @@
                 "showMean": {
                     "description": "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
                     "type": "boolean"
-                },
-                "showMeanRetention": {
-                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
-                    "enum": ["simple", "weighted", "none"],
-                    "type": "string"
                 },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity",
@@ -13528,6 +13528,10 @@
                     "$ref": "#/definitions/ChartDisplayType",
                     "description": "controls the display of the retention graph"
                 },
+                "meanRetentionCalculation": {
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
@@ -13546,10 +13550,6 @@
                 "showMean": {
                     "type": "boolean"
                 },
-                "showMeanRetention": {
-                    "enum": ["simple", "weighted", "none"],
-                    "type": "string"
-                },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
@@ -13567,6 +13567,10 @@
                 "cumulative": {
                     "type": "boolean"
                 },
+                "mean_retention_calculation": {
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod"
                 },
@@ -13583,10 +13587,6 @@
                 },
                 "show_mean": {
                     "type": "boolean"
-                },
-                "show_mean_retention": {
-                    "enum": ["simple", "weighted", "none"],
-                    "type": "string"
                 },
                 "target_entity": {
                     "$ref": "#/definitions/RetentionEntity"
