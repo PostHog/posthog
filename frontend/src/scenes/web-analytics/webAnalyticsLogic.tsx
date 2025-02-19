@@ -575,9 +575,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled,
         ],
         webAnalyticsFilters: [
-            (s) => [s._webAnalyticsFilters, s.isPathCleaningEnabled, () => values.featureFlags],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters, isPathCleaningEnabled: boolean, featureFlags) => {
-                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_IMPROVED_PATH_CLEANING] || !isPathCleaningEnabled) {
+            (s) => [s._webAnalyticsFilters, s.isPathCleaningEnabled],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters, isPathCleaningEnabled: boolean) => {
+                if (!isPathCleaningEnabled) {
                     return webAnalyticsFilters
                 }
 
@@ -838,7 +838,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                if (featureFlags[FEATURE_FLAGS.WEB_VITALS] && productTab === ProductTab.WEB_VITALS) {
+                if (productTab === ProductTab.WEB_VITALS) {
                     const createSeries = (name: WebVitalsMetric, math: PropertyMathType): AnyEntityNode => ({
                         kind: NodeKind.EventsNode,
                         event: '$web_vitals',

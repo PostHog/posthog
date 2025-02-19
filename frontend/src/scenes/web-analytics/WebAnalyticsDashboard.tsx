@@ -5,14 +5,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
@@ -42,6 +40,7 @@ import { AvailableFeature, ProductKey, PropertyMathType } from '~/types'
 
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
+import {FEATURE_FLAGS} from "lib/constants";
 
 const Filters = (): JSX.Element => {
     const {
@@ -434,8 +433,6 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
     const { setProductTab } = useActions(webAnalyticsLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -443,7 +440,6 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <div className="flex flex-row">
-                        {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
                             <div className="flex-1">
                                 <LemonTabs<ProductTab>
                                     activeKey={productTab}
@@ -454,8 +450,6 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                                     ]}
                                 />
                             </div>
-                        )}
-
                         <WebAnalyticsLiveUserCount />
                     </div>
 

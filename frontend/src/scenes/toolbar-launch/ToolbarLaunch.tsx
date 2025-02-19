@@ -17,8 +17,6 @@ export const scene: SceneExport = {
 
 export function ToolbarLaunch(): JSX.Element {
     const isExperimentsEnabled = useFeatureFlag('WEB_EXPERIMENTS')
-    const isWebVitalsEnabled = useFeatureFlag('WEB_VITALS')
-    const isWebVitalsToolbarEnabled = useFeatureFlag('WEB_VITALS_TOOLBAR')
 
     const features: FeatureHighlightProps[] = [
         {
@@ -41,21 +39,17 @@ export function ToolbarLaunch(): JSX.Element {
             caption: 'Inspect clickable elements on your website.',
             icon: <IconSearch />,
         },
+        {
+            title: 'Web Vitals',
+            caption: "Measure your website's performance.",
+            icon: <IconPieChart />,
+        },
         ...(isExperimentsEnabled
             ? [
                   {
                       title: 'Experiments',
                       caption: 'Run experiments and A/B test your website.',
                       icon: <IconTestTube />,
-                  },
-              ]
-            : []),
-        ...(isWebVitalsEnabled && isWebVitalsToolbarEnabled
-            ? [
-                  {
-                      title: 'Web Vitals',
-                      caption: "Measure your website's performance.",
-                      icon: <IconPieChart />,
                   },
               ]
             : []),

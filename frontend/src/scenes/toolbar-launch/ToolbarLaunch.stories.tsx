@@ -17,7 +17,7 @@ const meta: Meta = {
         testOptions: {
             includeNavigationInSnapshot: true,
         },
-        featureFlags: ['web-experiments', 'web-vitals', 'web-vitals-toolbar'],
+        featureFlags: ['web-experiments'],
         viewMode: 'story',
         mockDate: '2024-01-01',
     },
