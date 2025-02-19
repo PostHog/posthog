@@ -501,8 +501,6 @@ export function getMathAvailability(metricType: ExperimentMetricType): MathAvail
     switch (metricType) {
         case ExperimentMetricType.COUNT:
             return MathAvailability.None
-        case ExperimentMetricType.FUNNEL:
-            return MathAvailability.None
         case ExperimentMetricType.CONTINUOUS:
             return MathAvailability.All
         default:
