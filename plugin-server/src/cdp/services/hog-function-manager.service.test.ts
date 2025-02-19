@@ -537,3 +537,133 @@ describe('HogFunctionManager - Integration Updates', () => {
         })
     })
 })
+
+describe('sanitize', () => {
+    let hub: Hub
+    let manager: HogFunctionManagerService
+
+    beforeEach(async () => {
+        hub = await createHub()
+        manager = new HogFunctionManagerService(hub)
+    })
+
+    afterEach(async () => {
+        await closeHub(hub)
+    })
+
+    it('should handle encrypted_inputs as an object', () => {
+        const item: HogFunctionType = {
+            id: 1,
+            team_id: 1,
+            name: 'test',
+            type: 'destination',
+            enabled: true,
+            deleted: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            encrypted_inputs: {
+                apiKey: {
+                    value: 'test-key',
+                    order: 0,
+                    bytecode: ['_H', 1, 32, 'test-key'],
+                },
+            },
+        }
+
+        manager.sanitize([item])
+
+        // Should preserve the original object
+        expect(item.encrypted_inputs).toEqual({
+            apiKey: {
+                value: 'test-key',
+                order: 0,
+                bytecode: ['_H', 1, 32, 'test-key'],
+            },
+        })
+    })
+
+    it('should handle encrypted_inputs as a string', () => {
+        const encryptedString = hub.encryptedFields.encrypt(
+            JSON.stringify({
+                apiKey: {
+                    value: 'test-key',
+                    order: 0,
+                },
+            })
+        )
+
+        const item: HogFunctionType = {
+            id: 1,
+            team_id: 1,
+            name: 'test',
+            type: 'destination',
+            enabled: true,
+            deleted: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            encrypted_inputs: encryptedString,
+        }
+
+        manager.sanitize([item])
+
+        // Should decrypt and parse the string
+        expect(item.encrypted_inputs).toEqual({
+            apiKey: {
+                value: 'test-key',
+                order: 0,
+            },
+        })
+    })
+
+    it('should capture exception for invalid encrypted string while preserving value', () => {
+        const item: HogFunctionType = {
+            id: 1,
+            team_id: 1,
+            name: 'test',
+            type: 'destination',
+            enabled: true,
+            deleted: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            encrypted_inputs: 'invalid-encrypted-string',
+        }
+
+        manager.sanitize([item])
+
+        // Should preserve the original invalid string
+        expect(item.encrypted_inputs).toBe('invalid-encrypted-string')
+    })
+
+    it('should not capture exception for null/undefined values', () => {
+        const items: HogFunctionType[] = [
+            {
+                id: 1,
+                team_id: 1,
+                name: 'test-null',
+                type: 'destination',
+                enabled: true,
+                deleted: false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                encrypted_inputs: null,
+            },
+            {
+                id: 2,
+                team_id: 1,
+                name: 'test-undefined',
+                type: 'destination',
+                enabled: true,
+                deleted: false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                encrypted_inputs: undefined,
+            },
+        ]
+
+        manager.sanitize(items)
+
+        // Should preserve null/undefined values
+        expect(items[0].encrypted_inputs).toBeNull()
+        expect(items[1].encrypted_inputs).toBeUndefined()
+    })
+})
