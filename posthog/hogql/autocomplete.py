@@ -41,6 +41,7 @@ from posthog.schema import (
 )
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
+from django.db.models import Q
 
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
@@ -565,8 +566,9 @@ def get_hogql_autocomplete(
 
                                     with timings.measure("property_filter"):
                                         property_query = PropertyDefinition.objects.filter(
+                                            Q(project_id=context.team.project_id)
+                                            | Q(project_id__isnull=True, team_id=context.team.pk),
                                             name__contains=match_term,
-                                            team__project_id=team.project_id,
                                             type=property_type,
                                         )
 

@@ -17,6 +17,7 @@ from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.s3_table import S3Table
+from django.db.models import Q
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -38,8 +39,8 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     # fetch them
     event_property_values = (
         PropertyDefinition.objects.filter(
+            Q(project_id=context.team.project_id) | Q(project_id__isnull=True, team_id=context.team.pk),
             name__in=property_finder.event_properties,
-            team__project_id=context.team.project_id,
             type__in=[None, PropertyDefinition.Type.EVENT],
         ).values_list("name", "property_type")
         if property_finder.event_properties
@@ -49,8 +50,8 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
 
     person_property_values = (
         PropertyDefinition.objects.filter(
+            Q(project_id=context.team.project_id) | Q(project_id__isnull=True, team_id=context.team.pk),
             name__in=property_finder.person_properties,
-            team__project_id=context.team.project_id,
             type=PropertyDefinition.Type.PERSON,
         ).values_list("name", "property_type")
         if property_finder.person_properties
@@ -63,8 +64,8 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         if not properties:
             continue
         group_property_values = PropertyDefinition.objects.filter(
+            Q(project_id=context.team.project_id) | Q(project_id__isnull=True, team_id=context.team.pk),
             name__in=properties,
-            team__project_id=context.team.project_id,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=group_id,
         ).values_list("name", "property_type")
