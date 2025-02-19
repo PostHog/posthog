@@ -66,13 +66,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         lifecycle?: 'create' | 'update'
                     }
                 ) => {
-                    // in the case where we are scheduling a materialized view, send an event
-                    if (view.lifecycle && view.sync_frequency) {
-                        // this function exists as an upsert, so we need to check if the view was created or updated
-                        posthog.capture(`materialized view ${view.lifecycle === 'update' ? 'updated' : 'created'}`, {
-                            sync_frequency: view.sync_frequency,
-                        })
-                    }
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {
                         if (savedQuery.id === view.id) {
@@ -88,7 +81,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
         },
-        updateDataWarehouseSavedQuerySuccess: () => {
+        updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
+            // in the case where we are scheduling a materialized view, send an event
+            if (payload && payload.lifecycle && payload.sync_frequency) {
+                // this function exists as an upsert, so we need to check if the view was created or updated
+                posthog.capture(`materialized view ${payload.lifecycle === 'update' ? 'updated' : 'created'}`, {
+                    sync_frequency: payload.sync_frequency,
+                })
+            }
             actions.loadDatabase()
             lemonToast.success('View updated')
         },
