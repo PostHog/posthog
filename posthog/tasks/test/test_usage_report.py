@@ -360,7 +360,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 distinct_id=distinct_id,
                 event="$ai_generation",
                 properties={
-                    "$ai_trace_id": uuid4(),
+                    "$ai_trace_id": "some_id",
                     "$ai_input_tokens": 100,
                     "$ai_output_tokens": 100,
                     "$ai_input_cost_usd": 0.01,
@@ -521,8 +521,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_in_period": 41,
-                    "enhanced_persons_event_count_in_period": 40,
+                    "event_count_in_period": 42,
+                    "enhanced_persons_event_count_in_period": 41,
                     "event_count_with_groups_in_period": 2,
                     "event_count_from_keywords_ai_in_period": 1,
                     "event_count_from_traceloop_in_period": 1,
@@ -582,8 +582,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_in_period": 30,
-                            "enhanced_persons_event_count_in_period": 29,
+                            "event_count_in_period": 31,
+                            "enhanced_persons_event_count_in_period": 30,
                             "event_count_with_groups_in_period": 2,
                             "event_count_from_keywords_ai_in_period": 1,
                             "event_count_from_traceloop_in_period": 1,
