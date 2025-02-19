@@ -152,10 +152,10 @@ class GroupedHostSet(Generic[K]):
     def all(self, fn: Callable[[Client], T]) -> Mapping[K, set[Future[T]]]:
         return {key: hosts.all(fn) for key, hosts in self.groups.items()}
 
-    def join_any(self, fns: Mapping[K, Callable[[Client], T]]) -> Mapping[K, Future[T]]:
+    def any_by_group(self, fns: Mapping[K, Callable[[Client], T]]) -> Mapping[K, Future[T]]:
         return {key: self.groups[key].any(fn) for key, fn in fns.items()}
 
-    def join_all(self, fns: Mapping[K, Callable[[Client], T]]) -> Mapping[K, set[Future[T]]]:
+    def all_by_group(self, fns: Mapping[K, Callable[[Client], T]]) -> Mapping[K, set[Future[T]]]:
         return {key: self.groups[key].all(fn) for key, fn in fns.items()}
 
 
@@ -233,7 +233,7 @@ class ClickhouseCluster:
         Wait for all to return before returning upon ``.values()``
         """
         with self.__get_host_set(concurrency) as hosts:
-            return hosts.shards.join_all(shard_fns)
+            return hosts.shards.all_by_group(shard_fns)
 
     def map_any_host_in_shards(
         self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
@@ -245,7 +245,7 @@ class ClickhouseCluster:
         default limit of the executor.
         """
         with self.__get_host_set(concurrency) as hosts:
-            return hosts.shards.join_any(shard_fns)
+            return hosts.shards.any_by_group(shard_fns)
 
     def map_one_host_per_shard(
         self, fn: Callable[[Client], T], concurrency: int | None = None
