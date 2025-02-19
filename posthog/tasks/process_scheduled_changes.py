@@ -33,11 +33,11 @@ def process_scheduled_changes() -> None:
                     scheduled_change.save()
 
                 except Exception as e:
-                    logger.exception("Failed to process scheduled change", exc_info=e)
                     # Store the failure reason
                     scheduled_change.failure_reason = str(e)
                     scheduled_change.executed_at = timezone.now()
                     scheduled_change.save()
+                    logger.exception("Failed to process scheduled change", exc_info=e)
     except OperationalError:
         # Failed to obtain the lock
         pass
