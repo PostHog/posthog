@@ -1,8 +1,11 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
@@ -82,6 +85,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['isCloudOrDev'],
             replayLandingPageLogic,
             ['replayLandingPage'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseSources'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             billingLogic,
@@ -235,6 +242,23 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return (
                     productKey && [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS].includes(productKey as ProductKey)
                 )
+            },
+        ],
+        shouldShowDataWarehouseStep: [
+            (s) => [s.productKey, s.featureFlags, s.dataWarehouseSources],
+            (productKey, featureFlags, dataWarehouseSources) => {
+                const dataWarehouseStepEnabled =
+                    featureFlags[FEATURE_FLAGS.ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS] === 'test'
+
+                if (!dataWarehouseStepEnabled) {
+                    return false
+                }
+
+                if (dataWarehouseSources && dataWarehouseSources.results.length > 0) {
+                    return false
+                }
+
+                return productKey === ProductKey.PRODUCT_ANALYTICS
             },
         ],
         isStepKeyInvalid: [
