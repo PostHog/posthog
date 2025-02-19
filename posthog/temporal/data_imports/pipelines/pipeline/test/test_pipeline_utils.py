@@ -162,6 +162,25 @@ def test_table_from_py_list_with_binary_column():
     )
 
 
+def test_table_from_py_list_with_mixed_decimal_float_sizes():
+    table = table_from_py_list([{"column": decimal.Decimal(1.0)}, {"column": 1000.01}])
+
+    expected_schema = pa.schema({"column": pa.decimal128(6, 2)})
+    assert table.equals(
+        pa.table(
+            {"column": pa.array([decimal.Decimal(1.0), decimal.Decimal(str(1000.01))], type=pa.decimal128(6, 2))},
+            schema=expected_schema,
+        )
+    )
+    assert table.schema.equals(
+        pa.schema(
+            [
+                ("column", pa.decimal128(6, 2)),
+            ]
+        )
+    )
+
+
 def test_table_from_py_list_with_schema_and_mixed_decimals():
     schema = pa.schema({"column": pa.decimal128(1, 0)})
     table = table_from_py_list([{"column": 1}, {"column": 1.0}], schema)

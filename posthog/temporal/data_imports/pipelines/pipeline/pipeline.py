@@ -5,6 +5,7 @@ import pyarrow as pa
 from dlt.sources import DltSource
 import deltalake as deltalake
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_column_hints,
@@ -16,7 +17,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _update_job_row_count,
     _update_last_synced_at_sync,
     table_from_py_list,
-    trigger_compaction_job,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
