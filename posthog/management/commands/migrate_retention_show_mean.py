@@ -6,7 +6,7 @@ from posthog.models import Insight
 
 def migrate_show_mean_from_boolean_to_string(batch_size: int, live_run: bool = False) -> None:
     """
-    Migrate the showMean boolean field to showMeanRetention string field in retention insights.
+    Migrate the showMean boolean field to meanRetentionCalculation string field in retention insights.
     """
     retention_insights = Insight.objects.filter(
         deleted=False,
@@ -25,7 +25,7 @@ def migrate_show_mean_from_boolean_to_string(batch_size: int, live_run: bool = F
             if live_run:
                 with transaction.atomic():
                     # Convert boolean to string - if True, use 'simple' else 'none'
-                    insight.query["source"]["retentionFilter"]["showMeanRetention"] = (
+                    insight.query["source"]["retentionFilter"]["meanRetentionCalculation"] = (
                         "simple" if show_mean_value else "none"
                     )
                     insight.save()
@@ -42,7 +42,7 @@ def migrate_show_mean_from_boolean_to_string(batch_size: int, live_run: bool = F
 
 
 class Command(BaseCommand):
-    help = "Migrate retention insights showMean boolean field to showMeanRetention string field"
+    help = "Migrate retention insights showMean boolean field to meanRetentionCalculation string field"
 
     def add_arguments(self, parser):
         parser.add_argument(
