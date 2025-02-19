@@ -78,7 +78,7 @@ from posthog.models.raw_sessions.sql import (
     DROP_RAW_SESSION_TABLE_SQL,
     DROP_RAW_SESSION_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
-    RAW_SESSIONS_VIEW_SQL,
+    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
@@ -519,7 +519,7 @@ class MemoryLeakTestMixin:
         self.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
         )
 
 
@@ -797,9 +797,9 @@ class BaseTestMigrations(QueryMatchingTest):
     assert_snapshots = False
 
     def setUp(self):
-        assert hasattr(self, "migrate_from") and hasattr(
-            self, "migrate_to"
-        ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
+            "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        )
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
@@ -1080,7 +1080,7 @@ def reset_clickhouse_database() -> None:
         [
             CHANNEL_DEFINITION_DATA_SQL(),
             RAW_SESSIONS_TABLE_MV_SQL(),
-            RAW_SESSIONS_VIEW_SQL(),
+            RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
         ]

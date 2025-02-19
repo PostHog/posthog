@@ -212,15 +212,7 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            "SELECT\n"
-            "    1 AS id\n"
-            "LIMIT 50000\n"
-            "INTERSECT\n"
-            "(SELECT\n"
-            "    2 AS id\n"
-            "UNION ALL\n"
-            "SELECT\n"
-            "    3 AS id)",
+            "SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\n(SELECT\n    2 AS id\nUNION ALL\nSELECT\n    3 AS id)",
         )
 
     # INTERSECT has higher priority than union
@@ -1369,7 +1361,7 @@ class TestPrinter(BaseTest):
                 "SELECT now(), toDateTime(timestamp), toDate(test_date), toDateTime('2020-02-02') FROM events",
                 context,
             ),
-            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date), toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             context.values,
@@ -1391,7 +1383,7 @@ class TestPrinter(BaseTest):
                 "SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events",
                 context,
             ),
-            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             context.values,
@@ -1478,7 +1470,7 @@ class TestPrinter(BaseTest):
     def test_functions_expecting_datetime_arg(self):
         self.assertEqual(
             self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1'))"),
-            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+            f"tumble(assumeNotNull(toDateTime(toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
         )
         self.assertEqual(
             self._expr("tumble(now(), toIntervalDay('1'))"),

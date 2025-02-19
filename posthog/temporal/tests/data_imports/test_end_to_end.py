@@ -1007,7 +1007,7 @@ async def test_non_retryable_error_with_special_characters(team, stripe_customer
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_inconsistent_types_in_data(team, stripe_balance_transaction):
+async def test_inconsistent_types_in_data(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
         connection_id=uuid.uuid4(),
@@ -1019,7 +1019,7 @@ async def test_inconsistent_types_in_data(team, stripe_balance_transaction):
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name="Customer",
+        name="Price",
         team_id=team.pk,
         source_id=source.pk,
         sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
@@ -1041,6 +1041,26 @@ async def test_inconsistent_types_in_data(team, stripe_balance_transaction):
             {"id": "txn_1MiN3gLkdIwHu7ixxapQrznl", "type": ["transfer", "another_value"]},
         ],
     )
+
+    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM stripe_price", team)
+    columns = res.columns
+    results = res.results
+
+    assert columns is not None
+    assert any(x == "id" for x in columns)
+    assert any(x == "type" for x in columns)
+
+    assert results is not None
+    assert len(results) == 2
+
+    id_index = columns.index("id")
+    arr_index = columns.index("type")
+
+    assert results[0][id_index] == "txn_1MiN3gLkdIwHu7ixxapQrznl"
+    assert results[0][arr_index] == '["transfer"]'
+
+    assert results[1][id_index] == "txn_1MiN3gLkdIwHu7ixxapQrznl"
+    assert results[1][arr_index] == '["transfer","another_value"]'
 
 
 @pytest.mark.django_db(transaction=True)
