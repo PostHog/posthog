@@ -76,10 +76,6 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         response["config"] = {"enable_collect_everything": True}
         response["surveys"] = True if len(response["surveys"]) > 0 else False
 
-        # # Ensure featureFlags is always present
-        # if "featureFlags" not in response:
-        #     response["featureFlags"] = {}
-
         # Remove some stuff that is specific to the new RemoteConfig
         del response["hasFeatureFlags"]
         del response["token"]
