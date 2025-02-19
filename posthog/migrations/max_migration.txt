@@ -1,1 +1,1 @@
-0671_alter_datawarehousetable_is_external
+0672_alter_datawarehousetable_is_external
