@@ -123,8 +123,9 @@ export const NewVariableModal = (): JSX.Element => {
     const handleDelete = (): void => {
         if (variable.id) {
             LemonDialog.open({
-                title: 'Delete variable',
-                description: 'Are you sure you want to delete this variable? This cannot be undone.',
+                title: 'Delete',
+                description:
+                    'Are you sure you want to delete this variable? This cannot be undone. Queries that use this variable will no longer work.',
                 primaryButton: {
                     status: 'danger',
                     children: 'Delete variable',
