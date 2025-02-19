@@ -1,4 +1,4 @@
-import { test, expect } from '../utils/playwright-test-base'
+import { expect, test } from '../utils/playwright-test-base'
 
 const preflightSuccessResponse = {
     django: true,
