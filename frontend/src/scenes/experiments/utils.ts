@@ -515,7 +515,7 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): string[] 
         case ExperimentMetricType.COUNT:
             return [BaseMathType.TotalCount]
         case ExperimentMetricType.CONTINUOUS:
-            return [PropertyMathType.Sum, PropertyMathType.Average]
+            return [PropertyMathType.Sum]
         default:
             return [BaseMathType.TotalCount]
     }
