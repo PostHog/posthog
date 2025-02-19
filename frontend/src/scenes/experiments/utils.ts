@@ -2,6 +2,7 @@ import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import merge from 'lodash.merge'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
     AnyEntityNode,
@@ -20,6 +21,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
+    BaseMathType,
     ChartDisplayType,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -493,4 +495,30 @@ export function metricToQuery(metric: ExperimentMetric): TrendsQuery | undefined
     }
 
     return undefined
+}
+
+export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {
+    switch (metricType) {
+        case ExperimentMetricType.COUNT:
+            return MathAvailability.None
+        case ExperimentMetricType.FUNNEL:
+            return MathAvailability.None
+        case ExperimentMetricType.CONTINUOUS:
+            return MathAvailability.All
+        default:
+            return MathAvailability.None
+    }
+}
+
+export function getAllowedMathTypes(metricType: ExperimentMetricType): string[] {
+    switch (metricType) {
+        case ExperimentMetricType.COUNT:
+            return [BaseMathType.TotalCount]
+        case ExperimentMetricType.CONTINUOUS:
+            return [PropertyMathType.Sum, PropertyMathType.Average]
+        case ExperimentMetricType.FUNNEL:
+            return [BaseMathType.TotalCount]
+        default:
+            return [BaseMathType.TotalCount]
+    }
 }
