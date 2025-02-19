@@ -660,6 +660,20 @@ function isCountPerActorMath(math: string | undefined): math is CountPerActorMat
 
 const TRAILING_MATH_TYPES = new Set<string>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
 
+function getDefaultPropertyMathType(
+    math: string | undefined,
+    allowedMathTypes: readonly string[] | undefined
+): PropertyMathType {
+    if (isPropertyValueMath(math)) {
+        return math
+    }
+    if (allowedMathTypes?.length) {
+        const propertyMathTypes = allowedMathTypes.filter(isPropertyValueMath)
+        return (propertyMathTypes[0] as PropertyMathType) || PropertyMathType.Average
+    }
+    return PropertyMathType.Average
+}
+
 function useMathSelectorOptions({
     math,
     index,
@@ -681,16 +695,9 @@ function useMathSelectorOptions({
         staticActorsOnlyMathDefinitions,
     } = useValues(mathsLogic)
 
-    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(() => {
-        if (isPropertyValueMath(math)) {
-            return math
-        }
-        if (allowedMathTypes?.length) {
-            // filter out non-property math types
-            return allowedMathTypes.filter(isPropertyValueMath)[0] as PropertyMathType
-        }
-        return PropertyMathType.Average
-    })
+    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
+        getDefaultPropertyMathType(math, allowedMathTypes)
+    )
 
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
