@@ -238,12 +238,12 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
             py_arrow_table_field = table.field(field.name)
             # If the deltalake schema expects no nulls, but the pyarrow schema is nullable, then fill the nulls
-            if not field.nullable and py_arrow_table_field.nullable and py_arrow_table_column.null_count > 0:
+            if not field.nullable and py_arrow_table_field.nullable:
                 filled_nulls_arr = py_arrow_table_column.fill_null(
                     fill_value=get_default_value_for_pyarrow_type(py_arrow_table_field.type)
                 )
                 table = table.set_column(
-                    table.schema.get_field_index(field.name), field.name, filled_nulls_arr.combine_chunks()
+                    table.schema.get_field_index(field.name), field, filled_nulls_arr.combine_chunks()
                 )
 
     # Change types based on what deltalake tables support
