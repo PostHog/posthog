@@ -2879,6 +2879,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "end_date": None,
                         "current_iteration": None,
                         "current_iteration_start_date": None,
+                        "schedule": "once",
                     }
                 ],
             )
@@ -2931,6 +2932,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "internal_targeting_flag_key": "custom-targeting-flag",
                     "start_date": None,
                     "end_date": None,
+                    "schedule": "once",
                 },
                 surveys,
             )
@@ -2946,6 +2948,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "end_date": None,
                     "current_iteration": None,
                     "current_iteration_start_date": None,
+                    "schedule": "once",
                 },
                 surveys,
             )
