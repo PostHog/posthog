@@ -420,17 +420,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((StringType(), IntegerType(), StringType()), DateTimeType()),
         ],
     ),
-    "ch_toDateTime64": HogQLFunctionMeta(
-        "toDateTime64",
-        1,
-        3,
-        tz_aware=True,
-        signatures=[
-            ((StringType(),), DateTimeType()),
-            ((StringType(), IntegerType()), DateTimeType()),
-            ((StringType(), IntegerType(), StringType()), DateTimeType()),
-        ],
-    ),
     "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),
     "toString": HogQLFunctionMeta(
         "toString",
