@@ -1,5 +1,4 @@
 import { Page } from '@playwright/test'
-import { randomString } from '../utils'
 import { expect } from '../utils/playwright-test-base'
 
 export class CohortPage {
