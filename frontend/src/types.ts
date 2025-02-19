@@ -2773,12 +2773,15 @@ export interface SetInsightOptions {
     fromPersistentApi?: boolean
 }
 
+export type SurveySchedule = 'once' | 'recurring' | 'always'
+
 export interface Survey {
     /** UUID */
     id: string
     name: string
     type: SurveyType
     description: string
+    schedule: SurveySchedule
     linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null

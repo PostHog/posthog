@@ -6,12 +6,12 @@ import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { ScheduleType, SurveyEditSection, surveyLogic } from './surveyLogic'
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
 function SurveyIterationOptions(): JSX.Element {
-    const { showSurveyRepeatSchedule, schedule } = useValues(surveyLogic)
-    const { setSurveyValue, setSchedule } = useActions(surveyLogic)
+    const { showSurveyRepeatSchedule, survey } = useValues(surveyLogic)
+    const { setSurveyValue } = useActions(surveyLogic)
     const { surveysRecurringScheduleAvailable } = useValues(surveysLogic)
 
     const surveysRecurringScheduleDisabledReason = surveysRecurringScheduleAvailable
@@ -22,10 +22,10 @@ function SurveyIterationOptions(): JSX.Element {
         <>
             <LemonField.Pure>
                 <LemonRadio
-                    value={schedule}
+                    value={survey.schedule}
                     onChange={(newValue) => {
-                        setSchedule(newValue as ScheduleType)
-                        if (newValue === 'once') {
+                        setSurveyValue('schedule', newValue)
+                        if (newValue === 'once' || newValue === 'always') {
                             setSurveyValue('iteration_count', 0)
                             setSurveyValue('iteration_frequency_days', 0)
                         } else if (newValue === 'recurring') {
@@ -44,6 +44,12 @@ function SurveyIterationOptions(): JSX.Element {
                             label: 'Repeat on a schedule',
                             'data-attr': 'survey-iteration-frequency-days',
                             disabledReason: surveysRecurringScheduleDisabledReason,
+                        },
+                        {
+                            value: 'always',
+                            label: 'All the time',
+                            'data-attr': 'survey-iteration-frequency-days',
+                            disabledReason: survey.type !== 'widget' ? 'Only available for widget surveys' : undefined,
                         },
                     ]}
                 />

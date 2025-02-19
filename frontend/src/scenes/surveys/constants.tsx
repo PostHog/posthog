@@ -151,6 +151,7 @@ export interface NewSurvey
         | 'response_sampling_interval_type'
         | 'response_sampling_interval'
         | 'response_sampling_limit'
+        | 'schedule'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -160,6 +161,7 @@ export const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
+    schedule: 'once',
     questions: [
         {
             type: SurveyQuestionType.Open,

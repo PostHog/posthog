@@ -32,6 +32,11 @@ class Survey(UUIDModel):
         WEEK = "week", "week"
         MONTH = "month", "month"
 
+    class Schedule(models.TextChoices):
+        ONCE = "once", "once"
+        RECURRING = "recurring", "recurring"
+        ALWAYS = "always", "always"
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "name"], name="unique survey name for team")]
 
@@ -43,6 +48,11 @@ class Survey(UUIDModel):
     )
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)
+    schedule = models.CharField(
+        max_length=40,
+        choices=Schedule.choices,
+        default=Schedule.ONCE,
+    )
     linked_flag = models.ForeignKey(
         "posthog.FeatureFlag",
         null=True,

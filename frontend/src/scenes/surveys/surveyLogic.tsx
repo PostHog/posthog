@@ -133,7 +133,6 @@ export interface QuestionResultsReady {
 }
 
 export type DataCollectionType = 'until_stopped' | 'until_limit' | 'until_adaptive_limit'
-export type ScheduleType = 'once' | 'recurring'
 
 export interface SurveyDateRange {
     date_from: string | null
@@ -219,7 +218,6 @@ export const surveyLogic = kea<surveyLogicType>([
         setSurveyTemplateValues: (template: any) => ({ template }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
-        setSchedule: (schedule: ScheduleType) => ({ schedule }),
         resetTargeting: true,
         resetSurveyAdaptiveSampling: true,
         resetSurveyResponseLimits: true,
@@ -1012,12 +1010,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 setWritingHTMLDescription: (_, { writingHTML }) => writingHTML,
             },
         ],
-        schedule: [
-            'once',
-            {
-                setSchedule: (_, { schedule }) => schedule,
-            },
-        ],
         flagPropertyErrors: [
             null as any,
             {
@@ -1107,7 +1099,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 return survey.questions.length > 1
             },
         ],
-        showSurveyRepeatSchedule: [(s) => [s.schedule], (schedule: ScheduleType) => schedule == 'recurring'],
+        showSurveyRepeatSchedule: [(s) => [s.survey], (survey: Survey) => survey.schedule === 'recurring'],
         descriptionContentType: [
             (s) => [s.survey],
             (survey: Survey) => (questionIndex: number) => {

@@ -1551,6 +1551,44 @@ class TestSurvey(APIBaseTest):
         activity = self.client.get(f"/api/projects/{self.team.id}/surveys/activity").json()
         self.assertEqual(activity["results"], expected)
 
+    def test_validate_schedule_on_create(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with invalid schedule",
+                "type": "popover",
+                "schedule": "invalid_value",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                    }
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Schedule must be one of: once, recurring, always"
+
+    def test_validate_schedule_on_update(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey to update",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "schedule": "invalid_value",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Schedule must be one of: once, recurring, always"
+
 
 class TestMultipleChoiceQuestions(APIBaseTest):
     def test_create_survey_has_open_choice(self):

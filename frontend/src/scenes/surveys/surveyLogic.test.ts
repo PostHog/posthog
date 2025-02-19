@@ -61,6 +61,7 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: 'once',
 }
 
 const SINGLE_CHOICE_SURVEY: Survey = {
@@ -109,6 +110,7 @@ const SINGLE_CHOICE_SURVEY: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: 'once',
 }
 
 const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
@@ -158,6 +160,7 @@ const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: 'once',
 }
 
 const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
@@ -207,6 +210,7 @@ const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: 'once',
 }
 
 describe('multiple choice survey logic', () => {
@@ -455,6 +459,7 @@ describe('set response-based survey branching', () => {
         archived: false,
         targeting_flag_filters: undefined,
         responses_limit: null,
+        schedule: 'once',
     }
 
     describe('main', () => {

@@ -61,6 +61,37 @@ function SurveyResultsFilters(): JSX.Element {
     )
 }
 
+function SurveySchedule(): JSX.Element {
+    const { survey } = useValues(surveyLogic)
+    if (survey.schedule === 'recurring' && survey.iteration_count && survey.iteration_frequency_days) {
+        return (
+            <>
+                <span className="card-secondary">Schedule</span>
+                <span>
+                    Repeats every {survey.iteration_frequency_days}{' '}
+                    {pluralize(survey.iteration_frequency_days, 'day', 'days', false)}, {survey.iteration_count}{' '}
+                    {pluralize(survey.iteration_count, 'time', 'times', false)}
+                </span>
+            </>
+        )
+    }
+
+    if (survey.schedule === 'once') {
+        return (
+            <>
+                <span className="card-secondary">Schedule</span>
+                <span>Once</span>
+            </>
+        )
+    }
+
+    return (
+        <>
+            <span className="card-secondary">Schedule</span>
+            <span>Always</span>
+        </>
+    )
+}
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const {
@@ -349,25 +380,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 )}
                                             </div>
                                             <div className="flex flex-row gap-8">
-                                                {survey.iteration_count &&
-                                                survey.iteration_frequency_days &&
-                                                survey.iteration_count > 0 &&
-                                                survey.iteration_frequency_days > 0 ? (
-                                                    <div className="flex flex-col">
-                                                        <span className="mt-4 card-secondary">Schedule</span>
-                                                        <span>
-                                                            Repeats every {survey.iteration_frequency_days}{' '}
-                                                            {pluralize(
-                                                                survey.iteration_frequency_days,
-                                                                'day',
-                                                                'days',
-                                                                false
-                                                            )}
-                                                            , {survey.iteration_count}{' '}
-                                                            {pluralize(survey.iteration_count, 'time', 'times', false)}
-                                                        </span>
-                                                    </div>
-                                                ) : null}
+                                                <div className="flex flex-col mt-4">
+                                                    <SurveySchedule />
+                                                </div>
                                             </div>
                                             {surveyUsesLimit && (
                                                 <>
