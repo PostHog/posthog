@@ -4,7 +4,7 @@ import logging
 import re
 import time
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping, Sequence, Set
+from collections.abc import Callable, Iterator, Mapping, Set
 from concurrent.futures import (
     ALL_COMPLETED,
     FIRST_EXCEPTION,
@@ -159,62 +159,16 @@ class GroupedHostSet(Generic[K]):
 class ClickhouseCluster:
     def __init__(
         self,
-        bootstrap_client: Client,
-        extra_hosts: Sequence[ConnectionInfo] | None = None,
+        host_infos: Set[HostInfo],
         logger: logging.Logger | None = None,
         client_settings: Mapping[str, str] | None = None,
-        cluster: str | None = None,
     ) -> None:
         if logger is None:
             logger = logging.getLogger(__name__)
 
-        cluster_hosts = bootstrap_client.execute(
-            """
-            SELECT
-                host_address,
-                port,
-                shard_num,
-                replica_num,
-                getMacro('hostClusterType') as host_cluster_type,
-                getMacro('hostClusterRole') as host_cluster_role
-            FROM clusterAllReplicas(%(name)s, system.clusters)
-            WHERE name = %(name)s and is_local
-            ORDER BY shard_num, replica_num
-            """,
-            {"name": cluster or settings.CLICKHOUSE_CLUSTER},
-        )
-
-        host_info_set = {
-            HostInfo(
-                ConnectionInfo(
-                    host_address,
-                    # We only use the port from system.clusters if we're running in E2E tests or debug mode,
-                    # otherwise, we will use the default port.
-                    port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
-                ),
-                shard_num if host_cluster_role != "coordinator" else None,
-                replica_num if host_cluster_role != "coordinator" else None,
-                host_cluster_type,
-                host_cluster_role,
-            )
-            for (host_address, port, shard_num, replica_num, host_cluster_type, host_cluster_role) in cluster_hosts
-        }
-
-        if extra_hosts is not None and len(extra_hosts) > 0:
-            host_info_set.update(
-                HostInfo(
-                    connection_info,
-                    shard_num=None,
-                    replica_num=None,
-                    host_cluster_type=None,
-                    host_cluster_role=None,
-                )
-                for connection_info in extra_hosts
-            )
-
         self.hosts = HostSet(
             ThreadPoolExecutor(),
-            {Host(info, info.connection_info.make_pool(client_settings)) for info in host_info_set},
+            {Host(info, info.connection_info.make_pool(client_settings)) for info in host_infos},
         )
 
     def any_host_by_role(self, fn: Callable[[Client], T], node_role: NodeRole) -> Future[T]:
@@ -294,15 +248,56 @@ class ClickhouseCluster:
 
 
 def get_cluster(
-    logger: logging.Logger | None = None, client_settings: Mapping[str, str] | None = None, cluster: str | None = None
+    logger: logging.Logger | None = None,
+    client_settings: Mapping[str, str] | None = None,
+    cluster: str = settings.CLICKHOUSE_CLUSTER,
 ) -> ClickhouseCluster:
-    extra_hosts = []
-    for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
-        extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
-        assert len(host_config) == 0, f"unexpected values: {host_config!r}"
-    return ClickhouseCluster(
-        default_client(), extra_hosts=extra_hosts, logger=logger, client_settings=client_settings, cluster=cluster
+    cluster_hosts = default_client().execute(
+        """
+        SELECT
+            host_address,
+            port,
+            shard_num,
+            replica_num,
+            getMacro('hostClusterType') as host_cluster_type,
+            getMacro('hostClusterRole') as host_cluster_role
+        FROM clusterAllReplicas(%(name)s, system.clusters)
+        WHERE name = %(name)s and is_local
+        ORDER BY shard_num, replica_num
+        """,
+        {"name": cluster},
     )
+
+    host_info_set = {
+        HostInfo(
+            ConnectionInfo(
+                host_address,
+                # We only use the port from system.clusters if we're running in E2E tests or debug mode,
+                # otherwise, we will use the default port.
+                port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
+            ),
+            shard_num if host_cluster_role != "coordinator" else None,
+            replica_num if host_cluster_role != "coordinator" else None,
+            host_cluster_type,
+            host_cluster_role,
+        )
+        for (host_address, port, shard_num, replica_num, host_cluster_type, host_cluster_role) in cluster_hosts
+    }
+
+    for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
+        connection_info = ConnectionInfo(host_config.pop("host"), None)
+        assert len(host_config) == 0, f"unexpected values: {host_config!r}"
+        host_info_set.add(
+            HostInfo(
+                connection_info,
+                shard_num=None,
+                replica_num=None,
+                host_cluster_type=None,
+                host_cluster_role=None,
+            )
+        )
+
+    return ClickhouseCluster(host_info_set, logger=logger, client_settings=client_settings)
 
 
 @dataclass
