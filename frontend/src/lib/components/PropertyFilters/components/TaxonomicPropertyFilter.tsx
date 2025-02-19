@@ -81,7 +81,7 @@ export function TaxonomicPropertyFilter({
         eventNames,
         propertyAllowList,
     })
-    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
+    const { filter, dropdownOpen, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const valuePresent = filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
@@ -205,7 +205,7 @@ export function TaxonomicPropertyFilter({
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                             >
                                 {filter?.type === 'cohort' ? (
-                                    selectedCohortName || `Cohort #${filter?.value}`
+                                    filter.cohort_name || `Cohort #${filter?.value}`
                                 ) : filter?.key ? (
                                     <PropertyKeyInfo
                                         value={filter.key}
