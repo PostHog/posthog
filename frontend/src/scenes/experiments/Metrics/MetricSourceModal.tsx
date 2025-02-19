@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getDefaultCountMetric, getDefaultFunnelsMetric } from '../utils'
+import { getDefaultBinomialMetric, getDefaultFunnelsMetric } from '../utils'
 
 export function MetricSourceModal({
     experimentId,
@@ -40,7 +40,7 @@ export function MetricSourceModal({
                         closeCurrentModal()
 
                         const defaultMetric = shouldUseExperimentMetrics
-                            ? getDefaultCountMetric()
+                            ? getDefaultBinomialMetric()
                             : getDefaultFunnelsMetric()
                         const newMetrics = [...experiment[metricsField], defaultMetric]
                         setExperiment({
