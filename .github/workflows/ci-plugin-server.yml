@@ -71,7 +71,6 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               run: |
-                  npm install -g husky@7 # until we make <root>/package.json a build package
                   pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
                   bin/turbo --filter=@posthog/cyclotron build
 
@@ -169,8 +168,6 @@ jobs:
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
-                  cd plugin-server
-                  npm install -g husky@7 # until we make <root>/package.json a build package
                   pnpm --filter=@posthog/plugin-server... install --frozen-lockfile 
                   bin/turbo --filter=@posthog/cyclotron build
 

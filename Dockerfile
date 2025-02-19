@@ -28,20 +28,18 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY frontend/package.json frontend/tailwind.config.js frontend/babel.config.js frontend/webpack.config.js frontend/
 COPY frontend/bin/ frontend/bin/
-COPY ./bin/turbo ./bin/turbo
+COPY bin/ bin/
 COPY patches/ patches/
+COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/eslint_rules/ common/eslint_rules/
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
-    corepack enable && pnpm --version && \
-    pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
-
-COPY frontend/ frontend/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
-COPY bin/ bin/
-# we got rid of the node_modules folders under products/, etc. so we need to install the (cached) dependencies again
-RUN pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && pnpm --version && \
+    pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store
+
+COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
 
 #
