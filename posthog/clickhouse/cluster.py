@@ -15,6 +15,7 @@ from concurrent.futures import (
 from copy import copy
 from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple, TypeVar
+from collections.abc import Iterable
 
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
@@ -340,12 +341,6 @@ class MutationRunner:
         if invalid_keys := {key for key in self.parameters.keys() if key.startswith("__")}:
             raise ValueError(f"invalid parameter names: {invalid_keys!r} (keys cannot start with double underscore)")
 
-    def __call__(self, client: Client) -> Mutation:
-        """Shorthand method to find or enqueue a mutation, and block until its completion."""
-        mutation = self.enqueue(client)
-        mutation.wait(client)
-        return mutation
-
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
 
@@ -422,3 +417,26 @@ class MutationRunner:
             raise ValueError(f"Invalid DELETE command format: {self.command}")
         where_clause = self.command.strip()[match.end() :]
         return f"UPDATE _row_exists = 0 WHERE {where_clause}"
+
+    def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
+        """
+        Enqueue (or find) this mutation on one host in each shard, and then block until the mutation is complete on all
+        hosts within the affected shards.
+        """
+        if shards is not None:
+            shard_host_mutations = cluster.map_any_host_in_shards({shard: self.enqueue for shard in shards})
+        else:
+            shard_host_mutations = cluster.map_one_host_per_shard(self.enqueue)
+
+        # XXX: need to convert the `shard_num` of type `int | None` to `int` to appease the type checker -- but nothing
+        # should have actually been filtered out, since we're using the cluster shard functions for targeting
+        shard_mutations = {
+            host.shard_num: mutations
+            for host, mutations in shard_host_mutations.result().items()
+            if host.shard_num is not None
+        }
+        assert len(shard_mutations) == len(shard_host_mutations)
+
+        cluster.map_all_hosts_in_shards(
+            {shard_num: mutation.wait for shard_num, mutation in shard_mutations.items()}
+        ).result()

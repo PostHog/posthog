@@ -2,7 +2,7 @@ import datetime
 import time
 import uuid
 from dataclasses import dataclass
-from functools import partial, reduce
+from functools import partial
 
 import dagster
 import pydantic
@@ -300,35 +300,13 @@ def load_and_verify_snapshot_dictionary(
 
 # Mutation Management
 
-ShardMutations = dict[int, Mutation]
-
 
 @dagster.op
-def start_person_id_update_mutations(
+def run_person_id_update_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
-) -> tuple[PersonOverridesSnapshotDictionary, ShardMutations]:
-    """Start the mutation to update `sharded_events.person_id` with the snapshot data on all shards."""
-    shard_mutations = {
-        host.shard_num: mutation
-        for host, mutation in (
-            cluster.map_one_host_per_shard(dictionary.person_id_update_mutation_runner.enqueue).result().items()
-        )
-    }
-    return (dictionary, shard_mutations)
-
-
-@dagster.op
-def wait_for_person_id_update_mutations(
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-    inputs: tuple[PersonOverridesSnapshotDictionary, ShardMutations],
 ) -> PersonOverridesSnapshotDictionary:
-    """Wait for all hosts to complete the `sharded_events.person_id` update mutation."""
-    [dictionary, shard_mutations] = inputs
-    reduce(
-        lambda x, y: x.merge(y),
-        [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
-    ).result()
+    dictionary.person_id_update_mutation_runner.run_on_shards(cluster)
     return dictionary
 
 
@@ -382,9 +360,7 @@ def drop_snapshot_table(
 def squash_person_overrides():
     prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
     prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
-    dictionary_after_person_id_update_mutations = wait_for_person_id_update_mutations(
-        start_person_id_update_mutations(prepared_dictionary)
-    )
+    dictionary_after_person_id_update_mutations = run_person_id_update_mutations(prepared_dictionary)
     dictionary_after_override_delete_mutations = wait_for_overrides_delete_mutations(
         start_overrides_delete_mutations(dictionary_after_person_id_update_mutations)
     )
