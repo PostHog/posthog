@@ -1,5 +1,3 @@
-import asyncio
-import dataclasses
 import decimal
 import json
 from collections.abc import Sequence
@@ -18,14 +16,9 @@ from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.sources import DltResource
 import deltalake as deltalake
 from django.db.models import F
-from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
-from temporalio.common import RetryPolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
-from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import FilteringBoundLogger
 from dlt.common.data_types.typing import TDataType
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from posthog.temporal.data_imports.deltalake_compaction_job import DeltalakeCompactionJobWorkflowInputs
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
@@ -559,28 +552,3 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
-
-
-def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> str:
-    temporal = sync_connect()
-    workflow_id = f"{schema.id}-compaction"
-
-    try:
-        asyncio.run(
-            temporal.start_workflow(
-                workflow="deltalake-compaction-job",
-                arg=dataclasses.asdict(
-                    DeltalakeCompactionJobWorkflowInputs(team_id=job.team_id, external_data_job_id=job.id)
-                ),
-                id=workflow_id,
-                task_queue=str(DATA_WAREHOUSE_COMPACTION_TASK_QUEUE),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=1,
-                    non_retryable_error_types=["NondeterminismError"],
-                ),
-            )
-        )
-    except WorkflowAlreadyStartedError:
-        pass
-
-    return workflow_id
