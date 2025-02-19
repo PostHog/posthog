@@ -41,7 +41,7 @@ COPY ee/frontend/ ee/frontend/
 COPY bin/ bin/
 # we got rid of the node_modules folders under products/, etc. so we need to install the (cached) dependencies again
 RUN pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
-RUN pnpm --filter=@posthog/frontend build
+RUN turbo --filter=@posthog/frontend build
 
 #
 # ---------------------------------------------------------
@@ -76,7 +76,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
     pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm --filter=@posthog/plugin-transpiler build
+    turbo --filter=@posthog/plugin-transpiler build
 
 WORKDIR /code/plugin-server
 
@@ -88,10 +88,10 @@ COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
 
 # Build cyclotron first with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter=@posthog/plugin-server run build:cyclotron
+RUN NODE_OPTIONS="--max-old-space-size=4096" turbo --filter=@posthog/cyclotron build
 
 # Then build the plugin server with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm --filter=@posthog/plugin-server build
+RUN NODE_OPTIONS="--max-old-space-size=4096" turbo --filter=@posthog/plugin-server build
 
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.

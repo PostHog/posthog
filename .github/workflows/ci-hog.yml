@@ -131,7 +131,7 @@ jobs:
             - name: Run Hog tests
               run: |
                   pnpm --filter=@posthog/hogvm install --frozen-lockfile
-                  pnpm --filter=@posthog/hogvm build
+                  turbo --filter=@posthog/hogvm build
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
 
