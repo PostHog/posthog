@@ -1676,7 +1676,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 distinct_id="test_id",
                 event="$ai_generation",
                 properties={
-                    "$ai_trace_id": str(uuid4()),
+                    "$ai_trace_id": "some_id",
                     "$ai_model": "gpt-4o",
                     "$ai_provider": "openai",
                     "$ai_input_tokens": 100,
@@ -1694,8 +1694,8 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             distinct_id="test_id",
             event="$ai_span",
             properties={
-                "$ai_trace_id": str(uuid4()),
-                "$ai_span_id": str(uuid4()),
+                "$ai_trace_id": "some_id",
+                "$ai_span_id": "some_id",
             },
             timestamp=now() - relativedelta(hours=1),
             team=self.org_1_team_1,
@@ -1705,7 +1705,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             distinct_id="test_id",
             event="$ai_trace",
             properties={
-                "$ai_trace_id": str(uuid4()),
+                "$ai_trace_id": "some_id",
             },
             timestamp=now() - relativedelta(hours=1),
             team=self.org_1_team_1,
@@ -1716,7 +1716,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             distinct_id="test_id",
             event="$ai_generation",
             properties={
-                "$ai_trace_id": str(uuid4()),
+                "$ai_trace_id": "some_id",
                 "$ai_model": "gpt-4o",
                 "$ai_provider": "openai",
                 "$ai_input_tokens": 100,
