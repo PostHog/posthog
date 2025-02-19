@@ -27,7 +27,6 @@ import {
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -553,16 +552,7 @@ export function LineGraph_({
                 weight: 'normal',
             },
             callback: function (_, index) {
-                const label = labels[index]
-                if (label && label.includes(':')) {
-                    try {
-                        const date = dayjs(label)
-                        return date.format('MM-DD HH:mm')
-                    } catch {
-                        return label
-                    }
-                }
-                return label
+                return labels[index]
             },
         }
         const gridOptions: Partial<GridLineOptions> = {

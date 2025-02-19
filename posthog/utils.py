@@ -79,8 +79,8 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
     date_formats = {
         "default": "%-d-%b-%Y",
-        "minute": "%-d-%b-%Y %H:%M",
-        "hour": "%-d-%b-%Y %H:%M",
+        "minute": "%b-%-d %H:%M",
+        "hour": "%b-%-d %H:%M",
         "month": "%b %Y",
     }
     labels_format = date_formats.get(interval, date_formats["default"])
