@@ -17,6 +17,9 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
+    #[envconfig(default = "cdp_internal_events")]
+    pub internal_events_topic: String,
+
     #[envconfig(default = "clickhouse_events_json")]
     pub events_topic: String,
 
