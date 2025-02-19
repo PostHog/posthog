@@ -1,4 +1,4 @@
-import { IconInfo } from '@posthog/icons'
+import { IconArchive, IconInfo } from '@posthog/icons'
 import { LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Chart, ChartConfiguration } from 'chart.js/auto'
 import { useValues } from 'kea'
@@ -12,7 +12,7 @@ export function Exposures(): JSX.Element {
     const { experimentId, exposures, exposuresLoading } = useValues(experimentLogic)
 
     useEffect(() => {
-        if (!exposures) {
+        if (!exposures || !exposures.timeseries.length) {
             return
         }
 
@@ -91,6 +91,16 @@ export function Exposures(): JSX.Element {
             {exposuresLoading ? (
                 <div className="h-[200px] bg-white rounded border flex items-center justify-center">
                     <Spinner className="text-5xl" />
+                </div>
+            ) : !exposures.timeseries.length ? (
+                <div className="h-[200px] bg-white rounded border flex items-center justify-center">
+                    <div className="text-center">
+                        <IconArchive className="text-3xl mb-2 text-tertiary" />
+                        <h2 className="text-lg leading-tight">No exposures yet</h2>
+                        <p className="text-sm text-center text-balance text-tertiary mb-0">
+                            Exposures will appear here once the first participant has been exposed.
+                        </p>
+                    </div>
                 </div>
             ) : (
                 <div className="flex gap-2">

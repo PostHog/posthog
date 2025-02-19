@@ -44,7 +44,7 @@ const ResultsTab = (): JSX.Element => {
             )}
             {/* Show overview if there's only a single primary metric */}
             {hasSinglePrimaryMetric && (
-                <div className="mb-4">
+                <div className="mb-4 mt-2">
                     <Overview />
                 </div>
             )}
@@ -78,7 +78,7 @@ const ResultsTab = (): JSX.Element => {
 const VariantsTab = (): JSX.Element => {
     const { shouldUseExperimentMetrics, isExperimentRunning } = useValues(experimentLogic)
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 mt-2">
             {shouldUseExperimentMetrics && isExperimentRunning && <Exposures />}
             <ReleaseConditionsTable />
             <DistributionTable />
