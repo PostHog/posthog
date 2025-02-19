@@ -281,10 +281,11 @@ export class HogFunctionManagerService {
             item.inputs_schema?.forEach((schema) => {
                 if (schema.type === 'integration') {
                     const input = item.inputs?.[schema.key]
-                    if (input && typeof input.value === 'number') {
-                        integrationIds.push(input.value)
+                    const value = input.value?.integrationId ?? input.value
+                    if (value && typeof value === 'number') {
+                        integrationIds.push(value)
                         item.depends_on_integration_ids = item.depends_on_integration_ids || new Set()
-                        item.depends_on_integration_ids.add(input.value)
+                        item.depends_on_integration_ids.add(value)
                     }
                 }
             })
@@ -320,6 +321,7 @@ export class HogFunctionManagerService {
                         ...this.hub.encryptedFields.decryptObject(integration.sensitive_config || {}, {
                             ignoreDecryptionErrors: true,
                         }),
+                        integrationId: integration.id
                     },
                 }
             },
@@ -335,7 +337,7 @@ export class HogFunctionManagerService {
                     if (!input) {
                         return
                     }
-                    const integrationId = input.value
+                    const integrationId = input.value?.integrationId ?? integration.value
                     const integrationConfig = integrationConfigsByTeamAndId[`${item.team_id}:${integrationId}`]
                     if (integrationConfig) {
                         input.value = integrationConfig
