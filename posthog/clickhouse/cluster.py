@@ -117,13 +117,13 @@ class HostSet:
     executor: ThreadPoolExecutor
     hosts: Set[Host]
 
-    def any(self, fn: Callable[[Client], T]) -> tuple[HostInfo, Future[T]]:
+    def any(self, fn: Callable[[Client], T]) -> Future[T]:  # todo: find a way to augment with HostInfo?
         host = next(iter(self.hosts))
-        return (host.info, self.executor.submit(host.build_task(fn)))
+        return self.executor.submit(host.build_task(fn))
 
-    def all(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+    def all(self, fn: Callable[[Client], T]) -> set[Future[T]]:  # todo: helper type to allow waiting on all at once
         # todo: ability to limit concurrency
-        return FuturesMap({host: self.executor.submit(host.build_task(fn)) for host in self.hosts})
+        return {self.executor.submit(host.build_task(fn)) for host in self.hosts}
 
     def filter(self, fn: Callable[[HostInfo], bool]) -> HostSet:
         # todo: handle node role filtering for convenience
@@ -144,17 +144,17 @@ class HostSet:
 class HostGroup(Generic[K]):
     groups: Mapping[K, HostSet]
 
-    def any(self, fn: Callable[[Client], T]) -> Mapping[K, tuple[HostInfo, Future[T]]]:
+    def any(self, fn: Callable[[Client], T]) -> Mapping[K, Future[T]]:
         return {key: hosts.any(fn) for key, hosts in self.groups.items()}
 
-    def all(self, fn: Callable[[Client], T]) -> Mapping[K, FuturesMap[HostInfo, T]]:
+    def all(self, fn: Callable[[Client], T]) -> Mapping[K, set[Future[T]]]:
         # TODO: ability to limit concurrency
         return {key: hosts.all(fn) for key, hosts in self.groups.items()}
 
-    def join_any(self, fns: Mapping[K, Callable[[Client], T]]) -> Mapping[K, tuple[HostInfo, Future[T]]]:
+    def join_any(self, fns: Mapping[K, Callable[[Client], T]]) -> Mapping[K, Future[T]]:
         return {key: self.groups[key].any(fn) for key, fn in fns.items()}
 
-    def join_all(self, fns: Mapping[K, Callable[[Client], T]]) -> Mapping[K, FuturesMap[HostInfo, T]]:
+    def join_all(self, fns: Mapping[K, Callable[[Client], T]]) -> Mapping[K, set[Future[T]]]:
         # TODO: ability to limit concurrency
         return {key: self.groups[key].all(fn) for key, fn in fns.items()}
 
