@@ -94,7 +94,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, ch_toDateTime64('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, ch_toDateTime64('2020-01-01 00:00:00.000000')))) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
   LIMIT 100
   '''
 # ---
@@ -103,7 +103,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, ch_toDateTime64('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, ch_toDateTime64('2020-01-01 00:00:00.000000')))) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
   LIMIT 100
   '''
 # ---
@@ -143,7 +143,7 @@
   
   SELECT session_id, $entry_current_url 
   FROM sessions 
-  WHERE and(less($start_timestamp, ch_toDateTime64('2024-07-06 00:00:00.000000')), greaterOrEquals($start_timestamp, ch_toDateTime64('2024-07-04 00:00:00.000000'))) 
+  WHERE and(less($start_timestamp, toDateTime('2024-07-06 00:00:00.000000')), greaterOrEquals($start_timestamp, toDateTime('2024-07-04 00:00:00.000000'))) 
   LIMIT 100
   '''
 # ---
@@ -152,7 +152,7 @@
   
   SELECT session_id, $entry_current_url 
   FROM sessions 
-  WHERE and(less($start_timestamp, ch_toDateTime64('2024-07-06 00:00:00.000000')), greaterOrEquals($start_timestamp, ch_toDateTime64('2024-07-04 00:00:00.000000'))) 
+  WHERE and(less($start_timestamp, toDateTime('2024-07-06 00:00:00.000000')), greaterOrEquals($start_timestamp, toDateTime('2024-07-04 00:00:00.000000'))) 
   LIMIT 100
   '''
 # ---
