@@ -1,9 +1,12 @@
+import structlog
 from posthog.models import ScheduledChange
 from django.utils import timezone
 from posthog.models import FeatureFlag
 from django.db import transaction, OperationalError
 
 models = {"FeatureFlag": FeatureFlag}
+
+logger = structlog.get_logger(__name__)
 
 
 def process_scheduled_changes() -> None:
@@ -30,6 +33,7 @@ def process_scheduled_changes() -> None:
                     scheduled_change.save()
 
                 except Exception as e:
+                    logger.exception("Failed to process scheduled change", exc_info=e)
                     # Store the failure reason
                     scheduled_change.failure_reason = str(e)
                     scheduled_change.executed_at = timezone.now()
