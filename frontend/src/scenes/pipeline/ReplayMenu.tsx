@@ -27,6 +27,8 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IconCalendar } from '@posthog/icons'
 import { hogFunctionReplayLogic } from './hogFunctionReplayLogic'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { DateRange } from '~/queries/nodes/DataNode/DateRange'
+import { queryAllByAltText } from '@testing-library/dom'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -299,28 +301,19 @@ export function RunStatusIcon({
 }
 
 function RunsFilters({ id }: { id?: string | null }): JSX.Element {
-    // const logic = hogFunctionConfigurationLogic({ id })
-    const { dateRange, usingLatestRuns, loading } = { dateRange: { from: '2025-02-17', to: '2025-02-18' }, usingLatestRuns: false, loading: false } // useValues(logic)
-    const { setDateRange, loadRuns } = { setDateRange: (a, b) => {}, loadRuns: () => {} } // useActions(logic)
     const logic = hogFunctionReplayLogic({ id })
-    const { loadEvents } = useActions(logic)
+    const { eventsLoading, baseEventsQuery } = useValues(logic)
+    const { loadEvents, changeDateRange } = useActions(logic)
 
     return (
         <div className="flex items-center gap-2">
-            <LemonButton onClick={loadEvents} loading={loading} type="secondary" icon={<IconRefresh />} size="small">
+            <LemonButton onClick={loadEvents} loading={eventsLoading} type="secondary" icon={<IconRefresh />} size="small">
                 Refresh
             </LemonButton>
             <DateFilter
-                dateTo={dateRange.to}
-                dateFrom={dateRange.from}
-                disabledReason={usingLatestRuns ? 'Turn off "Show latest runs" to filter by data interval' : undefined}
-                onChange={(from, to) => setDateRange(from, to)}
-                allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
-                makeLabel={(key) => (
-                    <>
-                        <IconCalendar /> {key}
-                    </>
-                )}
+                dateFrom={baseEventsQuery.after ?? undefined}
+                dateTo={baseEventsQuery.before ?? undefined}
+                onChange={changeDateRange}
             />
         </div>
     )
@@ -330,21 +323,18 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
     const logic = hogFunctionReplayLogic({ id })
     const { events, eventsLoading } = useValues(logic)
 
-    const hasMoreRunsToLoad = false
     const loadOlderRuns = () => {}
     const retryRun = () => {}
 
-    console.log(events)
-
     return (
         <LemonTable
-            dataSource={events?.results ??[]}
+            dataSource={events?.results ?? []}
             loading={eventsLoading}
             loadingSkeletonRows={5}
             footer={
-                hasMoreRunsToLoad && (
+                events?.hasMore && (
                     <div className="flex items-center m-2">
-                        <LemonButton center fullWidth onClick={loadOlderRuns} loading={loading}>
+                        <LemonButton center fullWidth onClick={loadOlderRuns} loading={eventsLoading}>
                             Load more rows
                         </LemonButton>
                     </div>
