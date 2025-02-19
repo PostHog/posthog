@@ -87,22 +87,43 @@ class HostInfo(NamedTuple):
     host_cluster_type: str | None
     host_cluster_role: str | None
 
-    def task(self, fn: Callable[[Client], T]) -> Callable[[], T]:
-        raise NotImplementedError  # todo
+
+@dataclass(frozen=True)
+class Host:
+    info: HostInfo
+    pool: ChPool = dataclass.field(hash=False)
+
+    def build_task(self, fn: Callable[[Client], T], logger: logging.Logger | None = None) -> Callable[[], T]:
+        if logger is None:
+            logger = logging.getLogger(__name__)
+
+        def task():
+            with self.pool.get_client() as client:
+                logger.info("Executing %r on %r...", fn, self.info)
+                try:
+                    result = fn(client)
+                except Exception:
+                    logger.warn("Failed to execute %r on %r!", fn, self.info, exc_info=True)
+                    raise
+                else:
+                    logger.info("Successfully executed %r on %r.", fn, self.info)
+                return result
+
+        return task
 
 
-@dataclass
+@dataclass(frozen=True)
 class HostSet:
     executor: ThreadPoolExecutor
-    hosts: Set[HostInfo]
+    hosts: Set[Host]
 
     def any(self, fn: Callable[[Client], T]) -> tuple[HostInfo, Future[T]]:
         host = next(iter(self.hosts))
-        return self.executor.submit(host.task(fn))  # todo
+        return (host.info, self.executor.submit(host.build_task(fn)))
 
     def all(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         # todo: ability to limit concurrency
-        return FuturesMap({host: self.executor.submit(host.task(fn)) for host in self.hosts})
+        return FuturesMap({host: self.executor.submit(host.build_task(fn)) for host in self.hosts})
 
     def filter(self, fn: Callable[[HostInfo], bool]) -> HostSet:
         # todo: handle node role filtering for convenience
@@ -119,7 +140,7 @@ class HostSet:
         return self.filter(lambda host: host.shard_num is not None).group(lambda host: host.shard_num)
 
 
-@dataclass
+@dataclass(frozen=True)
 class HostGroup(Generic[K]):
     groups: Mapping[K, HostSet]
 
@@ -197,25 +218,6 @@ class ClickhouseCluster:
         self.__logger = logger
         self.__client_settings = client_settings
         self.hosts: HostSet
-
-    def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
-        pool = self.__pools.get(host)
-        if pool is None:
-            pool = self.__pools[host] = host.connection_info.make_pool(self.__client_settings)
-
-        def task():
-            with pool.get_client() as client:
-                self.__logger.info("Executing %r on %r...", fn, host)
-                try:
-                    result = fn(client)
-                except Exception:
-                    self.__logger.warn("Failed to execute %r on %r!", fn, host, exc_info=True)
-                    raise
-                else:
-                    self.__logger.info("Successfully executed %r on %r.", fn, host)
-                return result
-
-        return task
 
     @property
     def __hosts(self) -> set[HostInfo]:
