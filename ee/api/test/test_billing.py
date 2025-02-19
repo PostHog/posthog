@@ -747,29 +747,6 @@ class TestBillingAPI(APILicensedTest):
                 "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
             },
         )
-        # assert self.organization.usage == {
-        #     "events": {
-        #         "limit": None,
-        #         "todays_usage": 0,
-        #         "usage": 1000,
-        #     },
-        #     "recordings": {
-        #         "limit": None,
-        #         "todays_usage": 0,
-        #         "usage": 0,
-        #     },
-        #     "rows_synced": {
-        #         "limit": None,
-        #         "todays_usage": 0,
-        #         "usage": 0,
-        #     },
-        #     "feature_flag_requests": {
-        #         "limit": None,
-        #         "todays_usage": 0,
-        #         "usage": 0,
-        #     },
-        #     "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
-        # }
 
         self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
         self.organization.save()
