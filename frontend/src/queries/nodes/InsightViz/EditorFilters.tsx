@@ -231,7 +231,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   </Tooltip>
                               </div>
                           ),
-                          position: 'right',
                           component: CumulativeStickinessFilter as (props: EditorFilterProps) => JSX.Element | null,
                       }
                     : null,
