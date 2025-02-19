@@ -137,8 +137,6 @@ class PipelineNonDLT:
                 pa_memory_pool.release_unused()
                 gc.collect()
 
-                break
-
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
                 self._process_pa_table(pa_table=py_table, index=chunk_index)
