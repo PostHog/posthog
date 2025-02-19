@@ -64,7 +64,7 @@ class ConversationHistory:
     def get_from_cache(cls, session_id: str):
         """Get conversation history from cache"""
         cache = caches["default"]
-        key = f"max_conversation_{session_id}"
+        key = f"support_max_conversation_{session_id}"
         history = cache.get(key)
         if history is None:
             history = cls()
@@ -73,18 +73,18 @@ class ConversationHistory:
     def save_to_cache(self, session_id: str, timeout: int = 3600):  # 1 hour default
         """Save conversation history to cache"""
         cache = caches["default"]
-        key = f"max_conversation_{session_id}"
+        key = f"support_max_conversation_{session_id}"
         cache.set(key, self, timeout=timeout)
 
     @classmethod
     def _get_bucket_key(cls, limit_type: RateLimitType) -> str:
         """Get Redis key for a specific rate limit bucket"""
-        return f"max_rate_limit_bucket_{limit_type}"
+        return f"support_max_rate_limit_bucket_{limit_type}"
 
     @classmethod
     def _get_last_update_key(cls, limit_type: RateLimitType) -> str:
         """Get Redis key for tracking last bucket update time"""
-        return f"max_rate_limit_last_update_{limit_type}"
+        return f"support_max_rate_limit_last_update_{limit_type}"
 
     @classmethod
     def check_rate_limits(cls) -> tuple[bool, Optional[int], Optional[RateLimitType]]:
