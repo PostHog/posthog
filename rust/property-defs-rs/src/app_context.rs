@@ -29,6 +29,7 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
 
+
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness
             .register("worker".to_string(), Duration::seconds(60))

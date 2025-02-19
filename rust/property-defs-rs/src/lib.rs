@@ -19,6 +19,7 @@ pub mod app_context;
 pub mod config;
 pub mod metrics_consts;
 pub mod types;
+pub mod api;
 
 pub async fn update_consumer_loop(
     config: Config,

@@ -107,6 +107,18 @@ pub struct Config {
     // once rollout is complete.
     #[envconfig(default = "opt_in")]
     pub filter_mode: TeamFilterMode,
+
+    //
+    // New Config values used in project property defs REST API query builder
+    //
+    #[envconfig(default = "TODO_ELI")]
+    pub table_name: String,
+
+    #[envconfig(default = "posthog_propertydefinition")]
+    pub prop_defs_table_name: String,
+
+    #[envconfig(default = "posthog_eventproperty")]
+    pub event_props_table_name: String,
 }
 
 #[derive(Clone)]
