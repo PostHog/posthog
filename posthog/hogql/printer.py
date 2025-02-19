@@ -14,7 +14,7 @@ from posthog.clickhouse.materialized_columns import (
 )
 from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
-from posthog.hogql.ast import StringType
+from posthog.hogql.ast import StringType, Constant
 from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
@@ -1145,6 +1145,7 @@ class _Printer(Visitor):
                         relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
                         and len(node.args) == 1
                         and isinstance(node.args[0].type, StringType)
+                        and isinstance(node.args[0], Constant)
                     ):
                         try:
                             _ = parser.isoparse(node.args[0].value)
