@@ -1731,20 +1731,22 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
 export type FileSystemType =
-    | 'feature_flag'
-    | 'insight'
+    | 'aichat'
+    | 'broadcast'
     | 'dashboard'
+    | 'destination'
     | 'experiment'
+    | 'feature_flag'
+    | 'feature'
+    | 'folder'
+    | 'insight'
     | 'notebook'
     | 'repl'
-    | 'survey'
-    | 'sql'
-    | 'source'
-    | 'destination'
     | 'site_app'
+    | 'source'
+    | 'sql'
+    | 'survey'
     | 'transformation'
-    | 'folder'
-    | 'aichat'
 
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
@@ -1843,7 +1845,7 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
 export enum ExperimentMetricType {
     COUNT = 'count',
     CONTINUOUS = 'continuous',
-    FUNNEL = 'funnel',
+    BINOMIAL = 'binomial',
 }
 
 export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'

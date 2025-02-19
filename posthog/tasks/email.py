@@ -353,6 +353,57 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     send_message_to_all_staff_users(message)
 
 
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_auth_enabled_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"2fa_enabled_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="2fa_enabled",
+        subject="You've enabled 2FA protection",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_auth_disabled_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"2fa_disabled_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="2fa_disabled",
+        subject="You've disabled 2FA protection",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"2fa_backup_code_used_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="2fa_backup_code_used",
+        subject="A backup code was used for your account",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send(send_async=False)
+
+
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
     # Get all users for organization that haven't ingested any events
     users = []

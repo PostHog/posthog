@@ -776,7 +776,7 @@ class ExperimentMetricMath(StrEnum):
 class ExperimentMetricType(StrEnum):
     COUNT = "count"
     CONTINUOUS = "continuous"
-    FUNNEL = "funnel"
+    BINOMIAL = "binomial"
 
 
 class ExperimentSignificanceCode(StrEnum):
@@ -816,20 +816,22 @@ class FailureMessage(BaseModel):
 
 
 class FileSystemType(StrEnum):
-    FEATURE_FLAG = "feature_flag"
-    INSIGHT = "insight"
+    AICHAT = "aichat"
+    BROADCAST = "broadcast"
     DASHBOARD = "dashboard"
+    DESTINATION = "destination"
     EXPERIMENT = "experiment"
+    FEATURE_FLAG = "feature_flag"
+    FEATURE = "feature"
+    FOLDER = "folder"
+    INSIGHT = "insight"
     NOTEBOOK = "notebook"
     REPL = "repl"
-    SURVEY = "survey"
-    SQL = "sql"
-    SOURCE = "source"
-    DESTINATION = "destination"
     SITE_APP = "site_app"
+    SOURCE = "source"
+    SQL = "sql"
+    SURVEY = "survey"
     TRANSFORMATION = "transformation"
-    FOLDER = "folder"
-    AICHAT = "aichat"
 
 
 class FilterLogicalOperator(StrEnum):

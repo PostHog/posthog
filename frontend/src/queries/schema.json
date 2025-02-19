@@ -7189,7 +7189,7 @@
             "type": "string"
         },
         "ExperimentMetricType": {
-            "enum": ["count", "continuous", "funnel"],
+            "enum": ["count", "continuous", "binomial"],
             "type": "string"
         },
         "ExperimentQuery": {
@@ -7508,20 +7508,22 @@
         },
         "FileSystemType": {
             "enum": [
-                "feature_flag",
-                "insight",
+                "aichat",
+                "broadcast",
                 "dashboard",
+                "destination",
                 "experiment",
+                "feature_flag",
+                "feature",
+                "folder",
+                "insight",
                 "notebook",
                 "repl",
-                "survey",
-                "sql",
-                "source",
-                "destination",
                 "site_app",
-                "transformation",
-                "folder",
-                "aichat"
+                "source",
+                "sql",
+                "survey",
+                "transformation"
             ],
             "type": "string"
         },

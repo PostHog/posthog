@@ -6,6 +6,7 @@ import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { projectLogic } from 'scenes/projectLogic'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
@@ -167,7 +168,11 @@ export const maxLogic = kea<maxLogicType>([
         },
         askMax: async ({ prompt, generationAttempt }, breakpoint) => {
             if (generationAttempt === 0) {
-                actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
+                actions.addMessage({
+                    type: AssistantMessageType.Human,
+                    content: prompt,
+                    status: 'completed',
+                })
             }
 
             try {
@@ -305,11 +310,18 @@ export const maxLogic = kea<maxLogicType>([
         scrollThreadToBottom: () => {
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
-                const mainEl = document.querySelector('main')
-                mainEl?.scrollTo({
-                    top: mainEl?.scrollHeight,
-                    behavior: 'smooth',
-                })
+                const threadEl = document.getElementsByClassName('@container/thread')[0]
+                let scrollableEl = threadEl?.parentElement // .Navigation3000__scene or .SidePanel3000__content
+                if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
+                    // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
+                    scrollableEl = scrollableEl.parentElement
+                }
+                if (scrollableEl) {
+                    scrollableEl.scrollTo({
+                        top: threadEl.scrollHeight,
+                        behavior: 'smooth',
+                    })
+                }
             })
         },
     })),
@@ -397,6 +409,7 @@ export const maxLogic = kea<maxLogicType>([
             actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
         }
     }),
+    permanentlyMount(), // Prevent state from being reset when Max is unmounted, especially key in the side panel
 ])
 
 /**
