@@ -237,7 +237,7 @@ def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table
         return
 
     column = table[normalize_column_name(incremental_field_name)]
-    numpy_arr = column.combine_chunks().to_pandas().to_numpy()
+    numpy_arr = column.combine_chunks().to_pandas().dropna().to_numpy()
 
     # TODO(@Gilbert09): support different operations here (e.g. min)
     last_value = numpy_arr.max()
