@@ -551,9 +551,6 @@ export function LineGraph_({
                 size: 12,
                 weight: 'normal',
             },
-            callback: function (_, index) {
-                return labels[index]
-            },
         }
         const gridOptions: Partial<GridLineOptions> = {
             color: (context) => {
