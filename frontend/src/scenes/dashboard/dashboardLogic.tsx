@@ -231,8 +231,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             filters,
             variables,
         }),
-        applyTemporary: true,
-        cancelTemporary: true,
+        previewTemporaryFilters: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
@@ -579,8 +578,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     ...filters,
                 }),
-                loadDashboardSuccess: (state, { dashboard, payload }) =>
-                    dashboard
+                loadDashboardSuccess: (state, { dashboard, payload }) => {
+                    const result = dashboard
                         ? {
                               ...state,
                               // don't update filters if we're previewing
@@ -593,7 +592,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         breakdown_filter: dashboard?.filters.breakdown_filter || null,
                                     }),
                           }
-                        : state,
+                        : state
+
+                    return result
+                },
             },
         ],
         dashboard: [
@@ -806,17 +808,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
         filtersUpdated: [
             (s) => [s.temporaryFilters, s.dashboard],
             (temporaryFilters, dashboard) => {
+                // both aren't falsy && both aren't equal
                 const isDateFromUpdated =
-                    !!(temporaryFilters.date_from || dashboard?.filters.date_from) &&
+                    !(!temporaryFilters.date_from && !dashboard?.filters.date_from) &&
                     temporaryFilters.date_from !== dashboard?.filters.date_from
+
                 const isDateToUpdated =
-                    !!(temporaryFilters.date_to || dashboard?.filters.date_to) &&
+                    !(!temporaryFilters.date_to && !dashboard?.filters.date_to) &&
                     temporaryFilters.date_to !== dashboard?.filters.date_to
+
                 const isPropertiesUpdated =
-                    !!(temporaryFilters.properties || dashboard?.filters.properties) &&
-                    JSON.stringify(temporaryFilters.properties) !== JSON.stringify(dashboard?.filters.properties)
+                    JSON.stringify(temporaryFilters.properties ?? []) !==
+                    JSON.stringify(dashboard?.filters.properties ?? [])
+
                 const isBreakdownUpdated =
-                    !!(temporaryFilters.breakdown_filter || dashboard?.filters.breakdown_filter) &&
+                    !(!temporaryFilters.breakdown_filter && !dashboard?.filters.breakdown_filter) &&
                     temporaryFilters.breakdown_filter !== dashboard?.filters.breakdown_filter
 
                 return isDateFromUpdated || isDateToUpdated || isPropertiesUpdated || isBreakdownUpdated
@@ -1416,6 +1422,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setBreakdownFilter(values.filters.breakdown_filter ?? null)
                     actions.resetVariables()
 
+                    // reset tile data by relaoding dashboard
+                    actions.loadDashboard({ action: 'preview' })
+
                     // also reset layout to that we stored in dashboardLayouts
                     // this is done in the reducer for dashboard
                 } else if (source === DashboardEventSource.DashboardHeaderSaveDashboard) {
@@ -1511,17 +1520,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 insights_fetched_cached: 0,
             })
         },
-        applyTemporary: () => {
+        previewTemporaryFilters: () => {
             actions.loadDashboard({ action: 'preview' })
-        },
-        cancelTemporary: () => {
-            // reset to values from dashboard
-            actions.setDates(values.dashboard?.filters.date_from ?? null, values.dashboard?.filters.date_to ?? null)
-            actions.setProperties(values.dashboard?.filters.properties ?? null)
-            actions.setBreakdownFilter(values.dashboard?.filters.breakdown_filter ?? null)
-
-            actions.loadDashboard({ action: 'preview' })
-            actions.setDashboardMode(null, null)
         },
         setProperties: () => {
             if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
