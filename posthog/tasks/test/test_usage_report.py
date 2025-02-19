@@ -355,6 +355,22 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 team=self.org_1_team_1,
             )
 
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$ai_generation",
+                properties={
+                    "$ai_trace_id": uuid4(),
+                    "$ai_input_tokens": 100,
+                    "$ai_output_tokens": 100,
+                    "$ai_input_cost_usd": 0.01,
+                    "$ai_output_cost_usd": 0.01,
+                    "$ai_total_cost_usd": 0.02,
+                },
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+
             # Add events for each SDK
             sdks = [
                 "web",
@@ -555,6 +571,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
                     "exceptions_captured_in_period": 0,
+                    "ai_event_count_in_period": 1,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "date": "2022-01-09",
@@ -617,6 +634,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "ai_event_count_in_period": 1,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -671,6 +689,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "ai_event_count_in_period": 0,
                         },
                     },
                 },
@@ -748,6 +767,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "exceptions_captured_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
+                    "ai_event_count_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -808,6 +828,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
+                            "ai_event_count_in_period": 0,
                         }
                     },
                 },
@@ -1630,6 +1651,105 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["exceptions_captured_in_period"] == 7
         assert org_2_report["teams"][str(self.org_2_team_3.pk)]["exceptions_captured_in_period"] == 7
+
+
+@freeze_time("2022-01-10T10:00:00Z")
+class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_llm_observability_usage_metrics(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        # Create AI Generation events in period
+        for i in range(5):
+            _create_event(
+                distinct_id="test_id",
+                event="$ai_generation",
+                properties={
+                    "$ai_trace_id": str(uuid4()),
+                    "$ai_model": "gpt-4o",
+                    "$ai_provider": "openai",
+                    "$ai_input_tokens": 100,
+                    "$ai_output_tokens": 100,
+                    "$ai_input_cost_usd": 0.01,
+                    "$ai_output_cost_usd": 0.01,
+                    "$ai_total_cost_usd": 0.02,
+                },
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_1,
+            )
+
+        # Create AI Span And Trace events in period
+        _create_event(
+            distinct_id="test_id",
+            event="$ai_span",
+            properties={
+                "$ai_trace_id": str(uuid4()),
+                "$ai_span_id": str(uuid4()),
+            },
+            timestamp=now() - relativedelta(hours=1),
+            team=self.org_1_team_1,
+        )
+
+        _create_event(
+            distinct_id="test_id",
+            event="$ai_trace",
+            properties={
+                "$ai_trace_id": str(uuid4()),
+            },
+            timestamp=now() - relativedelta(hours=1),
+            team=self.org_1_team_1,
+        )
+
+        # Create some out of period events that shouldn't be counted
+        _create_event(
+            distinct_id="test_id",
+            event="$ai_generation",
+            properties={
+                "$ai_trace_id": str(uuid4()),
+                "$ai_model": "gpt-4o",
+                "$ai_provider": "openai",
+                "$ai_input_tokens": 100,
+                "$ai_output_tokens": 100,
+                "$ai_input_cost_usd": 0.01,
+                "$ai_output_cost_usd": 0.01,
+                "$ai_total_cost_usd": 0.02,
+            },
+            timestamp=now() - relativedelta(days=2),
+            team=self.org_1_team_1,
+        )
+
+        # Create some non-AI events that shouldn't be counted
+        _create_event(
+            distinct_id="test_id",
+            event="$pageview",
+            timestamp=now() - relativedelta(hours=1),
+            team=self.org_1_team_1,
+        )
+
+        flush_persons_and_events()
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["ai_event_count_in_period"] == 7
+        assert org_1_report["teams"]["3"]["ai_event_count_in_period"] == 7
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
