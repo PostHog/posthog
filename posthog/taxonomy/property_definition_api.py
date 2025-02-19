@@ -570,7 +570,7 @@ class PropertyDefinitionViewSet(
                     EnterprisePropertyDefinition.objects.alias(
                         effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
                     )
-                    .filter(id=id, effective_project_id=self.project_id)
+                    .filter(id=id, effective_project_id=self.project_id)  # type: ignore
                     .first()
                 )
                 if enterprise_property:
