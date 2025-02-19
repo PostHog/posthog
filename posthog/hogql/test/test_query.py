@@ -609,6 +609,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_hogql_unnecessary_ifnull(self):
+        # https://github.com/PostHog/posthog/issues/23077
+        query = """
+            select toDate(timestamp) as timestamp, count()
+            from events
+            where timestamp >= addDays(today(), -10)
+            group by timestamp
+            limit 100
+        """
+        with freeze_time("2025-02-15 22:52:00"):
+            response = execute_hogql_query(query, team=self.team, pretty=False)
+            self.assertEqual(response.results, [])
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_arrays(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             response = execute_hogql_query(
