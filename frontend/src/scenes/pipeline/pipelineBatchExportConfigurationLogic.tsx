@@ -7,7 +7,14 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaBatchExportTable } from '~/queries/schema/schema-general'
-import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
+import {
+    BatchExportConfiguration,
+    BatchExportConfigurationTest,
+    BatchExportConfigurationTestStep,
+    BatchExportService,
+    PipelineNodeTab,
+    PipelineStage,
+} from '~/types'
 
 import { humanizeBatchExportName } from './batch-exports/utils'
 import { DESTINATION_TYPES } from './destinations/constants'
