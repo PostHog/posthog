@@ -19,7 +19,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
+import {
+    AnyPropertyFilter,
+    BATCH_EXPORT_SERVICE_NAMES,
+    BatchExportConfigurationTest,
+    BatchExportConfigurationTestStep,
+    BatchExportService,
+} from '~/types'
 
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './batch-exports/BatchExportEditForm'
 import { BatchExportConfigurationForm } from './batch-exports/types'
@@ -351,7 +357,12 @@ export function BatchExportConfigurationTests({
     batchExportConfigTestLoading,
     runningStep,
     runBatchExportConfigTestStep,
-}: BatchExportConfigurationTestsProps): JSX.Element {
+}: {
+    batchExportConfigTest: BatchExportConfigurationTest
+    batchExportConfigTestLoading: boolean
+    runningStep: number | null
+    runBatchExportConfigTestStep: (step: any) => void
+}): JSX.Element | null {
     if (!batchExportConfigTest && batchExportConfigTestLoading) {
         return (
             <div className="flex items-center justify-center p-4">
@@ -364,15 +375,15 @@ export function BatchExportConfigurationTests({
         return null
     }
 
-    const renderStatusIcon = (step, index): JSX.Element => {
+    const renderStatusIcon = (step: BatchExportConfigurationTestStep, index: number): JSX.Element => {
         if (!step.result || runningStep === index) {
             return <Spinner />
         }
 
         return step.result.status === 'Passed' ? (
-            <IconCheckCircle className="text-green-500 shrink-0" size={16} />
+            <IconCheckCircle className="text-green-500 shrink-0" />
         ) : (
-            <IconX className="text-red-500 shrink-0" size={16} />
+            <IconX className="text-red-500 shrink-0" />
         )
     }
 
@@ -387,7 +398,7 @@ export function BatchExportConfigurationTests({
                 </div>
                 <LemonButton
                     onClick={() => runBatchExportConfigTestStep(0)}
-                    disabled={runningStep}
+                    disabled={runningStep === null}
                     size="small"
                     type="primary"
                 >

@@ -442,7 +442,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
-        setRunningStep: (step: number) => ({ step }),
+        setRunningStep: (step: number | null) => ({ step }),
     }),
     loaders(({ props, actions, values }) => ({
         batchExportConfig: [
@@ -505,10 +505,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     if (props.service) {
                         try {
                             return await api.batchExports.test(props.service)
-                        } catch (error) {
-                            if (error.status === 404) {
-                                return null
-                            }
+                        } catch {
+                            return null
                         }
                     }
                     return null
@@ -519,6 +517,10 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             null as BatchExportConfigurationTestStep | null,
             {
                 runBatchExportConfigTestStep: async (step) => {
+                    if (!values.batchExportConfigTest) {
+                        return null
+                    }
+
                     actions.setRunningStep(step)
                     if (step === 0) {
                         // TODO: Allow re-running steps that failed
@@ -542,7 +544,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         type: destination,
                         config: config,
                     }
-                    const data: Partial<BatchExportConfiguration> = {
+                    const data = {
                         paused,
                         name,
                         interval,
@@ -715,9 +717,14 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                 .findMounted({ types: DESTINATION_TYPES })
                 ?.actions.updateBatchExportConfig(batchExportConfig)
         },
-        runBatchExportConfigTestStepSuccess: ({ step }) => {
+        runBatchExportConfigTestStepSuccess: ({ batchExportConfigTestStep }) => {
+            if (!values.batchExportConfigTest) {
+                return
+            }
+
+            const step = batchExportConfigTestStep || values.batchExportConfigTestStep
             if (!step) {
-                step = values.batchExportConfigTestStep
+                return
             }
 
             const index = values.batchExportConfigTest.steps.findIndex((item) => item.name === step.name)
@@ -725,7 +732,11 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             if (index > -1) {
                 values.batchExportConfigTest.steps[index] = step
 
-                if (step.result.status === 'Passed' && index < values.batchExportConfigTest.steps.length - 1) {
+                if (
+                    step.result &&
+                    step.result.status === 'Passed' &&
+                    index < values.batchExportConfigTest.steps.length - 1
+                ) {
                     actions.runBatchExportConfigTestStep(index + 1)
                 } else {
                     actions.setRunningStep(null)
@@ -733,6 +744,10 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             }
         },
         runBatchExportConfigTestStepFailure: () => {
+            if (!values.batchExportConfigTest || !values.runningStep) {
+                return
+            }
+
             values.batchExportConfigTest.steps[values.runningStep].result = {
                 status: 'Failed',
                 message: `The batch export configuration could not be correctly serialized. Required fields may be missing or have invalid values`,

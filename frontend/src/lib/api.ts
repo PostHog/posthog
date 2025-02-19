@@ -2404,10 +2404,7 @@ const api = {
         async test(destination: BatchExportService['type']): Promise<BatchExportConfigurationTest> {
             return await new ApiRequest().batchExports().withAction('test').create({ data: { destination } })
         },
-        async runTestStep(
-            step: number,
-            data: Partial<BatchExportConfiguration>
-        ): Promise<BatchExportConfigurationTestStep> {
+        async runTestStep(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
             return await new ApiRequest()
                 .batchExports()
                 .withAction('run_test_step')
