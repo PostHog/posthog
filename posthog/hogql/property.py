@@ -91,7 +91,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
-            effective_project_id=team.project_id,
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.PERSON,
         )
@@ -99,7 +99,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
-            effective_project_id=team.project_id,
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=property.group_type_index,
@@ -142,7 +142,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
-            effective_project_id=team.project_id,
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.EVENT,
         )

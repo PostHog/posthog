@@ -43,7 +43,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         )
         .filter(
-            effective_project_id=context.team.project_id,
+            effective_project_id=context.team.project_id,  # type: ignore
             name__in=property_finder.event_properties,
             type__in=[None, PropertyDefinition.Type.EVENT],
         )
@@ -58,7 +58,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         )
         .filter(
-            effective_project_id=context.team.project_id,
+            effective_project_id=context.team.project_id,  # type: ignore
             name__in=property_finder.person_properties,
             type=PropertyDefinition.Type.PERSON,
         )
@@ -77,7 +77,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
                 effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
             )
             .filter(
-                effective_project_id=context.team.project_id,
+                effective_project_id=context.team.project_id,  # type: ignore
                 name__in=properties,
                 type=PropertyDefinition.Type.GROUP,
                 group_type_index=group_id,

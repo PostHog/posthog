@@ -573,7 +573,7 @@ def get_hogql_autocomplete(
                                                 "project_id", "team_id", output_field=models.BigIntegerField()
                                             )
                                         ).filter(
-                                            effective_project_id=context.team.project_id,
+                                            effective_project_id=context.team.project_id,  # type: ignore
                                             name__contains=match_term,
                                             type=property_type,
                                         )
