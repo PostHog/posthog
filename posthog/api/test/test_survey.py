@@ -52,6 +52,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["name"] == "Notebooks beta release survey"
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
+        assert response_data["schedule"] == "once"
         assert response_data["questions"] == [
             {
                 "type": "open",
@@ -137,6 +138,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["name"] == "Notebooks beta release survey"
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
+        assert response_data["schedule"] == "once"
         assert response_data["questions"] == [
             {
                 "type": "open",
@@ -226,6 +228,7 @@ class TestSurvey(APIBaseTest):
         assert FeatureFlag.objects.filter(id=response_data["targeting_flag"]["id"]).exists()
         self.assertNotEqual(response_data["targeting_flag"]["key"], "survey-targeting-power-users-survey")
         assert re.match(r"^survey-targeting-[a-z0-9]+$", response_data["targeting_flag"]["key"])
+        assert response_data["schedule"] == "once"
 
         assert response_data["targeting_flag"]["filters"] == {
             "groups": [
@@ -1077,6 +1080,7 @@ class TestSurvey(APIBaseTest):
                     "name": "Notebooks power users survey",
                     "description": "Make notebooks better",
                     "type": "popover",
+                    "schedule": "once",
                     "questions": [
                         {
                             "type": "open",
