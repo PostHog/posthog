@@ -574,11 +574,11 @@ function parseAndMigrateQuery<T>(query: string): T | null {
     try {
         const parsedQuery = JSON.parse(query)
         // We made a database migration to support weighted and simple mean in retention tables.
-        // To do this we created a new column showMeanRetention and deprecated showMean.
+        // To do this we created a new column meanRetentionCalculation and deprecated showMean.
         // This ensures older URLs are parsed correctly.
         const retentionFilter = parsedQuery?.source?.retentionFilter
         if (retentionFilter && 'showMean' in retentionFilter && typeof retentionFilter.showMean === 'boolean') {
-            retentionFilter.showMeanRetention = retentionFilter.showMean ? 'simple' : 'none'
+            retentionFilter.meanRetentionCalculation = retentionFilter.showMean ? 'simple' : 'none'
             delete retentionFilter.showMean
         }
         return parsedQuery

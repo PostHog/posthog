@@ -72,7 +72,7 @@ def to_dict(query: BaseModel) -> dict:
                                 "showLabelsOnSeries",
                                 "showMean",
                                 "cumulative",
-                                "showMeanRetention",
+                                "meanRetentionCalculation",
                                 "yAxisScaleType",
                                 "hiddenLegendIndexes",
                                 "hiddenLegendBreakdowns",

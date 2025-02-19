@@ -11,7 +11,7 @@ export function RetentionMeanDropdown(): JSX.Element | null {
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const showMeanRetention = retentionFilter?.showMeanRetention ?? RETENTION_MEAN_NONE
+    const meanRetentionCalculation = retentionFilter?.meanRetentionCalculation ?? RETENTION_MEAN_NONE
 
     if (!canEditInsight) {
         return null
@@ -21,9 +21,9 @@ export function RetentionMeanDropdown(): JSX.Element | null {
         <LemonSelect
             className="w-44"
             size="small"
-            value={showMeanRetention}
-            onChange={(showMeanRetention) => {
-                updateInsightFilter({ showMeanRetention })
+            value={meanRetentionCalculation}
+            onChange={(meanRetentionCalculation) => {
+                updateInsightFilter({ meanRetentionCalculation })
             }}
             options={[
                 {

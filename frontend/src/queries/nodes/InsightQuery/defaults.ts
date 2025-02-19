@@ -55,7 +55,7 @@ const retentionQueryDefault: RetentionQuery = {
             type: 'events',
         },
         retentionType: 'retention_first_time',
-        showMeanRetention: 'simple',
+        meanRetentionCalculation: 'simple',
     },
 }
 
