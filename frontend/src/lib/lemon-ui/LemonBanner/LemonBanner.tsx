@@ -60,7 +60,6 @@ export function LemonBanner({
             )}
         >
             <div className="flex items-center gap-2 grow @md:!px-1">
-                <div className="w-[222.5px] h-[222.5px] rounded-full bg-red-500">TEST</div>
                 {!hideIcon &&
                     (type === 'warning' || type === 'error' ? (
                         <IconWarning className="LemonBanner__icon hidden @md:!block" />
