@@ -58,7 +58,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
     const unit = webVitalsTab === 'CLS' ? '' : 'ms'
 
     return (
-        <div className="w-full border rounded p-6 sm:w-[30%] flex flex-col gap-2 m-2">
+        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border">
             <span className="text-lg">
                 <strong>{LONG_METRIC_NAME[webVitalsTab]}</strong>
             </span>
