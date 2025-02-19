@@ -28,6 +28,7 @@
         "@parcel/config-default": "2.13.3",
         "@parcel/transformer-js": "2.13.3",
         "@parcel/transformer-react-refresh-wrap": "2.13.3",
+        "@posthog/root": "workspace:*",
         "@swc-node/register": "^1.9.1",
         "@swc/core": "^1.5.7",
         "@swc/jest": "^0.2.36",

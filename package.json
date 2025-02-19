@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/build",
+    "name": "@posthog/root",
     "description": "",
     "version": "0.0.0",
     "repository": {

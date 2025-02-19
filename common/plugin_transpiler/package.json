@@ -17,5 +17,8 @@
         "@types/node": "^18.11.9",
         "@posthog/esbuilder": "workspace:*",
         "typescript": "^5.2.2"
+    },
+    "devDependencies": {
+        "@posthog/root": "workspace:*"
     }
 }
