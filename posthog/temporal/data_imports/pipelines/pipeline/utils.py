@@ -472,6 +472,38 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
+        # Remove any NaN or infinite values from decimal columns
+        if issubclass(py_type, decimal.Decimal) or issubclass(py_type, float):
+
+            def _convert_to_decimal_or_none(x: decimal.Decimal | float | None) -> decimal.Decimal | None:
+                if x is None:
+                    return None
+
+                if (
+                    math.isnan(x)
+                    or (isinstance(x, decimal.Decimal) and x.is_infinite())
+                    or (isinstance(x, float) and np.isinf(x))
+                ):
+                    return None
+
+                if isinstance(x, decimal.Decimal):
+                    return x
+
+                return decimal.Decimal(str(x))
+
+            all_values = columnar_table_data[field_name].tolist()
+            all_values_as_decimals_or_none = [_convert_to_decimal_or_none(x) for x in all_values]
+
+            new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
+
+            number_arr = pa.array(
+                all_values_as_decimals_or_none,
+                type=new_field_type,
+            )
+            columnar_table_data[field_name] = number_arr
+            py_type = decimal.Decimal
+            unique_types_in_column = {decimal.Decimal}
+
         # If one type is a list, then make everything into a list
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:
             list_array = pa.array([s if isinstance(s, list) else [s] for s in columnar_table_data[field_name].tolist()])
@@ -515,33 +547,6 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             py_type = str
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
-
-        # Remove any NaN or infinite values from decimal columns
-        if issubclass(py_type, decimal.Decimal) or issubclass(py_type, float):
-            all_values = columnar_table_data[field_name].tolist()
-            has_decimals = any(isinstance(value, decimal.Decimal) for value in all_values)
-            if has_decimals:
-                new_field_type = _get_max_decimal_type(
-                    [value for value in all_values if isinstance(value, decimal.Decimal)]
-                )
-            else:
-                new_field_type = _python_type_to_pyarrow_type(py_type, val)
-
-            number_arr = pa.array(
-                [
-                    None
-                    if x is not None
-                    and (
-                        math.isnan(x)
-                        or (isinstance(x, decimal.Decimal) and x.is_infinite())
-                        or (isinstance(x, float) and np.isinf(x))
-                    )
-                    else x
-                    for x in columnar_table_data[field_name].tolist()
-                ],
-                type=new_field_type,
-            )
-            columnar_table_data[field_name] = number_arr
 
         # Remove any binary columns
         if issubclass(py_type, bytes):
