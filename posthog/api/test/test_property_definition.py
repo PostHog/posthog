@@ -465,7 +465,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization)
         PropertyDefinition.objects.create(team=other_team, name="other_team_prop", property_type="String")
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
+        response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Should return properties with either project_id or team_id matching
@@ -493,17 +493,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         )
 
         # Test retrieving legacy property
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{legacy_prop.id}")
+        response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{legacy_prop.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "legacy_team_prop")
 
         # Test retrieving newer property
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{newer_prop.id}")
+        response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{newer_prop.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "newer_prop")
 
         # Test retrieving other team's property should fail
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{other_team_prop.id}")
+        response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{other_team_prop.id}")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
