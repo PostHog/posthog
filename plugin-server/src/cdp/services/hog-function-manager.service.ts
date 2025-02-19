@@ -259,13 +259,11 @@ export class HogFunctionManagerService {
                     const decrypted = this.hub.encryptedFields.decrypt(encryptedInputsString || '')
                     item.encrypted_inputs = decrypted ? JSON.parse(decrypted) : {}
                 } catch (error) {
-                    status.error(
-                        '🍿',
-                        'Error parsing encrypted inputs:',
-                        typeof encryptedInputsString,
-                        encryptedInputsString,
-                        error
-                    )
+                    status.error('🍿', 'Error parsing encrypted inputs:', {
+                        encStrTyoe: typeof encryptedInputsString,
+                        encStr: encryptedInputsString,
+                        cause: error,
+                    })
                     captureException(error)
                     // Quietly fail - not ideal but better then crashing out
                 }
