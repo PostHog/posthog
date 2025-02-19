@@ -24,7 +24,15 @@ import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    ActivityScope,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyQuestionType,
+    SurveySchedule as SurveyScheduleEnum,
+    SurveyType,
+} from '~/types'
 
 import { SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
 import { SurveyDisplaySummary } from './Survey'
@@ -63,7 +71,7 @@ function SurveyResultsFilters(): JSX.Element {
 
 function SurveySchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
-    if (survey.schedule === 'recurring' && survey.iteration_count && survey.iteration_frequency_days) {
+    if (survey.schedule === SurveyScheduleEnum.Recurring && survey.iteration_count && survey.iteration_frequency_days) {
         return (
             <>
                 <span className="card-secondary">Schedule</span>
@@ -76,7 +84,7 @@ function SurveySchedule(): JSX.Element {
         )
     }
 
-    if (survey.schedule === 'once') {
+    if (survey.schedule === SurveyScheduleEnum.Once) {
         return (
             <>
                 <span className="card-secondary">Schedule</span>

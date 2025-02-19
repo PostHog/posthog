@@ -2773,7 +2773,11 @@ export interface SetInsightOptions {
     fromPersistentApi?: boolean
 }
 
-export type SurveySchedule = 'once' | 'recurring' | 'always'
+export enum SurveySchedule {
+    Once = 'once',
+    Recurring = 'recurring',
+    Always = 'always',
+}
 
 export interface Survey {
     /** UUID */

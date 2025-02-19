@@ -6,6 +6,8 @@ import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
+import { SurveySchedule } from '~/types'
+
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 
@@ -25,28 +27,28 @@ function SurveyIterationOptions(): JSX.Element {
                     value={survey.schedule}
                     onChange={(newValue) => {
                         setSurveyValue('schedule', newValue)
-                        if (newValue === 'once' || newValue === 'always') {
+                        if (newValue === SurveySchedule.Once || newValue === SurveySchedule.Always) {
                             setSurveyValue('iteration_count', 0)
                             setSurveyValue('iteration_frequency_days', 0)
-                        } else if (newValue === 'recurring') {
+                        } else if (newValue === SurveySchedule.Recurring) {
                             setSurveyValue('iteration_count', 1)
                             setSurveyValue('iteration_frequency_days', 90)
                         }
                     }}
                     options={[
                         {
-                            value: 'once',
+                            value: SurveySchedule.Once,
                             label: 'Once',
                             'data-attr': 'survey-iteration-frequency-days',
                         },
                         {
-                            value: 'recurring',
+                            value: SurveySchedule.Recurring,
                             label: 'Repeat on a schedule',
                             'data-attr': 'survey-iteration-frequency-days',
                             disabledReason: surveysRecurringScheduleDisabledReason,
                         },
                         {
-                            value: 'always',
+                            value: SurveySchedule.Always,
                             label: 'All the time',
                             'data-attr': 'survey-iteration-frequency-days',
                             disabledReason: survey.type !== 'widget' ? 'Only available for widget surveys' : undefined,

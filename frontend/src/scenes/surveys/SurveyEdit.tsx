@@ -45,6 +45,7 @@ import {
     SurveyMatchType,
     SurveyQuestion,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
 } from '~/types'
 
@@ -298,8 +299,8 @@ export default function SurveyEdit(): JSX.Element {
                                                     active={value === SurveyType.Popover}
                                                     onClick={() => {
                                                         onChange(SurveyType.Popover)
-                                                        if (survey.schedule === 'always') {
-                                                            setSurveyValue('schedule', 'once')
+                                                        if (survey.schedule === SurveySchedule.Always) {
+                                                            setSurveyValue('schedule', SurveySchedule.Once)
                                                         }
                                                     }}
                                                     title="Popover"
@@ -314,8 +315,8 @@ export default function SurveyEdit(): JSX.Element {
                                                     active={value === SurveyType.API}
                                                     onClick={() => {
                                                         onChange(SurveyType.API)
-                                                        if (survey.schedule === 'always') {
-                                                            setSurveyValue('schedule', 'once')
+                                                        if (survey.schedule === SurveySchedule.Always) {
+                                                            setSurveyValue('schedule', SurveySchedule.Once)
                                                         }
                                                     }}
                                                     title="API"
