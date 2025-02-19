@@ -1777,8 +1777,10 @@ export const experimentLogic = kea<experimentLogicType>([
                         return null
                     }
 
-                    if (metricResult.kind === NodeKind.ExperimentQuery) {
-                        const variantResults = metricResult.variants.find((variantData) => variantData.key === variant)
+                    if ('kind' in metricResult && metricResult.kind === NodeKind.ExperimentQuery) {
+                        const variantResults = (
+                            metricResult.variants as Array<{ key: string } & Record<string, any>>
+                        ).find((variantData) => variantData.key === variant)
                         // NOTE: Unfortunately, there does not seem to be a better way at the moment to figure out which type it is.
                         // Something we can improve later when we replace the ExperimentVariantTrendsBaseStats with a new type / interface.
                         if (variantResults && 'success_count' in variantResults) {
@@ -1838,19 +1840,17 @@ export const experimentLogic = kea<experimentLogicType>([
                         | null,
                     variant: string
                 ): number | null => {
-                    if (!metricResult) {
+                    if (!metricResult || !metricResult.variants) {
                         return null
                     }
 
-                    // Handle ExperimentMetric type
-                    if ('kind' in metricResult && metricResult.kind === NodeKind.ExperimentMetric) {
-                        const variantResults = metricResult.variants.find((variantData) => variantData.key === variant)
+                    if ('kind' in metricResult && metricResult.kind === NodeKind.ExperimentQuery) {
+                        const variantResults = (
+                            metricResult.variants as Array<{ key: string; exposure?: number }>
+                        ).find((variantData) => variantData.key === variant)
                         return variantResults?.exposure ?? null
                     }
 
-                    if (!metricResult.variants) {
-                        return null
-                    }
                     const variantResults = (metricResult.variants as TrendExperimentVariant[]).find(
                         (variantTrend: TrendExperimentVariant) => variantTrend.key === variant
                     )
