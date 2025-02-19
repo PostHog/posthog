@@ -1773,8 +1773,24 @@ export const experimentLogic = kea<experimentLogicType>([
                     variant: string,
                     type: 'primary' | 'secondary' = 'primary'
                 ): number | null => {
+                    if (!metricResult) {
+                        return null
+                    }
+
+                    if (metricResult.kind === NodeKind.ExperimentQuery) {
+                        const variantResults = metricResult.variants.find((variantData) => variantData.key === variant)
+                        // NOTE: Unfortunately, there does not seem to be a better way at the moment to figure out which type it is.
+                        // Something we can improve later when we replace the ExperimentVariantTrendsBaseStats with a new type / interface.
+                        if (variantResults && 'success_count' in variantResults) {
+                            return variantResults.success_count + variantResults.failure_count
+                        } else if (variantResults && 'count' in variantResults) {
+                            return variantResults.count
+                        }
+                        return null
+                    }
+
                     const usingMathAggregationType = type === 'primary' ? experimentMathAggregationForTrends() : false
-                    if (!metricResult || !metricResult.insight) {
+                    if (!metricResult.insight) {
                         return null
                     }
                     const variantResults = (metricResult.insight as TrendResult[]).find(
@@ -1822,7 +1838,17 @@ export const experimentLogic = kea<experimentLogicType>([
                         | null,
                     variant: string
                 ): number | null => {
-                    if (!metricResult || !metricResult.variants) {
+                    if (!metricResult) {
+                        return null
+                    }
+
+                    // Handle ExperimentMetric type
+                    if ('kind' in metricResult && metricResult.kind === NodeKind.ExperimentMetric) {
+                        const variantResults = metricResult.variants.find((variantData) => variantData.key === variant)
+                        return variantResults?.exposure ?? null
+                    }
+
+                    if (!metricResult.variants) {
                         return null
                     }
                     const variantResults = (metricResult.variants as TrendExperimentVariant[]).find(
@@ -1832,9 +1858,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return null
                     }
 
-                    const result = variantResults.absolute_exposure
-
-                    return result
+                    return variantResults.absolute_exposure
                 },
         ],
         getHighestProbabilityVariant: [
