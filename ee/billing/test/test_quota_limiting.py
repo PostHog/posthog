@@ -977,7 +977,7 @@ class TestQuotaLimiting(BaseTest):
 
             # Test medium-high trust score (10) - should get 3 day suspension
             with freeze_time("2021-01-25T00:00:00Z"):
-                self.organization.customer_trust_scores["feature_flag_requests"] = 10
+                self.organization.customer_trust_scores["feature_flags"] = 10
                 self.organization.usage["feature_flag_requests"] = {"usage": 110, "limit": 100}
                 self.organization.save()
                 self.redis_client.delete(f"@posthog/quota-limits/feature_flag_requests")

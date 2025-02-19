@@ -62,6 +62,13 @@ OVERAGE_BUFFER = {
     QuotaResource.FEATURE_FLAG_REQUESTS: 0,
 }
 
+TRUST_SCORE_KEYS = {
+    QuotaResource.EVENTS: "events",
+    QuotaResource.RECORDINGS: "recordings",
+    QuotaResource.ROWS_SYNCED: "rows_synced",
+    QuotaResource.FEATURE_FLAG_REQUESTS: "feature_flags",
+}
+
 
 class UsageCounters(TypedDict):
     events: int
@@ -148,7 +155,9 @@ def org_quota_limited_until(
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
     # Note: customer_trust_scores can initially be null. This should only happen after the initial migration and therefore
     # should be removed once all existing customers have this field set.
-    trust_score = organization.customer_trust_scores.get(resource.value) if organization.customer_trust_scores else 0
+    trust_score = (
+        organization.customer_trust_scores.get(TRUST_SCORE_KEYS[resource]) if organization.customer_trust_scores else 0
+    )
 
     # Flow for checking quota limits:
     # 1. ignore the limits
