@@ -100,15 +100,16 @@ class ExperimentQueryRunner(QueryRunner):
             case ExperimentMetricType.CONTINUOUS:
                 # If the metric type is continuous, we need to extract the value from the event property
                 metric_property = self.metric.metric_config.math_property
-                if is_data_warehouse_query:
-                    metric_value = parse_expr(
-                        "toFloat({property})", placeholders={"property": ast.Constant(value=metric_property)}
-                    )
+                if metric_property:
+                    if is_data_warehouse_query:
+                        metric_value = parse_expr(metric_property)
+                    else:
+                        metric_value = parse_expr(
+                            "toFloat(JSONExtractRaw(properties, {property}))",
+                            placeholders={"property": ast.Constant(value=metric_property)},
+                        )
                 else:
-                    metric_value = parse_expr(
-                        "toFloat(JSONExtractRaw(properties, {property}))",
-                        placeholders={"property": ast.Constant(value=metric_property)},
-                    )
+                    raise ValueError("Metric property is required for continuous metrics")
             case _:
                 # Else, we default to count
                 # We then just emit 1 so we can easily sum it up
