@@ -117,7 +117,7 @@ def test_can_run_s3_test_step_for_destination(client: HttpClient, bucket_name, m
 
     assert response.status_code == status.HTTP_200_OK, response.json()
 
-    destination_test_result = response.json()
+    destination_test = response.json()
 
-    assert destination_test_result["status"] == "Passed", destination_test_result
-    assert destination_test_result["message"] is None
+    assert destination_test["result"]["status"] == "Passed", destination_test
+    assert destination_test["result"]["message"] is None
