@@ -306,6 +306,17 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     }
 }
 
+export function getDefaultBinomialMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.BINOMIAL,
+        metric_config: {
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+        },
+    }
+}
+
 export function getDefaultCountMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
