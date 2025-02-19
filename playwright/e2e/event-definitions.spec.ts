@@ -16,6 +16,8 @@ test.describe('Event Definitions', () => {
 
         await expect(page.locator('[data-attr=event-definitions-table-view-recordings]')).toBeVisible()
         await page.locator('[data-attr=event-definitions-table-view-recordings]').click()
-        await expect(page.url()).toContain(eventName)
+        expect(page.url()).toMatch(/replay/)
+
+        await expect(page.locator('.UniversalFilterButton').first()).toContainText(eventName, { ignoreCase: true })
     })
 })
