@@ -1,8 +1,6 @@
 use chrono::{DateTime, Utc};
-use common_kafka::kafka_messages::internal_events::{
-    InternalEvent, InternalMessage, InternalPerson,
-};
-use common_kafka::kafka_producer::{send_iter_to_kafka, send_keyed_iter_to_kafka};
+use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
+use common_kafka::kafka_producer::send_iter_to_kafka;
 use sqlx::postgres::any::AnyConnectionBackend;
 use uuid::Uuid;
 
@@ -271,7 +269,8 @@ async fn send_issue_created_alert(
     team_id: i32,
     issue: Issue,
 ) -> Result<(), UnhandledError> {
-    let mut event = InternalEvent::new("$error_tracking_issue_created", issue.id, Utc::now(), None);
+    let mut event =
+        InternalEventEvent::new("$error_tracking_issue_created", issue.id, Utc::now(), None);
     event
         .insert_prop("name", issue.name)
         .expect("Strings are serializable");
@@ -279,7 +278,7 @@ async fn send_issue_created_alert(
         .insert_prop("description", issue.description)
         .expect("Strings are serializable");
 
-    let message = InternalMessage {
+    let message = InternalEvent {
         team_id,
         event,
         person: None,

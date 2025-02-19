@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use super::{deserialize_datetime, serialize_datetime};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{Error, Value};
+use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct InternalEvent {
+pub struct InternalEventEvent {
     pub uuid: String,
     pub event: String,
     pub distinct_id: String,
@@ -20,7 +20,7 @@ pub struct InternalEvent {
     pub url: Option<String>,
 }
 
-impl InternalEvent {
+impl InternalEventEvent {
     pub fn new(
         event: impl ToString,
         distinct_id: impl ToString,
@@ -49,7 +49,7 @@ impl InternalEvent {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct InternalPerson {
+pub struct InternalEventPerson {
     pub id: String,
     pub properties: HashMap<String, Value>,
     pub name: Option<String>,
@@ -57,8 +57,8 @@ pub struct InternalPerson {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct InternalMessage {
+pub struct InternalEvent {
     pub team_id: i32,
-    pub event: InternalEvent,
-    pub person: Option<InternalPerson>,
+    pub event: InternalEventEvent,
+    pub person: Option<InternalEventPerson>,
 }
