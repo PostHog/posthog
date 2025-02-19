@@ -408,10 +408,10 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
         1,
-        3,
+        2,  # Incorrect for parseDateTime64BestEffortOrNull but it is required because when we overload to toDateTime, we use this to figure out if timestamp is already in a function.
         tz_aware=True,
         overloads=[
-            ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime64"),
+            ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
             # ((ast.StringType,), "parseDateTime64"), # missing in version: 24.8.7.41
         ],
         signatures=[
@@ -438,28 +438,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toBool": HogQLFunctionMeta("toBool", 1, 1),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
-    "parseDateTime64BestEffortOrNull": HogQLFunctionMeta(
-        "parseDateTime64BestEffortOrNull",
-        1,
-        3,
-        tz_aware=True,
-        signatures=[
-            ((StringType(),), DateTimeType(nullable=True)),
-            ((StringType(), IntegerType()), DateTimeType(nullable=True)),
-            ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=True)),
-        ],
-    ),
-    "parseDateTimeBestEffort": HogQLFunctionMeta(
-        "parseDateTimeBestEffort",
-        1,
-        3,
-        tz_aware=True,
-        signatures=[
-            ((StringType(),), DateTimeType(nullable=False)),
-            ((StringType(), IntegerType()), DateTimeType(nullable=False)),
-            ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=False)),
-        ],
-    ),
+    "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     # dates and times
