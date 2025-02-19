@@ -48,11 +48,6 @@ class Survey(UUIDModel):
     )
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)
-    schedule = models.CharField(
-        max_length=40,
-        choices=Schedule.choices,
-        default=Schedule.ONCE,
-    )
     linked_flag = models.ForeignKey(
         "posthog.FeatureFlag",
         null=True,
@@ -213,6 +208,14 @@ class Survey(UUIDModel):
     )
     current_iteration = models.PositiveIntegerField(null=True)
     current_iteration_start_date = models.DateTimeField(null=True)
+    schedule = models.CharField(
+        max_length=40,
+        choices=Schedule.choices,
+        default=Schedule.ONCE,
+        null=True,
+        blank=True,
+    )
+
     actions = models.ManyToManyField(Action)
 
 
