@@ -25,9 +25,10 @@ FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY frontend/package.json frontend/tailwind.config.js frontend/babel.config.js frontend/webpack.config.js frontend/
 COPY frontend/bin/ frontend/bin/
+COPY ./bin/turbo ./bin/turbo
 COPY patches/ patches/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/eslint_rules/ common/eslint_rules/
@@ -61,7 +62,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /code
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY ./bin/turbo ./bin/turbo
 COPY ./patches ./patches
 COPY ./rust ./rust
 COPY ./common/esbuilder/ ./common/esbuilder/
