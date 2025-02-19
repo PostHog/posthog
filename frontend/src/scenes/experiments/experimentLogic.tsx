@@ -900,6 +900,7 @@ export const experimentLogic = kea<experimentLogicType>([
         refreshExperimentResults: async ({ forceRefresh }) => {
             actions.loadMetricResults(forceRefresh)
             actions.loadSecondaryMetricResults(forceRefresh)
+            actions.loadExposures(forceRefresh)
         },
         updateExperimentGoal: async () => {
             // Reset MDE to the recommended setting
@@ -1352,6 +1353,18 @@ export const experimentLogic = kea<experimentLogicType>([
                     )
 
                     return shouldStopExperiment
+                },
+            },
+        ],
+        exposures: [
+            null as any,
+            {
+                loadExposures: async (refresh: boolean = false) => {
+                    const query = {
+                        kind: NodeKind.ExperimentExposureQuery,
+                        experiment_id: props.experimentId,
+                    }
+                    return await performQuery(query, undefined, refresh)
                 },
             },
         ],
@@ -2088,6 +2101,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
+                    actions.loadExposures()
                 }
             }
         },
