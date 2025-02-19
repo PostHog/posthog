@@ -1883,6 +1883,7 @@ export interface ExperimentActionMetricConfig {
 
 export interface ExperimentDataWarehouseMetricConfig {
     kind: NodeKind.ExperimentDataWarehouseMetricConfig
+    name?: string
     table_name: string
     timestamp_field: string
     exposure_identifier_field: string

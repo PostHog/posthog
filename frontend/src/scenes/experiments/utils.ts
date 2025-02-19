@@ -410,6 +410,7 @@ export function metricConfigToFilter(
                 } as EventsNode,
             ],
             actions: [],
+            data_warehouse: [],
         }
     } else if (metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
         return {
@@ -424,6 +425,26 @@ export function metricConfigToFilter(
                     math_property: metric_config.math_property,
                     math_hogql: metric_config.math_hogql,
                     properties: metric_config.properties,
+                } as EventsNode,
+            ],
+            data_warehouse: [],
+        }
+    } else if (metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig) {
+        return {
+            events: [],
+            actions: [],
+            data_warehouse: [
+                {
+                    kind: NodeKind.EventsNode,
+                    type: 'data_warehouse',
+                    id: metric_config.table_name,
+                    name: metric_config.name,
+                    timestamp_field: metric_config.timestamp_field,
+                    exposure_identifier_field: metric_config.exposure_identifier_field,
+                    after_exposure_identifier_field: metric_config.after_exposure_identifier_field,
+                    math: metric_config.math,
+                    math_property: metric_config.math_property,
+                    math_hogql: metric_config.math_hogql,
                 } as EventsNode,
             ],
         }
@@ -459,6 +480,18 @@ export function filterToMetricConfig(
                 math_property: entity.math_property,
                 math_hogql: entity.math_hogql,
                 properties: entity.properties,
+            }
+        } else if (entity.type === 'data_warehouse') {
+            return {
+                kind: NodeKind.ExperimentDataWarehouseMetricConfig,
+                name: entity.name,
+                table_name: entity.id,
+                timestamp_field: entity.timestamp_field,
+                exposure_identifier_field: entity.exposure_identifier_field,
+                after_exposure_identifier_field: entity.after_exposure_identifier_field,
+                math: (entity.math as ExperimentMetricMath) || 'total',
+                math_property: entity.math_property,
+                math_hogql: entity.math_hogql,
             }
         }
     }

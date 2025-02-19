@@ -2267,6 +2267,7 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     math: Optional[ExperimentMetricMath] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    name: Optional[str] = None
     table_name: str
     timestamp_field: str
 

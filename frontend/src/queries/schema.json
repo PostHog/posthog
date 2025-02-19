@@ -6936,6 +6936,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "table_name": {
                     "type": "string"
                 },
