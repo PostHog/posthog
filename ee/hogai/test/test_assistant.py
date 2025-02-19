@@ -804,7 +804,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
             .compile()
         )
-        self.assertEqual(self.conversation.status, Conversation.Status.NOT_STARTED)
+        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
         with patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock:
 
             def assert_lock_status(_):
@@ -813,7 +813,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
             root_mock.return_value = RunnableLambda(assert_lock_status)
             self._run_assistant_graph(graph)
-            self.assertEqual(self.conversation.status, Conversation.Status.NOT_STARTED)
+            self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
 
     def test_conversation_saves_state_after_cancellation(self):
         graph = (
@@ -823,14 +823,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile()
         )
 
-        self.assertEqual(self.conversation.status, Conversation.Status.NOT_STARTED)
+        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
         with (
             patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock,
             patch("ee.hogai.root.nodes.RootNodeTools.run") as root_tool_mock,
         ):
 
             def assert_lock_status(_):
-                self.conversation.status = Conversation.Status.CANCELLING
+                self.conversation.status = Conversation.Status.CANCELING
                 self.conversation.save()
                 return messages.AIMessage(
                     content="",

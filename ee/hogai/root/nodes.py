@@ -106,10 +106,11 @@ class RootNode(AssistantNode):
             if isinstance(message, HumanMessage):
                 history.append(LangchainHumanMessage(content=message.content))
             elif isinstance(message, AssistantMessage):
-                # Filter out messages without a tool response.
+                # Filter out tool calls without a tool response, so the completion doesn't fail.
                 tool_calls = [
                     tool for tool in message.model_dump()["tool_calls"] or [] if tool["id"] in tool_result_messages
                 ]
+
                 history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls))
 
                 # Append associated tool call messages.

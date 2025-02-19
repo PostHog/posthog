@@ -72,6 +72,6 @@ class AssistantNode(ABC):
     def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         try:
             conversation = Conversation.objects.get(id=conversation_id)
-            return conversation.status == Conversation.Status.CANCELLING
+            return conversation.status == Conversation.Status.CANCELING
         except Conversation.DoesNotExist:
             return True

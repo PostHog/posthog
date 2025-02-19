@@ -83,8 +83,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
-        if conversation.status == Conversation.Status.CANCELLING:
-            raise ValidationError("Generation has already cancelled.")
-        conversation.status = Conversation.Status.CANCELLING
+        if conversation.status == Conversation.Status.CANCELING:
+            raise ValidationError("Generation has already been cancelled.")
+        conversation.status = Conversation.Status.CANCELING
         conversation.save()
         return Response(status=status.HTTP_204_NO_CONTENT)

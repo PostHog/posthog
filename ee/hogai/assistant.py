@@ -349,5 +349,5 @@ class Assistant:
             self._conversation.save()
             yield
         finally:
-            self._conversation.status = Conversation.Status.NOT_STARTED
+            self._conversation.status = Conversation.Status.IDLE
             self._conversation.save()
