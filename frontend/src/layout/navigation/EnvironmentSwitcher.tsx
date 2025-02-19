@@ -5,13 +5,12 @@ import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonMenuItem, LemonMenuOverlay, LemonMenuSection } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
-import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { AvailableFeature } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
@@ -152,21 +151,8 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
 }
 
 function determineProjectSwitchUrl(pathname: string, newTeamId: number): string {
-    let route = removeProjectIdIfPresent(pathname)
-    route = removeFlagIdIfPresent(route)
-
-    // List of routes that should redirect to project home
-    const redirectToHomeRoutes = ['/products', '/onboarding']
-
     const { currentTeam } = teamLogic.values
-    const { breadcrumbs } = breadcrumbsLogic.values
     const { sortedProjectsMap } = environmentSwitcherLogic.values
-
-    const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
-
-    if (shouldRedirectToHome) {
-        return urls.project(newTeamId) // Go to project home
-    }
 
     // Find the target team's project ID
     let targetTeamProjectId: number | null = null
@@ -178,18 +164,7 @@ function determineProjectSwitchUrl(pathname: string, newTeamId: number): string 
         }
     }
 
-    // If switching between projects (not just environments), redirect to parent path
-    if (currentTeam && targetTeamProjectId && currentTeam.project_id !== targetTeamProjectId) {
-        // Get the parent breadcrumb's path if it exists
-        const parentBreadcrumb = breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 2] : null
-        if (parentBreadcrumb?.path) {
-            return urls.project(newTeamId, parentBreadcrumb.path)
-        }
-        // If no parent path found, go to project home
-        return urls.project(newTeamId)
-    }
-
-    return urls.project(newTeamId, route)
+    return getProjectSwitchTargetUrl(pathname, newTeamId, currentTeam?.project_id, targetTeamProjectId)
 }
 
 function EnvironmentSwitcherSearch(): JSX.Element {
