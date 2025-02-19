@@ -73,7 +73,7 @@ jobs:
               run: |
                   npm install -g husky@7 # until we make <root>/package.json a build package
                   pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
-                  turbo --filter=@posthog/cyclotron build
+                  bin/turbo --filter=@posthog/cyclotron build
 
             - name: Check formatting with prettier
               run: pnpm --filter=@posthog/plugin-server prettier:check
@@ -172,7 +172,7 @@ jobs:
                   cd plugin-server
                   npm install -g husky@7 # until we make <root>/package.json a build package
                   pnpm --filter=@posthog/plugin-server... install --frozen-lockfile 
-                  turbo --filter=@posthog/cyclotron build
+                  bin/turbo --filter=@posthog/cyclotron build
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'
@@ -266,7 +266,7 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   pnpm --filter=@posthog/plugin-server... install --frozen-lockfile 
-                  turbo --filter=@posthog/plugin-server build
+                  bin/turbo --filter=@posthog/plugin-server build
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'

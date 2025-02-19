@@ -67,7 +67,6 @@
         "@posthog/products-early-access-features": "workspace:*",
         "@posthog/products-llm-observability": "workspace:*",
         "@posthog/products-messaging": "workspace:*",
-        "@posthog/root": "workspace:*",
         "@posthog/rrweb": "0.0.8",
         "@posthog/rrweb-plugin-console-record": "0.0.8",
         "@posthog/rrweb-types": "0.0.8",

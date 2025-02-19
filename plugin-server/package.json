@@ -109,7 +109,6 @@
         "0x": "^5.5.0",
         "@babel/cli": "^7.22.5",
         "@babel/types": "^7.20.2",
-        "@posthog/root": "workspace:*",
         "@sentry/types": "7.112.1",
         "@swc-node/register": "^1.10.9",
         "@swc/core": "^1.10.14",
