@@ -755,6 +755,15 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentExposureTimeSeries(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    days: list[str]
+    exposure_counts: list[float]
+    variant: str
+
+
 class ExperimentMetricMath(StrEnum):
     TOTAL = "total"
     SUM = "sum"
@@ -807,20 +816,22 @@ class FailureMessage(BaseModel):
 
 
 class FileSystemType(StrEnum):
-    FEATURE_FLAG = "feature_flag"
-    INSIGHT = "insight"
+    AICHAT = "aichat"
+    BROADCAST = "broadcast"
     DASHBOARD = "dashboard"
+    DESTINATION = "destination"
     EXPERIMENT = "experiment"
+    FEATURE_FLAG = "feature_flag"
+    FEATURE = "feature"
+    FOLDER = "folder"
+    INSIGHT = "insight"
     NOTEBOOK = "notebook"
     REPL = "repl"
-    SURVEY = "survey"
-    SQL = "sql"
-    SOURCE = "source"
-    DESTINATION = "destination"
     SITE_APP = "site_app"
+    SOURCE = "source"
+    SQL = "sql"
+    SURVEY = "survey"
     TRANSFORMATION = "transformation"
-    FOLDER = "folder"
-    AICHAT = "aichat"
 
 
 class FilterLogicalOperator(StrEnum):
@@ -1122,6 +1133,7 @@ class NodeKind(StrEnum):
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
+    EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
     EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
     EXPERIMENT_ACTION_METRIC_CONFIG = "ExperimentActionMetricConfig"
     EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
@@ -1257,7 +1269,17 @@ class QueryResponseAlternative5(BaseModel):
     stdout: Optional[str] = None
 
 
-class QueryResponseAlternative40(BaseModel):
+class QueryResponseAlternative14(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_range: DateRange
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
+
+
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1520,6 +1542,24 @@ class VizSpecificOptions(BaseModel):
     )
     ActionsPie: Optional[ActionsPie] = None
     RETENTION: Optional[RETENTION] = None
+
+
+class WebAnalyticsOrderByDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+class WebAnalyticsOrderByFields(StrEnum):
+    VISITORS = "Visitors"
+    VIEWS = "Views"
+    CLICKS = "Clicks"
+    BOUNCE_RATE = "BounceRate"
+    AVERAGE_SCROLL_PERCENTAGE = "AverageScrollPercentage"
+    SCROLL_GT80_PERCENTAGE = "ScrollGt80Percentage"
+    TOTAL_CONVERSIONS = "TotalConversions"
+    UNIQUE_CONVERSIONS = "UniqueConversions"
+    CONVERSION_RATE = "ConversionRate"
+    CONVERTING_USERS = "ConvertingUsers"
 
 
 class Sampling(BaseModel):
@@ -2221,14 +2261,24 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    distinct_id_field: str
-    id_field: str
+    after_exposure_identifier_field: str
+    exposure_identifier_field: str
     kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
     math: Optional[ExperimentMetricMath] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     table_name: str
     timestamp_field: str
+
+
+class ExperimentExposureQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_range: DateRange
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
 
 
 class FeaturePropertyFilter(BaseModel):
@@ -3482,6 +3532,28 @@ class CachedEventsQueryResponse(BaseModel):
     types: list[str]
 
 
+class CachedExperimentExposureQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    date_range: DateRange
+    is_cached: bool
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    timeseries: list[ExperimentExposureTimeSeries]
+    timezone: str
+    total_exposures: dict[str, float]
+
+
 class CachedFunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4569,6 +4641,18 @@ class ExperimentEventMetricConfig(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
 
 
+class ExperimentExposureQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: Optional[int] = None
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[ExperimentExposureQueryResponse] = None
+
+
 class ExperimentMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5198,7 +5282,7 @@ class QueryResponseAlternative13(BaseModel):
     variants: Union[list[ExperimentVariantTrendsBaseStats], list[ExperimentVariantFunnelsBaseStats]]
 
 
-class QueryResponseAlternative14(BaseModel):
+class QueryResponseAlternative15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5222,7 +5306,7 @@ class QueryResponseAlternative14(BaseModel):
     )
 
 
-class QueryResponseAlternative15(BaseModel):
+class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5249,7 +5333,7 @@ class QueryResponseAlternative15(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative18(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5270,7 +5354,7 @@ class QueryResponseAlternative18(BaseModel):
     )
 
 
-class QueryResponseAlternative19(BaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5296,7 +5380,7 @@ class QueryResponseAlternative19(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative20(BaseModel):
+class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5323,7 +5407,7 @@ class QueryResponseAlternative20(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative21(BaseModel):
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5353,7 +5437,7 @@ class QueryResponseAlternative21(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5377,7 +5461,7 @@ class QueryResponseAlternative22(BaseModel):
     )
 
 
-class QueryResponseAlternative23(BaseModel):
+class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5404,7 +5488,7 @@ class QueryResponseAlternative23(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative26(BaseModel):
+class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5425,7 +5509,7 @@ class QueryResponseAlternative26(BaseModel):
     )
 
 
-class QueryResponseAlternative27(BaseModel):
+class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5451,7 +5535,7 @@ class QueryResponseAlternative27(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative28(BaseModel):
+class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5476,7 +5560,7 @@ class QueryResponseAlternative28(BaseModel):
     )
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5501,7 +5585,7 @@ class QueryResponseAlternative31(BaseModel):
     )
 
 
-class QueryResponseAlternative32(BaseModel):
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5523,7 +5607,7 @@ class QueryResponseAlternative32(BaseModel):
     )
 
 
-class QueryResponseAlternative33(BaseModel):
+class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5545,7 +5629,7 @@ class QueryResponseAlternative33(BaseModel):
     )
 
 
-class QueryResponseAlternative35(BaseModel):
+class QueryResponseAlternative36(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5566,7 +5650,7 @@ class QueryResponseAlternative35(BaseModel):
     )
 
 
-class QueryResponseAlternative36(BaseModel):
+class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5587,7 +5671,7 @@ class QueryResponseAlternative36(BaseModel):
     )
 
 
-class QueryResponseAlternative38(BaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5613,7 +5697,7 @@ class QueryResponseAlternative38(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative41(BaseModel):
+class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5634,7 +5718,7 @@ class QueryResponseAlternative41(BaseModel):
     )
 
 
-class QueryResponseAlternative42(BaseModel):
+class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5655,7 +5739,7 @@ class QueryResponseAlternative42(BaseModel):
     )
 
 
-class QueryResponseAlternative43(BaseModel):
+class QueryResponseAlternative44(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5676,7 +5760,7 @@ class QueryResponseAlternative43(BaseModel):
     )
 
 
-class QueryResponseAlternative44(BaseModel):
+class QueryResponseAlternative45(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5888,6 +5972,7 @@ class WebExternalClicksTableQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebExternalClicksTableQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -5910,6 +5995,7 @@ class WebGoalsQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -5930,6 +6016,7 @@ class WebOverviewQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -5954,6 +6041,7 @@ class WebStatsTableQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -6560,7 +6648,7 @@ class PropertyGroupFilter(BaseModel):
     values: list[PropertyGroupFilterValue]
 
 
-class QueryResponseAlternative34(BaseModel):
+class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6807,6 +6895,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     percentile: WebVitalsPercentile
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebVitalsPathBreakdownQueryResponse] = None
@@ -7339,7 +7428,7 @@ class QueryResponseAlternative12(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats]
 
 
-class QueryResponseAlternative29(BaseModel):
+class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7355,7 +7444,7 @@ class QueryResponseAlternative29(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
-class QueryResponseAlternative30(BaseModel):
+class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7585,7 +7674,7 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7620,14 +7709,14 @@ class QueryResponseAlternative(
             QueryResponseAlternative13,
             QueryResponseAlternative14,
             QueryResponseAlternative15,
-            QueryResponseAlternative18,
-            Any,
+            QueryResponseAlternative16,
             QueryResponseAlternative19,
+            Any,
             QueryResponseAlternative20,
             QueryResponseAlternative21,
             QueryResponseAlternative22,
             QueryResponseAlternative23,
-            QueryResponseAlternative26,
+            QueryResponseAlternative24,
             QueryResponseAlternative27,
             QueryResponseAlternative28,
             QueryResponseAlternative29,
@@ -7638,13 +7727,14 @@ class QueryResponseAlternative(
             QueryResponseAlternative34,
             QueryResponseAlternative35,
             QueryResponseAlternative36,
-            QueryResponseAlternative38,
+            QueryResponseAlternative37,
             QueryResponseAlternative39,
             QueryResponseAlternative40,
             QueryResponseAlternative41,
             QueryResponseAlternative42,
             QueryResponseAlternative43,
             QueryResponseAlternative44,
+            QueryResponseAlternative45,
         ]
     ]
 ):
@@ -7665,14 +7755,14 @@ class QueryResponseAlternative(
         QueryResponseAlternative13,
         QueryResponseAlternative14,
         QueryResponseAlternative15,
-        QueryResponseAlternative18,
-        Any,
+        QueryResponseAlternative16,
         QueryResponseAlternative19,
+        Any,
         QueryResponseAlternative20,
         QueryResponseAlternative21,
         QueryResponseAlternative22,
         QueryResponseAlternative23,
-        QueryResponseAlternative26,
+        QueryResponseAlternative24,
         QueryResponseAlternative27,
         QueryResponseAlternative28,
         QueryResponseAlternative29,
@@ -7683,13 +7773,14 @@ class QueryResponseAlternative(
         QueryResponseAlternative34,
         QueryResponseAlternative35,
         QueryResponseAlternative36,
-        QueryResponseAlternative38,
+        QueryResponseAlternative37,
         QueryResponseAlternative39,
         QueryResponseAlternative40,
         QueryResponseAlternative41,
         QueryResponseAlternative42,
         QueryResponseAlternative43,
         QueryResponseAlternative44,
+        QueryResponseAlternative45,
     ]
 
 
@@ -7800,6 +7891,7 @@ class WebVitalsQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[Sampling] = None
@@ -8133,6 +8225,7 @@ class QueryRequest(BaseModel):
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
         ExperimentQuery,
+        ExperimentExposureQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebExternalClicksTableQuery,
@@ -8204,6 +8297,7 @@ class QuerySchemaRoot(
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
             ExperimentQuery,
+            ExperimentExposureQuery,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebExternalClicksTableQuery,
@@ -8249,6 +8343,7 @@ class QuerySchemaRoot(
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
         ExperimentQuery,
+        ExperimentExposureQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
         WebExternalClicksTableQuery,

@@ -5,9 +5,7 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "0669_file_system"),
-    ]
+    dependencies = [("posthog", "0670_querytabstate_querytabstate_unique_team_created_by")]
 
     operations = [
         migrations.AlterField(

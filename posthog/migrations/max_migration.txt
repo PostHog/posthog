@@ -1,1 +1,1 @@
-0670_alter_errortrackingissuefingerprintv2_issue
+0671_alter_errortrackingissuefingerprintv2_issue

@@ -5,11 +5,6 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.trends_statistics import (
-    are_results_significant,
-    calculate_credible_intervals,
-    calculate_probabilities,
-)
 from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
     are_results_significant_v2_count,
     calculate_credible_intervals_v2_count,
@@ -65,7 +60,7 @@ class ExperimentQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = self.experiment.get_stats_config("version") or 1
+        self.stats_version = 2
 
         self.date_range = self._get_date_range()
 
@@ -141,15 +136,31 @@ class ExperimentQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
+        exposure_query_select = [
+            ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
+            parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
+            parse_expr("min(timestamp) as first_exposure_time"),
+        ]
+        exposure_query_group_by = [ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])]
+        if is_data_warehouse_query:
+            exposure_metric_config = cast(ExperimentDataWarehouseMetricConfig, self.metric.metric_config)
+            exposure_query_select = [
+                *exposure_query_select,
+                ast.Alias(
+                    alias="exposure_identifier",
+                    expr=ast.Field(chain=[*exposure_metric_config.exposure_identifier_field.split(".")]),
+                ),
+            ]
+            exposure_query_group_by = [
+                *exposure_query_group_by,
+                ast.Field(chain=[*exposure_metric_config.exposure_identifier_field.split(".")]),
+            ]
+
         # First exposure query: One row per user-variant combination
         # Columns: distinct_id, variant, first_exposure_time
         # Finds when each user was first exposed to each experiment variant
         exposure_query = ast.SelectQuery(
-            select=[
-                ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
-                parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
-                parse_expr("min(timestamp) as first_exposure_time"),
-            ],
+            select=exposure_query_select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
@@ -188,7 +199,7 @@ class ExperimentQueryRunner(QueryRunner):
                     *test_accounts_filter,
                 ]
             ),
-            group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])],
+            group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
 
         match self.metric.metric_config:
@@ -204,8 +215,13 @@ class ExperimentQueryRunner(QueryRunner):
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
                         ),
                         ast.Alias(
-                            alias="entity_id",
-                            expr=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
+                            alias="after_exposure_identifier",
+                            expr=ast.Field(
+                                chain=[
+                                    metric_config.table_name,
+                                    *metric_config.after_exposure_identifier_field.split("."),
+                                ]
+                            ),
                         ),
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Alias(alias="value", expr=metric_value),
@@ -218,8 +234,13 @@ class ExperimentQueryRunner(QueryRunner):
                             alias="exposure_data",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
-                                    left=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
-                                    right=parse_expr("toString(exposure_data.entity_id)"),
+                                    left=ast.Field(
+                                        chain=[
+                                            metric_config.table_name,
+                                            *metric_config.after_exposure_identifier_field.split("."),
+                                        ]
+                                    ),
+                                    right=parse_expr("toString(exposure_data.exposure_identifier)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -309,6 +330,12 @@ class ExperimentQueryRunner(QueryRunner):
                         expr=ast.And(
                             exprs=[
                                 ast.CompareOperation(
+                                    left=parse_expr("toString(exposure_data.exposure_identifier)"),
+                                    right=parse_expr("toString(events_after_exposure.after_exposure_identifier)"),
+                                    op=ast.CompareOperationOp.Eq,
+                                )
+                                if is_data_warehouse_query
+                                else ast.CompareOperation(
                                     left=parse_expr("toString(exposure_data.entity_id)"),
                                     right=parse_expr("toString(events_after_exposure.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,
@@ -388,57 +415,44 @@ class ExperimentQueryRunner(QueryRunner):
         if not test_variants:
             raise ValueError("Test variants not found in experiment results")
 
-        # Statistical analysis
-        if self.stats_version == 2:
-            match self.metric.metric_type:
-                case ExperimentMetricType.CONTINUOUS:
-                    probabilities = calculate_probabilities_v2_continuous(
-                        control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                    )
-                    significance_code, p_value = are_results_significant_v2_continuous(
-                        control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                        probabilities=probabilities,
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
-                case ExperimentMetricType.COUNT:
-                    probabilities = calculate_probabilities_v2_count(
-                        cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                    )
-                    significance_code, p_value = are_results_significant_v2_count(
-                        cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                        probabilities,
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
-                case ExperimentMetricType.FUNNEL:
-                    probabilities = calculate_probabilities_v2_funnel(
-                        cast(ExperimentVariantFunnelsBaseStats, control_variant),
-                        cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
-                    )
-                    significance_code, p_value = are_results_significant_v2_funnel(
-                        cast(ExperimentVariantFunnelsBaseStats, control_variant),
-                        cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
-                        probabilities,
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_funnel(
-                        cast(list[ExperimentVariantFunnelsBaseStats], [control_variant, *test_variants])
-                    )
-                case _:
-                    raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
-        else:
-            probabilities = calculate_probabilities(
-                cast(ExperimentVariantTrendsBaseStats, control_variant),
-                cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-            )
-            significance_code, p_value = are_results_significant(
-                cast(ExperimentVariantTrendsBaseStats, control_variant),
-                cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                probabilities,
-            )
-            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        match self.metric.metric_type:
+            case ExperimentMetricType.CONTINUOUS:
+                probabilities = calculate_probabilities_v2_continuous(
+                    control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                )
+                significance_code, p_value = are_results_significant_v2_continuous(
+                    control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                    probabilities=probabilities,
+                )
+                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+            case ExperimentMetricType.COUNT:
+                probabilities = calculate_probabilities_v2_count(
+                    cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                )
+                significance_code, p_value = are_results_significant_v2_count(
+                    cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                    probabilities,
+                )
+                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+            case ExperimentMetricType.FUNNEL:
+                probabilities = calculate_probabilities_v2_funnel(
+                    cast(ExperimentVariantFunnelsBaseStats, control_variant),
+                    cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
+                )
+                significance_code, p_value = are_results_significant_v2_funnel(
+                    cast(ExperimentVariantFunnelsBaseStats, control_variant),
+                    cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
+                    probabilities,
+                )
+                credible_intervals = calculate_credible_intervals_v2_funnel(
+                    cast(list[ExperimentVariantFunnelsBaseStats], [control_variant, *test_variants])
+                )
+            case _:
+                raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
 
         return ExperimentQueryResponse(
             kind="ExperimentQuery",
