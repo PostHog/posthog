@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 import datetime as dt
 import json
@@ -7,9 +8,37 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
+from temporalio.exceptions import WorkflowAlreadyStartedError
+
+
+def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> str:
+    temporal = sync_connect()
+    workflow_id = f"{schema.id}-compaction"
+
+    try:
+        asyncio.run(
+            temporal.start_workflow(
+                workflow="deltalake-compaction-job",
+                arg=dataclasses.asdict(
+                    DeltalakeCompactionJobWorkflowInputs(team_id=job.team_id, external_data_job_id=job.id)
+                ),
+                id=workflow_id,
+                task_queue=str(DATA_WAREHOUSE_COMPACTION_TASK_QUEUE),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=1,
+                    non_retryable_error_types=["NondeterminismError"],
+                ),
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        pass
+
+    return workflow_id
 
 
 @dataclasses.dataclass
