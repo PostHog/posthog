@@ -4,6 +4,7 @@ from django.db.models.functions import Coalesce
 from typing import Any, Optional, cast, Self
 
 from django.db import connection, models
+from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from posthog.api.utils import action
@@ -551,6 +552,13 @@ class PropertyDefinitionViewSet(
 
     def safely_get_object(self, queryset):
         id = self.kwargs["id"]
+        non_enterprise_property = get_object_or_404(
+            PropertyDefinition.objects.alias(
+                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+            ),
+            id=id,
+            effective_project_id=self.project_id,
+        )
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
                 # noinspection PyUnresolvedReferences
@@ -558,17 +566,22 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 pass
             else:
-                enterprise_property = EnterprisePropertyDefinition.objects.filter(id=id, team_id=self.team_id).first()
+                enterprise_property = (
+                    EnterprisePropertyDefinition.objects.alias(
+                        effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+                    )
+                    .filter(id=id, effective_project_id=self.project_id)  # type: ignore
+                    .first()
+                )
                 if enterprise_property:
                     return enterprise_property
-                non_enterprise_property = PropertyDefinition.objects.get(id=id, team_id=self.team_id)
                 new_enterprise_property = EnterprisePropertyDefinition(
                     propertydefinition_ptr_id=non_enterprise_property.id, description=""
                 )
                 new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
                 new_enterprise_property.save()
                 return new_enterprise_property
-        return PropertyDefinition.objects.get(id=id, team_id=self.team_id)
+        return non_enterprise_property
 
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
     def list(self, request, *args, **kwargs):
