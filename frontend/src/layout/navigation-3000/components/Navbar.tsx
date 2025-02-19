@@ -40,20 +40,16 @@ export function Navbar(): JSX.Element {
                                             sideAction={item.sideAction}
                                             tag={item.tag}
                                             to={'to' in item ? item.to : undefined}
-                                            onClick={
-                                                'logic' in item
-                                                    ? () => {
-                                                          if (
-                                                              activeNavbarItemId === item.identifier &&
-                                                              !isSidebarShown
-                                                          ) {
-                                                              hideSidebar()
-                                                          } else {
-                                                              showSidebar(item.identifier)
-                                                          }
-                                                      }
-                                                    : undefined
-                                            }
+                                            onClick={() => {
+                                                if ('logic' in item) {
+                                                    if (activeNavbarItemId === item.identifier && !isSidebarShown) {
+                                                        hideSidebar()
+                                                    } else {
+                                                        showSidebar(item.identifier)
+                                                    }
+                                                }
+                                                item.onClick?.()
+                                            }}
                                             active={activeNavbarItemId === item.identifier && isSidebarShown}
                                         />
                                     )
