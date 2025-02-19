@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { SurveySchedule } from '~/types'
+import { SurveySchedule, SurveyType } from '~/types'
 
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
@@ -51,7 +51,8 @@ function SurveyIterationOptions(): JSX.Element {
                             value: SurveySchedule.Always,
                             label: 'All the time',
                             'data-attr': 'survey-iteration-frequency-days',
-                            disabledReason: survey.type !== 'widget' ? 'Only available for widget surveys' : undefined,
+                            disabledReason:
+                                survey.type !== SurveyType.Widget ? 'Only available for widget surveys' : undefined,
                         },
                     ]}
                 />
