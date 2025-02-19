@@ -12,7 +12,7 @@ use cymbal::{
 };
 use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -57,10 +57,17 @@ async fn main() {
 
     match &config.posthog_api_key {
         Some(key) => {
-            posthog_rs::init_global(key.as_str()).await.unwrap();
+            let ph_config = posthog_rs::ClientOptionsBuilder::default()
+                .api_key(key.clone())
+                .api_endpoint(config.posthog_endpoint.clone())
+                .build()
+                .unwrap();
+            posthog_rs::init_global(ph_config).await.unwrap();
+            info!("Posthog client initialized");
         }
         None => {
             posthog_rs::disable_global();
+            warn!("Posthog client disabled");
         }
     }
 

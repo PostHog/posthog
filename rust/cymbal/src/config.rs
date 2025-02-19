@@ -11,10 +11,13 @@ pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
-    #[envconfig(from = "BIND_PORT", default = "3301")]
+    #[envconfig(from = "BIND_PORT", default = "3305")]
     pub port: u16,
 
     pub posthog_api_key: Option<String>,
+
+    #[envconfig(default = "https://us.i.posthog.com/capture")]
+    pub posthog_endpoint: String,
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
