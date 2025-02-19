@@ -88,10 +88,10 @@ COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
 
 # Build cyclotron first with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/cyclotron build
+RUN NODE_OPTIONS="--max-old-space-size=4096" ../bin/turbo --filter=@posthog/cyclotron build
 
 # Then build the plugin server with increased memory
-RUN NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-server build
+RUN NODE_OPTIONS="--max-old-space-size=4096" ../bin/turbo --filter=@posthog/plugin-server build
 
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.

@@ -161,7 +161,7 @@ jobs:
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: pnpm --filter=@posthog/frontend test:unit --maxWorkers=2 --shard=${{ matrix.chunk }}/3
+              run: turbo --filter=@posthog/frontend test --maxWorkers=2 --shard=${{ matrix.chunk }}/3
               if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=6144

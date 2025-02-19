@@ -4,15 +4,21 @@
     "tasks": {
         "build": {
             "dependsOn": ["^build"],
-            "inputs": ["src"],
+            "inputs": ["src", "!**/*.pyc"],
             "outputs": ["dist"],
             "env": ["RUST_VERSION"],
             "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME"]
         },
-        "deps": {
+        "test": {
             "dependsOn": ["^build"]
         },
+        "start": {
+            "dependsOn": ["^build"],
+            "persistent": true,
+            "cache": false
+        },
         "dev": {
+            "dependsOn": ["^build"],
             "persistent": true,
             "cache": false
         }
