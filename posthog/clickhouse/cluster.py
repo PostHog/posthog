@@ -128,19 +128,19 @@ class HostSet:
         # todo: handle node role filtering for convenience
         return HostSet(self.executor, {host for host in self.hosts if fn(host)})
 
-    def group(self, fn: Callable[[HostInfo], K]) -> HostGroup[K]:
+    def group(self, fn: Callable[[HostInfo], K]) -> GroupedHostSet[K]:
         groups = defaultdict(set)
         for host in self.hosts:
             groups[fn(host)].append(host)
-        return HostGroup({key: HostSet(self.executor, hosts) for key, hosts in groups.items()})
+        return GroupedHostSet({key: HostSet(self.executor, hosts) for key, hosts in groups.items()})
 
     @property
-    def shards(self) -> HostGroup[int]:
+    def shards(self) -> GroupedHostSet[int]:
         return self.filter(lambda host: host.shard_num is not None).group(lambda host: host.shard_num)
 
 
 @dataclass(frozen=True)
-class HostGroup(Generic[K]):
+class GroupedHostSet(Generic[K]):
     groups: Mapping[K, HostSet]
 
     def any(self, fn: Callable[[Client], T]) -> Mapping[K, Future[T]]:
