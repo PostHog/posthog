@@ -1,6 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -12,7 +11,6 @@ import { PipelineStage, PipelineTab } from '~/types'
 
 import { DESTINATION_TYPES, TRANSFORMATION_TYPES } from './destinations/constants'
 import { DestinationsTable } from './destinations/Destinations'
-import { TransformationsTable } from './Transformations'
 
 export function Overview(): JSX.Element {
     const menuItems = [
@@ -64,18 +62,11 @@ export function Overview(): JSX.Element {
                         Modify and enrich your incoming data. Only active transformations are shown here.{' '}
                         <Link to={urls.pipeline(PipelineTab.Transformations)}>See all.</Link>
                     </p>
-                    <FlaggedFeature flag="hog-transformations">
-                        <DestinationsTable
-                            types={TRANSFORMATION_TYPES}
-                            hideFeedback={true}
-                            hideAddDestinationButton={false}
-                        />
-                        <div className="mt-8">
-                            <h2>Legacy Transformations</h2>
-                            <p className="mt-2 mb-4 text-muted">These transformations are deprecated.</p>
-                        </div>
-                    </FlaggedFeature>
-                    <TransformationsTable inOverview={true} />
+                    <DestinationsTable
+                        types={TRANSFORMATION_TYPES}
+                        hideFeedback={true}
+                        hideAddDestinationButton={false}
+                    />
                 </div>
                 <div>
                     <Link to={urls.pipeline(PipelineTab.Destinations)}>

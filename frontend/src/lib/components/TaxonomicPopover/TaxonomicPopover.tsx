@@ -6,7 +6,7 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { forwardRef, Ref, useEffect, useState } from 'react'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
     extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideIcon' | 'sideAction'> {

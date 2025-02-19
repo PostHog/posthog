@@ -31,24 +31,24 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import { QueryContext } from '~/queries/types'
-
 import type {
     DashboardFilter,
     DatabaseSchemaField,
     ExperimentFunnelsQuery,
-    ExperimentQuery,
+    ExperimentMetric,
     ExperimentTrendsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
     InsightVizNode,
     Node,
+    NodeKind,
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
-} from './queries/schema'
-import { NodeKind, RevenueTrackingConfig } from './queries/schema/schema-general'
+    RevenueTrackingConfig,
+} from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -512,12 +512,16 @@ export interface SessionRecordingAIConfig {
 }
 
 export interface ProjectType extends ProjectBasicType {
-    product_description: string | null
     created_at: string
 }
 
 export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
+}
+
+export enum ActivationTaskStatus {
+    COMPLETED = 'completed',
+    SKIPPED = 'skipped',
 }
 
 export interface TeamType extends TeamBasicType {
@@ -566,6 +570,9 @@ export interface TeamType extends TeamBasicType {
     cookieless_server_hash_mode?: CookielessServerHashMode
     human_friendly_comparison_periods: boolean
     revenue_tracking_config: RevenueTrackingConfig
+    onboarding_tasks?: {
+        [key: string]: ActivationTaskStatus
+    }
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -2230,6 +2237,8 @@ export enum RetentionPeriod {
     Month = 'Month',
 }
 
+export type SlowQueryPossibilities = 'all_events' | 'large_date_range' | 'first_time_for_user' | 'strict_funnel'
+
 // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
 export type BreakdownKeyType = integer | string | number | (integer | string | number)[] | null
 
@@ -2502,15 +2511,12 @@ export interface InsightEditorFilter {
     label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
-    position?: 'left' | 'right'
-    valueSelector?: (insight: Partial<QueryBasedInsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
 export type InsightEditorFilterGroup = {
-    title?: string
-    count?: number
+    title: string
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
 }
@@ -3003,6 +3009,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
+    has_encrypted_payloads: boolean
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
 }
 
@@ -3343,8 +3350,8 @@ export interface Experiment {
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
     filters: TrendsFilterType | FunnelsFilterType
-    metrics: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
-    metrics_secondary: (ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
@@ -4104,6 +4111,7 @@ export interface DataWarehouseSavedQuery {
     query: HogQLQuery
     columns: DatabaseSchemaField[]
     last_run_at?: string
+    sync_frequency: string
     status?: string
 }
 
@@ -4159,6 +4167,7 @@ export interface ExternalDataSource {
     status: string
     source_type: ExternalDataSourceType
     prefix: string
+    latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
@@ -4196,6 +4205,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | null
     status?: string
+    latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
@@ -4337,6 +4347,7 @@ export type BatchExportService =
 export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
 
 export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
+export type OrNever = 'never'
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -4398,6 +4409,12 @@ export type GroupedBatchExportRuns = {
     runs: BatchExportRun[]
 }
 
+export type BatchExportBackfillProgress = {
+    total_runs?: number
+    finished_runs?: number
+    progress?: number
+}
+
 export type RawBatchExportBackfill = {
     id: string
     status:
@@ -4415,7 +4432,7 @@ export type RawBatchExportBackfill = {
     start_at?: string
     end_at?: string
     last_updated_at?: string
-    total_runs?: number
+    progress?: BatchExportBackfillProgress
 }
 
 export type BatchExportBackfill = {
@@ -4435,7 +4452,7 @@ export type BatchExportBackfill = {
     start_at?: Dayjs
     end_at?: Dayjs
     last_updated_at?: Dayjs
-    total_runs?: number
+    progress?: BatchExportBackfillProgress
 }
 
 export type SDK = {
@@ -4461,6 +4478,7 @@ export enum SDKKey {
     BUBBLE = 'bubble',
     DJANGO = 'django',
     DOCUSAURUS = 'docusaurus',
+    DOTNET = 'dotnet',
     ELIXIR = 'elixir',
     FRAMER = 'framer',
     FLUTTER = 'flutter',
@@ -4619,17 +4637,15 @@ export type BillingTableTierRow = {
     subrows: ProductPricingTierSubrows
 }
 
-export type AvailableOnboardingProducts = Pick<
-    {
-        [key in ProductKey]: OnboardingProduct
-    },
+export type AvailableOnboardingProducts = Record<
     | ProductKey.PRODUCT_ANALYTICS
     | ProductKey.SESSION_REPLAY
     | ProductKey.FEATURE_FLAGS
     | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
-    | ProductKey.WEB_ANALYTICS
+    | ProductKey.WEB_ANALYTICS,
+    OnboardingProduct
 >
 
 export type OnboardingProduct = {
@@ -4649,6 +4665,7 @@ export type HogFunctionInputSchemaType = {
     required?: boolean
     default?: any
     secret?: boolean
+    hidden?: boolean
     templating?: boolean
     description?: string
     integration?: string
@@ -4752,7 +4769,11 @@ export type HogFunctionType = {
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated'
-export type HogFunctionSubTemplateIdType = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
+export type HogFunctionSubTemplateIdType =
+    | 'early-access-feature-enrollment'
+    | 'survey-response'
+    | 'activity-log'
+    | 'error-tracking'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

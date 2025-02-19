@@ -9,8 +9,7 @@ import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilte
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { BreakdownFilter } from '~/queries/schema'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { DashboardMode, InsightLogicProps } from '~/types'
 
 export function DashboardEditBar(): JSX.Element {

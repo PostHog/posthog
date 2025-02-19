@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { WebVitalsQueryResponse } from '~/queries/schema'
+import { WebVitalsQueryResponse } from '~/queries/schema/schema-general'
 
 import {
     EXPERIENCE_PER_BAND,
