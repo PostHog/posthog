@@ -3,7 +3,9 @@ import { IconDownload, IconPlayFilled } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useState } from 'react'
 
@@ -34,6 +36,8 @@ export function QueryWindow(): JSX.Element {
     )
     const [monaco, editor] = monacoAndEditor ?? []
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const logic = multitabEditorLogic({
         key: codeEditorKey,
@@ -156,7 +160,7 @@ export function QueryWindow(): JSX.Element {
                                             Save as view
                                         </LemonButton>
                                     )}
-                                    <LemonDivider vertical />
+                                    {featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] && <LemonDivider vertical />}
                                     <AddVariableButton buttonProps={{ type: 'tertiary', size: 'xsmall' }} />
                                 </div>
                                 <QueryVariables />

@@ -371,9 +371,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     activeModel && props.editor?.setModel(activeModel)
                     const val = activeModel?.getValue()
                     if (val) {
-                        actions.setSourceQuery({
-                            ...values.sourceQuery,
-                        })
                         actions.setQueryInput(val)
                         actions.runQuery()
                     }
