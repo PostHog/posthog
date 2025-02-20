@@ -43,7 +43,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,
-    DataWarehousePersonPropertyFilter,
+    DataWarehousePersonPropertyFilter, DataWarehouseNode,
 )
 from posthog.settings import data_warehouse
 from posthog.warehouse.models import DataWarehouseJoin
@@ -547,10 +547,6 @@ def property_to_expr(
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
     )
-
-def data_warehouse_to_expr(data_warehouse_node: DataWarehouseNode) -> ast.Expr:
-    pass
-
 
 def action_to_expr(action: Action) -> ast.Expr:
     steps = action.steps

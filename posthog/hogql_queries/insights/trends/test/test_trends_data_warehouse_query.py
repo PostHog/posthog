@@ -1,6 +1,9 @@
 from datetime import datetime
 from freezegun import freeze_time
+
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.printer import print_ast
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -90,6 +93,8 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             raise Exception("Unsupported series type")
 
         query = query_builder.build_query()
+
+        str_query = print_ast(query, HogQLContext(team_id=self.team.pk), "hogql", pretty=True)
 
         return execute_hogql_query(
             query_type="TrendsQuery",
