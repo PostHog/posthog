@@ -1,16 +1,16 @@
 import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { IconExpand, IconGear } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonTable, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useMemo } from 'react'
-import DataGrid from 'react-data-grid'
+import { useCallback, useMemo, useState } from 'react'
+import DataGrid, { CellClickArgs } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -39,6 +39,97 @@ import { LineageTab } from './OutputPaneTabs/lineageTab'
 import { lineageTabLogic } from './OutputPaneTabs/lineageTabLogic'
 import TabScroller from './OutputPaneTabs/TabScroller'
 
+interface ExpandableCellProps {
+    value: any
+    columnName: string
+    isExpanded: boolean
+    onToggleExpand: () => void
+    hasManualWidth: boolean
+}
+
+export function ExpandableCell({
+    value,
+    columnName,
+    isExpanded,
+    onToggleExpand,
+    hasManualWidth,
+}: ExpandableCellProps): JSX.Element {
+    const [isHovered, setIsHovered] = useState(false)
+
+    return (
+        <div
+            className="relative w-full h-full flex items-center gap-1"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            <div className={clsx('flex-1 overflow-hidden', !isExpanded && 'text-ellipsis whitespace-nowrap')}>
+                {value}
+            </div>
+            {isHovered && !isExpanded && !hasManualWidth && (
+                <LemonButton
+                    className="rotate-90 shrink-0"
+                    size="xsmall"
+                    icon={<IconExpand />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onToggleExpand()
+                    }}
+                    tooltip={`Expand ${columnName} column`}
+                />
+            )}
+        </div>
+    )
+}
+
+interface RowDetailsModalProps {
+    isOpen: boolean
+    onClose: () => void
+    row: Record<string, any> | null
+    columns: string[]
+}
+
+function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps): JSX.Element {
+    if (!row) {
+        return <></>
+    }
+
+    const tableData = columns.map((column) => ({
+        column,
+        value:
+            row[column] === null ? (
+                <span className="text-muted">null</span>
+            ) : typeof row[column] === 'object' ? (
+                <pre className="whitespace-pre-wrap break-all m-0 font-mono">
+                    {JSON.stringify(row[column], null, 2)}
+                </pre>
+            ) : (
+                <span className="whitespace-pre-wrap break-all font-mono">{String(row[column])}</span>
+            ),
+    }))
+
+    return (
+        <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} width={800}>
+            <div className="max-h-[70vh] overflow-y-auto px-2">
+                <LemonTable
+                    dataSource={tableData}
+                    columns={[
+                        {
+                            title: 'Column',
+                            dataIndex: 'column',
+                            className: 'font-semibold max-w-xs',
+                        },
+                        {
+                            title: 'Value',
+                            dataIndex: 'value',
+                            className: 'px-4',
+                        },
+                    ]}
+                />
+            </div>
+        </LemonModal>
+    )
+}
+
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
@@ -63,12 +154,27 @@ export function OutputPane(): JSX.Element {
             response?.columns?.map((column: string, index: number) => {
                 const type = types?.[index]?.[1]
 
+                const maxContentLength = Math.max(
+                    column.length,
+                    ...response.results.map((row: any[]) => {
+                        const content = row[index]
+                        return typeof content === 'string'
+                            ? content.length
+                            : content === null
+                            ? 0
+                            : content.toString().length
+                    })
+                )
+                const isLongContent = maxContentLength > 100
+                const finalWidth = isLongContent ? 600 : undefined
+
                 // Hack to get bools to render in the data grid
                 if (type && type.indexOf('Bool') !== -1) {
                     return {
                         key: column,
                         name: column,
                         resizable: true,
+                        width: finalWidth,
                         renderCell: (props: any) => {
                             if (props.row[column] === null) {
                                 return null
@@ -78,10 +184,16 @@ export function OutputPane(): JSX.Element {
                     }
                 }
 
-                return {
+                const baseColumn = {
                     key: column,
                     name: column,
                     resizable: true,
+                    width: finalWidth,
+                }
+
+                return {
+                    ...baseColumn,
+                    renderCell: (props: any) => props.row[column],
                 }
             }) ?? []
         )
@@ -91,8 +203,8 @@ export function OutputPane(): JSX.Element {
         if (!response?.results) {
             return []
         }
-        return response?.results?.map((row: any[]) => {
-            const rowObject: Record<string, any> = {}
+        return response?.results?.map((row: any[], index: number) => {
+            const rowObject: Record<string, any> = { __index: index }
             response.columns.forEach((column: string, i: number) => {
                 // Handling objects here as other viz methods can accept objects. Data grid does not for now
                 if (typeof row[i] === 'object' && row[i] !== null) {
@@ -104,6 +216,12 @@ export function OutputPane(): JSX.Element {
             return rowObject
         })
     }, [response])
+
+    const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
+
+    const handleRowClick = useCallback((args: CellClickArgs<any, any>) => {
+        setSelectedRow(args.row)
+    }, [])
 
     return (
         <div className="flex flex-col w-full flex-1 bg-primary">
@@ -147,7 +265,7 @@ export function OutputPane(): JSX.Element {
                             : []),
                     ]}
                 />
-                <div className="flex gap-4">
+                <div className="flex gap-2">
                     <AddVariableButton />
 
                     {exportContext && (
@@ -225,6 +343,7 @@ export function OutputPane(): JSX.Element {
                         queryId={queryId}
                         pollResponse={pollResponse}
                         editorKey={editorKey}
+                        onRowClick={handleRowClick}
                     />
                 </BindLogic>
             </div>
@@ -232,6 +351,12 @@ export function OutputPane(): JSX.Element {
                 <div>{response ? <LoadPreviewText /> : <></>}</div>
                 <ElapsedTime />
             </div>
+            <RowDetailsModal
+                isOpen={!!selectedRow}
+                onClose={() => setSelectedRow(null)}
+                row={selectedRow}
+                columns={response?.columns || []}
+            />
         </div>
     )
 }
@@ -293,10 +418,10 @@ function InternalDataTableVisualization(
                 </div>
                 {showResultControls && (
                     <>
-                        <div className="flex gap-4 justify-between flex-wrap px-px py-2">
-                            <div className="flex gap-4 items-center" />
-                            <div className="flex gap-4 items-center">
-                                <div className="flex gap-4 items-center flex-wrap">
+                        <div className="flex justify-between flex-wrap px-px py-2">
+                            <div className="flex items-center" />
+                            <div className="flex items-center">
+                                <div className="flex gap-2 items-center flex-wrap">
                                     <TableDisplay />
 
                                     <LemonButton
@@ -354,6 +479,7 @@ const Content = ({
     queryId,
     pollResponse,
     editorKey,
+    onRowClick,
 }: any): JSX.Element | null => {
     if (activeTab === OutputTab.Results) {
         if (responseError) {
@@ -369,7 +495,11 @@ const Content = ({
 
         return responseLoading ? (
             <div className="flex flex-1 p-2 w-full justify-center items-center">
-                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+                <StatelessInsightLoadingState
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    renderEmptyStateAsSkeleton
+                />
             </div>
         ) : !response ? (
             <div className="flex flex-1 justify-center items-center">
@@ -381,6 +511,7 @@ const Content = ({
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
                     columns={columns}
                     rows={rows}
+                    onCellClick={onRowClick}
                 />
             </TabScroller>
         )

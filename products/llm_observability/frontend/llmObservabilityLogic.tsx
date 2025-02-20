@@ -474,16 +474,12 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     kind: NodeKind.EventsQuery,
                     select: [
                         '*',
-                        `<strong><a href='/llm-observability/traces/{properties.$ai_trace_id}?event={uuid}'>
-                            {f'{left(toString(uuid), 4)}...{right(toString(uuid), 4)}'}
-                         </a></strong> -- ID`,
-                        `<a href='/llm-observability/traces/{properties.$ai_trace_id}'>
-                            {f'{left(properties.$ai_trace_id, 4)}...{right(properties.$ai_trace_id, 4)}'}
-                         </a> -- Trace ID`,
+                        'uuid',
+                        'properties.$ai_trace_id',
                         'person',
                         "f'{properties.$ai_model}' -- Model",
-                        "f'{round(properties.$ai_latency, 2)} s' -- Latency",
-                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
+                        "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
+                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
                         "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
                         'timestamp',
                     ],

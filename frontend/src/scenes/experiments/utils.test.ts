@@ -1,4 +1,4 @@
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
 import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
@@ -679,6 +679,42 @@ describe('filterToMetricConfig', () => {
 })
 
 describe('metricToQuery', () => {
+    it('returns the correct query for a binomial metric', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.BINOMIAL,
+            metric_config: {
+                kind: NodeKind.ExperimentEventMetricConfig,
+                event: 'purchase',
+            },
+            filterTestAccounts: true,
+        }
+
+        const query = metricToQuery(metric)
+        expect(query).toEqual({
+            kind: NodeKind.FunnelsQuery,
+            filterTestAccounts: true,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            funnelsFilter: {
+                layout: FunnelLayout.horizontal,
+            },
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$feature_flag_called',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                },
+            ],
+        })
+    })
+
     it('returns the correct query for a count metric', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,

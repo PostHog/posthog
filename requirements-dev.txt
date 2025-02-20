@@ -423,8 +423,11 @@ pyarrow==18.1.0
     #   -c requirements.txt
     #   -r requirements-dev.in
     #   datasets
+    #   pyarrow-stubs
 pyarrow-hotfix==0.6
     # via datasets
+pyarrow-stubs==17.16
+    # via -r requirements-dev.in
 pycparser==2.20
     # via
     #   -c requirements.txt

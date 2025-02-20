@@ -125,16 +125,16 @@ def run_materialize_mutations(
     # Step through the remaining partitions, materializing the column in any shards where the column hasn't already been
     # materialized.
     for partition in sorted(remaining_partitions, reverse=True):
-        shard_tasks = {
-            shard_num: MutationRunner(
-                config.table,
-                f"MATERIALIZE COLUMN {config.column} IN PARTITION %(partition)s",
-                {"partition": partition},
-            )
-            for shard_num, remaining_partitions_for_shard in remaining_partitions_by_shard.items()
-            if partition in remaining_partitions_for_shard
-        }
-        cluster.map_any_host_in_shards(shard_tasks).result()
+        MutationRunner(
+            config.table, f"MATERIALIZE COLUMN {config.column} IN PARTITION %(partition)s", {"partition": partition}
+        ).run_on_shards(
+            cluster,
+            shards={
+                shard_num
+                for shard_num, remaining_partitions_for_shard in remaining_partitions_by_shard.items()
+                if partition in remaining_partitions_for_shard
+            },
+        )
 
 
 @dagster.job
