@@ -5,7 +5,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
@@ -85,8 +84,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['isCloudOrDev'],
             replayLandingPageLogic,
             ['replayLandingPage'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseSources'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -245,16 +242,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowDataWarehouseStep: [
-            (s) => [s.productKey, s.featureFlags, s.dataWarehouseSources],
-            (productKey, featureFlags, dataWarehouseSources) => {
+            (s) => [s.productKey, s.featureFlags],
+            (productKey, featureFlags) => {
                 const dataWarehouseStepEnabled =
                     featureFlags[FEATURE_FLAGS.ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS] === 'test'
 
                 if (!dataWarehouseStepEnabled) {
-                    return false
-                }
-
-                if (dataWarehouseSources && dataWarehouseSources.results.length > 0) {
                     return false
                 }
 
