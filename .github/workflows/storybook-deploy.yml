@@ -30,7 +30,7 @@ jobs:
                   cache-dependency-path: posthog/pnpm-lock.yaml
 
             - name: Install dependencies (pnpm)
-              run: cd posthog && pnpm --filter=@posthog/storybook... install
+              run: cd posthog && pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Build storybook
               run: cd posthog && pnpm --filter=@posthog/storybook build-storybook
