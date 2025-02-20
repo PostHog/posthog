@@ -143,6 +143,10 @@ class ExperimentQueryRunner(QueryRunner):
         exposure_config = self.experiment.exposure_criteria.get("exposure_config")
         if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
             event_name = exposure_config.get("event")
+            exposure_property_filters: list[ast.Expr] = []
+            if exposure_config.get("properties"):
+                for property in exposure_config.get("properties"):
+                    exposure_property_filters.append(property_to_expr(property, self.team))
             exposure_where_clause = ast.And(
                 exprs=[
                     ast.CompareOperation(
@@ -158,6 +162,7 @@ class ExperimentQueryRunner(QueryRunner):
                         ),
                         right=ast.Constant(value=self.variants),
                     ),
+                    *exposure_property_filters,
                 ]
             )
         else:

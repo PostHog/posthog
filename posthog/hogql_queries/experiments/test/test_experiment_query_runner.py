@@ -1321,11 +1321,22 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         properties={feature_flag_property: variant, "amount": 10 if i < 2 else ""},
                     )
 
+        # Extra exposure that should be excluded
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=f"user_extra_1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={feature_flag_property: "control", "plan": "free"},
+        )
+
         flush_persons_and_events()
 
         exposure_config = ExperimentEventExposureConfig(
             event="$pageview",
-            properties=[],
+            properties=[
+                {"key": "plan", "operator": "is_not", "value": "free", "type": "event"},
+            ],
         )
         experiment.exposure_criteria = {
             "exposure_config": exposure_config.model_dump(mode="json"),
