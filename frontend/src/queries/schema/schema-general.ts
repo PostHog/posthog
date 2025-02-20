@@ -300,6 +300,7 @@ export interface HogQLVariable {
     variableId: string
     code_name: string
     value?: any
+    isNull?: boolean
 }
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {

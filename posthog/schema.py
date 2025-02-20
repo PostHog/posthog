@@ -985,6 +985,7 @@ class HogQLVariable(BaseModel):
         extra="forbid",
     )
     code_name: str
+    isNull: Optional[bool] = None
     value: Optional[Any] = None
     variableId: str
 
