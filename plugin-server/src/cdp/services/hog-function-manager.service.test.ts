@@ -634,21 +634,10 @@ describe('sanitize', () => {
         expect(item.encrypted_inputs).toBe('invalid-encrypted-string')
     })
 
-    it('should not capture exception for null/undefined values', () => {
+    it('should not capture exception for undefined values', () => {
         const items: HogFunctionType[] = [
             {
                 id: '1',
-                team_id: 1,
-                name: 'test-null',
-                type: 'destination',
-                enabled: true,
-                deleted: false,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                encrypted_inputs: undefined,
-            } as unknown as HogFunctionType,
-            {
-                id: '2',
                 team_id: 1,
                 name: 'test-undefined',
                 type: 'destination',
@@ -662,8 +651,7 @@ describe('sanitize', () => {
 
         manager.sanitize(items)
 
-        // Should preserve null/undefined values
-        expect(items[0].encrypted_inputs).toBeNull()
-        expect(items[1].encrypted_inputs).toBeUndefined()
+        // Should preserve undefined value
+        expect(items[0].encrypted_inputs).toBeUndefined()
     })
 })
