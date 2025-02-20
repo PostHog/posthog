@@ -31,7 +31,7 @@ resources_by_env = {
             {"s3_bucket": settings.DAGSTER_S3_BUCKET, "s3_prefix": "dag-storage"}
         ),
         "s3": s3_resource,
-        "slack": slack_resource.configured({"token": settings.SLACK_BOT_TOKEN, "default_channel": "#monitoring"}),
+        "slack": slack_resource.configured({"token": settings.SLACK_BOT_TOKEN, "default_channel": "#team-clickhouse"}),
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
