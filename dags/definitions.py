@@ -74,13 +74,27 @@ def notify_slack_on_failure(context):
         context.log.info("Skipping Slack notification in non-prod environment")
         return
 
+    # Construct Dagster URL based on environment
+    dagster_domain = (
+        f"dagster.prod-{settings.CLOUD_DEPLOYMENT.lower()}.posthog.dev"
+        if settings.CLOUD_DEPLOYMENT
+        else "dagster.localhost"
+    )
+    run_url = f"https://{dagster_domain}/runs/{run_id}"
+
     blocks = [
         {
             "type": "section",
-            "text": {"type": "mrkdwn", "text": f"❌ *DAG Failure Alert*\n*Job*: `{job_name}`\n*Run ID*: `{run_id}`"},
+            "text": {
+                "type": "mrkdwn",
+                "text": f"❌ *DAG Failure Alert*\n*Job*: `{job_name}`\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>",
+            },
         },
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error}```"}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Environment: {env}"}]},
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"Environment: {settings.CLOUD_DEPLOYMENT or 'unknown'}"}],
+        },
     ]
 
     try:
