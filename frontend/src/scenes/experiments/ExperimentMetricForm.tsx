@@ -21,13 +21,13 @@ const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
         label: 'Timestamp Field',
     },
     {
-        key: 'after_exposure_identifier_field',
-        label: 'Data Warehouse Identifier Field',
+        key: 'data_warehouse_join_key',
+        label: 'Data Warehouse Join Key',
         allowHogQL: true,
     },
     {
-        key: 'exposure_identifier_field',
-        label: 'Event Identifier Field',
+        key: 'events_join_key',
+        label: 'Events Join Key',
         allowHogQL: true,
         hogQLOnly: true,
         tableName: 'events',

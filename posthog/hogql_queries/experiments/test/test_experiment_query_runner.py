@@ -1068,8 +1068,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.BINOMIAL,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                exposure_identifier_field="properties.$user_id",
-                after_exposure_identifier_field="userid",
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
                 timestamp_field="ds",
             ),
             filterTestAccounts=False,
@@ -1137,8 +1137,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                exposure_identifier_field="properties.$user_id",
-                after_exposure_identifier_field="userid",
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
                 timestamp_field="ds",
                 math="total",
                 math_property=None,
@@ -1208,8 +1208,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                exposure_identifier_field="properties.$user_id",
-                after_exposure_identifier_field="userid",
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
                 timestamp_field="ds",
                 math="sum",
                 math_property="usage",
@@ -1686,8 +1686,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                exposure_identifier_field="properties.$user_id",
-                after_exposure_identifier_field="userid",
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
                 timestamp_field="ds",
                 math="avg",
                 math_property="usage",
@@ -1832,8 +1832,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                exposure_identifier_field="properties.$user_id",
-                after_exposure_identifier_field="userid",
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
                 timestamp_field="ds",
                 math="sum",
                 math_property="usage",
@@ -1882,8 +1882,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                exposure_identifier_field="person.properties.email",
-                after_exposure_identifier_field="subscription_customer.customer_email",
+                events_join_key="person.properties.email",
+                data_warehouse_join_key="subscription_customer.customer_email",
                 timestamp_field="subscription_created_at",
             ),
         )

@@ -2261,8 +2261,8 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    after_exposure_identifier_field: str
-    exposure_identifier_field: str
+    data_warehouse_join_key: str
+    events_join_key: str
     kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
     math: Optional[ExperimentMetricMath] = None
     math_hogql: Optional[str] = None

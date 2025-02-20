@@ -1886,8 +1886,8 @@ export interface ExperimentDataWarehouseMetricConfig {
     name?: string
     table_name: string
     timestamp_field: string
-    exposure_identifier_field: string
-    after_exposure_identifier_field: string
+    events_join_key: string
+    data_warehouse_join_key: string
     math?: ExperimentMetricMath
     math_hogql?: string
     math_property?: string

@@ -150,12 +150,12 @@ class ExperimentQueryRunner(QueryRunner):
                 *exposure_query_select,
                 ast.Alias(
                     alias="exposure_identifier",
-                    expr=ast.Field(chain=[*exposure_metric_config.exposure_identifier_field.split(".")]),
+                    expr=ast.Field(chain=[*exposure_metric_config.events_join_key.split(".")]),
                 ),
             ]
             exposure_query_group_by = [
                 *exposure_query_group_by,
-                ast.Field(chain=[*exposure_metric_config.exposure_identifier_field.split(".")]),
+                ast.Field(chain=[*exposure_metric_config.events_join_key.split(".")]),
             ]
 
         # First exposure query: One row per user-variant combination
@@ -221,7 +221,7 @@ class ExperimentQueryRunner(QueryRunner):
                             expr=ast.Field(
                                 chain=[
                                     metric_config.table_name,
-                                    *metric_config.after_exposure_identifier_field.split("."),
+                                    *metric_config.data_warehouse_join_key.split("."),
                                 ]
                             ),
                         ),
@@ -239,7 +239,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     left=ast.Field(
                                         chain=[
                                             metric_config.table_name,
-                                            *metric_config.after_exposure_identifier_field.split("."),
+                                            *metric_config.data_warehouse_join_key.split("."),
                                         ]
                                     ),
                                     right=parse_expr("toString(exposure_data.exposure_identifier)"),
