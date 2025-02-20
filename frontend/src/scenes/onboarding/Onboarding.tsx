@@ -21,7 +21,6 @@ import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
-import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingDashboardTemplateConfigureStep } from './productAnalyticsSteps/DashboardTemplateConfigureStep'
@@ -49,7 +48,6 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         shouldShowBillingStep,
         shouldShowReverseProxyStep,
         product,
-        includeIntro,
         waitForBilling,
     } = useValues(onboardingLogic)
     const { billing, billingLoading } = useValues(billingLogic)
@@ -81,10 +79,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             steps = [children as JSX.Element]
         }
         const billingProduct = billing?.products.find((p) => p.type === productKey)
-        if (includeIntro && billingProduct) {
-            const IntroStep = <OnboardingProductIntroduction stepKey={OnboardingStepKey.PRODUCT_INTRO} />
-            steps = [IntroStep, ...steps]
-        }
+
         if (shouldShowReverseProxyStep) {
             const ReverseProxyStep = <OnboardingReverseProxy stepKey={OnboardingStepKey.REVERSE_PROXY} />
             steps = [...steps, ReverseProxyStep]
