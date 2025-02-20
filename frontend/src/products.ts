@@ -78,7 +78,10 @@ export const productUrls = {
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     llmObservabilityDashboard: (): string => '/llm-observability',
     llmObservabilityGenerations: (): string => '/llm-observability/generations',
-    llmObservabilityTraces: (): string => '/llm-observability/traces',
+    llmObservabilityTraces: (filters?: Record<string, any>[]): string => {
+        const filtersParam = filters ? `?filters=${JSON.stringify(filters)}` : ''
+        return `/llm-observability/traces${filtersParam}`
+    },
     llmObservabilityTrace: (
         id: string,
         params?: {
