@@ -12848,6 +12848,7 @@ packages:
 
   protomaps-themes-base@2.0.0-alpha.1:
     resolution: {integrity: sha512-eGAiUpBPAohnMvEHoF7NRWp7YuTNk/JsAVJ4733jqNw+/EF6Q5TMjqCOZScG3YSri5NStJg+9Upb95M2AQ3pjw==}
+    deprecated: This package has been migrated to @protomaps/basemaps with a new major version. See the CHANGELOG at https://github.com/protomaps/basemaps/blob/main/CHANGELOG.md for how to migrate.
 
   proxy-addr@2.0.7:
     resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
@@ -14851,8 +14852,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.225.0:
-    resolution: {integrity: sha512-lWwAoP6nqRaxae25KYUgY3dSCKQMzh2KPxNth/+qJp2CQcqePyC41IeJiimCzC8y9etIqUYlJiM2CnahwBR1eQ==}
+  unlayer-types@1.226.0:
+    resolution: {integrity: sha512-7idQSgPCFx8/IhujudcrQImPPrv4mDoYRSghN7n6aSpD57KN6ddD8M72bHMhL+CJxNN8aQekrWG6FML+125NbQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -22487,7 +22488,7 @@ snapshots:
       loader-utils: 2.0.4
       make-dir: 3.1.0
       schema-utils: 2.7.1
-      webpack: 5.88.2
+      webpack: 5.88.2(@swc/core@1.10.14(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
 
   babel-loader@9.1.3(@babel/core@7.26.0)(webpack@5.88.2):
     dependencies:
@@ -23542,7 +23543,7 @@ snapshots:
       postcss-value-parser: 4.2.0
       schema-utils: 2.7.1
       semver: 6.3.1
-      webpack: 5.88.2
+      webpack: 5.88.2(@swc/core@1.10.14(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
 
   css-loader@6.8.1(webpack@5.88.2):
     dependencies:
@@ -24755,7 +24756,7 @@ snapshots:
 
   eslint-import-resolver-node@0.3.9:
     dependencies:
-      debug: 3.2.7(supports-color@5.5.0)
+      debug: 3.2.7(supports-color@8.1.1)
       is-core-module: 2.13.1
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -24763,7 +24764,7 @@ snapshots:
 
   eslint-module-utils@2.8.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint-import-resolver-node@0.3.9)(eslint@8.57.0):
     dependencies:
-      debug: 3.2.7(supports-color@5.5.0)
+      debug: 3.2.7(supports-color@8.1.1)
     optionalDependencies:
       '@typescript-eslint/parser': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
       eslint: 8.57.0
@@ -24805,7 +24806,7 @@ snapshots:
       array.prototype.findlastindex: 1.2.3
       array.prototype.flat: 1.3.2
       array.prototype.flatmap: 1.3.2
-      debug: 3.2.7(supports-color@5.5.0)
+      debug: 3.2.7(supports-color@8.1.1)
       doctrine: 2.1.0
       eslint: 8.57.0
       eslint-import-resolver-node: 0.3.9
@@ -25270,7 +25271,7 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2
+      webpack: 5.88.2(@swc/core@1.10.14(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
 
   file-system-cache@2.3.0:
     dependencies:
@@ -29597,7 +29598,7 @@ snapshots:
       postcss: 8.5.2
       schema-utils: 3.3.0
       semver: 7.7.0
-      webpack: 5.88.2
+      webpack: 5.88.2(@swc/core@1.10.14(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
 
   postcss-logical@8.0.0(postcss@8.5.2):
     dependencies:
@@ -30459,7 +30460,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.225.0
+      unlayer-types: 1.226.0
 
   react-error-boundary@3.1.4(react@18.2.0):
     dependencies:
@@ -31105,7 +31106,7 @@ snapshots:
       neo-async: 2.6.2
       schema-utils: 3.3.0
       semver: 7.7.0
-      webpack: 5.88.2
+      webpack: 5.88.2(@swc/core@1.10.14(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
     optionalDependencies:
       sass: 1.56.0
 
@@ -31728,7 +31729,7 @@ snapshots:
     dependencies:
       loader-utils: 2.0.4
       schema-utils: 3.3.0
-      webpack: 5.88.2
+      webpack: 5.88.2(@swc/core@1.10.14(@swc/helpers@0.5.15))(esbuild@0.18.20)(webpack-cli@5.1.4)
 
   style-loader@3.3.3(webpack@5.88.2):
     dependencies:
@@ -32547,7 +32548,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.225.0: {}
+  unlayer-types@1.226.0: {}
 
   unpipe@1.0.0: {}
 
