@@ -1842,6 +1842,10 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     exposure_query?: TrendsQuery
 }
 
+export interface ExperimentExposureCriteria {
+    filterTestAccounts?: boolean
+}
+
 export enum ExperimentMetricType {
     COUNT = 'count',
     CONTINUOUS = 'continuous',
@@ -1854,7 +1858,6 @@ export interface ExperimentMetric {
     kind: NodeKind.ExperimentMetric
     name?: string
     metric_type: ExperimentMetricType
-    filterTestAccounts?: boolean
     inverse?: boolean
     metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
 }

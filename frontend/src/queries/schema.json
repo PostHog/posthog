@@ -6982,6 +6982,15 @@
             "required": ["kind", "event"],
             "type": "object"
         },
+        "ExperimentExposureCriteria": {
+            "additionalProperties": false,
+            "properties": {
+                "filterTestAccounts": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentExposureQuery": {
             "additionalProperties": false,
             "properties": {
@@ -7148,9 +7157,6 @@
         "ExperimentMetric": {
             "additionalProperties": false,
             "properties": {
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
                 "inverse": {
                     "type": "boolean"
                 },

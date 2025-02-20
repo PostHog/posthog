@@ -118,7 +118,7 @@ class ExperimentQueryRunner(QueryRunner):
         # Filter Test Accounts
         test_accounts_filter: list[ast.Expr] = []
         if (
-            self.metric.filterTestAccounts
+            self.experiment.exposure_criteria.get("filterTestAccounts")
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):

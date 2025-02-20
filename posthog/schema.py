@@ -755,6 +755,13 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterTestAccounts: Optional[bool] = None
+
+
 class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4658,7 +4665,6 @@ class ExperimentMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    filterTestAccounts: Optional[bool] = None
     inverse: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]

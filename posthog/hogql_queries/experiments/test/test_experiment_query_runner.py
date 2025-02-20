@@ -867,10 +867,9 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric=ExperimentMetric(
                 metric_type=ExperimentMetricType.BINOMIAL,
                 metric_config=ExperimentEventMetricConfig(event="purchase"),
-                filterTestAccounts=True,
             ),
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": True}
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
         experiment.save()
 
@@ -1104,14 +1103,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
             ),
-            filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1175,14 +1173,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 math="total",
                 math_property=None,
             ),
-            filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1246,14 +1243,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 math="sum",
                 math_property="usage",
             ),
-            filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1441,7 +1437,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
-            filterTestAccounts=True,
         )
 
         experiment_query = ExperimentQuery(
@@ -1450,6 +1445,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric=metric,
         )
 
+        experiment.exposure_criteria = {"filterTestAccounts": True}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1542,14 +1538,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
-            filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1724,7 +1719,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 math="avg",
                 math_property="usage",
             ),
-            filterTestAccounts=True,
         )
 
         experiment_query = ExperimentQuery(
@@ -1732,7 +1726,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": True}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1870,14 +1864,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 math="sum",
                 math_property="usage",
             ),
-            filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
