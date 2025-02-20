@@ -21,6 +21,13 @@ from posthog.warehouse.models import IncrementalFieldType
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
+def _sanitize_identifier(identifier: str) -> str:
+    if not identifier.isidentifier() or not identifier.replace(".", "").replace("_", "").isalnum():
+        raise ValueError(f"Invalid SQL identifier: {identifier}")
+
+    return f"`{identifier}`"
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -40,7 +47,7 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = f"SELECT * FROM `{schema}`.`{table_name}` WHERE `{incremental_field}` >= %(incremental_value)s ORDER BY `{incremental_field}` ASC"
+    query = f"SELECT * FROM {_sanitize_identifier(schema)}.{_sanitize_identifier(table_name)} WHERE {_sanitize_identifier(incremental_field)} >= %(incremental_value)s ORDER BY {_sanitize_identifier(incremental_field)} ASC"
 
     return query, {
         "incremental_value": db_incremental_field_last_value,
