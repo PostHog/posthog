@@ -4,7 +4,6 @@
     "description": "Transpiles site apps TSX to browser JS via stdin/stdout",
     "main": "transpile.mjs",
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1",
         "build": "tsc -b && node build.mjs",
         "start:dist": "node dist/index.js",
         "start": "npm run build && npm run start:dist"
