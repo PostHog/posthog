@@ -373,7 +373,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
-            execution_order: null,
+            execution_order: undefined,
             type: 'transformation',
         })
 
@@ -414,7 +414,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         advanceTime({ days: 1 })
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
-            execution_order: null,
+            execution_order: undefined,
             type: 'transformation',
         })
 
@@ -553,7 +553,7 @@ describe('sanitize', () => {
 
     it('should handle encrypted_inputs as an object', () => {
         const item: HogFunctionType = {
-            id: 1,
+            id: '1',
             team_id: 1,
             name: 'test',
             type: 'destination',
@@ -568,7 +568,7 @@ describe('sanitize', () => {
                     bytecode: ['_H', 1, 32, 'test-key'],
                 },
             },
-        }
+        } as unknown as HogFunctionType
 
         manager.sanitize([item])
 
@@ -593,7 +593,7 @@ describe('sanitize', () => {
         )
 
         const item: HogFunctionType = {
-            id: 1,
+            id: '1',
             team_id: 1,
             name: 'test',
             type: 'destination',
@@ -602,7 +602,7 @@ describe('sanitize', () => {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             encrypted_inputs: encryptedString,
-        }
+        } as unknown as HogFunctionType
 
         manager.sanitize([item])
 
@@ -617,7 +617,7 @@ describe('sanitize', () => {
 
     it('should capture exception for invalid encrypted string while preserving value', () => {
         const item: HogFunctionType = {
-            id: 1,
+            id: '1',
             team_id: 1,
             name: 'test',
             type: 'destination',
@@ -626,7 +626,7 @@ describe('sanitize', () => {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             encrypted_inputs: 'invalid-encrypted-string',
-        }
+        } as unknown as HogFunctionType
 
         manager.sanitize([item])
 
@@ -634,21 +634,10 @@ describe('sanitize', () => {
         expect(item.encrypted_inputs).toBe('invalid-encrypted-string')
     })
 
-    it('should not capture exception for null/undefined values', () => {
+    it('should not capture exception for undefined values', () => {
         const items: HogFunctionType[] = [
             {
-                id: 1,
-                team_id: 1,
-                name: 'test-null',
-                type: 'destination',
-                enabled: true,
-                deleted: false,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                encrypted_inputs: null,
-            },
-            {
-                id: 2,
+                id: '1',
                 team_id: 1,
                 name: 'test-undefined',
                 type: 'destination',
@@ -657,13 +646,12 @@ describe('sanitize', () => {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 encrypted_inputs: undefined,
-            },
+            } as unknown as HogFunctionType,
         ]
 
         manager.sanitize(items)
 
-        // Should preserve null/undefined values
-        expect(items[0].encrypted_inputs).toBeNull()
-        expect(items[1].encrypted_inputs).toBeUndefined()
+        // Should preserve undefined value
+        expect(items[0].encrypted_inputs).toBeUndefined()
     })
 })
