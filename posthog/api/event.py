@@ -35,6 +35,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.utils import convert_property_value, flatten
+from posthog.hogql.property_utils import create_property_conditions
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 
@@ -311,6 +312,20 @@ class EventViewSet(
                     right=ast.Constant(value=None),
                 ),
             ]
+
+            # Handle property filters from query parameters
+            for param_key, param_value in request.GET.items():
+                if param_key.startswith("properties_"):
+                    property_key = param_key.replace("properties_", "", 1)
+                    try:
+                        # Expect properly encoded JSON from frontend
+                        property_values = (
+                            json.loads(param_value) if isinstance(param_value, str | bytes | bytearray) else param_value
+                        )
+                        conditions.append(create_property_conditions(property_key, property_values))
+                    except json.JSONDecodeError:
+                        # If not JSON, treat as single value
+                        conditions.append(create_property_conditions(property_key, param_value))
 
             if event_names and len(event_names) > 0:
                 event_conditions: list[ast.Expr] = [
