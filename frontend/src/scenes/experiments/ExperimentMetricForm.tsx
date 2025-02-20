@@ -37,9 +37,11 @@ const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
 export function ExperimentMetricForm({
     metric,
     handleSetMetric,
+    filterTestAccounts,
 }: {
     metric: ExperimentMetric
     handleSetMetric: any
+    filterTestAccounts: boolean
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
@@ -121,7 +123,7 @@ export function ExperimentMetricForm({
                     <Query
                         query={{
                             kind: NodeKind.InsightVizNode,
-                            source: metricToQuery(metric),
+                            source: metricToQuery(metric, filterTestAccounts),
                             showTable: false,
                             showLastComputation: true,
                             showLastComputationRefresh: false,
@@ -133,7 +135,7 @@ export function ExperimentMetricForm({
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
-                        source: metricToQuery(metric),
+                        source: metricToQuery(metric, filterTestAccounts),
                         showTable: false,
                         showLastComputation: true,
                         showLastComputationRefresh: false,

@@ -745,13 +745,11 @@ describe('metricToQuery', () => {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: 'purchase',
             },
-            filterTestAccounts: true,
         }
 
-        const query = metricToQuery(metric)
+        const query = metricToQuery(metric, false)
         expect(query).toEqual({
             kind: NodeKind.FunnelsQuery,
-            filterTestAccounts: true,
             dateRange: {
                 date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                 date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
@@ -760,6 +758,7 @@ describe('metricToQuery', () => {
             funnelsFilter: {
                 layout: FunnelLayout.horizontal,
             },
+            filterTestAccounts: false,
             series: [
                 {
                     kind: NodeKind.EventsNode,
@@ -782,10 +781,9 @@ describe('metricToQuery', () => {
                 event: '$pageview',
                 name: '$pageview',
             },
-            filterTestAccounts: true,
         }
 
-        const query = metricToQuery(metric)
+        const query = metricToQuery(metric, false)
         expect(query).toEqual({
             kind: NodeKind.TrendsQuery,
             interval: 'day',
@@ -797,7 +795,7 @@ describe('metricToQuery', () => {
             trendsFilter: {
                 display: ChartDisplayType.ActionsLineGraph,
             },
-            filterTestAccounts: true,
+            filterTestAccounts: false,
             series: [
                 {
                     kind: NodeKind.EventsNode,
@@ -819,10 +817,9 @@ describe('metricToQuery', () => {
                 math: 'sum',
                 math_property: 'property_value',
             },
-            filterTestAccounts: false,
         }
 
-        const query = metricToQuery(metric)
+        const query = metricToQuery(metric, true)
         expect(query).toEqual({
             kind: NodeKind.TrendsQuery,
             interval: 'day',
@@ -834,7 +831,7 @@ describe('metricToQuery', () => {
             trendsFilter: {
                 display: ChartDisplayType.ActionsLineGraph,
             },
-            filterTestAccounts: false,
+            filterTestAccounts: true,
             series: [
                 {
                     kind: NodeKind.EventsNode,
@@ -856,10 +853,9 @@ describe('metricToQuery', () => {
                 event: '$pageview',
                 name: '$pageview',
             },
-            filterTestAccounts: false,
         }
 
-        const query = metricToQuery(metric)
+        const query = metricToQuery(metric, false)
         expect(query).toBeUndefined()
     })
 })
