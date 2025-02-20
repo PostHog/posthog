@@ -1,3 +1,4 @@
+import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
@@ -14,6 +15,25 @@ import {
     metricToQuery,
 } from './utils'
 
+const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
+    {
+        key: 'timestamp_field',
+        label: 'Timestamp Field',
+    },
+    {
+        key: 'data_warehouse_join_key',
+        label: 'Data Warehouse Join Key',
+        allowHogQL: true,
+    },
+    {
+        key: 'events_join_key',
+        label: 'Events Join Key',
+        allowHogQL: true,
+        hogQLOnly: true,
+        tableName: 'events',
+    },
+]
+
 export function ExperimentMetricForm({
     metric,
     handleSetMetric,
@@ -23,6 +43,8 @@ export function ExperimentMetricForm({
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
+
+    const isDataWarehouseMetric = metric.metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig
 
     return (
         <div className="space-y-4">
@@ -68,9 +90,9 @@ export function ExperimentMetricForm({
             <ActionFilter
                 bordered
                 filters={metricConfigToFilter(metric.metric_config)}
-                setFilters={({ actions, events }: Partial<FilterType>): void => {
+                setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
                     // We only support one event/action for experiment metrics
-                    const entity = events?.[0] || actions?.[0]
+                    const entity = events?.[0] || actions?.[0] || data_warehouse?.[0]
                     const metricConfig = filterToMetricConfig(entity)
                     if (metricConfig) {
                         handleSetMetric({
@@ -89,23 +111,25 @@ export function ExperimentMetricForm({
                 showNumericalPropsOnly={true}
                 mathAvailability={mathAvailability}
                 allowedMathTypes={allowedMathTypes}
+                dataWarehousePopoverFields={dataWarehousePopoverFields}
                 {...commonActionFilterProps}
             />
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
             {(metric.metric_type === ExperimentMetricType.COUNT ||
-                metric.metric_type === ExperimentMetricType.CONTINUOUS) && (
-                <Query
-                    query={{
-                        kind: NodeKind.InsightVizNode,
-                        source: metricToQuery(metric),
-                        showTable: false,
-                        showLastComputation: true,
-                        showLastComputationRefresh: false,
-                    }}
-                    readOnly
-                />
-            )}
-            {metric.metric_type === ExperimentMetricType.BINOMIAL && (
+                metric.metric_type === ExperimentMetricType.CONTINUOUS) &&
+                !isDataWarehouseMetric && (
+                    <Query
+                        query={{
+                            kind: NodeKind.InsightVizNode,
+                            source: metricToQuery(metric),
+                            showTable: false,
+                            showLastComputation: true,
+                            showLastComputationRefresh: false,
+                        }}
+                        readOnly
+                    />
+                )}
+            {metric.metric_type === ExperimentMetricType.BINOMIAL && !isDataWarehouseMetric && (
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
