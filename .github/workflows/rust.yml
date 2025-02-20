@@ -120,7 +120,7 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.82
+              uses: dtolnay/rust-toolchain@1.82 # please keep this in sync with rust-version in rust/Cargo.toml
 
             - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'

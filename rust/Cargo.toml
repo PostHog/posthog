@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+rust-version = "1.82.0" # please keep in sync with the version in .github/workflows/rust.yml
 
 members = [
     "property-defs-rs",
