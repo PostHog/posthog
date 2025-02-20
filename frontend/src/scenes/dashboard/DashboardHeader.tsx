@@ -147,6 +147,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     type="primary"
                                     size="small"
                                     tooltip="Preview filter changes on dashboard"
+                                    className={filtersUpdated ? 'animate-[bounce_1s_ease-in-out_2]' : undefined}
                                 >
                                     Preview
                                 </LemonButton>
