@@ -23,7 +23,7 @@ import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, getJSHeapMemory, isAbortedRequest, shouldCancelQuery, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -81,6 +81,14 @@ export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 const REFRESH_DASHBOARD_ITEM_ACTION = 'refresh_dashboard_item'
+
+/**
+ * Once a dashboard has more tiles than this,
+ * we don't automatically preview dashboard date/filter/breakdown changes.
+ * Users will need to click the 'Apply and preview filters' button.
+ */
+const MAX_TILES_FOR_AUTOPREVIEW = 5
+
 export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType<QueryBasedInsightModel>
@@ -223,6 +231,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             filters,
             variables,
         }),
+        previewTemporaryFilters: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
@@ -252,7 +261,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         loadingDashboardItemsStarted: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
-        abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
+        abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         updateFiltersAndLayoutsAndVariables: true,
         overrideVariableValue: (variableId: string, value: any, editMode?: boolean) => ({
@@ -569,8 +578,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     ...filters,
                 }),
-                loadDashboardSuccess: (state, { dashboard, payload }) =>
-                    dashboard
+                loadDashboardSuccess: (state, { dashboard, payload }) => {
+                    const result = dashboard
                         ? {
                               ...state,
                               // don't update filters if we're previewing
@@ -583,7 +592,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         breakdown_filter: dashboard?.filters.breakdown_filter || null,
                                     }),
                           }
-                        : state,
+                        : state
+
+                    return result
+                },
             },
         ],
         dashboard: [
@@ -789,6 +801,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     selectors(() => ({
+        canAutoPreview: [
+            (s) => [s.dashboard],
+            (dashboard) => (dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW,
+        ],
+        filtersUpdated: [
+            (s) => [s.temporaryFilters, s.dashboard],
+            (temporaryFilters, dashboard) => {
+                // both aren't falsy && both aren't equal
+                const isDateFromUpdated =
+                    !(!temporaryFilters.date_from && !dashboard?.filters.date_from) &&
+                    temporaryFilters.date_from !== dashboard?.filters.date_from
+
+                const isDateToUpdated =
+                    !(!temporaryFilters.date_to && !dashboard?.filters.date_to) &&
+                    temporaryFilters.date_to !== dashboard?.filters.date_to
+
+                const isPropertiesUpdated =
+                    JSON.stringify(temporaryFilters.properties ?? []) !==
+                    JSON.stringify(dashboard?.filters.properties ?? [])
+
+                const isBreakdownUpdated =
+                    !(!temporaryFilters.breakdown_filter && !dashboard?.filters.breakdown_filter) &&
+                    temporaryFilters.breakdown_filter !== dashboard?.filters.breakdown_filter
+
+                return isDateFromUpdated || isDateToUpdated || isPropertiesUpdated || isBreakdownUpdated
+            },
+        ],
         dashboardVariables: [
             (s) => [s.dashboard, s.variables, s.temporaryVariables],
             (
@@ -1096,6 +1135,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
+            actions.abortAnyRunningQuery()
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
@@ -1240,6 +1280,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return true
                     }
                 })
+                // sort tiles by layout to ensure insights are computed in order of appearance on dashboard
+                .sort((a, b) => {
+                    const ay = a.layouts?.xs?.y ?? 0
+                    const ax = a.layouts?.xs?.x ?? 0
+                    const by = b.layouts?.xs?.y ?? 0
+                    const bx = b.layouts?.xs?.x ?? 0
+                    return ay !== by ? ay - by : ax - bx
+                })
                 .map((t) => t.insight)
                 .filter((i): i is QueryBasedInsightModel => !!i)
 
@@ -1329,13 +1377,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (isBreakpoint(e)) {
                         cancelled = true
                     } else if (shouldCancelQuery(e)) {
-                        if (!cancelled && queryId) {
-                            // cancel all insight requests for this query in one go
-                            actions.abortQuery({ dashboardQueryId: dashboardQueryId, queryId, queryStartTime })
-                        }
-                        if (isAbortedRequest(e)) {
-                            cancelled = true
-                        }
+                        // query was aborted by abort controller (eg. on unmount)
+                        // we need to cancel all queued insight queries on backend
+                        // as for large dashboards, we don't want to continue calculating
+                        // a lot of remaining insights when user navigates away
+                        cancelled = true
+                        insightsToRefresh
+                            .map((i) => i.query_status?.id)
+                            .filter(Boolean)
+                            .forEach((qid) => actions.abortQuery({ queryId: qid as string, queryStartTime }))
                     } else {
                         actions.setRefreshError(insight.short_id)
                     }
@@ -1382,6 +1432,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setProperties(values.filters.properties ?? null)
                     actions.setBreakdownFilter(values.filters.breakdown_filter ?? null)
                     actions.resetVariables()
+
+                    // reset tile data by relaoding dashboard
+                    actions.loadDashboard({ action: 'preview' })
 
                     // also reset layout to that we stored in dashboardLayouts
                     // this is done in the reducer for dashboard
@@ -1458,10 +1511,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.abortController = null
             }
         },
-        abortQuery: async ({ dashboardQueryId, queryId, queryStartTime }) => {
+        abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId } = values
+            try {
+                await api.delete(`api/environments/${currentTeamId}/query/${queryId}/?dequeue_only=true`)
+            } catch (e) {
+                console.warn('Failed cancelling query', e)
+            }
 
-            await api.create(`api/environments/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
+            const { dashboardQueryId } = values.dashboardLoadTimerData
 
             // TRICKY: we cancel just once using the dashboard query id.
             // we can record the queryId that happened to capture the AbortError exception
@@ -1478,14 +1536,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 insights_fetched_cached: 0,
             })
         },
-        setProperties: () => {
+        previewTemporaryFilters: () => {
             actions.loadDashboard({ action: 'preview' })
+        },
+        setProperties: () => {
+            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+                actions.loadDashboard({ action: 'preview' })
+            }
         },
         setDates: () => {
-            actions.loadDashboard({ action: 'preview' })
+            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+                actions.loadDashboard({ action: 'preview' })
+            }
         },
         setBreakdownFilter: () => {
-            actions.loadDashboard({ action: 'preview' })
+            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+                actions.loadDashboard({ action: 'preview' })
+            }
         },
         overrideVariableValue: ({ editMode }) => {
             if (editMode) {

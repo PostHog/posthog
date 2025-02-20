@@ -159,7 +159,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
-        cancel_query(self.team.pk, pk)
+        dequeue_only = request.query_params.get("dequeue", False) == "true"
+        cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)
+
         return Response(status=204)
 
     @action(methods=["GET"], detail=False)

@@ -1,7 +1,6 @@
 import { getMeta, resetMeta } from '@posthog/plugin-scaffold/test/utils'
 
-import { onEvent } from './index'
-
+import { EngagePluginEvent, onEvent } from './index'
 describe('sendgrid', () => {
     const mockFetch = jest.fn()
 
@@ -37,7 +36,7 @@ describe('sendgrid', () => {
                 token: '[some token]',
                 distinct_id: '[distinct_id]',
             },
-        }
+        } as unknown as EngagePluginEvent
 
         await onEvent(event, meta)
         expect(mockFetch.mock.calls.length).toEqual(1)
@@ -67,7 +66,7 @@ describe('sendgrid', () => {
                     name: 'Group',
                 },
             },
-        }
+        } as unknown as EngagePluginEvent
 
         await onEvent(event, meta)
         expect(mockFetch.mock.calls.length).toEqual(1)
@@ -98,7 +97,7 @@ describe('sendgrid', () => {
                 prop1: 'val1',
                 prop2: 'val2',
             },
-        }
+        } as unknown as EngagePluginEvent
 
         await onEvent(event, meta)
         expect(mockFetch.mock.calls.length).toEqual(1)
@@ -128,7 +127,7 @@ describe('sendgrid', () => {
                 prop1: 'val1',
                 prop2: 'val2',
             },
-        }
+        } as unknown as EngagePluginEvent
 
         await onEvent(event, meta)
         expect(mockFetch.mock.calls.length).toEqual(1)
@@ -170,7 +169,7 @@ describe('sendgrid', () => {
                 $active_feature_flags: ['navigation-1775', 'session-recording-player'],
                 $initial_referring_domain: '$direct',
             },
-        }
+        } as unknown as EngagePluginEvent
 
         await onEvent(event, getMeta())
         expect(mockFetch.mock.calls.length).toEqual(0)

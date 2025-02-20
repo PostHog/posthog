@@ -41,6 +41,7 @@ import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
     id?: string | null
+    logicKey?: string
 
     displayOptions?: {
         embedded?: boolean
@@ -59,9 +60,10 @@ export interface HogFunctionConfigurationProps {
 export function HogFunctionConfiguration({
     templateId,
     id,
+    logicKey,
     displayOptions = {},
 }: HogFunctionConfigurationProps): JSX.Element {
-    const logicProps = { templateId, id }
+    const logicProps = { templateId, id, logicKey }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
         isConfigurationSubmitting,

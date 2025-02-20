@@ -5,7 +5,7 @@ import { PNG } from 'pngjs'
 import * as pixelmatch from 'pixelmatch'
 import * as fs from 'fs'
 import * as path from 'path'
-import { createEntry } from '../frontend/webpack.config'
+import { createEntry } from '../common/storybook/webpack.config'
 
 const downloadDirectory = path.join(__dirname, '..', '..', 'downloads')
 
