@@ -108,6 +108,8 @@ jobs:
             - name: Lint with ESLint
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:js
+              env:
+                  NODE_OPTIONS: --max-old-space-size=6144
 
             - name: Check if "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
