@@ -1151,7 +1151,12 @@ class _Printer(Visitor):
                             t = parser.isoparse(node.args[0].value)
                             # if we have timezone info, toDateTime64 cannot handle
                             if t.tzinfo is None:
-                                relevant_clickhouse_name = "toDateTime64"
+                                if not t.microsecond:
+                                    relevant_clickhouse_name = "toDateTime"
+                                else:
+                                    relevant_clickhouse_name = "toDateTime64"
+                            else:
+                                relevant_clickhouse_name = "parseDateTime64BestEffort"
                         except ValueError:
                             pass
 
@@ -1159,7 +1164,8 @@ class _Printer(Visitor):
                         relevant_clickhouse_name == "now64"
                         and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
                     ) or (
-                        relevant_clickhouse_name in ("parseDateTime64BestEffortOrNull", "toDateTime64")
+                        relevant_clickhouse_name
+                        in ("parseDateTime64BestEffortOrNull", "parseDateTime64BestEffort", "toDateTime64")
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone
