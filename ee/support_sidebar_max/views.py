@@ -20,7 +20,7 @@ from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
 
 from ee.support_sidebar_max.prompt import get_system_prompt
-from .sidebar_max_ai import ConversationHistory, max_search_tool_tool
+from .sidebar_max_ai import ConversationHistory, max_search_tool_tool, RateLimitType
 from .max_search_tool import max_search_tool
 
 
@@ -181,9 +181,9 @@ class MaxChatViewSet(viewsets.ViewSet):
             ],
         }
 
-    def _handle_rate_limit(self, retry_after: int, limit_type: Optional[str] = None) -> Response:
+    def _handle_rate_limit(self, retry_after: Optional[int], limit_type: Optional[RateLimitType] = None) -> Response:
         """Handle rate limit with DRF response."""
-        capped_retry = min(retry_after, self.MAX_BACKOFF)
+        capped_retry = min(retry_after if retry_after is not None else self.MAX_BACKOFF, self.MAX_BACKOFF)
         limit_message = f" ({limit_type.replace('_', ' ')})" if limit_type else ""
         return Response(
             {
@@ -335,11 +335,13 @@ class MaxChatViewSet(viewsets.ViewSet):
                     retry_seconds = min(max(reset_times) if reset_times else self.MAX_BACKOFF, self.MAX_BACKOFF)
 
                 # Determine which limit was hit from headers
-                limit_type = None
+                limit_type: Optional[RateLimitType] = None
                 for key in headers:
                     if key.endswith("-remaining"):
                         if headers[key] == "0":
-                            limit_type = key.replace("anthropic-ratelimit-", "").replace("-remaining", "")
+                            extracted_type = key.replace("anthropic-ratelimit-", "").replace("-remaining", "")
+                            if extracted_type in ("requests", "input_tokens", "output_tokens"):
+                                limit_type = extracted_type  # type: ignore # mypy doesn't understand the literal check
                             break
 
                 django_logger.warning(f"✨🦔 Rate limit hit - waiting {retry_seconds} seconds before retry")

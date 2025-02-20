@@ -1,17 +1,23 @@
 import time
 import logging
 from django.core.cache import caches
-from typing import Optional, Literal
+from typing import Optional, Literal, TypedDict
+
+
+class RateLimitValues(TypedDict):
+    max: float
+    refill_rate: float
+
 
 RateLimitType = Literal["requests", "input_tokens", "output_tokens"]
 
 
 class ConversationHistory:
     # Rate limit configurations
-    RATE_LIMITS = {
-        "requests": {"max": 4000, "refill_rate": 4000 / 60},  # 4000 per minute
-        "input_tokens": {"max": 400000, "refill_rate": 400000 / 60},  # 400k per minute
-        "output_tokens": {"max": 80000, "refill_rate": 80000 / 60},  # 80k per minute
+    RATE_LIMITS: dict[RateLimitType, RateLimitValues] = {
+        "requests": {"max": 4000.0, "refill_rate": 4000.0 / 60},  # 4000 per minute
+        "input_tokens": {"max": 400000.0, "refill_rate": 400000.0 / 60},  # 400k per minute
+        "output_tokens": {"max": 80000.0, "refill_rate": 80000.0 / 60},  # 80k per minute
     }
     MAX_BACKOFF = 40  # Maximum backoff in seconds
 
@@ -151,7 +157,7 @@ class ConversationHistory:
         cache = caches["default"]
 
         # Map header prefixes to limit types
-        header_mapping = {
+        header_mapping: dict[str, RateLimitType] = {
             "anthropic-ratelimit-requests": "requests",
             "anthropic-ratelimit-input-tokens": "input_tokens",
             "anthropic-ratelimit-output-tokens": "output_tokens",
