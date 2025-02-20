@@ -22,7 +22,12 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def _sanitize_identifier(identifier: str) -> str:
-    if not identifier.isidentifier() or not identifier.replace(".", "").replace("_", "").isalnum():
+    if not identifier.isidentifier():
+        if identifier.startswith("$") or (len(identifier) > 0 and identifier[0].isdigit()):
+            if not identifier[1:].isidentifier():
+                raise ValueError(f"Invalid SQL identifier: {identifier}")
+
+    if not identifier.replace(".", "").replace("_", "").replace("$", "").isalnum():
         raise ValueError(f"Invalid SQL identifier: {identifier}")
 
     return f"`{identifier}`"
