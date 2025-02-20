@@ -123,7 +123,6 @@ test.describe('Events', () => {
 
         await page.locator('[data-attr="taxonomic-operator"]').click()
         await page.getByRole('menuitem', { name: '> greater than' }).click()
-        await page.waitForTimeout(500)
         await expect(page.locator('[data-attr="taxonomic-operator"]')).toBeVisible()
     })
 })
