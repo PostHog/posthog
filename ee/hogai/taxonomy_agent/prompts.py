@@ -101,37 +101,37 @@ Reminder that you must ALWAYS respond with a valid JSON blob of a single action 
 REACT_DEFINITIONS_PROMPT = """
 Here are the event names.
 {{{events}}}
-"""
+""".strip()
 
 REACT_SCRATCHPAD_PROMPT = """
 Thought: {{{agent_scratchpad}}}
-"""
+""".strip()
 
 REACT_USER_PROMPT = """
 Answer the following question as best you can.
 Question: What events, properties and/or property values should I use to answer this question "{{{question}}}"?{{#react_format_reminder}}
 {{{react_format_reminder}}}
 {{/react_format_reminder}}
-"""
+""".strip()
 
 REACT_FOLLOW_UP_PROMPT = """
-Improve the previously generated plan based on the feedback: "{{{feedback}}}".{{#react_format_reminder}}
+Improve the previously generated plan based on the feedback: "{{{question}}}".{{#react_format_reminder}}
 {{{react_format_reminder}}}
 {{/react_format_reminder}}
-"""
+""".strip()
 
 REACT_MISSING_ACTION_PROMPT = """
 Your previous answer didn't output the `Action:` block. You must always follow the format described in the system prompt.
-"""
+""".strip()
 
 REACT_MISSING_ACTION_CORRECTION_PROMPT = """
 {{{output}}}
 Action: I didn't output the `Action:` block.
-"""
+""".strip()
 
 REACT_MALFORMED_JSON_PROMPT = """
 Your previous answer had a malformed JSON. You must return a correct JSON response containing the `action` and `action_input` fields.
-"""
+""".strip()
 
 REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """
 The action input you previously provided didn't pass the validation and raised a Pydantic validation exception.
@@ -141,7 +141,7 @@ The action input you previously provided didn't pass the validation and raised a
 </pydantic_exception>
 
 You must fix the exception and try again.
-"""
+""".strip()
 
 REACT_HELP_REQUEST_PROMPT = """
 The agent has requested help from the user:

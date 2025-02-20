@@ -47,7 +47,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     AssistantToolCallMessage,
     CachedTeamTaxonomyQueryResponse,
-    HumanMessage,
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
@@ -203,31 +202,29 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        conversation = []
+        # Only process the last ten visualization messages.
+        viz_messages = [message for message in state.messages if isinstance(message, VisualizationMessage)][-10:]
+        conversation: list[BaseMessage] = []
 
-        for idx, message in enumerate(state.messages):
-            # The description of a new insight is added to the end of the conversation.
-            if not isinstance(message, VisualizationMessage):
-                continue
-            if isinstance(message, HumanMessage):
-                prompt = REACT_USER_PROMPT if idx == 0 else REACT_FOLLOW_UP_PROMPT
-                conversation.append(
-                    HumanMessagePromptTemplate.from_template(prompt, template_format="mustache").format(
-                        feedback=message.query
-                    )
+        for idx, message in enumerate(viz_messages):
+            prompt = REACT_USER_PROMPT if idx == 0 else REACT_FOLLOW_UP_PROMPT
+            conversation.append(
+                HumanMessagePromptTemplate.from_template(prompt, template_format="mustache").format(
+                    question=message.query
                 )
-                conversation.append(LangchainHumanMessage(content=message.content))
-                conversation.append(LangchainAssistantMessage(content=message.plan or ""))
+            )
+            conversation.append(LangchainHumanMessage(content=message.query or ""))
+            conversation.append(LangchainAssistantMessage(content=message.plan or ""))
 
+        # The description of a new insight is added to the end of the conversation.
         new_insight_prompt = REACT_USER_PROMPT if not conversation else REACT_FOLLOW_UP_PROMPT
         conversation.append(
             HumanMessagePromptTemplate.from_template(new_insight_prompt, template_format="mustache").format(
-                feedback=state.root_tool_insight_plan
+                question=state.root_tool_insight_plan,
             )
         )
 
-        # Return maximum five last messages + the latest human message.
-        return conversation[:-6]
+        return conversation
 
     def _get_agent_scratchpad(self, scratchpad: list[tuple[AgentAction, str | None]]) -> str:
         actions = []
