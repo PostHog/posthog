@@ -2,29 +2,32 @@
     "$schema": "https://turbo.build/schema.json",
     "extends": ["//"],
     "tasks": {
+        "prepare": {
+            "dependsOn": ["^build"]
+        },
         "build": {
-            "dependsOn": ["^build"],
+            "dependsOn": ["prepare"],
             "inputs": ["src", "!**/*.pyc"],
             "outputs": ["dist"],
             "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
             "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS"]
         },
         "@posthog/cypress#build": {
-            "dependsOn": ["^build", "!@posthog/storybook#build"]
+            "dependsOn": ["@posthog/frontend#prepare"]
+        },
+        "@posthog/storybook#build": {
+            "dependsOn": ["@posthog/frontend#prepare"]
         },
         "test": {
-            "dependsOn": ["^build"]
-        },
-        "deps": {
-            "dependsOn": ["^build"]
+            "dependsOn": ["prepare"]
         },
         "start": {
-            "dependsOn": ["^build"],
+            "dependsOn": ["prepare"],
             "persistent": true,
             "cache": false
         },
         "dev": {
-            "dependsOn": ["^build"],
+            "dependsOn": ["prepare"],
             "persistent": true,
             "cache": false
         }

@@ -42,7 +42,7 @@ jobs:
             - name: Install dependencies and Chromatic
               run: |
                   pnpm --filter=@posthog/storybook... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/storybook deps
+                  bin/turbo --filter=@posthog/frontend prepare
                   pnpm install -w -D chromatic
 
             - name: Publish to Chromatic
