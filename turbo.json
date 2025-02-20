@@ -20,6 +20,7 @@
         },
         "test": {
             "dependsOn": ["prepare"],
+            "inputs": ["src", "!**/*.pyc"],
             "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
             "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS"]
         },
