@@ -43,7 +43,6 @@ export enum AuthorizedUrlListType {
 /**
  * Firefox does not allow you construct a new URL with e.g. https://*.example.com (which is to be fair more standards compliant than Chrome)
  * when used to probe for e.g. for authorized urls we only care if the proposed URL has a path so we can safely replace the wildcard with a character
- * NB this changes its input and shouldn't be used for general purpose URL parsing
  */
 export function sanitizePossibleWildCardedURL(url: string): URL {
     const deWildCardedURL = url.replace(/\*/g, 'x')
@@ -53,7 +52,7 @@ export function sanitizePossibleWildCardedURL(url: string): URL {
 /**
  * Checks if the URL has a wildcard (*) in the port position e.g. http://localhost:*
  */
-export function hasPortWildcard(input: unknown): boolean {
+export function hasWildcardInPort(input: unknown): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
@@ -72,7 +71,7 @@ export const validateProposedUrl = (
         return 'Please enter a valid URL'
     }
 
-    if (hasPortWildcard(proposedUrl)) {
+    if (hasWildcardInPort(proposedUrl)) {
         return 'Wildcards are not allowed in the port position'
     }
 
@@ -129,7 +128,7 @@ export function appEditorUrl(
         generateOnly?: boolean
     }
 ): string {
-    const params = buildToolbarParams(options)
+    const params = buildToolbarParams(options) as Record<string, unknown>
     // See https://github.com/PostHog/posthog-js/blob/f7119c/src/extensions/toolbar.ts#L52 for where these params
     // are passed. `appUrl` is an extra `redirect_to_site` param.
     params['appUrl'] = appUrl

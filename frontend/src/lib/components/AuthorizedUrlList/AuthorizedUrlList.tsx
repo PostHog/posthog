@@ -1,165 +1,18 @@
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { IconOpenInApp, IconRefresh } from 'lib/lemon-ui/icons'
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useMemo } from 'react'
 
 import { ExperimentIdType } from '~/types'
 
-import { authorizedUrlListLogic, AuthorizedUrlListType, KeyedAppUrl } from './authorizedUrlListLogic'
-
-function EmptyState({
-    experimentId,
-    actionId,
-    type,
-}: {
-    type: AuthorizedUrlListType
-    actionId?: number | null
-    experimentId?: ExperimentIdType | null
-}): JSX.Element | null {
-    const logic = authorizedUrlListLogic({ experimentId: experimentId ?? null, actionId: actionId ?? null, type })
-    const { urlsKeyed, searchTerm, suggestionsLoading, isAddUrlFormVisible } = useValues(logic)
-    const { loadSuggestions } = useActions(logic)
-
-    const domainOrUrl = type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domain' : 'URL'
-
-    // Split suggestions and non-suggestions
-    const [suggestionURLs, authorizedURLs] = urlsKeyed.reduce(
-        ([suggestions, nonSuggestions], url) => {
-            if (url.type === 'suggestion') {
-                suggestions.push(url)
-            } else {
-                nonSuggestions.push(url)
-            }
-            return [suggestions, nonSuggestions]
-        },
-        [[], []] as KeyedAppUrl[][]
-    )
-
-    const children = useMemo(() => {
-        // If there are authorized URLs, never display this empty state
-        if (authorizedURLs.length > 0) {
-            return null
-        }
-
-        // If the add URL form is visible, don't show the empty state either
-        if (isAddUrlFormVisible) {
-            return null
-        }
-
-        // This means no suggested URLs and no search term
-        if (searchTerm.length > 0 && suggestionURLs.length === 0) {
-            return <>There are no authorized {domainOrUrl}s that match your search.</>
-        }
-
-        if (suggestionURLs.length > 0) {
-            return (
-                <p className="mb-0">
-                    There are no authorized {domainOrUrl}s. <br />
-                    We've found some URLs you've used PostHog from in the last 3 days. Consider authorizing them.
-                    <br />
-                    <span>
-                        {type === AuthorizedUrlListType.RECORDING_DOMAINS &&
-                            ' When no domains are specified, recordings will be authorized on all domains.'}
-                    </span>
-                </p>
-            )
-        }
-
-        return (
-            <div className="flex flex-row items-center justify-between w-full">
-                <p>
-                    <span className="font-bold">There are no authorized {domainOrUrl}s.</span>
-                    <br />
-                    Add one to get started. When you send us events we'll suggest the ones that you should authorize.
-                    <br />
-                    <span>
-                        {type === AuthorizedUrlListType.RECORDING_DOMAINS &&
-                            ' When no domains are specified, recordings will be authorized on all domains.'}
-                    </span>
-                </p>
-                <div className="flex flex-col items-end gap-2">
-                    <LemonButton
-                        onClick={loadSuggestions}
-                        disabled={suggestionsLoading}
-                        type="secondary"
-                        icon={<IconRefresh />}
-                        data-attr="toolbar-add-url"
-                    >
-                        {suggestionsLoading ? 'Fetching...' : 'Fetch suggestions'}
-                    </LemonButton>
-                    <span className="text-small text-secondary">Sent an event? Refetch suggestions.</span>
-                </div>
-            </div>
-        )
-    }, [
-        authorizedURLs.length,
-        isAddUrlFormVisible,
-        searchTerm.length,
-        suggestionURLs.length,
-        suggestionsLoading,
-        type,
-        domainOrUrl,
-        loadSuggestions,
-    ])
-
-    return children ? <div className="border rounded p-4 text-secondary">{children}</div> : null
-}
-
-export interface AuthorizedUrlFormProps {
-    type: AuthorizedUrlListType
-    actionId?: number
-    experimentId?: ExperimentIdType
-    allowWildCards?: boolean
-}
-
-function AuthorizedUrlForm({ actionId, experimentId, type, allowWildCards }: AuthorizedUrlFormProps): JSX.Element {
-    const logic = authorizedUrlListLogic({
-        actionId: actionId ?? null,
-        experimentId: experimentId ?? null,
-        type,
-        allowWildCards,
-    })
-    const { isProposedUrlSubmitting } = useValues(logic)
-    const { cancelProposingUrl } = useActions(logic)
-
-    return (
-        <Form
-            logic={authorizedUrlListLogic}
-            props={{ actionId, type, experimentId, allowWildCards }}
-            formKey="proposedUrl"
-            enableFormOnSubmit
-            className="w-full space-y-2"
-        >
-            <LemonField name="url">
-                <LemonInput
-                    autoFocus
-                    placeholder={
-                        allowWildCards
-                            ? 'Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)'
-                            : 'Enter a URL (e.g. https://posthog.com)'
-                    }
-                    data-attr="url-input"
-                />
-            </LemonField>
-            <div className="flex justify-end gap-2">
-                <LemonButton type="secondary" onClick={cancelProposingUrl}>
-                    Cancel
-                </LemonButton>
-                <LemonButton htmlType="submit" type="primary" disabled={isProposedUrlSubmitting} data-attr="url-save">
-                    Save
-                </LemonButton>
-            </div>
-        </Form>
-    )
-}
+import { AuthorizedUrlForm } from './AuthorizedUrlForm'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from './authorizedUrlListLogic'
+import { EmptyState } from './EmptyState'
 
 export interface AuthorizedUrlListProps {
     actionId?: number
@@ -226,7 +79,9 @@ export function AuthorizedUrlList({
                 )}
 
                 {urlsKeyed.map((keyedURL, index) => {
+                    // If there are no authorized urls, highglight the first suggestion
                     const isFirstSuggestion = keyedURL.originalIndex === 0 && keyedURL.type === 'suggestion'
+                    const isHighlighted = noAuthorizedUrls && isFirstSuggestion
 
                     return editUrlIndex === index ? (
                         <div className="border rounded p-2 bg-surface-primary">
@@ -258,9 +113,8 @@ export function AuthorizedUrlList({
                                         onClick={() => addUrl(keyedURL.url)}
                                         icon={<IconPlus />}
                                         data-attr="toolbar-apply-suggestion"
-                                        // If there are no authorized urls, highglight the first suggestion
-                                        type={noAuthorizedUrls && isFirstSuggestion ? 'primary' : undefined}
-                                        active={noAuthorizedUrls && isFirstSuggestion}
+                                        type={isHighlighted ? 'primary' : undefined}
+                                        active={isHighlighted}
                                     >
                                         Apply suggestion
                                     </LemonButton>
