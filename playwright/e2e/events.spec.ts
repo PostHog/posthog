@@ -11,7 +11,7 @@ test.describe('Events', () => {
             })
         )
 
-        await page.route('api/projects/@current/property_definitions/?limit=5000', (route) =>
+        await page.route('/api/projects/@current/property_definitions/?limit=5000', (route) =>
             route.fulfill({
                 status: 200,
                 path: path.resolve(__dirname, '../mocks/events/property_definitions.json'),
