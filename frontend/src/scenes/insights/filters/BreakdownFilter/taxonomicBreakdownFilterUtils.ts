@@ -8,7 +8,7 @@ export const isCohort = (t: number | string): t is number => typeof t === 'numbe
 export const isCohortBreakdown = (t: number | string): t is number | string => isAllCohort(t) || isCohort(t)
 
 export const isURLNormalizeable = (propertyName: string): boolean => {
-    return ['$current_url', '$pathname'].includes(propertyName)
+    return ['current_url', 'pathname'].some(term => propertyName.includes(term))
 }
 
 export function isMultipleBreakdownType(breakdownType?: BreakdownType | null): breakdownType is MultipleBreakdownType {
