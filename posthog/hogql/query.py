@@ -123,26 +123,25 @@ class HogQLQueryExecutor:
                     )
 
     def _generate_hogql(self):
-        with self.timings.measure("hogql"):
-            with self.timings.measure("prepare_ast"):
-                hogql_query_context = dataclasses.replace(
-                    self.context,
-                    team_id=self.team.pk,
-                    team=self.team,
-                    enable_select_queries=True,
-                    timings=self.timings,
-                    modifiers=self.query_modifiers,
-                )
+        hogql_query_context = dataclasses.replace(
+            self.context,
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            timings=self.timings,
+            modifiers=self.query_modifiers,
+        )
 
-            with self.timings.measure("clone"):
-                cloned_query = clone_expr(self.select_query, True)
+        with self.timings.measure("clone"):
+            cloned_query = clone_expr(self.select_query, True)
 
+        with self.timings.measure("prepare_ast_for_printing"):
             select_query_hogql = cast(
                 ast.SelectQuery,
                 prepare_ast_for_printing(node=cloned_query, context=hogql_query_context, dialect="hogql"),
             )
 
-        with self.timings.measure("print_ast"):
+        with self.timings.measure("print_prepared_ast"):
             self.hogql = print_prepared_ast(
                 select_query_hogql,
                 hogql_query_context,
@@ -186,13 +185,14 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 modifiers=self.query_modifiers,
             )
-            self.clickhouse_sql = print_ast(
-                self.select_query,
-                context=self.clickhouse_context,
-                dialect="clickhouse",
-                settings=settings,
-                pretty=self.pretty if self.pretty is not None else True,
-            )
+            with self.timings.measure("print_ast"):
+                self.clickhouse_sql = print_ast(
+                    self.select_query,
+                    context=self.clickhouse_context,
+                    dialect="clickhouse",
+                    settings=settings,
+                    pretty=self.pretty if self.pretty is not None else True,
+                )
         except Exception as e:
             if self.debug:
                 self.clickhouse_sql = ""
@@ -259,8 +259,10 @@ class HogQLQueryExecutor:
         self._process_variables()
         self._process_placeholders()
         self._apply_limit()
-        self._generate_hogql()
-        self._generate_clickhouse_sql()
+        with self.timings.measure("_generate_hogql"):
+            self._generate_hogql()
+        with self.timings.measure("_generate_clickhouse_sql"):
+            self._generate_clickhouse_sql()
         return self.clickhouse_sql, self.clickhouse_context
 
     def execute(self) -> HogQLQueryResponse:
