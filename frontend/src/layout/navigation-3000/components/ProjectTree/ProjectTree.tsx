@@ -62,9 +62,25 @@ export function ProjectTree(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, viableItems, loadingPaths, unappliedPaths } = useValues(projectTreeLogic)
-    const { addFolder, deleteItem, moveItem } = useActions(projectTreeLogic)
+    const { treeData, viableItems, loadingPaths, unappliedPaths, expandedFolders, activeFolder } =
+        useValues(projectTreeLogic)
+    const { addFolder, deleteItem, moveItem, setExpandedFolders, setActiveFolder, setLastViewedPath } =
+        useActions(projectTreeLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
+
+    // When a folder is toggled, add or remove it from the expanded folders
+    const handleFolderToggle = (folderId: string, isExpanded: boolean): void => {
+        const newExpandedFolders = isExpanded
+            ? [...expandedFolders, folderId]
+            : expandedFolders.filter((id) => id !== folderId)
+        setExpandedFolders(newExpandedFolders)
+    }
+
+    // When a folder is clicked, set the active folder and the last viewed path
+    const handleFolderSelect = (folder: string): void => {
+        setActiveFolder(folder)
+        setLastViewedPath(folder)
+    }
 
     return (
         <>
@@ -78,9 +94,21 @@ export function ProjectTree(): JSX.Element {
                         <LemonTree
                             className="px-0 py-1"
                             data={treeData}
+                            expandedItemIds={expandedFolders}
+                            defaultSelectedFolderOrNodeId={activeFolder || undefined}
+                            onFolderClick={(folder, isExpanded) => {
+                                if (folder) {
+                                    handleFolderSelect(folder.filePath || '')
+                                    handleFolderToggle(folder.id, isExpanded)
+                                }
+                            }}
+                            setExpandedItemIds={setExpandedFolders}
+                            onNodeClick={(node) => {
+                                if (node?.filePath) {
+                                    setLastViewedPath(node.filePath)
+                                }
+                            }}
                             onDragEnd={(sourceId, targetId) => {
-                                // console.log('Moving item:', sourceId, 'to:', targetId)
-
                                 const oldPath = sourceId
                                 const folder = targetId
 

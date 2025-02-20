@@ -1,6 +1,5 @@
 import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { uuid } from 'lib/utils'
 
 import { iconForType } from './defaultTree'
 import { FileSystemImport } from './types'
@@ -14,7 +13,7 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
         let folderNode: TreeDataItem | undefined = nodes.find((node) => node.filePath === fullPath)
         if (!folderNode) {
             folderNode = {
-                id: uuid(),
+                id: 'project/' + fullPath,
                 name: folderName,
                 record: { type: 'folder', id: 'project/' + fullPath, path: fullPath },
                 children: [],
@@ -55,7 +54,7 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
 
         // Create the actual item node.
         const node: TreeDataItem = {
-            id: uuid(),
+            id: 'project/' + (item.id || item.path),
             name: itemName,
             icon: item.icon || iconForType(item.type),
             record: item,

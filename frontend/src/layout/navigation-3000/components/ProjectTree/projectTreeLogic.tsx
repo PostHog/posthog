@@ -43,6 +43,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         updateSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
+        setExpandedFolders: (folders: string[]) => ({ folders }),
+        setActiveFolder: (folder: string | null) => ({ folder }),
+        setLastViewedPath: (path: string) => ({ path }),
     }),
     loaders(({ actions, values }) => ({
         savedItems: [
@@ -118,6 +121,27 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 updateSavedItem: (state, { savedItem }) =>
                     state.map((item) => (item.id === savedItem.id ? savedItem : item)),
                 deleteSavedItem: (state, { savedItem }) => state.filter((item) => item.id !== savedItem.id),
+            },
+        ],
+        expandedFolders: [
+            [] as string[],
+            { persist: true },
+            {
+                setExpandedFolders: (_, { folders }) => folders,
+            },
+        ],
+        activeFolder: [
+            null as string | null,
+            { persist: true },
+            {
+                setActiveFolder: (_, { folder }) => folder,
+            },
+        ],
+        lastViewedPath: [
+            '',
+            { persist: true },
+            {
+                setLastViewedPath: (_, { path }) => path,
             },
         ],
     }),
@@ -313,6 +337,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 newFilePath: folder,
             })
         },
+        setExpandedFolders: ({ folders }) => {
+            localStorage.setItem('posthog_project_tree_expanded', JSON.stringify(folders))
+        },
+        setActiveFolder: ({ folder }) => {
+            localStorage.setItem('posthog_project_tree_active', folder || '')
+        },
+        setLastViewedPath: ({ path }) => {
+            localStorage.setItem('posthog_project_tree_path', path)
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadSavedItems()
@@ -321,5 +354,20 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         actions.loadUnfiledItems('insight')
         actions.loadUnfiledItems('dashboard')
         actions.loadUnfiledItems('notebook')
+
+        // Restore saved state
+        const savedExpanded = localStorage.getItem('posthog_project_tree_expanded')
+        const savedActive = localStorage.getItem('posthog_project_tree_active')
+        const savedPath = localStorage.getItem('posthog_project_tree_path')
+
+        if (savedExpanded) {
+            actions.setExpandedFolders(JSON.parse(savedExpanded))
+        }
+        if (savedActive) {
+            actions.setActiveFolder(savedActive)
+        }
+        if (savedPath) {
+            actions.setLastViewedPath(savedPath)
+        }
     }),
 ])
