@@ -567,6 +567,12 @@ importers:
       '@sentry/react':
         specifier: 7.112.1
         version: 7.112.1(react@18.2.0)
+      '@storybook/react':
+        specifier: ^7.6.4
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
+      '@storybook/types':
+        specifier: ^7.6.4
+        version: 7.6.20
       '@stripe/react-stripe-js':
         specifier: ^2.8.0
         version: 2.8.0(@stripe/stripe-js@4.5.0)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
