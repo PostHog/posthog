@@ -395,6 +395,41 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_with_analytics_dashboards(self, mock_capture):
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "feature-with-analytics-dashboards", "analytics_dashboards": [dashboard.pk]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["key"], "feature-with-analytics-dashboards")
+        self.assertEqual(response.json()["name"], "")
+        self.assertEqual(len(response.json()["analytics_dashboards"]), 1)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.key, "feature-with-analytics-dashboards")
+        self.assertEqual(instance.name, "")
+        self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
+
+        # Assert analytics are sent
+        mock_capture.assert_called_once_with(
+            self.user,
+            "feature flag created",
+            {
+                "groups_count": 1,  # 1 is always created by default
+                "has_variants": False,
+                "variants_count": 0,
+                "has_rollout_percentage": False,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+                "creation_context": "feature_flags",
+            },
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_multivariate_feature_flag(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",

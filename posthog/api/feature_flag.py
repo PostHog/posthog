@@ -389,6 +389,8 @@ class FeatureFlagSerializer(
                 "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
             )
 
+        analytics_dashboards = validated_data.pop("analytics_dashboards", None)
+
         self.check_flag_evaluation(validated_data)
 
         instance: FeatureFlag = super().create(validated_data)
@@ -396,6 +398,10 @@ class FeatureFlagSerializer(
         self._attempt_set_tags(tags, instance)
 
         _create_usage_dashboard(instance, request.user)
+
+        if analytics_dashboards is not None:
+            for dashboard in analytics_dashboards:
+                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
