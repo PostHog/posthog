@@ -263,11 +263,14 @@ def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -
     return manager.get_query_status(show_progress=show_progress)
 
 
-def cancel_query(team_id: int, query_id: str) -> bool:
+def cancel_query(team_id: int, query_id: str):
     manager = QueryStatusManager(query_id, team_id)
 
     try:
         query_status = manager.get_query_status()
+
+        if query_status.complete:
+            return
 
         if query_status.task_id:
             logger.info("Got task id %s, attempting to revoke", query_status.task_id)
@@ -283,5 +286,3 @@ def cancel_query(team_id: int, query_id: str) -> bool:
     cancel_query_on_cluster(team_id, query_id)
 
     manager.delete_query_status()
-
-    return True
