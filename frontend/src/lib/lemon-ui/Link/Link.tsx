@@ -5,10 +5,10 @@ import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
-import React from 'react'
+import React, { useContext } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic, WithinSidePanelContext } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { IconOpenInNew } from '../icons'
@@ -97,6 +97,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         const { elementProps: draggableProps } = useNotebookDrag({
             href: typeof to === 'string' ? to : undefined,
         })
+
+        const withinSidePanel = useContext(WithinSidePanelContext)
+
+        if (withinSidePanel && target === '_blank' && !isExternalLink(to)) {
+            target = undefined // Within side panels, treat target="_blank" as "open in main scene"
+        }
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
