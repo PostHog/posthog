@@ -14853,8 +14853,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.225.0:
-    resolution: {integrity: sha512-lWwAoP6nqRaxae25KYUgY3dSCKQMzh2KPxNth/+qJp2CQcqePyC41IeJiimCzC8y9etIqUYlJiM2CnahwBR1eQ==}
+  unlayer-types@1.226.0:
+    resolution: {integrity: sha512-7idQSgPCFx8/IhujudcrQImPPrv4mDoYRSghN7n6aSpD57KN6ddD8M72bHMhL+CJxNN8aQekrWG6FML+125NbQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -30468,7 +30468,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.225.0
+      unlayer-types: 1.226.0
 
   react-error-boundary@3.1.4(react@18.2.0):
     dependencies:
@@ -32556,7 +32556,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.225.0: {}
+  unlayer-types@1.226.0: {}
 
   unpipe@1.0.0: {}
 
