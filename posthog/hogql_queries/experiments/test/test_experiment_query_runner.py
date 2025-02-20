@@ -480,8 +480,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "$feature_flag": feature_flag.key,
             },
         )
-        # This purchase event is to late to be included for user in the experiment
         # This purchase event is too late to be included for user in the experiment
+        _create_event(
             team=self.team,
             event="purchase",
             distinct_id="user_control_1",
