@@ -432,7 +432,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             request_fields = set(request.data.keys())
             non_config_fields = request_fields - CONFIG_FIELDS_SET
             if not non_config_fields:
-                return ["team:read"]
+                return ["project:read"]
 
         # Fall back to the default behavior
         return None
