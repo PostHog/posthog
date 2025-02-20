@@ -18,7 +18,6 @@ from typing import Any, Literal, NamedTuple, TypeVar
 from collections.abc import Iterable
 
 from clickhouse_driver import Client
-from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 
 from posthog import settings
@@ -36,18 +35,9 @@ V = TypeVar("V")
 
 
 def format_exception_summary(e: Exception, max_length: int = 256) -> str:
-    if isinstance(e, ServerException) and (
-        match := re.match(r"^DB::Exception:\s*(.*)\s*Stack trace:", e.message, re.MULTILINE)
-    ):
-        value = match.group(1)
-    else:
-        value = str(e)
-
-    value = value.splitlines()[0]
-
+    value = repr(e).splitlines()[0]
     if len(value) > max_length:
         value = value[:max_length] + "..."
-
     return value
 
 
