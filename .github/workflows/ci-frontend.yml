@@ -89,7 +89,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  turbo --filter=@posthog/frontend deps
+                  bin/turbo --filter=@posthog/frontend deps
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
