@@ -174,6 +174,8 @@ export const ELEMENTS = {
         'IconX',
         'IconEllipsis',
         'IconHide',
+        'IconStopFilled',
+        'IconListCheck',
     ],
     'Arrows & Shapes': [
         'IconArrowLeft',
@@ -250,4 +252,6 @@ export const TEAMS_AND_COMPANIES = {
     Pipeline: ['IconWebhooks', 'IconDecisionTree'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
     Logos: ['IconLogomark', 'IconGithub'],
+    ErrorTracking: ['IconIssue'],
+    LLMObservability: ['IconLlmObservability', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
 }
