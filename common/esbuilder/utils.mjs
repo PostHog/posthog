@@ -14,7 +14,6 @@ import fse from 'fs-extra'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
-import tailwindcss from 'tailwindcss'
 import ts from 'typescript'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
@@ -85,13 +84,21 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
-    // Snippet to dynamically load the css based on window.JS_URL
+    // Modified CSS loader to handle both files
     const cssLoader = `
         const link = document.createElement("link");
         link.rel = "stylesheet";
         link.crossOrigin = "anonymous";
         link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
         document.head.appendChild(link)
+    `
+
+    const tailwindLoader = `
+        const twLink = document.createElement("link");
+        twLink.rel = "stylesheet";
+        twLink.crossOrigin = "anonymous";
+        twLink.href = (window.JS_URL || '') + "/static/aaa-tailwind.css";
+        document.head.appendChild(twLink)
     `
 
     fse.writeFileSync(
@@ -108,6 +115,7 @@ export function copyIndexHtml(
                     // load such that it's in place when react starts
                     // adding elements to the DOM
                     ${cssFile ? cssLoader : ''}
+                    ${tailwindLoader}
                     ${scriptCode}
                     ${Object.keys(chunks).length > 0 ? chunkCode : ''}
                 </script>
@@ -140,8 +148,7 @@ export const commonConfig = {
     plugins: [
         sassPlugin({
             async transform(source, resolveDir, filePath) {
-                // Sync the plugins list with postcss.config.js
-                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
+                const plugins = [autoprefixer, postcssPresetEnv({ stage: 0 })]
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }
@@ -372,7 +379,8 @@ export async function buildOrWatch(config) {
                     path.resolve(absWorkingDir, '../common'),
                     path.resolve(absWorkingDir, '../products/*/manifest.json'),
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
-                    tailwindConfigJsPath,
+                    // path.resolve(absWorkingDir, 'dist/tailwind.css'),
+                    // tailwindConfigJsPath,
                 ],
                 {
                     ignored: /.*(Type|\.test\.stories)\.[tj]sx?$/,
@@ -389,11 +397,11 @@ export async function buildOrWatch(config) {
                     gatherProductManifests()
                 }
 
-                if (inputFiles.has(filePath) || filePath === tailwindConfigJsPath) {
-                    if (filePath.match(/\.tsx?$/) || filePath === tailwindConfigJsPath) {
+                if (inputFiles.has(filePath)) {
+                    if (filePath.match(/\.tsx?$/)) {
                         // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
                         // in case any new utility classes are used. `touch`ing `base.scss` (or the file that imports tailwind.css) achieves this.
-                        await touchFile(path.resolve(absWorkingDir, 'src/styles/base.scss'))
+                        await touchFile(path.resolve(absWorkingDir, 'src/styles/tailwind.css'))
                     }
                     void debouncedBuild()
                 }
