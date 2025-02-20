@@ -59,8 +59,8 @@ export function WebVitals(props: {
     )
 
     return (
-        <div className="border rounded bg-surface-tertiary flex-1 flex flex-col">
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 cursor-pointer border-b divide-y sm:divide-y-2 xl:divide-y-0 divide-x-0 sm:divide-x xl:divide-x-2">
+        <div className="flex flex-col flex-1 gap-4">
+            <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
                 <WebVitalsTab
                     metric="INP"
                     value={INP}
@@ -87,10 +87,15 @@ export function WebVitals(props: {
                 />
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2 p-4 bg-surface-secondary">
+            <div className="flex flex-col sm:flex-row gap-2">
                 <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} />
-                <div className="flex flex-col flex-1">
-                    <Query query={webVitalsMetricQuery} readOnly embedded />
+                <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
+                    <Query
+                        query={webVitalsMetricQuery}
+                        readOnly
+                        embedded
+                        context={{ renderEmptyStateAsSkeleton: true }}
+                    />
 
                     <div className="flex w-full justify-end">
                         <LemonButton

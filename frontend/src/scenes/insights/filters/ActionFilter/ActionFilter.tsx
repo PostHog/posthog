@@ -6,7 +6,7 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { IconPlusSmall } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
@@ -88,6 +88,8 @@ export interface ActionFilterProps {
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element
     /** Only allow these math types in the selector */
     allowedMathTypes?: readonly string[]
+    /** Data warehouse popover fields */
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -119,6 +121,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         readOnly = false,
         bordered = false,
         allowedMathTypes,
+        dataWarehousePopoverFields,
     },
     ref
 ): JSX.Element {
@@ -129,6 +132,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         filters,
         typeKey,
         addFilterDefaultOptions,
+        dataWarehousePopoverFields,
     })
     const { reportFunnelStepReordered } = useActions(eventUsageLogic)
 
@@ -178,6 +182,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         sortable,
         showNumericalPropsOnly,
         allowedMathTypes,
+        dataWarehousePopoverFields,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)

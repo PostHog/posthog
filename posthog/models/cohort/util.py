@@ -178,9 +178,9 @@ def get_entity_query(
             action=action,
             prepend="_{}_action".format(group_idx),
             hogql_context=hogql_context,
-            person_properties_mode=person_properties_mode
-            if person_properties_mode
-            else PersonPropertiesMode.USING_SUBQUERY,
+            person_properties_mode=(
+                person_properties_mode if person_properties_mode else PersonPropertiesMode.USING_SUBQUERY
+            ),
         )
         return action_filter_query, action_params
     else:
@@ -396,7 +396,7 @@ def _recalculate_cohortpeople_for_team_hogql(
             query=query,
             modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
             team=team,
-            limit_context=LimitContext.QUERY_ASYNC,
+            limit_context=LimitContext.COHORT_CALCULATION,
         ).generate_clickhouse_sql()
         cohort_params = hogql_context.values
 

@@ -155,7 +155,13 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     }
 }
 
-const DATE_FORMAT = 'YYYY-MM-DD'
+const DATE_FORMAT = 'YYYY-MM-DD HH:mm:ss'
+
+function getSurveyEndDateForQuery(survey: Survey): string {
+    return survey.end_date
+        ? dayjs(survey.end_date).endOf('day').format(DATE_FORMAT)
+        : dayjs().endOf('day').format(DATE_FORMAT)
+}
 
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
@@ -318,9 +324,7 @@ export const surveyLogic = kea<surveyLogicType>([
             loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
                 const survey: Survey = values.survey as Survey
                 const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
-                const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
-                    : dayjs().add(1, 'day').format(DATE_FORMAT)
+                const endDate = getSurveyEndDateForQuery(survey)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -376,9 +380,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const survey: Survey = values.survey as Survey
                 const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
-                const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
-                    : dayjs().add(1, 'day').format(DATE_FORMAT)
+                const endDate = getSurveyEndDateForQuery(survey)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -430,9 +432,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const survey: Survey = values.survey as Survey
                 const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
-                const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
-                    : dayjs().add(1, 'day').format(DATE_FORMAT)
+                const endDate = getSurveyEndDateForQuery(survey)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -514,9 +514,7 @@ export const surveyLogic = kea<surveyLogicType>([
             }): Promise<SurveySingleChoiceResults> => {
                 const survey: Survey = values.survey as Survey
                 const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
-                const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
-                    : dayjs().add(1, 'day').format(DATE_FORMAT)
+                const endDate = getSurveyEndDateForQuery(survey)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -560,9 +558,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const survey: Survey = values.survey as Survey
                 const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
-                const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
-                    : dayjs().add(1, 'day').format(DATE_FORMAT)
+                const endDate = getSurveyEndDateForQuery(survey)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -619,9 +615,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const survey: Survey = values.survey as Survey
                 const startDate = dayjs(survey.start_date || survey.created_at).format(DATE_FORMAT)
-                const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format(DATE_FORMAT)
-                    : dayjs().add(1, 'day').format(DATE_FORMAT)
+                const endDate = getSurveyEndDateForQuery(survey)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -724,10 +718,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 // Initialize date range based on survey dates when survey is loaded
                 if ('created_at' in values.survey) {
                     const dateRange = {
-                        date_from: dayjs(values.survey.created_at).format(DATE_FORMAT),
-                        date_to: values.survey.end_date
-                            ? dayjs(values.survey.end_date).format(DATE_FORMAT)
-                            : dayjs().add(1, 'day').format(DATE_FORMAT),
+                        date_from: dayjs(values.survey.created_at).startOf('day').format(DATE_FORMAT),
+                        date_to: getSurveyEndDateForQuery(values.survey),
                     }
                     actions.setDateRange(dateRange)
                 }
@@ -1225,7 +1217,12 @@ export const surveyLogic = kea<surveyLogicType>([
         urlMatchTypeValidationError: [
             (s) => [s.survey],
             (survey): string | null => {
-                if (survey.conditions?.urlMatchType === SurveyMatchType.Regex && survey.conditions.url) {
+                if (
+                    survey.conditions?.url &&
+                    [SurveyMatchType.Regex, SurveyMatchType.NotRegex].includes(
+                        survey.conditions?.urlMatchType || SurveyMatchType.Exact
+                    )
+                ) {
                     try {
                         new RegExp(survey.conditions.url)
                     } catch (e: any) {
@@ -1235,6 +1232,25 @@ export const surveyLogic = kea<surveyLogicType>([
                 return null
             },
         ],
+        deviceTypesMatchTypeValidationError: [
+            (s) => [s.survey],
+            (survey: Survey): string | null => {
+                if (
+                    survey.conditions?.deviceTypes &&
+                    [SurveyMatchType.Regex, SurveyMatchType.NotRegex].includes(
+                        survey.conditions?.deviceTypesMatchType || SurveyMatchType.Exact
+                    )
+                ) {
+                    try {
+                        new RegExp(survey.conditions.deviceTypes?.at(0) || '')
+                    } catch (e: any) {
+                        return e.message
+                    }
+                }
+                return null
+            },
+        ],
+
         surveyNPSScore: [
             (s) => [s.surveyRatingResults],
             (surveyRatingResults) => {

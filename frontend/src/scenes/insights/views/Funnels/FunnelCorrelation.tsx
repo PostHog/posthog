@@ -15,10 +15,10 @@ import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable
 
 export const FunnelCorrelation = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
-    const { steps } = useValues(funnelDataLogic(insightProps))
+    const { steps, isStepsFunnel } = useValues(funnelDataLogic(insightProps))
     useMountedLogic(funnelCorrelationUsageLogic(insightProps))
 
-    if (steps.length <= 1) {
+    if (!isStepsFunnel || steps.length <= 1) {
         return null
     }
 

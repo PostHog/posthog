@@ -277,9 +277,12 @@ def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> boo
     try:
         query_status = manager.get_query_status()
 
+        if query_status.complete:
+            return
+
         if query_status.task_id:
             logger.info("Got task id %s, attempting to revoke", query_status.task_id)
-            celery.app.control.revoke(query_status.task_id, terminate=True)
+            celery.app.control.revoke(query_status.task_id)
 
             logger.info("Revoked task id %s", query_status.task_id)
     except QueryNotFoundError:
@@ -294,5 +297,3 @@ def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> boo
     cancel_query_on_cluster(team_id, query_id)
 
     manager.delete_query_status()
-
-    return True
