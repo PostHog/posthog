@@ -481,7 +481,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             },
         )
         # This purchase event is to late to be included for user in the experiment
-        _create_event(
+        # This purchase event is too late to be included for user in the experiment
             team=self.team,
             event="purchase",
             distinct_id="user_control_1",
