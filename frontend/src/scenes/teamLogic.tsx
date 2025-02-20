@@ -134,7 +134,9 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     Object.keys(payload).map((property) => {
-                        eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
+                        eventUsageLogic
+                            .findMounted()
+                            ?.actions?.reportTeamSettingChange(property, payload[property as keyof TeamType])
                     })
 
                     const isUpdatingOnboardingTasks = Object.keys(payload).every((key) => key === 'onboarding_tasks')
@@ -184,6 +186,10 @@ export const teamLogic = kea<teamLogicType>([
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
+        ],
+        currentTeamName: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): string => currentTeam?.name || 'Default Project',
         ],
         isCurrentTeamUnavailable: [
             (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],

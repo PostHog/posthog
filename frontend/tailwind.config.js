@@ -645,6 +645,7 @@ const config = {
                 'fill-primary': 'var(--bg-fill-primary)',
                 'fill-secondary': 'var(--bg-fill-secondary)',
                 'fill-tertiary': 'var(--bg-fill-tertiary)',
+                'fill-separator': 'var(--bg-fill-separator)',
                 'fill-primary-highlight': 'var(--bg-fill-primary-highlight)',
                 'fill-info-secondary': 'var(--bg-fill-info-secondary)',
                 'fill-info-tertiary': 'var(--bg-fill-info-tertiary)',
@@ -681,6 +682,7 @@ const config = {
                 ...commonColors,
 
                 'primary': 'var(--border-primary)',
+                'secondary': 'var(--border-secondary)',
                 'info': 'var(--border-info)',
                 'warning': 'var(--border-warning)',
                 'error': 'var(--border-error)',

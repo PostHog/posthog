@@ -17,6 +17,7 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
                 name: folderName,
                 record: { type: 'folder', id: 'project/' + fullPath, path: fullPath },
                 children: [],
+                type: 'folder' as const,
             }
             nodes.push(folderNode)
         }
@@ -61,6 +62,7 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
                     router.actions.push(item.href)
                 }
             },
+            type: item.type === 'folder' ? ('folder' as const) : ('file' as const),
         }
         // Place the item in the current (deepest) folder.
         currentLevel.push(node)

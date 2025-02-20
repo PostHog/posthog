@@ -8,6 +8,7 @@ import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -26,6 +27,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ['aggregationLabel', 'groupTypes', 'groupsAccessStatus'],
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentTeamName'],
         ],
     }),
     actions({
@@ -236,8 +239,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes)),
         ],
         projectRow: [
-            (s) => [s.pendingActionsCount, s.pendingLoaderLoading],
-            (pendingActionsCount, pendingLoaderLoading): TreeDataItem[] => [
+            (s) => [s.pendingActionsCount, s.pendingLoaderLoading, s.currentTeamName],
+            (pendingActionsCount, pendingLoaderLoading, currentTeamName): TreeDataItem[] => [
                 ...(pendingActionsCount > 0
                     ? [
                           {
@@ -249,20 +252,23 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                               onClick: !pendingLoaderLoading
                                   ? () => projectTreeLogic.actions.applyPendingActions()
                                   : undefined,
+                              type: 'file' as const,
                           },
                       ]
                     : [
                           {
                               id: '--',
                               name: '----------------------',
+                              type: 'separator' as const,
                           },
                       ]),
                 {
                     id: 'project',
-                    name: 'Default Project',
+                    name: currentTeamName,
                     icon: <IconBook />,
                     record: { type: 'project', id: 'project' },
                     onClick: () => router.actions.push(urls.projectHomepage()),
+                    type: 'project' as const,
                 },
             ],
         ],

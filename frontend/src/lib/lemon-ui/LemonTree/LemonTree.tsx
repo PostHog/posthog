@@ -5,7 +5,63 @@ import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { cn } from 'lib/utils/css-classes'
 import { forwardRef, HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react'
 
-import { LemonButton } from '../LemonButton'
+import { LemonButton, SideAction } from '../LemonButton'
+
+const IconFolderOpen = (props: { className?: string }): JSX.Element => {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={cn('', props.className)}
+        >
+            <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
+        </svg>
+    )
+}
+const IconFolder = (props: { className?: string }): JSX.Element => {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={cn('', props.className)}
+        >
+            <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+        </svg>
+    )
+}
+const IconFile = (props: { className?: string }): JSX.Element => {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={cn('', props.className)}
+        >
+            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+            <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+        </svg>
+    )
+}
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -27,6 +83,9 @@ export type TreeDataItem = {
      * @param open - boolean to indicate if it's a folder and it's open state
      */
     onClick?: (open?: boolean) => void
+
+    /** The type of the item. */
+    type: 'folder' | 'file' | 'project' | 'separator'
 }
 
 export type LemonTreeNodeProps = LemonTreeProps & {
@@ -46,6 +105,8 @@ export type LemonTreeNodeProps = LemonTreeProps & {
     isDraggable?: (item: TreeDataItem) => boolean
     /** Whether the item is droppable. */
     isDroppable?: (item: TreeDataItem) => boolean
+    /** The depth of the item. */
+    depth?: number
 }
 
 const Draggable = (props: { id: string; children: React.ReactNode; enableDragging: boolean }): JSX.Element => {
@@ -105,14 +166,16 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             setExpandedItemIds,
             defaultNodeIcon,
             showFolderActiveState,
-            right,
             isItemDraggable: isDraggable,
             isItemDroppable: isDroppable,
+            depth = 0,
+            itemSideAction,
         },
         ref
     ): JSX.Element => {
         const [isModifierKeyPressed, setIsModifierKeyPressed] = useState(false)
         const ICON_CLASSES = 'size-6 aspect-square flex place-items-center'
+        const DEPTH_OFFSET = 4 + 8 * depth // 4 is .25rem to match lemon button padding x axis
 
         if (!(data instanceof Array)) {
             data = [data]
@@ -122,16 +185,32 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         // If no icon is provided, use a defaultNodeIcon icon
         // If no defaultNodeIcon icon is provided, use empty div
         function getIcon(item: TreeDataItem, expandedItemIds: string[]): JSX.Element {
-            if (item.children) {
+            const isOpen = expandedItemIds.includes(item.id)
+            const isFolder = item.type === 'folder'
+            const isFile = item.type === 'file'
+            const isProject = item.type === 'project'
+
+            if (isFolder || isProject) {
                 return (
-                    <span className={ICON_CLASSES}>
-                        <IconChevronRight
-                            className={cn(
-                                'transition-transform scale-75 stroke-2',
-                                expandedItemIds.includes(item.id) ? 'rotate-90' : ''
-                            )}
-                        />
-                    </span>
+                    <>
+                        <span className={ICON_CLASSES}>
+                            <IconChevronRight
+                                className={cn('transition-transform scale-75 stroke-2', isOpen ? 'rotate-90' : '')}
+                            />
+                        </span>
+                        {isOpen ? <IconFolderOpen className="size-4" /> : <IconFolder className="size-4" />}
+                    </>
+                )
+            }
+
+            if (isFile) {
+                return (
+                    <>
+                        <span className={ICON_CLASSES}>&nbsp;</span>
+                        <span className={ICON_CLASSES}>
+                            <IconFile className="size-4" />
+                        </span>
+                    </>
                 )
             }
 
@@ -184,13 +263,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full">
                                 <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
                                     <LemonButton
-                                        className={cn('flex-1 flex items-center gap-2 cursor-pointer pl-0 font-normal')}
+                                        className={cn('flex-1 flex items-center gap-2 cursor-pointer font-normal')}
                                         onClick={() => handleClick(item)}
                                         type={selectedId === item.id ? 'secondary' : 'tertiary'}
                                         role="treeitem"
                                         tabIndex={-1}
                                         size="small"
                                         fullWidth
+                                        data-tree-depth={depth}
                                         active={
                                             focusedId === item.id ||
                                             selectedId === item.id ||
@@ -201,6 +281,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         icon={getIcon(item, expandedItemIds)}
                                         disabledReason={item.disabledReason}
                                         tooltipPlacement="right"
+                                        style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
+                                        truncate
+                                        tooltip={item.name}
+                                        sideAction={itemSideAction ? itemSideAction(item) : undefined}
                                     >
                                         <span
                                             className={cn('', {
@@ -210,14 +294,17 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         >
                                             {renderItem ? renderItem(item, item.name) : item.name}
                                         </span>
-                                        {item.right || right ? (
-                                            <span className="ml-auto pl-1">{item.right || right?.(item)}</span>
-                                        ) : null}
                                     </LemonButton>
                                 </AccordionPrimitive.Trigger>
 
                                 {item.children && (
-                                    <AccordionPrimitive.Content>
+                                    <AccordionPrimitive.Content className="relative">
+                                        {/* Depth line */}
+                                        <div
+                                            className="absolute -top-2 left-0 bottom-0 w-px -z-[1] bg-fill-separator"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ transform: `translateX(${DEPTH_OFFSET}px)` }}
+                                        />
                                         <LemonTreeNode
                                             data={item.children}
                                             selectedId={selectedId}
@@ -227,11 +314,12 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             setExpandedItemIds={setExpandedItemIds}
                                             defaultNodeIcon={defaultNodeIcon}
                                             showFolderActiveState={showFolderActiveState}
-                                            right={right}
                                             renderItem={renderItem}
-                                            className="ml-4 space-y-px"
+                                            itemSideAction={itemSideAction}
+                                            className="space-y-px"
                                             isItemDraggable={isDraggable}
                                             isItemDroppable={isDroppable}
+                                            depth={depth + 1}
                                         />
                                     </AccordionPrimitive.Content>
                                 )}
@@ -285,7 +373,6 @@ export type LemonTreeProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> &
      * @param node - the node that was clicked
      */
     onNodeClick?: (node: TreeDataItem | undefined) => void
-    right?: (item: TreeDataItem) => React.ReactNode
 
     /** The ref of the content to focus when the tree is clicked. TODO: make non-optional. */
     contentRef?: React.RefObject<HTMLDivElement>
@@ -298,6 +385,15 @@ export type LemonTreeProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> &
 
     /** Whether the item can accept drops */
     isItemDroppable?: (item: TreeDataItem) => boolean
+
+    /** Whether the item is loading */
+    isItemLoading?: (item: TreeDataItem) => boolean
+
+    /** Whether the item is unapplied */
+    isItemUnapplied?: (item: TreeDataItem) => boolean
+
+    /** The side action to render for the item. */
+    itemSideAction?: (item: TreeDataItem) => SideAction
 }
 
 const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
@@ -312,10 +408,12 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             className,
             showFolderActiveState = false,
             contentRef,
-            right,
             onDragEnd,
             isItemDraggable: isDraggable,
             isItemDroppable: isDroppable,
+            isItemLoading,
+            isItemUnapplied,
+            itemSideAction,
             ...props
         },
         ref
@@ -410,7 +508,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         }, [contentRef])
 
         // Add helper function to find path to an item
-        const findPathToItem = (items: TreeDataItem[], targetId: string, path: string[] = []): string[] => {
+        const findPathToItem = useCallback((items: TreeDataItem[], targetId: string, path: string[] = []): string[] => {
             for (const item of items) {
                 if (item.id === targetId) {
                     return path
@@ -423,7 +521,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 }
             }
             return []
-        }
+        }, [])
 
         // Add function to handle type-ahead search
         const handleTypeAhead = useCallback(
@@ -664,17 +762,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     }
                 }
             },
-            [
-                focusedId,
-                expandedItemIds,
-                getVisibleItems,
-                handleTypeAhead,
-                data,
-                focusContent,
-                handleClick,
-                onNodeClick,
-                onFolderClick,
-            ]
+            [focusedId, expandedItemIds, getVisibleItems, handleTypeAhead, data, focusContent, handleClick, onNodeClick]
         )
 
         return (
@@ -703,10 +791,12 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         setExpandedItemIds={setExpandedItemIds}
                         defaultNodeIcon={defaultNodeIcon}
                         showFolderActiveState={showFolderActiveState}
-                        right={right}
                         className="space-y-px"
                         isItemDraggable={isDraggable}
                         isItemDroppable={isDroppable}
+                        isItemLoading={isItemLoading}
+                        isItemUnapplied={isItemUnapplied}
+                        itemSideAction={itemSideAction}
                         {...props}
                     />
                 </div>

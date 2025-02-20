@@ -21,16 +21,48 @@ export function Droppable(props: { id: string; children: ReactNode }): JSX.Eleme
     return <div ref={setNodeRef}>{props.children}</div>
 }
 
+{
+    /* // renderItem={(item, children): JSX.Element => {
+    //     const path = item.record?.path || ''
+    //     const loading =
+    //         typeof item.record?.path === 'string' || item.record?.type === 'project' ? (
+    //             loadingPaths[path] ? (
+    //                 <Spinner className="ml-1" />
+    //             ) : unappliedPaths[path] ? (
+    //                 <IconUpload className="ml-1 text-warning" />
+    //             ) : undefined
+    //         ) : undefined
+    //     if (item.record?.type === 'project') {
+    //         return (
+    //             <Droppable id="">
+    //                 {children}
+    //                 {loading}
+    //             </Droppable>
+    //         )
+    //     } else if (path) {
+    //         return (
+    //             <Droppable id={path}>
+    //                 <Draggable id={path}>
+    //                     {children}
+    //                     {loading}
+    //                 </Draggable>
+    //             </Droppable>
+    //         )
+    //     }
+    //     return (
+    //         <>
+    //             {children}
+    //             {loading}
+    //         </>
+    //     )
+    // }} */
+}
+
 export function ProjectTree(): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const {
-        treeData,
-        viableItems,
-        // loadingPaths,
-        // unappliedPaths,
-    } = useValues(projectTreeLogic)
+    const { treeData, viableItems, loadingPaths, unappliedPaths } = useValues(projectTreeLogic)
     const { addFolder, deleteItem, moveItem } = useActions(projectTreeLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -72,61 +104,75 @@ export function ProjectTree(): JSX.Element {
                             }}
                             isItemDraggable={(item) => !!item.record?.type}
                             isItemDroppable={(item) => item.record?.type === 'folder'}
-                            right={({ record }) =>
-                                record?.created_at || record?.type ? (
+                            isItemLoading={(item) => loadingPaths[item.record?.path]}
+                            isItemUnapplied={(item) => unappliedPaths[item.record?.path]}
+                            itemSideAction={(item) => ({
+                                icon: (
                                     <More
                                         size="xsmall"
                                         onClick={(e) => e.stopPropagation()}
                                         overlay={
                                             <>
-                                                {record?.type === 'folder' || record?.type === 'project' ? (
+                                                {item.record?.type === 'folder' || item.record?.type === 'project' ? (
                                                     <LemonButton
-                                                        onClick={() => {
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
                                                             const folder = prompt(
-                                                                record.path
-                                                                    ? `Create a folder under "${record.path}":`
+                                                                item.record?.path
+                                                                    ? `Create a folder under "${item.record?.path}":`
                                                                     : 'Create a new folder:',
                                                                 ''
                                                             )
                                                             if (folder) {
                                                                 addFolder(
-                                                                    record.path ? record.path + '/' + folder : folder
+                                                                    item.record?.path
+                                                                        ? item.record?.path + '/' + folder
+                                                                        : folder
                                                                 )
                                                             }
                                                         }}
                                                         fullWidth
+                                                        size="small"
                                                     >
                                                         New Folder
                                                     </LemonButton>
                                                 ) : null}
-                                                {record.path ? (
+                                                {item.record?.path ? (
                                                     <LemonButton
-                                                        onClick={() => {
-                                                            const oldPath = record.path
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            const oldPath = item.record?.path
                                                             const folder = prompt('New name?', oldPath)
                                                             if (folder) {
                                                                 moveItem(oldPath, folder)
                                                             }
                                                         }}
                                                         fullWidth
+                                                        size="small"
                                                     >
                                                         Rename
                                                     </LemonButton>
                                                 ) : null}
-                                                {record.path ? (
+                                                {item.record?.path ? (
                                                     <LemonButton
-                                                        onClick={() => {
-                                                            void navigator.clipboard.writeText(record.path)
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            void navigator.clipboard.writeText(item.record?.path)
                                                         }}
                                                         fullWidth
+                                                        size="small"
                                                     >
                                                         Copy Path
                                                     </LemonButton>
                                                 ) : null}
-                                                {record?.created_at ? (
+                                                {item.record?.created_at ? (
                                                     <LemonButton
-                                                        onClick={() => deleteItem(record as FileSystemEntry)}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            deleteItem(item as unknown as FileSystemEntry)
+                                                        }}
                                                         fullWidth
+                                                        size="small"
                                                     >
                                                         Delete
                                                     </LemonButton>
@@ -134,8 +180,9 @@ export function ProjectTree(): JSX.Element {
                                             </>
                                         }
                                     />
-                                ) : undefined
-                            }
+                                ),
+                                identifier: item.record?.path || 'more',
+                            })}
                         />
                     </ScrollableShadows>
                     <NavbarBottom />
