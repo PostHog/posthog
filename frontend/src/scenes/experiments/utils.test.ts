@@ -9,6 +9,7 @@ import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_
 import {
     ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
+    ExperimentEventExposureConfig,
     ExperimentEventMetricConfig,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -29,7 +30,9 @@ import {
 
 import { getNiceTickValues } from './MetricsView/MetricsView'
 import {
+    exposureConfigToFilter,
     featureFlagEligibleForExperiment,
+    filterToExposureConfig,
     filterToMetricConfig,
     getMinimumDetectableEffect,
     getViewRecordingFilters,
@@ -552,6 +555,76 @@ describe('checkFeatureFlagEligibility', () => {
             },
         }
         expect(featureFlagEligibleForExperiment(featureFlag)).toEqual(true)
+    })
+})
+
+describe('exposureConfigToFilter', () => {
+    it('returns the correct filter for an exposure config', () => {
+        const exposureConfig = {
+            kind: NodeKind.ExperimentEventExposureConfig,
+            event: '$feature_flag_called',
+            properties: [
+                {
+                    key: '$feature_flag_response',
+                    value: ['test'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ],
+        } as ExperimentEventExposureConfig
+        const filter = exposureConfigToFilter(exposureConfig)
+        expect(filter).toEqual({
+            events: [
+                {
+                    id: '$feature_flag_called',
+                    name: '$feature_flag_called',
+                    kind: 'EventsNode',
+                    type: 'events',
+                    properties: [
+                        {
+                            key: '$feature_flag_response',
+                            value: ['test'],
+                            operator: 'exact',
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+            actions: [],
+            data_warehouse: [],
+        })
+    })
+})
+
+describe('filterToExposureConfig', () => {
+    it('returns the correct exposure config for an event', () => {
+        const event = {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            kind: 'EventsNode',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature_flag_response',
+                    value: ['test'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ],
+        }
+        const exposureConfig = filterToExposureConfig(event)
+        expect(exposureConfig).toEqual({
+            kind: NodeKind.ExperimentEventExposureConfig,
+            event: '$feature_flag_called',
+            properties: [
+                {
+                    key: '$feature_flag_response',
+                    value: ['test'],
+                    operator: 'exact',
+                    type: 'event',
+                },
+            ],
+        })
     })
 })
 

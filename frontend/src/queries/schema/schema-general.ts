@@ -102,6 +102,7 @@ export enum NodeKind {
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
+    ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
     ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
@@ -1844,6 +1845,13 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
 
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
+    exposure_config?: ExperimentEventExposureConfig
+}
+
+export interface ExperimentEventExposureConfig {
+    kind: NodeKind.ExperimentEventExposureConfig
+    event: string
+    properties: AnyPropertyFilter[]
 }
 
 export enum ExperimentMetricType {

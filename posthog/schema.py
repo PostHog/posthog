@@ -755,13 +755,6 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
-class ExperimentExposureCriteria(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    filterTestAccounts: Optional[bool] = None
-
-
 class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1141,6 +1134,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
+    EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
     EXPERIMENT_ACTION_METRIC_CONFIG = "ExperimentActionMetricConfig"
     EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
@@ -4618,6 +4612,31 @@ class ExperimentActionMetricConfig(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
 
 
+class ExperimentEventExposureConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    properties: list[
+        Union[
+            EventPropertyFilter,
+            PersonPropertyFilter,
+            ElementPropertyFilter,
+            SessionPropertyFilter,
+            CohortPropertyFilter,
+            RecordingPropertyFilter,
+            LogEntryPropertyFilter,
+            GroupPropertyFilter,
+            FeaturePropertyFilter,
+            HogQLPropertyFilter,
+            EmptyPropertyFilter,
+            DataWarehousePropertyFilter,
+            DataWarehousePersonPropertyFilter,
+        ]
+    ]
+
+
 class ExperimentEventMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4647,6 +4666,14 @@ class ExperimentEventMetricConfig(BaseModel):
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
+
+
+class ExperimentExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: Optional[ExperimentEventExposureConfig] = None
+    filterTestAccounts: Optional[bool] = None
 
 
 class ExperimentExposureQuery(BaseModel):
