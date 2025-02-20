@@ -1723,6 +1723,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         // This represents the range in which the true percentage change relative to the control is likely to fall.
                         const lowerBound = ((credibleInterval[0] - controlConversionRate) / controlConversionRate) * 100
                         const upperBound = ((credibleInterval[1] - controlConversionRate) / controlConversionRate) * 100
+                        if (lowerBound === Infinity || upperBound === Infinity) {
+                            return null
+                        }
                         return [lowerBound, upperBound]
                     }
 
@@ -1736,6 +1739,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     // This represents the range in which the true percentage change relative to the control is likely to fall.
                     const relativeLowerBound = ((credibleInterval[0] - controlMean) / controlMean) * 100
                     const relativeUpperBound = ((credibleInterval[1] - controlMean) / controlMean) * 100
+                    if (relativeLowerBound === Infinity || relativeUpperBound === Infinity) {
+                        return null
+                    }
                     return [relativeLowerBound, relativeUpperBound]
                 },
         ],
