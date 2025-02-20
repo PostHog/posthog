@@ -52,7 +52,6 @@ jobs:
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
                   workingDir: ./common/storybook/
-                  buildScriptName: build
 
     visual-regression:
         name: Visual regression tests
