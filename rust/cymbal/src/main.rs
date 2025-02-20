@@ -88,9 +88,9 @@ async fn main() {
             .json_recv_batch(batch_size, batch_wait_time)
             .await;
 
-        let mut producer = context.kafka_producer.lock().await;
+        let mut transactional_producer = context.transactional_producer.lock().await;
 
-        let txn = match producer.begin() {
+        let txn = match transactional_producer.begin() {
             Ok(txn) => txn,
             Err(e) => {
                 error!("Failed to start kafka transaction, {:?}", e);

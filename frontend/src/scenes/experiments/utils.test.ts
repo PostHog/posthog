@@ -8,6 +8,7 @@ import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_met
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
 import {
     ExperimentActionMetricConfig,
+    ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -580,6 +581,7 @@ describe('metricConfigToFilter', () => {
                 },
             ],
             actions: [],
+            data_warehouse: [],
         })
     })
     it('returns the correct filter for an action', () => {
@@ -605,6 +607,39 @@ describe('metricConfigToFilter', () => {
                     math_hogql: undefined,
                     properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
                     kind: NodeKind.EventsNode,
+                },
+            ],
+            data_warehouse: [],
+        })
+    })
+    it('returns the correct filter for a data warehouse metric', () => {
+        const metricConfig = {
+            kind: NodeKind.ExperimentDataWarehouseMetricConfig,
+            table_name: 'mysql_payments',
+            name: 'mysql_payments',
+            timestamp_field: 'timestamp',
+            events_join_key: 'person.properties.email',
+            data_warehouse_join_key: 'customer.email',
+            math: 'total',
+            math_property: undefined,
+            math_hogql: undefined,
+        } as ExperimentDataWarehouseMetricConfig
+        const filter = metricConfigToFilter(metricConfig)
+        expect(filter).toEqual({
+            events: [],
+            actions: [],
+            data_warehouse: [
+                {
+                    kind: NodeKind.EventsNode,
+                    id: 'mysql_payments',
+                    name: 'mysql_payments',
+                    type: 'data_warehouse',
+                    timestamp_field: 'timestamp',
+                    events_join_key: 'person.properties.email',
+                    data_warehouse_join_key: 'customer.email',
+                    math: 'total',
+                    math_property: undefined,
+                    math_hogql: undefined,
                 },
             ],
         })
@@ -674,6 +709,29 @@ describe('filterToMetricConfig', () => {
             math_property: undefined,
             math_hogql: undefined,
             properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
+        })
+    })
+    it('returns the correct metric config for a data warehouse metric', () => {
+        const dataWarehouse = {
+            kind: NodeKind.EventsNode,
+            id: 'mysql_payments',
+            name: 'mysql_payments',
+            type: 'data_warehouse',
+            timestamp_field: 'timestamp',
+            events_join_key: 'person.properties.email',
+            data_warehouse_join_key: 'customer.email',
+        } as Record<string, any>
+        const metricConfig = filterToMetricConfig(dataWarehouse)
+        expect(metricConfig).toEqual({
+            kind: NodeKind.ExperimentDataWarehouseMetricConfig,
+            table_name: 'mysql_payments',
+            name: 'mysql_payments',
+            timestamp_field: 'timestamp',
+            events_join_key: 'person.properties.email',
+            data_warehouse_join_key: 'customer.email',
+            math: 'total',
+            math_property: undefined,
+            math_hogql: undefined,
         })
     })
 })

@@ -12,6 +12,7 @@ from posthog.hogql.printer import print_ast
 from posthog.hogql.property import get_property_type
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Filter, Cohort, Team, Property
 from posthog.models.property import PropertyGroup
 from posthog.queries.foss_cohort_query import (
@@ -22,6 +23,7 @@ from posthog.queries.foss_cohort_query import (
 )
 from posthog.schema import (
     ActorsQuery,
+    EventsQuery,
     InsightActorsQuery,
     TrendsQuery,
     DateRange,
@@ -51,7 +53,7 @@ class TestWrapperCohortQuery(CohortQuery):
     def __init__(self, filter: Filter, team: Team):
         cohort_query = CohortQuery(filter=filter, team=team)
         hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
-        # hogql_query = hogql_cohort_query.query_str("hogql")
+        self.clickhouse_query = hogql_cohort_query.query_str("clickhouse")
         self.hogql_result = execute_hogql_query(hogql_cohort_query.get_query(), team)
         super().__init__(filter=filter, team=team)
 
@@ -156,30 +158,32 @@ class HogQLCohortQuery:
 
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
-        # either an action or an event
-        series: list[Union[EventsNode, ActionsNode]]
+
+        if prop.explicit_datetime:
+            date_from = prop.explicit_datetime
+        else:
+            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+            date_interval = validate_interval(prop.time_interval)
+            date_from = f"-{date_value}{date_interval[:1]}"
+
+        events_query = EventsQuery(after=date_from, select=["person_id", "count()"])
         if prop.event_type == "events":
-            series = [EventsNode(event=prop.key)] * (count + 1)
+            events_query.event = prop.key
         elif prop.event_type == "actions":
-            series = [ActionsNode(id=int(prop.key))] * (count + 1)
+            events_query.actionId = int(prop.key)
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
 
-        funnelStep: Optional[int] = None
-
-        funnelCustomSteps: Optional[list[int]] = None
-
         if prop.operator == "gte":
-            funnelStep = count
+            events_query.where = [f"count() >= {count}"]
         elif prop.operator == "lte":
-            funnelCustomSteps = list(range(1, count + 1))
+            events_query.where = [f"count() <= {count}"]
         elif prop.operator == "gt":
-            funnelStep = count + 1
+            events_query.where = [f"count() > {count}"]
         elif prop.operator == "lt":
-            funnelCustomSteps = list(range(1, count))
+            events_query.where = [f"count() < {count}"]
         elif prop.operator == "eq" or prop.operator == "exact" or prop.operator is None:  # type: ignore[comparison-overlap]
-            # People who dropped out at count + 1
-            funnelStep = -(count + 1)
+            events_query.where = [f"count() = {count}"]
         else:
             raise ValidationError("count_operator must be gt(e), lt(e), exact, or None")
 
@@ -190,25 +194,12 @@ class HogQLCohortQuery:
                 if isinstance(property, PropertyGroup):
                     raise ValidationError("Property groups are not supported in this behavioral cohort type")
                 typed_properties.append(property_to_typed_property(property))
-            for serie in series:
-                serie.properties = typed_properties
+            events_query.properties = typed_properties
 
-        if prop.explicit_datetime:
-            date_from = prop.explicit_datetime
-        else:
-            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-            date_interval = validate_interval(prop.time_interval)
-            date_from = f"-{date_value}{date_interval[:1]}"
-
-        funnel_query = FunnelsQuery(
-            series=series,
-            dateRange=DateRange(date_from=date_from),
-            funnelsFilter=FunnelsFilter(
-                funnelWindowInterval=12 * 50, funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.MONTH
-            ),
-        )
-        return self._actors_query_from_source(
-            FunnelsActorsQuery(source=funnel_query, funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps)
+        events_query_runner = EventsQueryRunner(team=self.team, query=events_query)
+        return cast(
+            ast.SelectQuery,
+            parse_select("select person_id as id from {event_query}", {"event_query": events_query_runner.to_query()}),
         )
 
     def get_performed_event_sequence(self, prop: Property) -> ast.SelectQuery:
@@ -376,7 +367,7 @@ class HogQLCohortQuery:
         return cast(
             ast.SelectQuery,
             parse_select(
-                f"SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort.pk} AND team_id = {self.team.pk}",
+                f"SELECT person_id as id FROM static_cohort_people WHERE cohort_id = {cohort.pk} AND team_id = {self.team.pk}",
             ),
         )
 
@@ -459,9 +450,9 @@ class HogQLCohortQuery:
                         subsequent_select_queries=[
                             SelectSetNode(
                                 select_query=query,
-                                set_operator="UNION DISTINCT"
-                                if all_negated
-                                else ("EXCEPT" if negation else "INTERSECT"),
+                                set_operator=(
+                                    "UNION DISTINCT" if all_negated else ("EXCEPT" if negation else "INTERSECT")
+                                ),
                             )
                             for (query, negation) in queries[1:]
                         ],

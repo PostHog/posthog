@@ -224,8 +224,9 @@ services:
         extends:
             file: docker-compose.base.yml
             service: cyclotron-fetch
+        build: never
         environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             SENTRY_DSN: $SENTRY_DSN
         depends_on:
@@ -238,8 +239,9 @@ services:
         extends:
             file: docker-compose.base.yml
             service: cyclotron-janitor
+        build: never
         environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             SENTRY_DSN: $SENTRY_DSN
         depends_on:
@@ -247,6 +249,24 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_started
+
+    capture:
+        build: never
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+
+    replay-capture:
+        build: never
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
+
+    property-defs-rs:
+        build: never
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
 
 volumes:
     zookeeper-data:

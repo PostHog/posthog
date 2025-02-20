@@ -1,13 +1,21 @@
-from collections import defaultdict
-from unittest.mock import Mock, patch
+import re
 import uuid
+from collections import defaultdict
 from collections.abc import Callable, Iterator
+from unittest.mock import Mock, patch
 
 import pytest
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.cluster import T, ClickhouseCluster, HostInfo, MutationRunner, get_cluster
+from posthog.clickhouse.cluster import (
+    ClickhouseCluster,
+    HostInfo,
+    MutationRunner,
+    T,
+    Query,
+    get_cluster,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
 
@@ -19,6 +27,30 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 def test_mutation_runner_rejects_invalid_parameters() -> None:
     with pytest.raises(ValueError):
         MutationRunner("table", "command", {"__invalid_key": True})
+
+
+def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
+    def replace_memory_addresses(value):
+        return re.sub(r"0x[0-9A-Fa-f]{16}", "0x0000000000000000", value)
+
+    with pytest.raises(ExceptionGroup) as e:
+        cluster.map_all_hosts(Query("invalid query")).result()
+
+    assert replace_memory_addresses(e.value.message) == snapshot
+
+    with pytest.raises(ExceptionGroup) as e:
+        cluster.map_all_hosts(Query("SELECT * FROM invalid_table_name")).result()
+
+    assert replace_memory_addresses(e.value.message) == snapshot
+
+    with pytest.raises(ExceptionGroup) as e:
+
+        def explode(_):
+            raise ValueError("custom error")
+
+        cluster.map_all_hosts(explode).result()
+
+    assert e.value.message == snapshot
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:
