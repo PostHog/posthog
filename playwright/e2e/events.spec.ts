@@ -54,6 +54,7 @@ test.describe('Events', () => {
         )
 
         await page.goToMenuItem('activity')
+        await page.waitForURL('**/activity/explore')
     })
 
     test('Events loaded', async ({ page }) => {
