@@ -5,11 +5,6 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.trends_statistics import (
-    are_results_significant,
-    calculate_credible_intervals,
-    calculate_probabilities,
-)
 from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
     are_results_significant_v2_count,
     calculate_credible_intervals_v2_count,
@@ -65,7 +60,7 @@ class ExperimentQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = self.experiment.get_stats_config("version") or 1
+        self.stats_version = 2
 
         self.date_range = self._get_date_range()
 
@@ -98,6 +93,7 @@ class ExperimentQueryRunner(QueryRunner):
         feature_flag_key = self.feature_flag.key
 
         is_data_warehouse_query = isinstance(self.metric.metric_config, ExperimentDataWarehouseMetricConfig)
+        is_binomial_metric = self.metric.metric_type == ExperimentMetricType.BINOMIAL
 
         # Pick the correct value for the aggregation chosen
         match self.metric.metric_type:
@@ -322,7 +318,9 @@ class ExperimentQueryRunner(QueryRunner):
             select=[
                 ast.Field(chain=["exposure_data", "variant"]),
                 ast.Field(chain=["exposure_data", "entity_id"]),
-                parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
+                parse_expr("coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) as value")
+                if is_binomial_metric
+                else parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
             ],
             select_from=ast.JoinExpr(
                 table=exposure_query,
@@ -388,7 +386,7 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-        if self.metric.metric_type == ExperimentMetricType.FUNNEL:
+        if self.metric.metric_type == ExperimentMetricType.BINOMIAL:
             return [
                 ExperimentVariantFunnelsBaseStats(
                     failure_count=result[1] - result[2],
@@ -420,57 +418,44 @@ class ExperimentQueryRunner(QueryRunner):
         if not test_variants:
             raise ValueError("Test variants not found in experiment results")
 
-        # Statistical analysis
-        if self.stats_version == 2:
-            match self.metric.metric_type:
-                case ExperimentMetricType.CONTINUOUS:
-                    probabilities = calculate_probabilities_v2_continuous(
-                        control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                    )
-                    significance_code, p_value = are_results_significant_v2_continuous(
-                        control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                        probabilities=probabilities,
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
-                case ExperimentMetricType.COUNT:
-                    probabilities = calculate_probabilities_v2_count(
-                        cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                    )
-                    significance_code, p_value = are_results_significant_v2_count(
-                        cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                        probabilities,
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
-                case ExperimentMetricType.FUNNEL:
-                    probabilities = calculate_probabilities_v2_funnel(
-                        cast(ExperimentVariantFunnelsBaseStats, control_variant),
-                        cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
-                    )
-                    significance_code, p_value = are_results_significant_v2_funnel(
-                        cast(ExperimentVariantFunnelsBaseStats, control_variant),
-                        cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
-                        probabilities,
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_funnel(
-                        cast(list[ExperimentVariantFunnelsBaseStats], [control_variant, *test_variants])
-                    )
-                case _:
-                    raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
-        else:
-            probabilities = calculate_probabilities(
-                cast(ExperimentVariantTrendsBaseStats, control_variant),
-                cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-            )
-            significance_code, p_value = are_results_significant(
-                cast(ExperimentVariantTrendsBaseStats, control_variant),
-                cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                probabilities,
-            )
-            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        match self.metric.metric_type:
+            case ExperimentMetricType.CONTINUOUS:
+                probabilities = calculate_probabilities_v2_continuous(
+                    control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                )
+                significance_code, p_value = are_results_significant_v2_continuous(
+                    control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                    probabilities=probabilities,
+                )
+                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+            case ExperimentMetricType.COUNT:
+                probabilities = calculate_probabilities_v2_count(
+                    cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                )
+                significance_code, p_value = are_results_significant_v2_count(
+                    cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                    probabilities,
+                )
+                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+            case ExperimentMetricType.BINOMIAL:
+                probabilities = calculate_probabilities_v2_funnel(
+                    cast(ExperimentVariantFunnelsBaseStats, control_variant),
+                    cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
+                )
+                significance_code, p_value = are_results_significant_v2_funnel(
+                    cast(ExperimentVariantFunnelsBaseStats, control_variant),
+                    cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
+                    probabilities,
+                )
+                credible_intervals = calculate_credible_intervals_v2_funnel(
+                    cast(list[ExperimentVariantFunnelsBaseStats], [control_variant, *test_variants])
+                )
+            case _:
+                raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
 
         return ExperimentQueryResponse(
             kind="ExperimentQuery",

@@ -8,7 +8,7 @@ export enum MetricInsightId {
     SecondaryFunnels = 'new-experiment-secondary-funnels',
 }
 
-export const EXPERIMENT_ALLOWED_MATH_TYPES = [
+export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
     BaseMathType.TotalCount,
     BaseMathType.UniqueUsers,
     BaseMathType.UniqueSessions,

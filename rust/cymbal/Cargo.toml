@@ -30,6 +30,7 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 moka = { workspace = true }
 rdkafka = { workspace = true }
+posthog-rs = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }
