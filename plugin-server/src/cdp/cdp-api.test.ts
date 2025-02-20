@@ -361,7 +361,7 @@ describe('CDP API', () => {
 
         expect(res.status).toEqual(200)
 
-        const minimalLogs = res.body.logs.map((log) => ({
+        const minimalLogs = res.body.logs.map((log: any) => ({
             level: log.level,
             message: log.message,
         }))
@@ -473,7 +473,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
 
-            expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`
                 [
                   "Executing plugin plugin-posthog-filter-out-plugin",
                   "Execution successful",
@@ -512,7 +512,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
 
-            expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`
                 [
                   "Executing plugin plugin-posthog-filter-out-plugin",
                   "Execution successful",

@@ -1148,8 +1148,10 @@ class _Printer(Visitor):
                         and isinstance(node.args[0].type, StringType)
                     ):
                         try:
-                            _ = parser.isoparse(node.args[0].value)
-                            relevant_clickhouse_name = "toDateTime64"
+                            t = parser.isoparse(node.args[0].value)
+                            # if we have timezone info, toDateTime64 cannot handle
+                            if t.tzinfo is None:
+                                relevant_clickhouse_name = "toDateTime64"
                         except ValueError:
                             pass
 

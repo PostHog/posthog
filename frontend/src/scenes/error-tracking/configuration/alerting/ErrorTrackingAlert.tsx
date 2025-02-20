@@ -43,5 +43,5 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneLogicProps> = {}): JSX.Element {
     const props = id === 'new' ? { id: null, templateId: 'template-slack-error-tracking-issue-created' } : { id }
-    return <HogFunctionConfiguration {...props} />
+    return <HogFunctionConfiguration {...props} displayOptions={{ canEditSource: true }} />
 }

@@ -1,4 +1,4 @@
-import { getMeta, resetMeta } from '@posthog/plugin-scaffold/test/utils.js'
+const { getMeta, resetMeta } = require('@posthog/plugin-scaffold/test/utils.js')
 
 import { onEvent, setupPlugin } from './index'
 
