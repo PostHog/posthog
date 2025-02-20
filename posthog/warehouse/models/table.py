@@ -88,6 +88,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat.choices)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    is_external = models.BooleanField(default=False, null=True, blank=True)
 
     url_pattern = models.CharField(max_length=500)
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
@@ -308,6 +309,9 @@ def get_table_by_schema_id(schema_id: str, team_id: int):
 
 @database_sync_to_async
 def acreate_datawarehousetable(**kwargs):
+    if "is_external" not in kwargs:
+        kwargs["is_external"] = False
+
     return DataWarehouseTable.objects.create(**kwargs)
 
 

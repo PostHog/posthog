@@ -48,13 +48,22 @@ class TableSerializer(serializers.ModelSerializer):
             "format",
             "created_by",
             "created_at",
+            "is_external",
             "url_pattern",
             "credential",
             "columns",
             "external_data_source",
             "external_schema",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "is_external",
+            "columns",
+            "external_data_source",
+            "external_schema",
+        ]
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
@@ -105,6 +114,7 @@ class TableSerializer(serializers.ModelSerializer):
 
         validated_data["team_id"] = team_id
         validated_data["created_by"] = self.context["request"].user
+        validated_data["is_external"] = self.context["request"].user is not None
         if validated_data.get("credential"):
             validated_data["credential"] = DataWarehouseCredential.objects.create(
                 team_id=team_id,
@@ -158,6 +168,14 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         ]
 
 
+class IsExternalFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request, queryset, view):
+        is_external = request.query_params.get("is_external", None)
+        if is_external is not None:
+            queryset = queryset.filter(is_external=is_external.lower() == "true")
+        return queryset
+
+
 class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -166,7 +184,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = DataWarehouseTable.objects.all()
     serializer_class = TableSerializer
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [filters.SearchFilter, IsExternalFilter]
     search_fields = ["name"]
     ordering = "-created_at"
 

@@ -86,6 +86,7 @@ class TestTable(APIBaseTest):
 
         assert table.credential.access_key, "_accesskey"
         assert table.credential.access_secret, "_accesssecret"
+        assert table.is_external is True
 
     @patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns")
     def test_credentialerror(self, patch_get_columns):
