@@ -36,7 +36,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadUnfiledItems: (type?: FileSystemType) => ({ type }),
         addFolder: (folder: string) => ({ folder }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
-        moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
+        moveItem: (oldFilePath: string, newFilePath: string) => ({ oldFilePath, newFilePath }),
         queueAction: (action: ProjectTreeAction) => ({ action }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
         applyPendingActions: true,
@@ -68,12 +68,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {
                 applyPendingActions: async () => {
                     for (const action of values.pendingActions) {
-                        if (action.type === 'move' && action.newPath) {
+                        if (action.type === 'move' && action.newFilePath) {
                             if (!action.item.id) {
-                                const response = await api.fileSystem.create({ ...action.item, path: action.newPath })
+                                const response = await api.fileSystem.create({
+                                    ...action.item,
+                                    path: action.newFilePath,
+                                })
                                 actions.createSavedItem(response)
                             } else {
-                                const response = await api.fileSystem.update(action.item.id, { path: action.newPath })
+                                const response = await api.fileSystem.update(action.item.id, {
+                                    path: action.newFilePath,
+                                })
                                 actions.updateSavedItem(response)
                             }
                         } else if (action.type === 'create') {
@@ -139,26 +144,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const items = [...unfiledItems, ...savedItems]
                 const itemsByPath = Object.fromEntries(items.map((item) => [item.path, item]))
                 for (const action of pendingActions) {
-                    if (action.type === 'move' && action.newPath) {
-                        const item = itemsByPath[action.path]
+                    if (action.type === 'move' && action.newFilePath) {
+                        const item = itemsByPath[action.filePath]
                         if (item) {
-                            if (!itemsByPath[action.newPath]) {
-                                itemsByPath[action.newPath] = { ...item, path: action.newPath }
-                                delete itemsByPath[action.path]
+                            if (!itemsByPath[action.newFilePath]) {
+                                itemsByPath[action.newFilePath] = { ...item, path: action.newFilePath }
+                                delete itemsByPath[action.filePath]
                             } else {
-                                console.error("Item already exists, can't move", action.newPath)
+                                console.error("Item already exists, can't move", action.newFilePath)
                             }
                         } else {
-                            console.error("Item not found, can't move", action.path)
+                            console.error("Item not found, can't move", action.filePath)
                         }
-                    } else if (action.type === 'create' && action.newPath) {
-                        if (!itemsByPath[action.newPath]) {
-                            itemsByPath[action.newPath] = { ...action.item, path: action.newPath }
+                    } else if (action.type === 'create' && action.newFilePath) {
+                        if (!itemsByPath[action.newFilePath]) {
+                            itemsByPath[action.newFilePath] = { ...action.item, path: action.newFilePath }
                         } else {
                             console.error("Item already exists, can't create", action.item)
                         }
-                    } else if (action.type === 'delete' && action.path) {
-                        delete itemsByPath[action.path]
+                    } else if (action.type === 'delete' && action.filePath) {
+                        delete itemsByPath[action.filePath]
                     }
                 }
                 return Object.values(itemsByPath)
@@ -171,9 +176,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const unappliedPaths: Record<string, boolean> = {}
                 for (const action of pendingActions) {
                     if (action.type === 'move-create' || action.type === 'move' || action.type === 'create') {
-                        if (action.newPath) {
-                            unappliedPaths[action.newPath] = true
-                            const split = action.newPath.split('/')
+                        if (action.newFilePath) {
+                            unappliedPaths[action.newFilePath] = true
+                            const split = action.newFilePath.split('/')
                             for (let i = 1; i < split.length; i++) {
                                 unappliedPaths[split.slice(0, i).join('/')] = true
                             }
@@ -196,7 +201,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     loadingPaths[''] = true
                 }
                 if (pendingLoaderLoading && pendingActions.length > 0) {
-                    loadingPaths[pendingActions[0].newPath || pendingActions[0].path] = true
+                    loadingPaths[pendingActions[0].newFilePath || pendingActions[0].filePath] = true
                 }
                 return loadingPaths
             },
@@ -253,6 +258,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                   ? () => projectTreeLogic.actions.applyPendingActions()
                                   : undefined,
                               type: 'file' as const,
+                              filePath: 'applyPendingActions',
                           },
                       ]
                     : [
@@ -269,6 +275,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     record: { type: 'project', id: 'project' },
                     onClick: () => router.actions.push(urls.projectHomepage()),
                     type: 'project' as const,
+                    filePath: 'project',
                 },
             ],
         ],
@@ -280,20 +287,20 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        moveItem: async ({ oldPath, newPath }) => {
+        moveItem: async ({ oldFilePath, newFilePath }) => {
             for (const item of values.viableItems) {
-                if (item.path === oldPath || item.path.startsWith(oldPath + '/')) {
+                if (item.path === oldFilePath || item.path.startsWith(oldFilePath + '/')) {
                     actions.queueAction({
                         type: 'move',
                         item,
-                        path: item.path,
-                        newPath: newPath + item.path.slice(oldPath.length),
+                        filePath: item.path,
+                        newFilePath: newFilePath + item.path.slice(oldFilePath.length),
                     })
                 }
             }
         },
         deleteItem: async ({ item }) => {
-            actions.queueAction({ type: 'delete', item, path: item.path })
+            actions.queueAction({ type: 'delete', item, filePath: item.path })
         },
         addFolder: ({ folder }) => {
             if (values.viableItems.find((item) => item.path === folder)) {
@@ -302,8 +309,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.queueAction({
                 type: 'create',
                 item: { id: `project/${folder}`, path: folder, type: 'folder' },
-                path: folder,
-                newPath: folder,
+                filePath: folder,
+                newFilePath: folder,
             })
         },
     })),

@@ -29,6 +29,7 @@ const meta: Meta<typeof LemonTree> = {
             {
                 id: 'gt_7d8f9',
                 name: 'Growth team',
+                type: 'folder',
                 children: [
                     {
                         id: 'gsm_a1b2c',
@@ -37,31 +38,37 @@ const meta: Meta<typeof LemonTree> = {
                             // eslint-disable-next-line no-console
                             console.log('clicked growth support metrics', open)
                         },
+                        type: 'file',
                     },
                     {
                         id: 'ssc_3d4e5',
                         name: 'Self-serve credits',
                         icon: <IconShieldPeople />,
                         disabledReason: "you're not cool enough",
+                        type: 'file',
                     },
                     {
                         id: 'ot_f6g7h',
                         name: 'Onboarding things',
+                        type: 'folder',
                         children: [
                             {
                                 id: 'cf_8i9j0',
                                 name: 'Conversion funnel',
                                 icon: <IconShieldPeople />,
+                                type: 'file',
                             },
                             {
                                 id: 'mpu_k1l2m',
                                 name: 'Multi-product usage',
                                 icon: <IconShieldPeople />,
+                                type: 'file',
                             },
                             {
                                 id: 'pis_n3o4p',
                                 name: 'Post-install survey',
                                 icon: <IconShieldPeople />,
+                                type: 'file',
                             },
                         ],
                     },
@@ -69,37 +76,44 @@ const meta: Meta<typeof LemonTree> = {
                         id: 'ob2_q5r6s',
                         name: 'Onboarding 2.0',
                         disabledReason: "you're not cool enough",
+                        type: 'folder',
                         children: [
                             {
                                 id: 'hsc_t7u8v',
                                 name: 'Hypothesis & success criteria',
                                 icon: <IconShieldPeople />,
+                                type: 'file',
                             },
                             {
                                 id: 'ob2a_w9x0y',
                                 name: 'Onboarding 2.0',
                                 icon: <IconShieldPeople />,
+                                type: 'file',
                             },
                             {
                                 id: 'ob2b_z1a2b',
                                 name: 'Onboarding 2.0',
                                 icon: <IconShieldPeople />,
+                                type: 'file',
                             },
                             {
                                 id: 'ob2c_c3d4e',
                                 name: 'Onboarding 2.0',
                                 icon: <IconShieldPeople />,
+                                type: 'file',
                             },
                         ],
                     },
                     {
                         id: 'bt_f5g6h',
                         name: 'Billing test',
+                        type: 'folder',
                         children: [
                             {
                                 id: 'os_i7j8k',
                                 name: 'other stuff',
                                 icon: <IconShieldPeople />,
+                                type: 'file',
                             },
                         ],
                     },
@@ -108,18 +122,22 @@ const meta: Meta<typeof LemonTree> = {
             {
                 id: 'et_l9m0n',
                 name: 'Exec team',
+                type: 'file',
             },
             {
                 id: 'wv_o1p2q',
                 name: 'Website & vibes',
+                type: 'file',
             },
             {
                 id: 'pa_r3s4t',
                 name: 'Product analytics',
+                type: 'file',
             },
             {
                 id: 'uf_u5v6w',
                 name: 'Unfilled',
+                type: 'file',
             },
         ],
     },

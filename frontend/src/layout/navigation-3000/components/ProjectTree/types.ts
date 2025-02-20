@@ -5,8 +5,8 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 export interface ProjectTreeAction {
     type: 'move' | 'move-create' | 'create' | 'delete'
     item: FileSystemEntry
-    path: string
-    newPath?: string
+    filePath: string
+    newFilePath?: string
 }
 
 export interface FileSystemImport extends FileSystemEntry {

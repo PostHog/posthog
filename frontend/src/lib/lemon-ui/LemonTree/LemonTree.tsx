@@ -70,8 +70,6 @@ export type TreeDataItem = {
     name: string
     /** Passthrough metadata */
     record?: Record<string, any>
-    /** Content to display to the right of the item. */
-    right?: React.ReactNode
     /** The icon to use for the item. */
     icon?: React.ReactNode
     /** The children of the item. */
@@ -86,6 +84,9 @@ export type TreeDataItem = {
 
     /** The type of the item. */
     type: 'folder' | 'file' | 'project' | 'separator'
+
+    /** The path of the item. */
+    filePath?: string
 }
 
 export type LemonTreeNodeProps = LemonTreeProps & {
@@ -270,6 +271,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         tabIndex={-1}
                                         size="small"
                                         fullWidth
+                                        data-id={item.id}
                                         data-tree-depth={depth}
                                         active={
                                             focusedId === item.id ||
@@ -329,16 +331,16 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                     // Wrap content in Draggable/Droppable if needed
                     let wrappedContent = content
-                    if (isDraggable?.(item)) {
+                    if (isDraggable?.(item) && item.filePath) {
                         wrappedContent = (
-                            <Draggable id={item.record?.path} enableDragging={isModifierKeyPressed}>
+                            <Draggable id={item.filePath} enableDragging={isModifierKeyPressed}>
                                 {wrappedContent}
                             </Draggable>
                         )
                     }
-                    if (isDroppable?.(item)) {
+                    if (isDroppable?.(item) && item.filePath) {
                         wrappedContent = (
-                            <Droppable id={item.record?.path} isDroppable={isDroppable(item)}>
+                            <Droppable id={item.filePath} isDroppable={isDroppable(item)}>
                                 {wrappedContent}
                             </Droppable>
                         )
@@ -569,16 +571,21 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 // Update focusedId when clicking
                 setFocusedId(item?.id)
 
+                // console.log('handleClick', item)
+                // console.log('focusedId', focusedId)
+
                 // Handle click on a node
-                if (!item?.children) {
+                if (item?.type === 'file') {
                     if (onNodeClick) {
                         setSelectedId(item?.id)
                         onNodeClick(item)
                         focusContent() // Add focus content here as well
                     }
-                } else if (onFolderClick) {
+                } else if (item?.type === 'folder') {
                     // Handle click on a folder
-                    onFolderClick(item)
+                    if (onFolderClick) {
+                        onFolderClick(item)
+                    }
                 }
                 if (item?.onClick) {
                     // Handle custom click handler for a folder/ node, pass true if it's a folder and it's not open (yet)

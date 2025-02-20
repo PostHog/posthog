@@ -23,9 +23,9 @@ export function Droppable(props: { id: string; children: ReactNode }): JSX.Eleme
 
 {
     /* // renderItem={(item, children): JSX.Element => {
-    //     const path = item.record?.path || ''
+    //     const path = item.filePath || ''
     //     const loading =
-    //         typeof item.record?.path === 'string' || item.record?.type === 'project' ? (
+    //         typeof item.filePath === 'string' || item.record?.type === 'project' ? (
     //             loadingPaths[path] ? (
     //                 <Spinner className="ml-1" />
     //             ) : unappliedPaths[path] ? (
@@ -102,10 +102,10 @@ export function ProjectTree(): JSX.Element {
                                     }
                                 }
                             }}
-                            isItemDraggable={(item) => !!item.record?.type}
-                            isItemDroppable={(item) => item.record?.type === 'folder'}
-                            isItemLoading={(item) => loadingPaths[item.record?.path]}
-                            isItemUnapplied={(item) => unappliedPaths[item.record?.path]}
+                            isItemDraggable={(item) => Boolean(item.record?.type)}
+                            isItemDroppable={(item) => Boolean(item.record?.type === 'folder')}
+                            isItemLoading={(item) => Boolean(item.filePath && loadingPaths[item.filePath])}
+                            isItemUnapplied={(item) => Boolean(item.filePath && unappliedPaths[item.filePath])}
                             itemSideAction={(item) => ({
                                 icon: (
                                     <More
@@ -118,15 +118,15 @@ export function ProjectTree(): JSX.Element {
                                                         onClick={(e) => {
                                                             e.stopPropagation()
                                                             const folder = prompt(
-                                                                item.record?.path
-                                                                    ? `Create a folder under "${item.record?.path}":`
+                                                                item.filePath
+                                                                    ? `Create a folder under "${item.filePath}":`
                                                                     : 'Create a new folder:',
                                                                 ''
                                                             )
                                                             if (folder) {
                                                                 addFolder(
-                                                                    item.record?.path
-                                                                        ? item.record?.path + '/' + folder
+                                                                    item.filePath
+                                                                        ? item.filePath + '/' + folder
                                                                         : folder
                                                                 )
                                                             }
@@ -137,14 +137,14 @@ export function ProjectTree(): JSX.Element {
                                                         New Folder
                                                     </LemonButton>
                                                 ) : null}
-                                                {item.record?.path ? (
+                                                {item.filePath ? (
                                                     <LemonButton
                                                         onClick={(e) => {
                                                             e.stopPropagation()
-                                                            const oldPath = item.record?.path
-                                                            const folder = prompt('New name?', oldPath)
-                                                            if (folder) {
-                                                                moveItem(oldPath, folder)
+                                                            const oldFilePath = item.filePath
+                                                            const folder = prompt('New name?', oldFilePath)
+                                                            if (folder && oldFilePath) {
+                                                                moveItem(oldFilePath, folder)
                                                             }
                                                         }}
                                                         fullWidth
@@ -153,11 +153,13 @@ export function ProjectTree(): JSX.Element {
                                                         Rename
                                                     </LemonButton>
                                                 ) : null}
-                                                {item.record?.path ? (
+                                                {item.filePath ? (
                                                     <LemonButton
                                                         onClick={(e) => {
                                                             e.stopPropagation()
-                                                            void navigator.clipboard.writeText(item.record?.path)
+                                                            if (item.filePath) {
+                                                                void navigator.clipboard.writeText(item.filePath)
+                                                            }
                                                         }}
                                                         fullWidth
                                                         size="small"
@@ -181,7 +183,7 @@ export function ProjectTree(): JSX.Element {
                                         }
                                     />
                                 ),
-                                identifier: item.record?.path || 'more',
+                                identifier: item.filePath || 'more',
                             })}
                         />
                     </ScrollableShadows>
