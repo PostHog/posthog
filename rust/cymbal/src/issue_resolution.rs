@@ -1,10 +1,14 @@
 use chrono::{DateTime, Utc};
+use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
+use common_kafka::kafka_producer::send_iter_to_kafka;
 use sqlx::postgres::any::AnyConnectionBackend;
 use uuid::Uuid;
 
 use crate::{
+    app_context::AppContext,
     error::UnhandledError,
     metric_consts::{ISSUE_CREATED, ISSUE_REOPENED},
+    posthog_utils::{capture_issue_created, capture_issue_reopened},
 };
 
 pub struct IssueFingerprintOverride {
@@ -137,6 +141,7 @@ impl Issue {
         let reopened = !res.is_empty();
         if reopened {
             metrics::counter!(ISSUE_REOPENED).increment(1);
+            capture_issue_reopened(self.team_id, self.id)
         }
 
         Ok(reopened)
@@ -196,18 +201,15 @@ impl IssueFingerprintOverride {
     }
 }
 
-pub async fn resolve_issue<'c, A>(
-    con: A,
+pub async fn resolve_issue(
+    context: &AppContext,
     team_id: i32,
     fingerprint: &str,
     name: String,
     description: String,
     event_timestamp: DateTime<Utc>,
-) -> Result<Uuid, UnhandledError>
-where
-    A: sqlx::Acquire<'c, Database = sqlx::Postgres>,
-{
-    let mut conn = con.acquire().await?;
+) -> Result<Uuid, UnhandledError> {
+    let mut conn = context.pool.acquire().await?;
 
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, fingerprint).await?;
@@ -246,7 +248,9 @@ where
     if !was_created {
         conn.rollback().await?;
     } else {
+        send_issue_created_alert(context, team_id, issue).await?;
         conn.commit().await?;
+        capture_issue_created(team_id, issue_override.issue_id);
     }
 
     // This being None is /almost/ impossible, unless between the transaction above finishing and
@@ -261,6 +265,38 @@ where
     }
 
     Ok(issue_override.issue_id)
+}
+
+async fn send_issue_created_alert(
+    context: &AppContext,
+    team_id: i32,
+    issue: Issue,
+) -> Result<(), UnhandledError> {
+    let mut event =
+        InternalEventEvent::new("$error_tracking_issue_created", issue.id, Utc::now(), None);
+    event
+        .insert_prop("name", issue.name)
+        .expect("Strings are serializable");
+    event
+        .insert_prop("description", issue.description)
+        .expect("Strings are serializable");
+
+    let message = InternalEvent {
+        team_id,
+        event,
+        person: None,
+    };
+
+    send_iter_to_kafka(
+        &context.immediate_producer,
+        &context.config.internal_events_topic,
+        &[message],
+    )
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(())
 }
 
 #[cfg(test)]

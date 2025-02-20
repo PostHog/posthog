@@ -9,6 +9,9 @@
             "env": ["RUST_VERSION"],
             "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME"]
         },
+        "@posthog/cypress#build": {
+            "dependsOn": ["^build", "!@posthog/storybook#build"]
+        },
         "test": {
             "dependsOn": ["^build"]
         },

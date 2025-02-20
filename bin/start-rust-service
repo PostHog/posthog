@@ -92,7 +92,7 @@ while true; do
 
   # restart subprocess if it fails without bin/start shutdown
   set +e
-  wait -n $RS_PID
+  wait $RS_PID
   set -e
 
   sleep 3

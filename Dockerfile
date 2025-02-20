@@ -26,7 +26,7 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
-COPY frontend/package.json frontend/tailwind.config.js frontend/babel.config.js frontend/webpack.config.js frontend/
+COPY frontend/package.json frontend/tailwind.config.js frontend/
 COPY frontend/bin/ frontend/bin/
 COPY bin/ bin/
 COPY patches/ patches/
