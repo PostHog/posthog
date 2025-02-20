@@ -143,7 +143,6 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             showLabelsOnSeries: undefined,
             showMean: undefined,
             meanRetentionCalculation: undefined,
-            cumulative: undefined,
             yAxisScaleType: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
