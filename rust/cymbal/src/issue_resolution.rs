@@ -146,7 +146,7 @@ impl Issue {
         if reopened {
             metrics::counter!(ISSUE_REOPENED).increment(1);
             capture_issue_reopened(self.team_id, self.id);
-            send_issue_reopened_alert(context, self);
+            send_issue_reopened_alert(context, self).await?;
         }
 
         Ok(reopened)
