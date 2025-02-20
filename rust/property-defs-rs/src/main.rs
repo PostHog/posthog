@@ -9,7 +9,8 @@ use property_defs_rs::{
     config::Config,
     update_consumer_loop,
     update_producer_loop,
-    api::v1::{QueryManager, apply_routes},
+    api::v1::query::Manager,
+    api::v1::routing::apply_routes,
 };
 
 use quick_cache::sync::Cache;
@@ -36,7 +37,7 @@ pub async fn index() -> &'static str {
     "property definitions service"
 }
 
-fn start_server(config: &Config, context: Arc<AppContext>, qmgr: Arc<QueryManager>) -> JoinHandle<()> {
+fn start_server(config: &Config, context: Arc<AppContext>, qmgr: Arc<Manager>) -> JoinHandle<()> {
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
@@ -73,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // owns Postgres client and biz logic that handles property defs API calls
-    let query_manager = Arc::new(QueryManager::new(&config).await?);
+    let query_manager = Arc::new(Manager::new(&config).await?);
     
     start_server(&config, context.clone(), query_manager);
 
