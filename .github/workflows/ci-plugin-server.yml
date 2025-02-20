@@ -164,9 +164,7 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
-              run: |
-                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile 
-                  bin/turbo --filter=@posthog/cyclotron build
+              run: pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'
@@ -189,7 +187,7 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
-                  SHARD_INDEX: ${{ matrix.chunk }}
+                  SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
               run: bin/turbo run test --filter=@posthog/plugin-server
 
