@@ -37,6 +37,7 @@ export interface ProposeNewUrlFormType {
 export enum AuthorizedUrlListType {
     TOOLBAR_URLS = 'TOOLBAR_URLS',
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
+    WEB_ANALYTICS = 'WEB_ANALYTICS',
     WEB_EXPERIMENTS = 'WEB_EXPERIMENTS',
 }
 

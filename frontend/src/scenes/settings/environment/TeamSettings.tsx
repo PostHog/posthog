@@ -212,20 +212,29 @@ export function TeamTimezone(): JSX.Element {
     )
 }
 
-export function TeamToolbarURLs(): JSX.Element {
+export function TeamAuthorizedURLs(): JSX.Element {
     return (
         <>
             <p>
-                These are the URLs where you can launch the{' '}
+                These are the URLs where you can see{' '}
                 <b>
-                    <Link to={urls.toolbarLaunch()}>Toolbar</Link>
-                </b>
+                    <Link to={urls.webAnalytics()}>Web Analytics</Link>
+                </b>{' '}
+                and{' '}
+                <b>
+                    <Link to={urls.experiments()}>Web Experiments</Link>
+                </b>{' '}
+                data from. You can also{' '}
+                <b>
+                    <Link to={urls.toolbarLaunch()}>launch the Toolbar</Link>
+                </b>{' '}
+                on these pages.
             </p>
             <p>
                 <b>Wildcards are not allowed</b> (example: <code>https://*.example.com</code>). The URL needs to be
                 something concrete that can be launched.
             </p>
-            <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} allowWildCards={false} />
+            <AuthorizedUrlList type={AuthorizedUrlListType.WEB_ANALYTICS} allowWildCards={false} />
         </>
     )
 }

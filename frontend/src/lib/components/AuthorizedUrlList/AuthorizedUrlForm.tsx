@@ -4,9 +4,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
-import { authorizedUrlListLogic, ExperimentIdType } from '~/types'
+import { ExperimentIdType } from '~/types'
 
-import { AuthorizedUrlListType } from './authorizedUrlListLogic'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from './authorizedUrlListLogic'
 
 export interface AuthorizedUrlFormProps {
     type: AuthorizedUrlListType
