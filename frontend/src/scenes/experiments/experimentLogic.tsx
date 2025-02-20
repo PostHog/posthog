@@ -1669,7 +1669,9 @@ export const experimentLogic = kea<experimentLogicType>([
                             return null
                         }
                         return (
-                            variantResults.success_count / (variantResults.success_count + variantResults.failure_count)
+                            (variantResults.success_count /
+                                (variantResults.success_count + variantResults.failure_count)) *
+                            100
                         )
                     } else if (metricResult.kind === NodeKind.ExperimentFunnelsQuery && metricResult.insight) {
                         const variantResults = (metricResult.insight as FunnelStep[][]).find(
@@ -1683,7 +1685,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             return null
                         }
 
-                        return variantResults[variantResults.length - 1].count / variantResults[0].count
+                        return (variantResults[variantResults.length - 1].count / variantResults[0].count) * 100
                     }
 
                     return null

@@ -1,4 +1,266 @@
 # serializer version: 1
+# name: TestExperimentQueryRunner.test_query_runner_continuous_metric
+  '''
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.entity_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.entity_id AS entity_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
+     FROM
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+        GROUP BY variant,
+                 entity_id) AS exposure_data
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               exposure_data.variant AS variant,
+               events.event AS event,
+               accurateCastOrNull(JSONExtractRaw(events.properties, 'amount'), 'Float64') AS value
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        INNER JOIN
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+           GROUP BY variant,
+                    entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.entity_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_binomial_metric
+  '''
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.entity_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.entity_id AS entity_id,
+            coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
+     FROM
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+        GROUP BY variant,
+                 entity_id,
+                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS after_exposure_identifier,
+               exposure_data.variant AS variant,
+               1 AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+           GROUP BY variant,
+                    entity_id,
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.entity_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_continuous_metric
+  '''
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.entity_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.entity_id AS entity_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
+     FROM
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+        GROUP BY variant,
+                 entity_id,
+                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS after_exposure_identifier,
+               exposure_data.variant AS variant,
+               usage.usage AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+           GROUP BY variant,
+                    entity_id,
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.entity_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_count_metric
+  '''
+  SELECT metrics_per_user.variant AS variant,
+         count(metrics_per_user.entity_id) AS num_users,
+         sum(metrics_per_user.value) AS total_sum,
+         sum(power(metrics_per_user.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT exposure_data.variant AS variant,
+            exposure_data.entity_id AS entity_id,
+            sum(coalesce(events_after_exposure.value, 0)) AS value
+     FROM
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+        GROUP BY variant,
+                 entity_id,
+                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS after_exposure_identifier,
+               exposure_data.variant AS variant,
+               1 AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+           GROUP BY variant,
+                    entity_id,
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+     GROUP BY exposure_data.variant,
+              exposure_data.entity_id) AS metrics_per_user
+  GROUP BY metrics_per_user.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
 # name: TestExperimentQueryRunner.test_query_runner_funnel_metric
   '''
   SELECT metrics_per_user.variant AS variant,
@@ -53,7 +315,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -120,7 +382,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -187,7 +449,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'pro'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'pro'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -254,7 +516,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -321,7 +583,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -375,7 +637,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -406,7 +668,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -450,7 +712,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -471,7 +733,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -515,7 +777,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -536,7 +798,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -580,7 +842,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -601,7 +863,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -645,7 +907,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -666,7 +928,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -710,7 +972,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -731,7 +993,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -787,7 +1049,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -811,7 +1073,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -855,7 +1117,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -876,7 +1138,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -943,7 +1205,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -967,7 +1229,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1011,7 +1273,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -1032,7 +1294,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1084,7 +1346,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -1113,7 +1375,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1157,7 +1419,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -1178,7 +1440,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1222,7 +1484,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -1243,7 +1505,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1287,7 +1549,7 @@
        (SELECT usage.ds AS timestamp,
                usage.userid AS after_exposure_identifier,
                exposure_data.variant AS variant,
-               accurateCastOrNull('usage', 'Float64') AS value
+               usage.usage AS value
         FROM
           (SELECT *
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
@@ -1308,7 +1570,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1397,7 +1659,7 @@
            GROUP BY variant,
                     entity_id,
                     events__person.properties___email) AS exposure_data ON equals(subscriptions__subscription_customer.customer_email, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(toTimeZone(subscriptions.subscription_created_at, 'UTC'), exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(ifNull(greaterOrEquals(toTimeZone(subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(subscriptions.subscription_created_at, 'UTC'), exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1494,7 +1756,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1561,7 +1823,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1628,7 +1890,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1695,7 +1957,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1762,7 +2024,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1829,7 +2091,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1911,10 +2173,10 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-                                                                                                                                                                                         (SELECT person_static_cohort.person_id AS person_id
-                                                                                                                                                                                          FROM person_static_cohort
-                                                                                                                                                                                          WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                                                                                                                                                                                                                              (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                               FROM person_static_cohort
+                                                                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -1981,7 +2243,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2074,10 +2336,10 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                          FROM cohortpeople
-                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                                                                                                                                                                                                                              (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                               FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                               WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2144,7 +2406,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2235,7 +2497,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2302,7 +2564,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2369,7 +2631,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2436,7 +2698,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, '$pageview'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2512,7 +2774,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2588,7 +2850,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2664,7 +2926,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2770,7 +3032,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2876,7 +3138,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@earlierevent.com%'), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(events__person.properties___email), '%@earlierevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(events__person.properties___email), '%@earlierevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -2982,7 +3244,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@laterevent.com%'), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(events__person.properties___email), '%@laterevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(events__person.properties___email), '%@laterevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -3037,7 +3299,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(events.person_id, exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -3092,7 +3354,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(events.person_id, exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -3147,7 +3409,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(events.person_id, exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
