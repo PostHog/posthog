@@ -69,7 +69,7 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/cyclotron build
+                  bin/turbo --filter=@posthog/plugin-server prepare
 
             - name: Check formatting with prettier
               run: pnpm --filter=@posthog/plugin-server prettier:check
