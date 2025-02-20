@@ -216,7 +216,7 @@ if (res.status != 200 or res.body.ok == false) {
             input_schema_overrides={
                 "blocks": {
                     "default": [
-                        {"type": "header", "text": {"type": "plain_text", "text": "{event.properties.name}"}},
+                        {"type": "header", "text": {"type": "plain_text", "text": "🔴 {event.properties.name}"}},
                         {"type": "section", "text": {"type": "plain_text", "text": "New issue created"}},
                         {"type": "section", "text": {"type": "mrkdwn", "text": "```{event.properties.description}```"}},
                         {
