@@ -91,11 +91,11 @@ RUN NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/cyclotr
 # Then build the plugin server with increased memory
 RUN NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-server build
 
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
-    corepack enable && \
-    pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
+# # only prod dependencies in the node_module folder
+# # as we will copy it to the last image.
+# RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+#     corepack enable && \
+#     pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
 
 #
 # ---------------------------------------------------------
