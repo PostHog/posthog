@@ -1,3 +1,4 @@
+import re
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator
@@ -29,15 +30,18 @@ def test_mutation_runner_rejects_invalid_parameters() -> None:
 
 
 def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
+    def replace_memory_addresses(value):
+        return re.sub(r"0x[0-9A-Fa-f]{16}", "0x0000000000000000", value)
+
     with pytest.raises(ExceptionGroup) as e:
         cluster.map_all_hosts(Query("invalid query")).result()
 
-    assert e.value.message == snapshot
+    assert replace_memory_addresses(e.value.message) == snapshot
 
     with pytest.raises(ExceptionGroup) as e:
         cluster.map_all_hosts(Query("SELECT * FROM invalid_table_name")).result()
 
-    assert e.value.message == snapshot
+    assert replace_memory_addresses(e.value.message) == snapshot
 
     with pytest.raises(ExceptionGroup) as e:
 
