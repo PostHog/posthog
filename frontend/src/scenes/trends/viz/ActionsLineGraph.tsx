@@ -94,6 +94,7 @@ export function ActionsLineGraph({
             trendsFilter={trendsFilter}
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
+            showPercentView={isStickiness}
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
             yAxisScaleType={yAxisScaleType}
