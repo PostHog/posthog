@@ -23,7 +23,7 @@ import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, getJSHeapMemory, isAbortedRequest, shouldCancelQuery, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -261,7 +261,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         loadingDashboardItemsStarted: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
-        abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
+        abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         updateFiltersAndLayoutsAndVariables: true,
         overrideVariableValue: (variableId: string, value: any, editMode?: boolean) => ({
@@ -1135,6 +1135,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
+            actions.abortAnyRunningQuery()
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
@@ -1279,6 +1280,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return true
                     }
                 })
+                // sort tiles by layout to ensure insights are computed in order of appearance on dashboard
+                .sort((a, b) => {
+                    const ay = a.layouts?.xs?.y ?? 0
+                    const ax = a.layouts?.xs?.x ?? 0
+                    const by = b.layouts?.xs?.y ?? 0
+                    const bx = b.layouts?.xs?.x ?? 0
+                    return ay !== by ? ay - by : ax - bx
+                })
                 .map((t) => t.insight)
                 .filter((i): i is QueryBasedInsightModel => !!i)
 
@@ -1368,13 +1377,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (isBreakpoint(e)) {
                         cancelled = true
                     } else if (shouldCancelQuery(e)) {
-                        if (!cancelled && queryId) {
-                            // cancel all insight requests for this query in one go
-                            actions.abortQuery({ dashboardQueryId: dashboardQueryId, queryId, queryStartTime })
-                        }
-                        if (isAbortedRequest(e)) {
-                            cancelled = true
-                        }
+                        // query was aborted by abort controller (eg. on unmount)
+                        // we need to cancel all queued insight queries on backend
+                        // as for large dashboards, we don't want to continue calculating
+                        // a lot of remaining insights when user navigates away
+                        cancelled = true
+                        insightsToRefresh
+                            .map((i) => i.query_status?.id)
+                            .filter(Boolean)
+                            .forEach((qid) => actions.abortQuery({ queryId: qid as string, queryStartTime }))
                     } else {
                         actions.setRefreshError(insight.short_id)
                     }
@@ -1500,10 +1511,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.abortController = null
             }
         },
-        abortQuery: async ({ dashboardQueryId, queryId, queryStartTime }) => {
+        abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId } = values
+            try {
+                await api.delete(`api/environments/${currentTeamId}/query/${queryId}/?dequeue_only=true`)
+            } catch (e) {
+                console.warn('Failed cancelling query', e)
+            }
 
-            await api.create(`api/environments/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
+            const { dashboardQueryId } = values.dashboardLoadTimerData
 
             // TRICKY: we cancel just once using the dashboard query id.
             // we can record the queryId that happened to capture the AbortError exception

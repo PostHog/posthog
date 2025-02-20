@@ -1,4 +1,4 @@
-import { Page } from "@playwright/test"
+import { Page } from '@playwright/test'
 
 export function decideResponse(featureFlags: Record<string, any>): Record<string, any> {
     return {
@@ -18,7 +18,7 @@ export function decideResponse(featureFlags: Record<string, any>): Record<string
     }
 }
 
-export const mockFeatureFlags = async (page: Page, overrides: Record<string, any>) => {
+export const mockFeatureFlags = async (page: Page, overrides: Record<string, any>): Promise<void> => {
     // Tricky - the new RemoteConfig endpoint is optimised to not load decide if there are no feature flags in the DB.
     // We need to intercept both the RemoteConfig and the decide endpoint to ensure that the feature flags are always loaded.
 
@@ -43,4 +43,4 @@ export const mockFeatureFlags = async (page: Page, overrides: Record<string, any
             }),
         })
     })
-} 
+}
