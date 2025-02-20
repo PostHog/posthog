@@ -8,6 +8,7 @@ import {
     LemonSelect,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { Variable, VariableType } from '../../types'
@@ -99,8 +100,7 @@ const renderVariableSpecificFields = (
         return (
             <LemonField.Pure label="Default value" className="gap-1">
                 <VariableCalendar
-                    showDefault={true}
-                    variable={variable}
+                    value={dayjs(variable.default_value)}
                     updateVariable={(date) => {
                         updateVariable({ ...variable, default_value: date })
                         // calendar is a special case to reuse LemonCalendarSelect
