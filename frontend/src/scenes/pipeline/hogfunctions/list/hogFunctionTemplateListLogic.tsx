@@ -45,13 +45,13 @@ export const shouldShowHogFunctionTemplate = (
 const getFunctionFilters = (
     filters: HogFunctionTemplateListFilters,
     template: HogFunctionTemplateType['id']
-): HogFunctionTemplateListFilters => {
+): Record<string, any> | undefined => {
     if (template.includes('error-tracking-issue-created')) {
-        return { filters: { events: [{ id: '$error_tracking_issue_created', type: 'events' }] } }
+        return { events: [{ id: '$error_tracking_issue_created', type: 'events' }] }
     } else if (template.includes('error-tracking-issue-reopened')) {
-        return { filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] } }
+        return { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] }
     }
-    return filters
+    return filters.filters
 }
 
 export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType>([
