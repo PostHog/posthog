@@ -123,7 +123,7 @@ export function QueryWindow(): JSX.Element {
                                         </span>
                                     </div>
                                 )}
-                                <div className="flex flex-row justify-start align-center w-full">
+                                <div className="flex flex-row justify-start align-center w-full ml-2 mr-2">
                                     <LemonButton
                                         onClick={() => runQuery()}
                                         icon={<IconPlayFilled color="var(--success)" />}
