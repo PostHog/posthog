@@ -541,8 +541,8 @@ importers:
         specifier: ^1.0.67
         version: 1.0.67(luxon@3.5.0)
       '@posthog/icons':
-        specifier: 0.10.0
-        version: 0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.11.1
+        version: 0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -775,8 +775,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.221.0
-        version: 1.221.0
+        specifier: 1.221.1
+        version: 1.221.1
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1478,7 +1478,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
@@ -1508,7 +1508,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
@@ -1556,7 +1556,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -4159,8 +4159,8 @@ packages:
     peerDependencies:
       luxon: ^3.4.4
 
-  '@posthog/icons@0.10.0':
-    resolution: {integrity: sha512-+4dJpth1g+fpT22N5rmqjprdeV6ckUw1E8XDodpwaPRwFXGnt+5V+UyGSBms7c2yv7E8vDYCTXnarbVtyi4dRw==}
+  '@posthog/icons@0.11.1':
+    resolution: {integrity: sha512-usNM3nAk1EuWut577qu2enGedfhrQLcRR0nLPYt0U3wt3YV7fKR9VSFbX/J2mcbF+bqdY89lAi6OQnHj6ZJo1A==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -12661,8 +12661,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.221.0:
-    resolution: {integrity: sha512-/NBTjC5CmDoYn69cZojnQR9Vn8swhAm/BnZSW//bUkJ34RAXOdPB56yQExrZX/s+YosfoPbRD3nmh7euXrgKUw==}
+  posthog-js@1.221.1:
+    resolution: {integrity: sha512-Bq4lQdm3CsM5uj5FKqWrhihIUBc235oaTfkN77HodmY7kcN6juaYQZJlhffhVpS7fWJzCY/lrixhEM8Wuv3QIQ==}
 
   posthog-node@4.5.2:
     resolution: {integrity: sha512-dncxqeXUDwjr4UD9pYanPWsG7jQPe01ctTm7KqKAi5a9GeH3cEICHyw5Qw2SPXfcA6MZLypuFoCTPET/NOfDzw==}
@@ -19043,7 +19043,7 @@ snapshots:
     dependencies:
       luxon: 3.5.0
 
-  '@posthog/icons@0.10.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/icons@0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -29969,7 +29969,7 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.221.0:
+  posthog-js@1.221.1:
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8

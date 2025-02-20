@@ -1731,6 +1731,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     ) as TrendExperimentVariant
 
                     const controlMean = controlVariant.count / controlVariant.absolute_exposure
+                    if (!controlMean) {
+                        return null
+                    }
 
                     // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
                     // This represents the range in which the true percentage change relative to the control is likely to fall.
