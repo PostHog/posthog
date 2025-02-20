@@ -41,7 +41,7 @@ export function DashboardEditBar(): JSX.Element {
             overlay={
                 <div className="flex items-center gap-2 m-1">
                     <LemonButton
-                        onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)}
+                        onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
                         type="secondary"
                         size="small"
                     >
