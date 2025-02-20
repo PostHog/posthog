@@ -60,14 +60,13 @@ class SingleArgumentTaxonomyAgentTool(BaseModel):
     arguments: str
 
 
-class TaxonomyAgentTool(
-    RootModel[
-        Union[SingleArgumentTaxonomyAgentTool, RetrieveEntityPropertiesValuesTool, RetrieveEventPropertiesValuesTool]
-    ]
-):
-    root: Union[
-        SingleArgumentTaxonomyAgentTool, RetrieveEntityPropertiesValuesTool, RetrieveEventPropertiesValuesTool
-    ] = Field(..., discriminator="name")
+TaxonomyAgentToolUnion = Union[
+    SingleArgumentTaxonomyAgentTool, RetrieveEntityPropertiesValuesTool, RetrieveEventPropertiesValuesTool
+]
+
+
+class TaxonomyAgentTool(RootModel[TaxonomyAgentToolUnion]):
+    root: TaxonomyAgentToolUnion = Field(..., discriminator="name")
 
 
 class TaxonomyAgentToolkit(ABC):

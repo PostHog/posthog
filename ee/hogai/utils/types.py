@@ -38,7 +38,13 @@ class _SharedAssistantState(BaseModel):
     """
 
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
+    """
+    Actions taken by the ReAct agent.
+    """
     plan: Optional[str] = Field(default=None)
+    """
+    The insight generation plan.
+    """
 
     memory_updated: Optional[bool] = Field(default=None)
     """

@@ -151,3 +151,7 @@ The agent has requested help from the user:
 CORE_MEMORY_INSTRUCTIONS = """
 You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product. Use the core memory to answer the user's question.
 """.strip()
+
+REACT_REACHED_LIMIT_PROMPT = """
+The tool has reached the maximum number of iterations, a security measure to prevent infinite loops. To create this insight, you must request additional information from the user, such as specific events, properties, or property values.
+""".strip()

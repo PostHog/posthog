@@ -34,10 +34,11 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_MISSING_ACTION_PROMPT,
     REACT_PROPERTY_FILTERS_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
+    REACT_REACHED_LIMIT_PROMPT,
     REACT_SCRATCHPAD_PROMPT,
     REACT_USER_PROMPT,
 )
-from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
+from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion
 from ee.hogai.utils.helpers import remove_line_breaks
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -126,11 +127,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps, (result, None)],
         )
-
-    def router(self, state: AssistantState):
-        if state.intermediate_steps:
-            return "tools"
-        raise ValueError("Invalid state.")
 
     @property
     def _model(self) -> ChatOpenAI:
@@ -236,53 +232,49 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
 
 class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
+    MAX_ITERATIONS = 16
+    """
+    Maximum number of iterations for the ReAct agent. After the limit is reached,
+    the agent will terminate the conversation and return a message to the root node
+    to request additional information.
+    """
+
     def _run_with_toolkit(
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> PartialAssistantState:
         intermediate_steps = state.intermediate_steps or []
         action, observation = intermediate_steps[-1]
 
+        input = None
+        output = ""
+
         try:
             input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
-            observation = str(
+            output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
                 .format_messages(exception=e.errors(include_url=False))[0]
                 .content
             )
-            return PartialAssistantState(
-                intermediate_steps=[*intermediate_steps[:-1], (action, str(observation))],
-            )
-
-        # The plan has been found. Move to the generation.
-        if input.name == "final_answer":
-            return PartialAssistantState(
-                plan=input.arguments,
-                intermediate_steps=[],
-            )
-
-        # The agent has requested help, so we return a message to the root node.
-        if input.name == "ask_user_for_help":
-            reset_state = PartialAssistantState.get_reset_state()
-            reset_state.messages = [
-                AssistantToolCallMessage(
-                    tool_call_id=state.root_tool_call_id,
-                    content=REACT_HELP_REQUEST_PROMPT.format(request=input.arguments),
-                )
-            ]
-            return reset_state
-
-        output = ""
-        if input.name == "retrieve_event_properties":
-            output = toolkit.retrieve_event_properties(input.arguments)
-        elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_property_values(input.arguments.event_name, input.arguments.property_name)
-        elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.arguments)
-        elif input.name == "retrieve_entity_property_values":
-            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
         else:
-            output = toolkit.handle_incorrect_response(input.arguments)
+            # First check if we've reached the terminal stage.
+            # The plan has been found. Move to the generation.
+            if input.name == "final_answer":
+                return PartialAssistantState(
+                    plan=input.arguments,
+                    intermediate_steps=[],
+                )
+
+            # The agent has requested help, so we return a message to the root node.
+            if input.name == "ask_user_for_help":
+                return self._get_reset_state(state, REACT_HELP_REQUEST_PROMPT.format(request=input.arguments))
+
+        # If we're still here, the final prompt hasn't helped.
+        if len(intermediate_steps) >= self.MAX_ITERATIONS:
+            return self._get_reset_state(state, REACT_REACHED_LIMIT_PROMPT)
+
+        if input and not output:
+            output = self._handle_tool(input, toolkit)
 
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
@@ -296,3 +288,26 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         if state.plan:
             return "plan_found"
         return "continue"
+
+    def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
+        if input.name == "retrieve_event_properties":
+            output = toolkit.retrieve_event_properties(input.arguments)
+        elif input.name == "retrieve_event_property_values":
+            output = toolkit.retrieve_event_property_values(input.arguments.event_name, input.arguments.property_name)
+        elif input.name == "retrieve_entity_properties":
+            output = toolkit.retrieve_entity_properties(input.arguments)
+        elif input.name == "retrieve_entity_property_values":
+            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
+        else:
+            output = toolkit.handle_incorrect_response(input.arguments)
+        return output
+
+    def _get_reset_state(self, state: AssistantState, output: str):
+        reset_state = PartialAssistantState.get_reset_state()
+        reset_state.messages = [
+            AssistantToolCallMessage(
+                tool_call_id=state.root_tool_call_id,
+                content=output,
+            )
+        ]
+        return reset_state
