@@ -818,7 +818,7 @@ class ApiRequest {
 
     // # Integrations
     public integrations(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('integrations')
+        return this.environmentsDetail(teamId).addPathComponent('integrations')
     }
 
     public integration(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
