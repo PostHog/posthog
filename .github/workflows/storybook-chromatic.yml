@@ -41,7 +41,7 @@ jobs:
 
             - name: Install dependencies and Chromatic
               run: |
-                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  pnpm --filter=@posthog/storybook... install --frozen-lockfile
                   pnpm install -w -D chromatic
 
             - name: Publish to Chromatic
@@ -52,6 +52,7 @@ jobs:
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
                   workingDir: ./common/storybook/
+                  buildScriptName: build
 
     visual-regression:
         name: Visual regression tests
