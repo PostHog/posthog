@@ -1,1 +1,1 @@
-0671_alter_errortrackingissuefingerprintv2_issue
+0672_survey_schedule

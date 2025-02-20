@@ -860,7 +860,6 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             # since they were using it as a way to store sensitive information. Given that we don't ever use
             # that field to render the survey, we can safely remove it from the API response.
             "type",
-            "schedule",
             "linked_flag_key",
             "targeting_flag_key",
             "internal_targeting_flag_key",
@@ -871,6 +870,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "end_date",
             "current_iteration",
             "current_iteration_start_date",
+            "schedule",
         ]
         read_only_fields = fields
 
