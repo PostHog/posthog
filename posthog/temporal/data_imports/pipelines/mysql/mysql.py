@@ -149,6 +149,7 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
             case "decimal" | "numeric":
                 precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
                 scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
+
                 arrow_type = build_pyarrow_decimal_type(precision, scale)
             case "float":
                 arrow_type = pa.float32()
