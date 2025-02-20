@@ -110,6 +110,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                                     id: editingView.id,
                                                     sync_frequency: newValue,
                                                     types: [[]],
+                                                    lifecycle: 'update',
                                                 })
                                             }
                                         }}
@@ -125,14 +126,17 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                                     you to run queries faster and more efficiently.
                                 </p>
                                 <LemonButton
-                                    onClick={() =>
-                                        editingView &&
-                                        updateDataWarehouseSavedQuery({
-                                            id: editingView.id,
-                                            sync_frequency: '24hour',
-                                            types: [[]],
-                                        })
-                                    }
+                                    onClick={() => {
+                                        return (
+                                            editingView &&
+                                            updateDataWarehouseSavedQuery({
+                                                id: editingView.id,
+                                                sync_frequency: '24hour',
+                                                types: [[]],
+                                                lifecycle: 'create',
+                                            })
+                                        )
+                                    }}
                                     type="primary"
                                     disabledReason={editingView ? undefined : 'You must save the view first'}
                                     loading={updatingDataWarehouseSavedQuery}
