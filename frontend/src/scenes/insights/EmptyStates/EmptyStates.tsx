@@ -21,7 +21,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -132,6 +132,93 @@ export const LOADING_MESSAGES = [
 
 export const DELAYED_LOADING_MESSAGE = 'Waiting for changes...'
 
+function LoadingDetails({
+    pollResponse,
+    queryId,
+    compact,
+    rowsRead,
+    bytesRead,
+    secondsElapsed,
+}: {
+    pollResponse?: Record<string, QueryStatus | null> | null
+    queryId?: string | null
+    compact?: boolean
+    rowsRead: number
+    bytesRead: number
+    secondsElapsed: number
+}): JSX.Element {
+    const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
+    const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
+    const cpuUtilization =
+        (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
+        (pollResponse?.status?.query_progress?.time_elapsed || 1) /
+        10000
+
+    return (
+        <>
+            <LoadingBar />
+            <p className="mx-auto text-center text-xs">
+                {rowsRead > 0 && bytesRead > 0 && (
+                    <>
+                        <span>{humanFriendlyNumber(rowsRead || 0, 0)} </span>
+                        <span>
+                            {estimatedRows && estimatedRows >= rowsRead ? (
+                                <span>/ {humanFriendlyNumber(estimatedRows)} </span>
+                            ) : null}
+                        </span>
+                        <span>rows</span>
+                        <br />
+                        <span>{humanizeBytes(bytesRead || 0)} </span>
+                        <span>({humanizeBytes(bytesPerSecond || 0)}/s)</span>
+                        <br />
+                        <span>CPU {humanFriendlyNumber(cpuUtilization, 0)}%</span>
+                    </>
+                )}
+            </p>
+            <QueryIdDisplay queryId={queryId} compact={compact} />
+        </>
+    )
+}
+
+function BasicLoadingContent({
+    isLoadingMessageVisible,
+    showLoadingDetails,
+    loadingMessageIndex,
+    suggestion,
+}: {
+    isLoadingMessageVisible: boolean
+    showLoadingDetails: boolean
+    loadingMessageIndex: number
+    suggestion?: JSX.Element
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span
+                className={clsx(
+                    'font-bold transition-opacity duration-300',
+                    isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
+                )}
+            >
+                {!showLoadingDetails ? (
+                    <>
+                        <IconHourglass className="mr-2 inline-block brief-spin" />
+                        {DELAYED_LOADING_MESSAGE}
+                    </>
+                ) : (
+                    LOADING_MESSAGES[loadingMessageIndex]
+                )}
+            </span>
+            {suggestion ? (
+                suggestion
+            ) : (
+                <div className="flex gap-3">
+                    <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
@@ -160,73 +247,6 @@ export function StatelessInsightLoadingState({
     // over-eagerly running queries, which can be annoying while making lots of edits.
     // But, we still want to run queries super eagerly so that results come in as soon as possible.
     const showLoadingDetails = !delayLoadingAnimation || loadingTimeSeconds >= 5
-
-    // Memoize the component content based on showLoadingDetails
-    const content = useMemo(() => {
-        const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
-        const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
-
-        const cpuUtilization =
-            (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
-            (pollResponse?.status?.query_progress?.time_elapsed || 1) /
-            10000
-
-        return (
-            <div data-attr="insight-empty-state" className="insights-loading-state rounded p-4 m-2 h-full">
-                <div className="flex flex-col gap-1">
-                    <span
-                        className={clsx(
-                            'font-bold transition-opacity duration-300',
-                            isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
-                        )}
-                    >
-                        {!showLoadingDetails ? (
-                            <>
-                                <IconHourglass className="mr-2 inline-block brief-spin" />
-                                {DELAYED_LOADING_MESSAGE}
-                            </>
-                        ) : (
-                            LOADING_MESSAGES[loadingMessageIndex]
-                        )}
-                    </span>
-                    {suggestion ? (
-                        suggestion
-                    ) : (
-                        <div className="flex gap-3">
-                            <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
-                        </div>
-                    )}
-                </div>
-                {showLoadingDetails && <LoadingBar />}
-                <p className="mx-auto text-center text-xs">
-                    {rowsRead > 0 && bytesRead > 0 && (
-                        <>
-                            <span>{humanFriendlyNumber(rowsRead || 0, 0)} </span>
-                            <span>
-                                {estimatedRows && estimatedRows >= rowsRead ? (
-                                    <span>/ {humanFriendlyNumber(estimatedRows)} </span>
-                                ) : null}
-                            </span>
-                            <span>rows</span>
-                            <br />
-                            <span>{humanizeBytes(bytesRead || 0)} </span>
-                            <span>({humanizeBytes(bytesPerSecond || 0)}/s)</span>
-                            <br />
-                            <span>CPU {humanFriendlyNumber(cpuUtilization, 0)}%</span>
-                        </>
-                    )}
-                </p>
-                {showLoadingDetails && <QueryIdDisplay queryId={queryId} compact={compact} />}
-            </div>
-        )
-    }, [
-        loadingMessageIndex,
-        isLoadingMessageVisible,
-        loadingTimeSeconds,
-        showLoadingDetails,
-        // Include progress-related dependencies ONLY when showing loading details
-        ...(showLoadingDetails ? [rowsRead, bytesRead, pollResponse, queryId, compact] : []),
-    ])
 
     useEffect(() => {
         if (showLoadingDetails) {
@@ -272,7 +292,6 @@ export function StatelessInsightLoadingState({
                     if (newIndex === current) {
                         newIndex = (newIndex + 1) % LOADING_MESSAGES.length
                     }
-
                     return newIndex
                 })
                 setIsLoadingMessageVisible(true)
@@ -282,7 +301,26 @@ export function StatelessInsightLoadingState({
         return () => clearInterval(interval)
     }, [])
 
-    return content
+    return (
+        <div data-attr="insight-empty-state" className="insights-loading-state rounded p-4 m-2 h-full">
+            <BasicLoadingContent
+                isLoadingMessageVisible={isLoadingMessageVisible}
+                showLoadingDetails={showLoadingDetails}
+                loadingMessageIndex={loadingMessageIndex}
+                suggestion={suggestion}
+            />
+            {showLoadingDetails && (
+                <LoadingDetails
+                    pollResponse={pollResponse}
+                    queryId={queryId}
+                    compact={compact}
+                    rowsRead={rowsRead}
+                    bytesRead={bytesRead}
+                    secondsElapsed={secondsElapsed}
+                />
+            )}
+        </div>
+    )
 }
 
 export function SlowQuerySuggestions({
