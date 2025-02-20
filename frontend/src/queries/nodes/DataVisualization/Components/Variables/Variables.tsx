@@ -315,11 +315,10 @@ const VariableComponent = ({
             <div>
                 <LemonField.Pure
                     label={variable.name}
-                    className="gap-0 text-xs"
+                    className="gap-0"
                     info={`Use this variable in your HogQL by referencing {variables.${variable.code_name}}`}
                 >
                     <LemonButton
-                        size="xsmall"
                         type="secondary"
                         className="min-w-32 DataVizVariable_Button"
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
