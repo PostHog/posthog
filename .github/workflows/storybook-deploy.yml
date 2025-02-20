@@ -33,7 +33,7 @@ jobs:
               run: cd posthog && pnpm --filter=@posthog/storybook... install
 
             - name: Build storybook
-              run: cd posthog && pnpm --filter=@posthog/storybook build
+              run: cd posthog && pnpm --filter=@posthog/storybook build-storybook
 
             - name: Check out PostHog/storybook-build repo
               uses: actions/checkout@v3
