@@ -263,7 +263,7 @@ def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -
     return manager.get_query_status(show_progress=show_progress)
 
 
-def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> bool:
+def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> None:
     """
     Cancel a query.
     First tries to see if the query is queued in celery and revokes it.
@@ -290,7 +290,7 @@ def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> boo
         pass
 
     if dequeue_only:
-        return True
+        return
 
     from posthog.clickhouse.cancel import cancel_query_on_cluster
 
