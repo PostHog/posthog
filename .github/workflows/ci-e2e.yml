@@ -140,6 +140,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18.12.1
+                  cache: 'pnpm'
 
             - name: Get pnpm cache directory path
               if: needs.changes.outputs.shouldTriggerCypress == 'true'

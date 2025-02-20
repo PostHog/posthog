@@ -91,6 +91,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18
+                  cache: 'pnpm'
 
             - name: Check if ANTLR definitions are up to date
               run: |
@@ -189,6 +190,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18
+                  cache: 'pnpm'
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
               run: pnpm --filter=@posthog/hogvm install --frozen-lockfile
