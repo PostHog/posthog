@@ -2101,7 +2101,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
-                    actions.loadExposures()
+                    if (values.isExperimentRunning) {
+                        actions.loadExposures()
+                    }
                 }
             }
         },
