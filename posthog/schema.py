@@ -6878,6 +6878,7 @@ class VisualizationMessage(BaseModel):
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None
+    query: Optional[str] = ""
     type: Literal["ai/viz"] = "ai/viz"
 
 

@@ -27,7 +27,6 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
-    REACT_FORMAT_REMINDER_PROMPT,
     REACT_HELP_REQUEST_PROMPT,
     REACT_HUMAN_IN_THE_LOOP_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
@@ -39,7 +38,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_USER_PROMPT,
 )
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils.helpers import filter_and_merge_messages, remove_line_breaks, slice_messages_to_conversation_start
+from ee.hogai.utils.helpers import remove_line_breaks
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -204,47 +203,31 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        start_id = state.start_id
-        filtered_messages = filter_and_merge_messages(slice_messages_to_conversation_start(state.messages, start_id))
-        human_messages = [message for message in filtered_messages if isinstance(message, HumanMessage)]
         conversation = []
 
-        for idx, message in enumerate(filtered_messages):
+        for idx, message in enumerate(state.messages):
+            # The description of a new insight is added to the end of the conversation.
+            if not isinstance(message, VisualizationMessage):
+                continue
             if isinstance(message, HumanMessage):
-                format_reminder = REACT_FORMAT_REMINDER_PROMPT if message.id == start_id else None
-                # Add initial instructions.
-                if idx == 0:
-                    # If there's only one human message, it's the initial question. Replace the initial question with the one from the tool call if it exists.
-                    human_question = state.root_tool_insight_plan if len(human_messages) == 1 else None
-                    if not human_question:
-                        human_question = message.content
-
-                    conversation.append(
-                        HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
-                            question=human_question,
-                            react_format_reminder=format_reminder,
-                        )
+                prompt = REACT_USER_PROMPT if idx == 0 else REACT_FOLLOW_UP_PROMPT
+                conversation.append(
+                    HumanMessagePromptTemplate.from_template(prompt, template_format="mustache").format(
+                        feedback=message.query
                     )
-                # Add follow-up instructions only for the human message that initiated a generation.
-                elif message.id == start_id:
-                    # follow-ups are always coming from the tool call
-                    human_question = state.root_tool_insight_plan or message.content
-                    conversation.append(
-                        HumanMessagePromptTemplate.from_template(
-                            REACT_FOLLOW_UP_PROMPT,
-                            template_format="mustache",
-                        ).format(
-                            feedback=human_question,
-                            react_format_reminder=format_reminder,
-                        )
-                    )
-                # Everything else leave as is.
-                else:
-                    conversation.append(LangchainHumanMessage(content=message.content))
-            elif isinstance(message, VisualizationMessage):
+                )
+                conversation.append(LangchainHumanMessage(content=message.content))
                 conversation.append(LangchainAssistantMessage(content=message.plan or ""))
 
-        return conversation
+        new_insight_prompt = REACT_USER_PROMPT if not conversation else REACT_FOLLOW_UP_PROMPT
+        conversation.append(
+            HumanMessagePromptTemplate.from_template(new_insight_prompt, template_format="mustache").format(
+                feedback=state.root_tool_insight_plan
+            )
+        )
+
+        # Return maximum five last messages + the latest human message.
+        return conversation[:-6]
 
     def _get_agent_scratchpad(self, scratchpad: list[tuple[AgentAction, str | None]]) -> str:
         actions = []

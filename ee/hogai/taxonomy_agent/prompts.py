@@ -115,7 +115,7 @@ Question: What events, properties and/or property values should I use to answer 
 """
 
 REACT_FOLLOW_UP_PROMPT = """
-Improve the previously generated plan based on the feedback: {{{feedback}}}{{#react_format_reminder}}
+Improve the previously generated plan based on the feedback: "{{{feedback}}}".{{#react_format_reminder}}
 {{{react_format_reminder}}}
 {{/react_format_reminder}}
 """
