@@ -24,7 +24,15 @@ import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    ActivityScope,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyQuestionType,
+    SurveySchedule as SurveyScheduleEnum,
+    SurveyType,
+} from '~/types'
 
 import { SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
 import { SurveyDisplaySummary } from './Survey'
@@ -61,6 +69,38 @@ function SurveyResultsFilters(): JSX.Element {
     )
 }
 
+function SurveySchedule(): JSX.Element {
+    const { survey } = useValues(surveyLogic)
+    if (survey.schedule === SurveyScheduleEnum.Recurring && survey.iteration_count && survey.iteration_frequency_days) {
+        return (
+            <>
+                <span className="card-secondary">Schedule</span>
+                <span>
+                    Repeats every {survey.iteration_frequency_days}{' '}
+                    {pluralize(survey.iteration_frequency_days, 'day', 'days', false)}, {survey.iteration_count}{' '}
+                    {pluralize(survey.iteration_count, 'time', 'times', false)}
+                </span>
+            </>
+        )
+    }
+
+    if (survey.schedule === SurveyScheduleEnum.Always) {
+        return (
+            <>
+                <span className="card-secondary">Schedule</span>
+                <span>Always</span>
+            </>
+        )
+    }
+
+    // Default case: survey is scheduled to run once
+    return (
+        <>
+            <span className="card-secondary">Schedule</span>
+            <span>Once</span>
+        </>
+    )
+}
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const {
@@ -349,25 +389,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 )}
                                             </div>
                                             <div className="flex flex-row gap-8">
-                                                {survey.iteration_count &&
-                                                survey.iteration_frequency_days &&
-                                                survey.iteration_count > 0 &&
-                                                survey.iteration_frequency_days > 0 ? (
-                                                    <div className="flex flex-col">
-                                                        <span className="mt-4 card-secondary">Schedule</span>
-                                                        <span>
-                                                            Repeats every {survey.iteration_frequency_days}{' '}
-                                                            {pluralize(
-                                                                survey.iteration_frequency_days,
-                                                                'day',
-                                                                'days',
-                                                                false
-                                                            )}
-                                                            , {survey.iteration_count}{' '}
-                                                            {pluralize(survey.iteration_count, 'time', 'times', false)}
-                                                        </span>
-                                                    </div>
-                                                ) : null}
+                                                <div className="flex flex-col mt-4">
+                                                    <SurveySchedule />
+                                                </div>
                                             </div>
                                             {surveyUsesLimit && (
                                                 <>

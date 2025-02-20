@@ -159,7 +159,7 @@ class ExperimentQueryRunner(QueryRunner):
             ]
 
         # First exposure query: One row per user-variant combination
-        # Columns: distinct_id, variant, first_exposure_time
+        # Columns: entity_id, variant, first_exposure_time
         # Finds when each user was first exposed to each experiment variant
         exposure_query = ast.SelectQuery(
             select=exposure_query_select,
@@ -207,7 +207,7 @@ class ExperimentQueryRunner(QueryRunner):
         match self.metric.metric_config:
             case ExperimentDataWarehouseMetricConfig() as metric_config:
                 # Events after exposure query: One row per event after exposure
-                # Columns: timestamp, distinct_id, variant, value
+                # Columns: timestamp, after_exposure_identifier, variant, value
                 # Joins data warehouse events with exposure data to get all relevant events
                 # that occurred after a user was exposed to a variant
                 events_after_exposure_query = ast.SelectQuery(
@@ -287,7 +287,7 @@ class ExperimentQueryRunner(QueryRunner):
                         op=ast.CompareOperationOp.Eq,
                     )
                 # Events after exposure query: One row per PostHog event after exposure
-                # Columns: timestamp, distinct_id, variant, event, value
+                # Columns: timestamp, entity_id, variant, event, value
                 # Finds all matching events that occurred after a user was exposed to a variant
                 events_after_exposure_query = ast.SelectQuery(
                     select=[
@@ -341,7 +341,7 @@ class ExperimentQueryRunner(QueryRunner):
                 )
 
         # User metrics aggregation: One row per user
-        # Columns: variant, distinct_id, value (sum of all event values)
+        # Columns: variant, entity_id, value (sum of all event values)
         # Aggregates all events per user to get their total contribution to the metric
         metrics_aggregated_per_user_query = ast.SelectQuery(
             select=[
@@ -415,6 +415,8 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
+        sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
+
         if self.metric.metric_type == ExperimentMetricType.BINOMIAL:
             return [
                 ExperimentVariantFunnelsBaseStats(
@@ -422,7 +424,7 @@ class ExperimentQueryRunner(QueryRunner):
                     key=result[0],
                     success_count=result[2],
                 )
-                for result in response.results
+                for result in sorted_results
             ]
 
         return [
@@ -432,7 +434,7 @@ class ExperimentQueryRunner(QueryRunner):
                 exposure=result[1],
                 key=result[0],
             )
-            for result in response.results
+            for result in sorted_results
         ]
 
     def calculate(self) -> ExperimentQueryResponse:
