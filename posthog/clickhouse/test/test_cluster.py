@@ -28,16 +28,16 @@ def test_mutation_runner_rejects_invalid_parameters() -> None:
         MutationRunner("table", "command", {"__invalid_key": True})
 
 
-def test_exception_summary(cluster: ClickhouseCluster) -> None:
+def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
     with pytest.raises(ExceptionGroup) as e:
         cluster.map_all_hosts(Query("invalid query")).result()
 
-    assert ": Syntax error: failed at position 1 ('invalid'):" in e.value.message
+    assert e.value.message == snapshot
 
     with pytest.raises(ExceptionGroup) as e:
         cluster.map_all_hosts(Query("SELECT * FROM invalid_table_name")).result()
 
-    assert ": Unknown table expression identifier 'invalid_table_name'" in e.value.message
+    assert e.value.message == snapshot
 
     with pytest.raises(ExceptionGroup) as e:
 
@@ -46,7 +46,7 @@ def test_exception_summary(cluster: ClickhouseCluster) -> None:
 
         cluster.map_all_hosts(explode).result()
 
-    assert ": custom error" in e.value.message
+    assert e.value.message == snapshot
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:
