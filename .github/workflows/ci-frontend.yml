@@ -102,6 +102,8 @@ jobs:
             - name: Generate logic types and run typescript with strict
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend typegen:write && pnpm --filter=@posthog/frontend typescript:check
+              env:
+                  NODE_OPTIONS: --max-old-space-size=6144
 
             - name: Lint with ESLint
               if: needs.changes.outputs.frontend == 'true'
