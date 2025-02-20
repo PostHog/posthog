@@ -273,29 +273,37 @@ export const sceneLogic = kea<sceneLogicType>([
                         )
 
                         if (
-                            !productKeyFromUrl ||
-                            !teamLogic.values.currentTeam ||
-                            teamLogic.values.hasOnboardedAnyProduct
+                            productKeyFromUrl &&
+                            teamLogic.values.currentTeam &&
+                            !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
+                            // cloud mode? What is the experience for self-hosted?
                         ) {
-                            return
-                        }
+                            if (!teamLogic.values.hasOnboardedAnyProduct) {
+                                console.warn(
+                                    `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
+                                )
 
-                        if (
-                            scene === Scene.DataWarehouseTable &&
-                            params.searchParams.kind == 'hubspot' &&
-                            params.searchParams.code
-                        ) {
-                            actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                            actions.handleRedirect(params.searchParams.kind, {
-                                code: params.searchParams.code,
-                            })
-                            actions.setStep(2)
-                            router.actions.replace(urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA))
-                            return
+                                if (
+                                    scene === Scene.DataWarehouseTable &&
+                                    params.searchParams.kind == 'hubspot' &&
+                                    params.searchParams.code
+                                ) {
+                                    actions.selectConnector(SOURCE_DETAILS['Hubspot'])
+                                    actions.handleRedirect(params.searchParams.kind, {
+                                        code: params.searchParams.code,
+                                    })
+                                    actions.setStep(2)
+                                    router.actions.replace(
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
+                                    )
+                                } else {
+                                    router.actions.replace(
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
+                                    )
+                                }
+                                return
+                            }
                         }
-
-                        router.actions.replace(urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL))
-                        return
                     }
                 }
             }
