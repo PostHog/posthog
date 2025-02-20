@@ -271,7 +271,7 @@ def cancel_query(team_id: int, query_id: str) -> bool:
 
         if query_status.task_id:
             logger.info("Got task id %s, attempting to revoke", query_status.task_id)
-            celery.app.control.revoke(query_status.task_id, terminate=True)
+            celery.app.control.revoke(query_status.task_id)
 
             logger.info("Revoked task id %s", query_status.task_id)
     except QueryNotFoundError:
