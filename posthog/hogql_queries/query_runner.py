@@ -796,6 +796,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return cache_target_age(interval, last_refresh=last_refresh, mode=mode)
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        return True
         query_date_range = getattr(self, "query_date_range", None)
         date_to = query_date_range.date_to() if query_date_range else None
         interval = query_date_range.interval_name if query_date_range else "minute"
