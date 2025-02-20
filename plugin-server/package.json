@@ -5,7 +5,7 @@
     "types": "dist/index.d.ts",
     "main": "dist/index.js",
     "scripts": {
-        "test": "jest --runInBand --forceExit",
+        "test": "jest --runInBand --forceExit --shard=${SHARD_INDEX:-1}/${SHARD_COUNT:-1}",
         "functional_tests": "jest --config ./jest.config.functional.js",
         "start": "pnpm start:dev",
         "start:dist": "BASE_DIR=.. node dist/index.js",

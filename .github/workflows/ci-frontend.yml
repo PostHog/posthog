@@ -87,7 +87,9 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/playwright... install --frozen-lockfile
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  turbo --filter=@posthog/frontend deps
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
@@ -160,11 +162,12 @@ jobs:
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: bin/turbo --filter=@posthog/frontend test --maxWorkers=2 --shard=${{ matrix.chunk }}/3
+              run: bin/turbo run test --filter=@posthog/frontend
               if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=6144
+                  SHARD_INDEX: ${{ matrix.shardIndex }}
+                  SHARD_COUNT: 3
 
     calculate-running-time:
         name: Calculate running time

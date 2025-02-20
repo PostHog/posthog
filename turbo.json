@@ -6,13 +6,16 @@
             "dependsOn": ["^build"],
             "inputs": ["src", "!**/*.pyc"],
             "outputs": ["dist"],
-            "env": ["RUST_VERSION"],
-            "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME"]
+            "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
+            "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS"]
         },
         "@posthog/cypress#build": {
             "dependsOn": ["^build", "!@posthog/storybook#build"]
         },
         "test": {
+            "dependsOn": ["^build"]
+        },
+        "deps": {
             "dependsOn": ["^build"]
         },
         "start": {

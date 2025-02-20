@@ -54,9 +54,6 @@ jobs:
         needs: changes
         if: needs.changes.outputs.plugin-server == 'true'
         runs-on: ubuntu-24.04
-        defaults:
-            run:
-                working-directory: 'plugin-server'
         steps:
             - uses: actions/checkout@v3
 
@@ -88,7 +85,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                shard: [1/3, 2/3, 3/3]
+                shard: [1, 2, 3]
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -192,7 +189,9 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
-              run: pnpm --filter=@posthog/plugin-server test -- --runInBand --forceExit --shard=${{matrix.shard}}
+                  SHARD_INDEX: ${{ matrix.shardIndex }}
+                  SHARD_COUNT: 3
+              run: bin/turbo run test --filter=@posthog/plugin-server
 
     functional-tests:
         name: Functional tests

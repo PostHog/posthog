@@ -29,7 +29,7 @@
         "typegen:watch": "cd .. && kea-typegen watch --delete --show-ts-errors",
         "typegen:clean": "cd .. && find frontend/src products common -type f -name '*Type.ts' -delete",
         "schema:build:json": "ts-node ./bin/build-schema-json.mjs && prettier --write ./src/queries/schema.json",
-        "test": "jest --testPathPattern='(frontend/|products/|common/)'",
+        "test": "jest --testPathPattern='(frontend/|products/|common/)' --runInBand --forceExit --shard=${SHARD_INDEX:-1}/${SHARD_COUNT:-1}",
         "jest": "jest",
         "prettier": "prettier --write \"../{cypress,products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "prettier:check": "prettier --check \"../{cypress,products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
