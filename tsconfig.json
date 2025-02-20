@@ -46,8 +46,7 @@
         "products/**/frontend/**/*",
         "common/esbuilder/*",
         "common/eslint_rules/*",
-        "common/storybook/babel.config.js",
-        "common/storybook/webpack.config.js"
+        "common/storybook/*"
     ],
     "exclude": ["frontend/dist/**/*"],
     "ts-node": {
