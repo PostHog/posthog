@@ -40,6 +40,7 @@
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html"
     },
     "dependencies": {
+        "@babel/runtime": "^7.24.0",
         "@dnd-kit/core": "^6.0.8",
         "@dnd-kit/modifiers": "^6.0.1",
         "@dnd-kit/sortable": "^7.0.2",
@@ -66,8 +67,6 @@
         "@sentry/react": "7.112.1",
         "@stripe/react-stripe-js": "^2.8.0",
         "@stripe/stripe-js": "^4.5.0",
-        "@storybook/react": "^7.6.4",
-        "@storybook/types": "^7.6.4",
         "@tailwindcss/container-queries": "^0.1.1",
         "@testing-library/dom": ">=7.21.4",
         "@tiptap/core": "^2.1.16",
@@ -173,6 +172,8 @@
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
         "@sentry/types": "7.112.1",
+        "@storybook/react": "^7.6.4",
+        "@storybook/types": "^7.6.4",
         "@sucrase/jest-plugin": "^3.0.0",
         "@testing-library/dom": ">=7.21.4",
         "@testing-library/jest-dom": "^5.16.2",
