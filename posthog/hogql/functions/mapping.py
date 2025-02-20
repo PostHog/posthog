@@ -408,16 +408,13 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
         1,
-        2,  # Incorrect for parseDateTime64BestEffortOrNull but it is required because when we overload to toDateTime, we use this to figure out if timestamp is already in a function.
+        2,
         tz_aware=True,
-        overloads=[
-            ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
-            # ((ast.StringType,), "parseDateTime64"), # missing in version: 24.8.7.41
-        ],
+        overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
         signatures=[
-            ((StringType(),), DateTimeType()),
-            ((StringType(), IntegerType()), DateTimeType()),
-            ((StringType(), IntegerType(), StringType()), DateTimeType()),
+            ((StringType(),), DateTimeType(nullable=True)),
+            ((StringType(), IntegerType()), DateTimeType(nullable=True)),
+            ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=True)),
         ],
     ),
     "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),

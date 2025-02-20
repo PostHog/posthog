@@ -1,7 +1,6 @@
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from dateutil import parser
 from datetime import date, datetime
 from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
@@ -14,7 +13,6 @@ from posthog.clickhouse.materialized_columns import (
 )
 from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
-from posthog.hogql.ast import StringType, Constant
 from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
@@ -1139,25 +1137,11 @@ class _Printer(Visitor):
                     if not has_tz_override:
                         args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
-                    # If the datetime is in correct format, use optimal toDateTime, it's more strict but faster
-                    # and it allows CH to use index efficiently.
-                    if (
-                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
-                        and len(node.args) == 1
-                        and isinstance(node.args[0], Constant)
-                        and isinstance(node.args[0].type, StringType)
-                    ):
-                        try:
-                            _ = parser.isoparse(node.args[0].value)
-                            relevant_clickhouse_name = "toDateTime64"
-                        except ValueError:
-                            pass
-
                     if (
                         relevant_clickhouse_name == "now64"
                         and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
                     ) or (
-                        relevant_clickhouse_name in ("parseDateTime64BestEffortOrNull", "toDateTime64")
+                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone
