@@ -128,6 +128,7 @@
         "@types/pg": "^8.6.0",
         "@types/redlock": "^4.0.1",
         "@types/snowflake-sdk": "^1.5.1",
+        "@types/supertest": "^6.0.2",
         "@types/tar-stream": "^2.2.0",
         "@types/uuid": "^9.0.1",
         "@typescript-eslint/eslint-plugin": "^7.1.1",
