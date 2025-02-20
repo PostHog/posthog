@@ -64,7 +64,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         feature_flag_key = self.feature_flag.key
 
         test_accounts_filter: list[ast.Expr] = []
-        if isinstance(self.team.test_account_filters, list) and len(self.team.test_account_filters) > 0:
+        if (
+            self.experiment.exposure_criteria.get("filterTestAccounts")
+            and isinstance(self.team.test_account_filters, list)
+            and len(self.team.test_account_filters) > 0
+        ):
             for property in self.team.test_account_filters:
                 test_accounts_filter.append(property_to_expr(property, self.team))
 
