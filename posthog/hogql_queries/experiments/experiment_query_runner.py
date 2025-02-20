@@ -415,6 +415,8 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
+        sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
+
         if self.metric.metric_type == ExperimentMetricType.BINOMIAL:
             return [
                 ExperimentVariantFunnelsBaseStats(
@@ -422,7 +424,7 @@ class ExperimentQueryRunner(QueryRunner):
                     key=result[0],
                     success_count=result[2],
                 )
-                for result in response.results
+                for result in sorted_results
             ]
 
         return [
@@ -432,7 +434,7 @@ class ExperimentQueryRunner(QueryRunner):
                 exposure=result[1],
                 key=result[0],
             )
-            for result in response.results
+            for result in sorted_results
         ]
 
     def calculate(self) -> ExperimentQueryResponse:
