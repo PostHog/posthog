@@ -1,6 +1,5 @@
 [workspace]
 resolver = "2"
-rust-version = "1.82.0" # please keep in sync with the version in .github/workflows/rust.yml
 
 members = [
     "property-defs-rs",
@@ -102,3 +101,4 @@ posthog-rs = { version = "0.3.5", features = ["async-client"] }
 
 # Used for decrypting django encrypted fields
 fernet = "0.2"
+
