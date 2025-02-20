@@ -147,6 +147,56 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+CONFIG_FIELDS = (
+    "app_urls",
+    "slack_incoming_webhook",
+    "anonymize_ips",
+    "completed_snippet_onboarding",
+    "test_account_filters",
+    "test_account_filters_default_checked",
+    "path_cleaning_filters",
+    "is_demo",
+    "timezone",
+    "data_attributes",
+    "person_display_name_properties",
+    "correlation_config",
+    "autocapture_opt_out",
+    "autocapture_exceptions_opt_in",
+    "autocapture_web_vitals_opt_in",
+    "autocapture_web_vitals_allowed_metrics",
+    "autocapture_exceptions_errors_to_ignore",
+    "capture_console_log_opt_in",
+    "capture_performance_opt_in",
+    "session_recording_opt_in",
+    "session_recording_sample_rate",
+    "session_recording_minimum_duration_milliseconds",
+    "session_recording_linked_flag",
+    "session_recording_network_payload_capture_config",
+    "session_recording_url_trigger_config",
+    "session_recording_url_blocklist_config",
+    "session_recording_event_trigger_config",
+    "session_replay_config",
+    "survey_config",
+    "week_start_day",
+    "primary_dashboard",
+    "live_events_columns",
+    "recording_domains",
+    "cookieless_server_hash_mode",
+    "human_friendly_comparison_periods",
+    "inject_web_apps",
+    "extra_settings",
+    "modifiers",
+    "has_completed_onboarding_for",
+    "surveys_opt_in",
+    "heatmaps_opt_in",
+    "flags_persistence_default",
+    "capture_dead_clicks",
+    "default_data_theme",
+    "revenue_tracking_config",
+    "onboarding_tasks",
+)
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
@@ -161,69 +211,26 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         fields = (
             "id",
             "uuid",
+            "name",
             "organization",
             "project_id",
             "api_token",
-            "app_urls",
-            "name",
-            "slack_incoming_webhook",
             "created_at",
             "updated_at",
-            "anonymize_ips",
-            "completed_snippet_onboarding",
             "ingested_event",
-            "test_account_filters",
-            "test_account_filters_default_checked",
-            "path_cleaning_filters",
-            "is_demo",
-            "timezone",
-            "data_attributes",
-            "person_display_name_properties",
-            "correlation_config",
-            "autocapture_opt_out",
-            "autocapture_exceptions_opt_in",
-            "autocapture_web_vitals_opt_in",
-            "autocapture_web_vitals_allowed_metrics",
-            "autocapture_exceptions_errors_to_ignore",
-            "capture_console_log_opt_in",
-            "capture_performance_opt_in",
-            "session_recording_opt_in",
-            "session_recording_sample_rate",
-            "session_recording_minimum_duration_milliseconds",
-            "session_recording_linked_flag",
-            "session_recording_network_payload_capture_config",
-            "session_recording_url_trigger_config",
-            "session_recording_url_blocklist_config",
-            "session_recording_event_trigger_config",
-            "session_replay_config",
-            "survey_config",
-            "effective_membership_level",
-            "access_control",
-            "week_start_day",
-            "has_group_types",
-            "primary_dashboard",
-            "live_events_columns",
-            "recording_domains",
-            "cookieless_server_hash_mode",
-            "human_friendly_comparison_periods",
-            "person_on_events_querying_enabled",
-            "inject_web_apps",
-            "extra_settings",
-            "modifiers",
             "default_modifiers",
-            "has_completed_onboarding_for",
-            "surveys_opt_in",
-            "heatmaps_opt_in",
-            "flags_persistence_default",
+            "person_on_events_querying_enabled",
+            "user_access_level",
+            # Config fields
+            *CONFIG_FIELDS,
+            # Computed fields
+            "effective_membership_level",
+            "has_group_types",
             "live_events_token",
             "product_intents",
-            "capture_dead_clicks",
-            "user_access_level",
-            "default_data_theme",
-            "revenue_tracking_config",
             "access_control_version",
-            "onboarding_tasks",
         )
+
         read_only_fields = (
             "id",
             "uuid",
@@ -239,6 +246,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "person_on_events_querying_enabled",
             "live_events_token",
             "user_access_level",
+            "product_intents",
             "access_control_version",
         )
 
@@ -505,6 +513,18 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if self.action == "list":
             return TeamBasicSerializer
         return super().get_serializer_class()
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str]:
+        # If the request only contains config fields, require read:team scope
+        # Otherwise, require write:team scope (handled by APIScopePermission)
+        if self.action == "partial_update":
+            request_fields = set(request.data.keys())
+            non_config_fields = request_fields - set(CONFIG_FIELDS)
+            if not non_config_fields:
+                return ["team:read"]
+
+        # Fall back to the default behavior
+        return None
 
     # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
     def dangerously_get_permissions(self) -> list:
