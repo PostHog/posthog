@@ -53,7 +53,6 @@ class HogQLQueryExecutor:
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
 
-    _cached_clickhouse_context: Optional[HogQLContext] = None
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
     def __post_init__(self):
