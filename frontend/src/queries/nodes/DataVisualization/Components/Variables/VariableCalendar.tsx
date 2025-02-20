@@ -10,9 +10,6 @@ export const VariableCalendar = ({
     updateVariable: (date: string) => void
 }): JSX.Element => {
     const [calendarTime, setCalendarTime] = useState(() => {
-        if (!value) {
-            return false
-        }
         // Check if the date string contains time information (HH:mm or HH:mm:ss)
         return /\d{2}:\d{2}(:\d{2})?/.test(value.format('YYYY-MM-DD HH:mm:00'))
     })
