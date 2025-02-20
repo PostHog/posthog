@@ -292,7 +292,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } else if (values.queryInput !== '' && !values.activeModelUri?.view) {
                 LemonDialog.open({
                     title: 'Delete query',
-                    description: 'Are you sure you want to delete this query?',
+                    description: 'There are unsaved changes. Are you sure you want to delete this query?',
                     primaryButton: {
                         children: 'Delete',
                         status: 'danger',
