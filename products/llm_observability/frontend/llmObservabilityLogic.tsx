@@ -513,7 +513,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 s.propertyFilters,
                 groupsModel.selectors.groupsTaxonomicTypes,
             ],
-            (dateFilter, shouldFilterTestAccounts, propertyFilters): DataTableNode => ({
+            (dateFilter, shouldFilterTestAccounts, propertyFilters, groupsTaxonomicTypes): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.HogQLQuery,
@@ -556,6 +556,13 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 showDateRange: true,
                 showReload: true,
                 showSearch: true,
+                showPropertyFilter: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
                 showTestAccountFilters: true,
                 showExport: true,
                 showColumnConfigurator: true,
@@ -574,7 +581,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 (date_from || INITIAL_EVENTS_DATE_FROM) !== values.dateFilter.dateFrom ||
                 (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
             ) {
-                actions.setDates(date_from, date_to)
+                actions.setDates(date_from || INITIAL_EVENTS_DATE_FROM, date_to || INITIAL_DATE_TO)
             }
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(filter_test_accounts)
             if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
