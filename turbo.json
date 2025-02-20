@@ -7,7 +7,7 @@
         },
         "build": {
             "dependsOn": ["prepare"],
-            "inputs": ["src", "!**/*.pyc"],
+            "inputs": ["src", "Cargo.toml", "!**/*.pyc"],
             "outputs": ["dist", "index.node"],
             "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
             "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS"]
@@ -20,7 +20,7 @@
         },
         "test": {
             "dependsOn": ["prepare"],
-            "inputs": ["src", "!**/*.pyc"],
+            "inputs": ["src", "Cargo.toml", "!**/*.pyc"],
             "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
             "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS"]
         },
