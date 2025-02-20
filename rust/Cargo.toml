@@ -101,4 +101,3 @@ posthog-rs = { version = "0.3.5", features = ["async-client"] }
 
 # Used for decrypting django encrypted fields
 fernet = "0.2"
-
