@@ -176,8 +176,8 @@ class ClickhouseCluster:
                 self.__logger.info("Executing %r on %r...", fn, host)
                 try:
                     result = fn(client)
-                except Exception:
-                    self.__logger.warn("Failed to execute %r on %r!", fn, host, exc_info=True)
+                except Exception as e:
+                    self.__logger.warn("Failed to execute %r on %r: %s", fn, host, e, exc_info=True)
                     raise
                 else:
                     self.__logger.info("Successfully executed %r on %r.", fn, host)
