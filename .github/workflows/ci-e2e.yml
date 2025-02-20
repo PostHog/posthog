@@ -245,13 +245,18 @@ jobs:
                   log: true
                   resource: http://localhost:8000
 
+            - name: Prepare cypress
+              # these are required checks so, we can't skip entire sections
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              run: bin/turbo --filter=@posthog/cypress prepare
+
             - name: Cypress run
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: cypress-io/github-action@v6
               with:
                   install-command: 'pnpm --filter=@posthog/cypress... install --frozen-lockfile'
-                  command: 'bin/turbo --filter=@posthog/frontend prepare && pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec ${{ matrix.chunk }} --headed'
+                  command: 'pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec ${{ matrix.chunk }} --headed'
                   # We were seeing suprising crashes in headless mode
                   # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
               env:

@@ -1,9 +1,0 @@
-{
-    "$schema": "https://turbo.build/schema.json",
-    "extends": ["../turbo.json"],
-    "tasks": {
-        "build": {
-            "dependsOn": ["^build", "!@posthog/storybook#build"]
-        }
-    }
-}
