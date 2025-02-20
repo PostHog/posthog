@@ -143,7 +143,7 @@ const PathCleaningToggle = (): JSX.Element => {
                 type="secondary"
                 size="small"
             >
-                Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" size="xsmall" />
+                Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" />
             </LemonButton>
         </Tooltip>
     )
