@@ -23,7 +23,7 @@ LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http:/
 
 ### Flaky tests are almost always due to not waiting for the right thing.
 
-Consider adding a better selector, an intermediate step like waiting for URL or page title to chage, or waiting for a critical network request to complete.
+Consider adding a better selector, an intermediate step like waiting for URL or page title to change, or waiting for a critical network request to complete.
 
 ### Useful output from playwright
 
