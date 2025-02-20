@@ -100,15 +100,16 @@ class ExperimentQueryRunner(QueryRunner):
             case ExperimentMetricType.CONTINUOUS:
                 # If the metric type is continuous, we need to extract the value from the event property
                 metric_property = self.metric.metric_config.math_property
-                if is_data_warehouse_query:
-                    metric_value = parse_expr(
-                        "toFloat({property})", placeholders={"property": ast.Constant(value=metric_property)}
-                    )
+                if metric_property:
+                    if is_data_warehouse_query:
+                        metric_value = parse_expr(metric_property)
+                    else:
+                        metric_value = parse_expr(
+                            "toFloat(JSONExtractRaw(properties, {property}))",
+                            placeholders={"property": ast.Constant(value=metric_property)},
+                        )
                 else:
-                    metric_value = parse_expr(
-                        "toFloat(JSONExtractRaw(properties, {property}))",
-                        placeholders={"property": ast.Constant(value=metric_property)},
-                    )
+                    raise ValueError("Metric property is required for continuous metrics")
             case _:
                 # Else, we default to count
                 # We then just emit 1 so we can easily sum it up
@@ -149,16 +150,16 @@ class ExperimentQueryRunner(QueryRunner):
                 *exposure_query_select,
                 ast.Alias(
                     alias="exposure_identifier",
-                    expr=ast.Field(chain=[*exposure_metric_config.exposure_identifier_field.split(".")]),
+                    expr=ast.Field(chain=[*exposure_metric_config.events_join_key.split(".")]),
                 ),
             ]
             exposure_query_group_by = [
                 *exposure_query_group_by,
-                ast.Field(chain=[*exposure_metric_config.exposure_identifier_field.split(".")]),
+                ast.Field(chain=[*exposure_metric_config.events_join_key.split(".")]),
             ]
 
         # First exposure query: One row per user-variant combination
-        # Columns: distinct_id, variant, first_exposure_time
+        # Columns: entity_id, variant, first_exposure_time
         # Finds when each user was first exposed to each experiment variant
         exposure_query = ast.SelectQuery(
             select=exposure_query_select,
@@ -206,7 +207,7 @@ class ExperimentQueryRunner(QueryRunner):
         match self.metric.metric_config:
             case ExperimentDataWarehouseMetricConfig() as metric_config:
                 # Events after exposure query: One row per event after exposure
-                # Columns: timestamp, distinct_id, variant, value
+                # Columns: timestamp, after_exposure_identifier, variant, value
                 # Joins data warehouse events with exposure data to get all relevant events
                 # that occurred after a user was exposed to a variant
                 events_after_exposure_query = ast.SelectQuery(
@@ -220,7 +221,7 @@ class ExperimentQueryRunner(QueryRunner):
                             expr=ast.Field(
                                 chain=[
                                     metric_config.table_name,
-                                    *metric_config.after_exposure_identifier_field.split("."),
+                                    *metric_config.data_warehouse_join_key.split("."),
                                 ]
                             ),
                         ),
@@ -238,7 +239,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     left=ast.Field(
                                         chain=[
                                             metric_config.table_name,
-                                            *metric_config.after_exposure_identifier_field.split("."),
+                                            *metric_config.data_warehouse_join_key.split("."),
                                         ]
                                     ),
                                     right=parse_expr("toString(exposure_data.exposure_identifier)"),
@@ -248,10 +249,26 @@ class ExperimentQueryRunner(QueryRunner):
                             ),
                         ),
                     ),
-                    where=ast.CompareOperation(
-                        left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
-                        right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
-                        op=ast.CompareOperationOp.GtEq,
+                    where=ast.And(
+                        exprs=[
+                            # Improve query performance by only fetching events after the experiment started
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.GtEq,
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                                right=ast.Constant(value=date_range_query.date_from()),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.LtEq,
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                                # NOTE: We have to append the conversion window here once we support it
+                                right=ast.Constant(value=date_range_query.date_to()),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                                right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
+                                op=ast.CompareOperationOp.GtEq,
+                            ),
+                        ],
                     ),
                 )
 
@@ -270,7 +287,7 @@ class ExperimentQueryRunner(QueryRunner):
                         op=ast.CompareOperationOp.Eq,
                     )
                 # Events after exposure query: One row per PostHog event after exposure
-                # Columns: timestamp, distinct_id, variant, event, value
+                # Columns: timestamp, entity_id, variant, event, value
                 # Finds all matching events that occurred after a user was exposed to a variant
                 events_after_exposure_query = ast.SelectQuery(
                     select=[
@@ -298,6 +315,18 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                     where=ast.And(
                         exprs=[
+                            # Improve query performance by only fetching events after the experiment started
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.GtEq,
+                                left=ast.Field(chain=["timestamp"]),
+                                right=ast.Constant(value=date_range_query.date_from()),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.LtEq,
+                                left=ast.Field(chain=["timestamp"]),
+                                # NOTE: We have to append the conversion window here once we support it
+                                right=ast.Constant(value=date_range_query.date_to()),
+                            ),
                             # Only include events after exposure
                             ast.CompareOperation(
                                 left=ast.Field(chain=["events", "timestamp"]),
@@ -312,7 +341,7 @@ class ExperimentQueryRunner(QueryRunner):
                 )
 
         # User metrics aggregation: One row per user
-        # Columns: variant, distinct_id, value (sum of all event values)
+        # Columns: variant, entity_id, value (sum of all event values)
         # Aggregates all events per user to get their total contribution to the metric
         metrics_aggregated_per_user_query = ast.SelectQuery(
             select=[
@@ -386,6 +415,8 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
+        sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
+
         if self.metric.metric_type == ExperimentMetricType.BINOMIAL:
             return [
                 ExperimentVariantFunnelsBaseStats(
@@ -393,7 +424,7 @@ class ExperimentQueryRunner(QueryRunner):
                     key=result[0],
                     success_count=result[2],
                 )
-                for result in response.results
+                for result in sorted_results
             ]
 
         return [
@@ -403,7 +434,7 @@ class ExperimentQueryRunner(QueryRunner):
                 exposure=result[1],
                 key=result[0],
             )
-            for result in response.results
+            for result in sorted_results
         ]
 
     def calculate(self) -> ExperimentQueryResponse:

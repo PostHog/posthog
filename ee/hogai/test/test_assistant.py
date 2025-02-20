@@ -282,7 +282,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertFalse(snapshot.next)
             self.assertFalse(snapshot.values.get("intermediate_steps"))
             self.assertFalse(snapshot.values["plan"])
-            self.assertFalse(snapshot.values["resumed"])
+            self.assertFalse(snapshot.values["graph_status"])
             self.assertFalse(snapshot.values["root_tool_call_id"])
             self.assertFalse(snapshot.values["root_tool_insight_plan"])
             self.assertFalse(snapshot.values["root_tool_insight_type"])
@@ -318,12 +318,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self._run_assistant_graph(graph, conversation=self.conversation)
             snapshot: StateSnapshot = graph.get_state(config)
             self.assertTrue(snapshot.next)
-            self.assertNotIn("resumed", snapshot.values)
+            self.assertEqual(snapshot.values["graph_status"], "interrupted")
             self.assertIsInstance(snapshot.values["messages"][-1], AssistantMessage)
             self.assertEqual(snapshot.values["messages"][-1].content, "test")
 
             def interrupt_graph(_):
-                self.assertTrue(graph.get_state(config).values["resumed"])
+                self.assertEqual(graph.get_state(config).values["graph_status"], "resumed")
                 raise NodeInterrupt("test")
 
             mock.return_value = RunnableLambda(interrupt_graph)
@@ -796,3 +796,66 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             "No more tool calls after 4th attempt",
             "Final message should indicate no more tool calls",
         )
+
+    def test_conversation_is_locked_when_generating(self):
+        graph = (
+            AssistantGraph(self.team)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .compile()
+        )
+        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
+        with patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock:
+
+            def assert_lock_status(_):
+                self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
+                return messages.AIMessage(content="")
+
+            root_mock.return_value = RunnableLambda(assert_lock_status)
+            self._run_assistant_graph(graph)
+            self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
+
+    def test_conversation_saves_state_after_cancellation(self):
+        graph = (
+            AssistantGraph(self.team)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .compile()
+        )
+
+        self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
+        with (
+            patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock,
+            patch("ee.hogai.root.nodes.RootNodeTools.run") as root_tool_mock,
+        ):
+
+            def assert_lock_status(_):
+                self.conversation.status = Conversation.Status.CANCELING
+                self.conversation.save()
+                return messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "1",
+                            "name": "create_and_query_insight",
+                            "args": {"query_description": "Foobar", "query_kind": "trends"},
+                        }
+                    ],
+                )
+
+            root_mock.return_value = RunnableLambda(assert_lock_status)
+            self._run_assistant_graph(graph)
+            snapshot = graph.get_state({"configurable": {"thread_id": str(self.conversation.id)}})
+            self.assertEqual(snapshot.next, (AssistantNodeName.ROOT_TOOLS,))
+            self.assertEqual(snapshot.values["messages"][-1].content, "")
+            root_tool_mock.assert_not_called()
+
+        with patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock:
+            # The graph must start from the root node despite being cancelled on the root tools node.
+            root_mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content="Finished"))
+            expected_output = [
+                ("message", HumanMessage(content="Hello")),
+                ("message", AssistantMessage(content="Finished")),
+            ]
+            actual_output = self._run_assistant_graph(graph)
+            self.assertConversationEqual(actual_output, expected_output)

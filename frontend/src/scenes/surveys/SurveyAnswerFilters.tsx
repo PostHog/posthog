@@ -1,6 +1,8 @@
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getPropertyKey } from 'lib/taxonomy'
 import { allOperatorsMapping } from 'lib/utils'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { getSurveyResponseKey } from 'scenes/surveys/utils'
@@ -114,9 +116,7 @@ export function SurveyAnswerFilters(): JSX.Element {
                                             currentFilter.operator
                                         ) && (
                                             <PropertyValue
-                                                propertyKey={
-                                                    index === 0 ? '$survey_response' : `$survey_response_${index}`
-                                                }
+                                                propertyKey={getSurveyResponseKey(index)}
                                                 type={PropertyFilterType.Event}
                                                 operator={currentFilter.operator}
                                                 value={currentFilter.value || []}
@@ -127,6 +127,15 @@ export function SurveyAnswerFilters(): JSX.Element {
                                                         : 'Enter text to match'
                                                 }
                                                 eventNames={['survey sent']}
+                                                additionalPropertiesFilter={[
+                                                    {
+                                                        key: getPropertyKey(
+                                                            '$survey_id',
+                                                            TaxonomicFilterGroupType.Events
+                                                        ),
+                                                        values: survey.id,
+                                                    },
+                                                ]}
                                             />
                                         )}
                                 </div>
