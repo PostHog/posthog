@@ -52,6 +52,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["name"] == "Notebooks beta release survey"
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
+        assert response_data["schedule"] == "once"
         assert response_data["questions"] == [
             {
                 "type": "open",
@@ -137,6 +138,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["name"] == "Notebooks beta release survey"
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
+        assert response_data["schedule"] == "once"
         assert response_data["questions"] == [
             {
                 "type": "open",
@@ -226,6 +228,7 @@ class TestSurvey(APIBaseTest):
         assert FeatureFlag.objects.filter(id=response_data["targeting_flag"]["id"]).exists()
         self.assertNotEqual(response_data["targeting_flag"]["key"], "survey-targeting-power-users-survey")
         assert re.match(r"^survey-targeting-[a-z0-9]+$", response_data["targeting_flag"]["key"])
+        assert response_data["schedule"] == "once"
 
         assert response_data["targeting_flag"]["filters"] == {
             "groups": [
@@ -391,7 +394,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(22):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1077,6 +1080,7 @@ class TestSurvey(APIBaseTest):
                     "name": "Notebooks power users survey",
                     "description": "Make notebooks better",
                     "type": "popover",
+                    "schedule": "once",
                     "questions": [
                         {
                             "type": "open",
@@ -1117,6 +1121,7 @@ class TestSurvey(APIBaseTest):
                         "deleted": False,
                         "active": False,
                         "ensure_experience_continuity": False,
+                        "has_encrypted_payloads": False,
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -1549,6 +1554,44 @@ class TestSurvey(APIBaseTest):
     def _assert_survey_activity(self, expected):
         activity = self.client.get(f"/api/projects/{self.team.id}/surveys/activity").json()
         self.assertEqual(activity["results"], expected)
+
+    def test_validate_schedule_on_create(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with invalid schedule",
+                "type": "popover",
+                "schedule": "invalid_value",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What's a survey?",
+                    }
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Schedule must be one of: once, recurring, always"
+
+    def test_validate_schedule_on_update(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey to update",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "schedule": "invalid_value",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Schedule must be one of: once, recurring, always"
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
@@ -2836,6 +2879,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "end_date": None,
                         "current_iteration": None,
                         "current_iteration_start_date": None,
+                        "schedule": "once",
                     }
                 ],
             )
@@ -2888,6 +2932,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "internal_targeting_flag_key": "custom-targeting-flag",
                     "start_date": None,
                     "end_date": None,
+                    "schedule": "once",
                 },
                 surveys,
             )
@@ -2903,6 +2948,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "end_date": None,
                     "current_iteration": None,
                     "current_iteration_start_date": None,
+                    "schedule": "once",
                 },
                 surveys,
             )

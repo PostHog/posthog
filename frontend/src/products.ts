@@ -6,6 +6,7 @@ export const productScenes: Record<string, any> = {
     EarlyAccessFeature: (): any => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     LLMObservability: (): any => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
     LLMObservabilityTrace: (): any => import('../../products/llm_observability/frontend/LLMObservabilityTraceScene'),
+    LLMObservabilityUsers: (): any => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
     MessagingBroadcasts: (): any => import('../../products/messaging/frontend/Broadcasts'),
     MessagingProviders: (): any => import('../../products/messaging/frontend/Providers'),
 }
@@ -19,6 +20,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-observability/generations': ['LLMObservability', 'llmObservabilityGenerations'],
     '/llm-observability/traces': ['LLMObservability', 'llmObservabilityTraces'],
     '/llm-observability/traces/:id': ['LLMObservabilityTrace', 'llmObservability'],
+    '/llm-observability/users': ['LLMObservability', 'llmObservabilityUsers'],
     '/messaging/providers': ['MessagingProviders', 'messagingProviders'],
     '/messaging/providers/:id': ['MessagingProviders', 'messagingProvider'],
     '/messaging/providers/new': ['MessagingProviders', 'messagingProviderNew'],
@@ -59,6 +61,13 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/ai-engineering/observability',
     },
+    LLMObservabilityUsers: {
+        name: 'LLM observability users',
+        projectBased: true,
+        activityScope: 'LLMObservability',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/ai-engineering/observability',
+    },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingProviders: { name: 'Messaging', projectBased: true },
 }
@@ -81,6 +90,7 @@ export const productUrls = {
         const stringifiedParams = queryParams.toString()
         return `/llm-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
+    llmObservabilityUsers: (): string => '/llm-observability/users',
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',

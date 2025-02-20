@@ -88,6 +88,7 @@ then
     git fetch --tags
     latestReleaseTag=$(git describe --tags `git rev-list --tags --max-count=1`)
     echo "Checking out latest PostHog release: $latestReleaseTag"
+    echo "Warning PostHog don't create tagged releases anymore. It's way better to use 'latest' than 'latest-release'"
     git checkout $latestReleaseTag
 elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
 then

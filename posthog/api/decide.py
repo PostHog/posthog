@@ -257,6 +257,7 @@ def get_decide(request: HttpRequest):
                 "DECIDE_REQUEST_STARTED",
                 team_id=team.id,
                 distinct_id=data.get("distinct_id", None),
+                user_agent=request.headers.get("User-Agent", ""),
             )
 
         if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
@@ -307,7 +308,7 @@ def get_decide(request: HttpRequest):
             }
 
             feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-                team.pk,
+                team,
                 distinct_id,
                 data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),
@@ -341,6 +342,7 @@ def get_decide(request: HttpRequest):
                     "DECIDE_REQUEST_SUCCEEDED",
                     team_id=team.id,
                     distinct_id=distinct_id,
+                    user_agent=request.headers.get("User-Agent", ""),
                     errors_while_computing=errors or False,
                     has_hash_key_override=bool(data.get("$anon_distinct_id")),
                 )

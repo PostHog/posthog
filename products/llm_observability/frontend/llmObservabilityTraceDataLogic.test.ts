@@ -1,4 +1,4 @@
-import { LLMTraceEvent } from '~/queries/schema'
+import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { restoreTree } from './llmObservabilityTraceDataLogic'
 

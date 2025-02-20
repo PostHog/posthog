@@ -6,6 +6,7 @@ from posthog.models import (
     BatchExport,
     BatchExportBackfill,
     BatchExportDestination,
+    BatchExportRun,
     Organization,
 )
 
@@ -53,4 +54,15 @@ def create_backfill(team, batch_export, start_at, end_at, status, finished_at) -
         end_at=end_at,
         status=status,
         finished_at=finished_at,
+    )
+
+
+def create_run(batch_export, status, data_interval_start, data_interval_end, backfill=None) -> BatchExportRun:
+    """Create a test batch export run."""
+    return BatchExportRun.objects.create(
+        batch_export=batch_export,
+        status=status,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        backfill=backfill,
     )
