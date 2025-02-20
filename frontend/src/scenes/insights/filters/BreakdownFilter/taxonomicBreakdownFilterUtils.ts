@@ -8,10 +8,8 @@ export const isCohort = (t: number | string): t is number => typeof t === 'numbe
 export const isCohortBreakdown = (t: number | string): t is number | string => isAllCohort(t) || isCohort(t)
 
 export const isURLNormalizeable = (propertyName: string): boolean => {
-    const normalizablePathMatches = ['current_url', 'pathname']
-    return propertyName.startsWith('$') && 
-        normalizablePathMatches.some(term => propertyName.includes(term)) &&
-        normalizablePathMatches.some(term => propertyName.endsWith(term))
+    const propertyMatchTerms = ['current_url', 'pathname']
+    return propertyName.startsWith('$') && propertyMatchTerms.some(term => propertyName.endsWith(term))
     
 }
 
