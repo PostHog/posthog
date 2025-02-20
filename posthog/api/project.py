@@ -55,7 +55,7 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
-from posthog.api.team import CONFIG_FIELDS
+from posthog.api.team import CONFIG_FIELDS_SET
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -430,7 +430,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         # Otherwise, require write:team scope (handled by APIScopePermission)
         if self.action == "partial_update":
             request_fields = set(request.data.keys())
-            non_config_fields = request_fields - set(CONFIG_FIELDS)
+            non_config_fields = request_fields - CONFIG_FIELDS_SET
             if not non_config_fields:
                 return ["team:read"]
 

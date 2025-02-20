@@ -196,6 +196,8 @@ CONFIG_FIELDS = (
     "onboarding_tasks",
 )
 
+CONFIG_FIELDS_SET = set(CONFIG_FIELDS)
+
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
@@ -519,7 +521,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # Otherwise, require write:team scope (handled by APIScopePermission)
         if self.action == "partial_update":
             request_fields = set(request.data.keys())
-            non_config_fields = request_fields - set(CONFIG_FIELDS)
+            non_config_fields = request_fields - CONFIG_FIELDS_SET
             if not non_config_fields:
                 return ["team:read"]
 
