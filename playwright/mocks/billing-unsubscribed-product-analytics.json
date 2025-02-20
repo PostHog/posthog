@@ -1078,7 +1078,7 @@
                         {
                             "key": "funnel_experiments",
                             "name": "Funnel & trend experiments",
-                            "description": "Measure the impact of a change on a aggregate values or a series of events, like a signup flow.",
+                            "description": "Measure the impact of a change on aggregated values or a series of events, like a signup flow.",
                             "unit": null,
                             "limit": null,
                             "note": null
