@@ -34,6 +34,7 @@ from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from contextlib import nullcontext
+import posthoganalytics
 
 
 logger = structlog.get_logger(__name__)
@@ -431,9 +432,19 @@ class DashboardSerializer(DashboardBasicSerializer):
             ),
         )
 
+        team = self.context["get_team"]()
+        chained_tile_refresh_enabled = posthoganalytics.feature_enabled(
+            "chained_dashboard_tile_refresh",
+            str(team.organization_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+        )
+
         # In case of a large number of tiles on a dashboard,
         # ensure all tiles are computed one at a time to avoid overwhelming the database
-        with task_chain_context() if len(sorted_tiles) > 5 else nullcontext():
+        large_dashboard = len(sorted_tiles) > 5
+
+        with task_chain_context() if chained_tile_refresh_enabled and large_dashboard else nullcontext():
             for tile in sorted_tiles:
                 self.context.update({"dashboard_tile": tile})
 
