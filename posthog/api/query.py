@@ -289,22 +289,19 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
 
             try:
                 while time.time() - start_time < MAX_QUERY_TIMEOUT:
-                    try:
-                        # Check if the query task has completed
-                        if query_task.done():
-                            try:
-                                result = query_task.result()
-                                if isinstance(result, BaseModel):
-                                    yield f"data: {result.model_dump_json(by_alias=True)}\n\n".encode()
-                                else:
-                                    yield f"data: {json.dumps(result)}\n\n".encode()
-                            except Exception as e:
-                                capture_exception(e)
-                                yield f"data: {json.dumps({'error': 'Server error'})}\n\n".encode()
-                            break
-                    except Exception as e:
-                        capture_exception(e)
-                        yield f"data: {json.dumps({'error': 'Server error'})}\n\n".encode()
+                    # Check if the query task has completed
+                    if query_task.done():
+                        try:
+                            result = query_task.result()
+                        except (ExposedHogQLError, ExposedCHQueryError) as e:
+                            yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
+                        except Exception:
+                            yield f"data: {json.dumps({'error': 'Server error'})}\n\n".encode()
+
+                        if isinstance(result, BaseModel):
+                            yield f"data: {result.model_dump_json(by_alias=True)}\n\n".encode()
+                        else:
+                            yield f"data: {json.dumps(result)}\n\n".encode()
                         break
 
                     try:
