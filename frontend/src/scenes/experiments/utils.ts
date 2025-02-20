@@ -2,6 +2,7 @@ import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import merge from 'lodash.merge'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
     AnyEntityNode,
@@ -20,6 +21,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
+    BaseMathType,
     ChartDisplayType,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -29,6 +31,7 @@ import {
     FunnelVizType,
     InsightType,
     PropertyFilterType,
+    PropertyMathType,
     PropertyOperator,
     type QueryBasedInsightModel,
     TrendResult,
@@ -305,6 +308,17 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     }
 }
 
+export function getDefaultBinomialMetric(): ExperimentMetric {
+    return {
+        kind: NodeKind.ExperimentMetric,
+        metric_type: ExperimentMetricType.BINOMIAL,
+        metric_config: {
+            kind: NodeKind.ExperimentEventMetricConfig,
+            event: '$pageview',
+        },
+    }
+}
+
 export function getDefaultCountMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
@@ -447,5 +461,94 @@ export function filterToMetricConfig(
                 properties: entity.properties,
             }
         }
+    }
+}
+
+export function metricToQuery(metric: ExperimentMetric): FunnelsQuery | TrendsQuery | undefined {
+    const commonTrendsQueryProps: Partial<TrendsQuery> = {
+        kind: NodeKind.TrendsQuery,
+        interval: 'day',
+        dateRange: {
+            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+            explicitDate: true,
+        },
+        trendsFilter: {
+            display: ChartDisplayType.ActionsLineGraph,
+        },
+        filterTestAccounts: !!metric.filterTestAccounts,
+    }
+
+    if (metric.metric_type === ExperimentMetricType.COUNT) {
+        return {
+            ...commonTrendsQueryProps,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: (metric.metric_config as ExperimentEventMetricConfig).name,
+                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                },
+            ],
+        } as TrendsQuery
+    } else if (metric.metric_type === ExperimentMetricType.CONTINUOUS) {
+        return {
+            ...commonTrendsQueryProps,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                    name: (metric.metric_config as ExperimentEventMetricConfig).name,
+                    math: PropertyMathType.Sum,
+                    math_property: (metric.metric_config as ExperimentEventMetricConfig).math_property,
+                },
+            ],
+        } as TrendsQuery
+    } else if (metric.metric_type === ExperimentMetricType.BINOMIAL) {
+        return {
+            kind: NodeKind.FunnelsQuery,
+            filterTestAccounts: !!metric.filterTestAccounts,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            funnelsFilter: {
+                layout: FunnelLayout.horizontal,
+            },
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$feature_flag_called',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                },
+            ],
+        } as FunnelsQuery
+    }
+
+    return undefined
+}
+
+export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {
+    switch (metricType) {
+        case ExperimentMetricType.COUNT:
+            return MathAvailability.None
+        case ExperimentMetricType.CONTINUOUS:
+            return MathAvailability.All
+        default:
+            return MathAvailability.None
+    }
+}
+
+export function getAllowedMathTypes(metricType: ExperimentMetricType): string[] {
+    switch (metricType) {
+        case ExperimentMetricType.COUNT:
+            return [BaseMathType.TotalCount]
+        case ExperimentMetricType.CONTINUOUS:
+            return [PropertyMathType.Sum]
+        default:
+            return [BaseMathType.TotalCount]
     }
 }

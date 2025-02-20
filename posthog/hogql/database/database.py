@@ -384,7 +384,9 @@ def create_hogql_database(
                 expr=parse_expr(warehouse_modifier.id_field),
             )
 
-        if "timestamp" not in warehouse[warehouse_modifier.table_name].fields.keys():
+        if "timestamp" not in warehouse[warehouse_modifier.table_name].fields.keys() or not isinstance(
+            warehouse[warehouse_modifier.table_name].fields.get("timestamp"), DateTimeDatabaseField
+        ):
             table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
             timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
 

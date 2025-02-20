@@ -35,7 +35,6 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
@@ -58,8 +57,8 @@ export function DashboardHeader(): JSX.Element | null {
         showTextTileModal,
         textTileId,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
-    const { asDashboardTemplate } = useValues(dashboardLogic)
+    const { previewTemporaryFilters, setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
+    const { asDashboardTemplate, canAutoPreview, filtersUpdated } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
@@ -123,7 +122,6 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
-                    {canEditDashboard && <AddInsightToDashboardModal />}
                 </>
             )}
 
@@ -141,6 +139,18 @@ export function DashboardHeader(): JSX.Element | null {
                             >
                                 Cancel
                             </LemonButton>
+                            {/* Only show preview button for large dashboards where we don't automatically preview filter changes */}
+                            {!canAutoPreview && (
+                                <LemonButton
+                                    disabledReason={!filtersUpdated && 'No changes to apply'}
+                                    onClick={previewTemporaryFilters}
+                                    type="primary"
+                                    size="small"
+                                    tooltip="Preview filter changes on dashboard"
+                                >
+                                    Preview
+                                </LemonButton>
+                            )}
                             <LemonButton
                                 data-attr="dashboard-edit-mode-save"
                                 type="primary"

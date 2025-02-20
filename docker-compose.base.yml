@@ -177,6 +177,7 @@ services:
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CAPTURE_MODE: events
+            RUST_LOG: 'info,rdkafka=warn'
 
     replay-capture:
         image: ghcr.io/posthog/posthog/capture:master

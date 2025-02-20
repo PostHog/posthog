@@ -1,7 +1,7 @@
 from typing import cast
 from django.test import override_settings
-import pytest
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -15,6 +15,7 @@ from posthog.settings import (
 )
 from posthog.schema import (
     EventPropertyFilter,
+    ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
     ExperimentMetric,
@@ -23,12 +24,14 @@ from posthog.schema import (
     ExperimentSignificanceCode,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
+    PersonsOnEventsMode,
 )
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    create_person_id_override_by_distinct_id,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
@@ -166,16 +169,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "usage": "Int64",
             },
             credential=credential,
-        )
-
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=table_name,
-            source_table_key="userid",
-            joining_table_name="events",
-            joining_table_key="properties.$user_id",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
         )
         return table_name
 
@@ -323,16 +316,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             field_name="subscription_customer",
         )
 
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=subscription_table_name,
-            source_table_key="subscription_customer.customer_email",
-            joining_table_name="events",
-            joining_table_key="person.properties.email",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "subscription_created_at"},
-        )
-
         return subscription_table_name
 
     def create_standard_test_events(self, feature_flag):
@@ -373,8 +356,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.stats_config = {"version": 2}
         experiment.save()
 
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.FUNNEL,
+            metric_type=ExperimentMetricType.BINOMIAL,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
         )
 
@@ -388,6 +373,22 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.save()
 
         self.create_standard_test_events(feature_flag)
+
+        # Extra success events that should be ignored
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_1",
+            timestamp="2020-01-03T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test_1",
+            timestamp="2020-01-03T12:01:00Z",
+            properties={feature_flag_property: "test"},
+        )
 
         flush_persons_and_events()
 
@@ -569,6 +570,327 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.count, 8)
         self.assertEqual(control_variant.absolute_exposure, 11)
         self.assertEqual(test_variant.absolute_exposure, 11)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_using_action(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        action = Action.objects.create(name="purchase", team=self.team, steps_json=[{"event": "purchase"}])
+        action.save()
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_config=ExperimentActionMetricConfig(action=action.id),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        self.create_standard_test_events(feature_flag)
+
+        # Extraneous events that shouldn't be included
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=f"user_random_1",
+            timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=f"user_random_1",
+            timestamp="2020-01-02T12:01:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=f"user_random_2",
+            timestamp="2020-01-02T12:01:00Z",
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.count, 6)
+        self.assertEqual(test_variant.count, 8)
+        self.assertEqual(control_variant.absolute_exposure, 10)
+        self.assertEqual(test_variant.absolute_exposure, 10)
+
+    @parameterized.expand(
+        [
+            ###
+            # PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            ###
+            [
+                "person_id_override_properties_on_events_no_filter",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                None,
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 1,
+                    "test_failure": 0,
+                },
+            ],
+            [
+                "person_id_override_properties_on_events_filter_earlierevent",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {
+                    "key": "email",
+                    "value": "@earlierevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 1,
+                    "test_failure": 0,
+                },
+            ],
+            [
+                "person_id_override_properties_on_events_filter_laterevent",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {
+                    "key": "email",
+                    "value": "@laterevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 0,
+                    "test_failure": 1,
+                },
+            ],
+            ###
+            # PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+            ###
+            [
+                "person_id_override_properties_joined_no_filter",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                None,
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 1,
+                    "test_failure": 0,
+                },
+            ],
+            [
+                "person_id_override_properties_joined_filter_earlierevent",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                {
+                    "key": "email",
+                    "value": "@earlierevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 1,
+                    "test_failure": 0,
+                },
+            ],
+            [
+                "person_id_override_properties_joined_filter_laterevent",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                {
+                    "key": "email",
+                    "value": "@laterevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                None,
+            ],
+            ###
+            # PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            ###
+            [
+                "person_id_no_override_properties_on_events_no_filter",
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                None,
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 1,
+                    "test_failure": 1,
+                },
+            ],
+            [
+                "person_id_no_override_properties_on_events_filter_earlierevent",
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {
+                    "key": "email",
+                    "value": "@earlierevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 1,
+                    "test_failure": 0,
+                },
+            ],
+            [
+                "person_id_no_override_properties_on_events_filter_laterevent",
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {
+                    "key": "email",
+                    "value": "@laterevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 1,
+                    "control_failure": 0,
+                    "test_success": 0,
+                    "test_failure": 1,
+                },
+            ],
+        ]
+    )
+    @snapshot_clickhouse_queries
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_query_runner_with_persons_on_events_mode(self, name, persons_on_events_mode, filters, expected_results):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1),
+            end_date=datetime(2020, 1, 31),
+        )
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=ExperimentMetric(
+                metric_type=ExperimentMetricType.BINOMIAL,
+                metric_config=ExperimentEventMetricConfig(event="purchase"),
+                filterTestAccounts=True,
+            ),
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        ## Control isn't affected by the filter
+        _create_person(distinct_ids=["user_control_1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control_1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag": feature_flag.key,
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_1",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        ## Test is tied to person on events mode
+        _create_person(
+            distinct_ids=["person_id_1_distinct_id_1"],
+            properties={"email": "person_id_1@earlierevent.com"},
+            team_id=self.team.pk,
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="person_id_1_distinct_id_1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag": feature_flag.key,
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+            },
+        )
+        _create_person(
+            distinct_ids=["person_id_1_distinct_id_2"],
+            properties={"email": "person_id_1@laterevent.com"},
+            team_id=self.team.pk,
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="person_id_1_distinct_id_2",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={
+                "$feature_flag": feature_flag.key,
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="person_id_1_distinct_id_2",
+            timestamp="2020-01-02T12:02:00Z",
+            properties={feature_flag_property: "test"},
+        )
+        create_person_id_override_by_distinct_id("person_id_1_distinct_id_1", "person_id_1_distinct_id_2", self.team.pk)
+
+        flush_persons_and_events()
+
+        self.team.modifiers = {"personsOnEventsMode": persons_on_events_mode}
+        if filters:
+            self.team.test_account_filters = [filters]
+        self.team.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        if expected_results is None:
+            with self.assertRaises(ValueError):
+                query_runner.calculate()
+        else:
+            result = query_runner.calculate()
+
+            self.assertEqual(len(result.variants), 2)
+            control_variant = cast(
+                ExperimentVariantFunnelsBaseStats, next(v for v in result.variants if v.key == "control")
+            )
+            test_variant = cast(ExperimentVariantFunnelsBaseStats, next(v for v in result.variants if v.key == "test"))
+
+            self.assertEqual(
+                {
+                    "control_success": int(control_variant.success_count),
+                    "control_failure": int(control_variant.failure_count),
+                    "test_success": int(test_variant.success_count),
+                    "test_failure": int(test_variant.failure_count),
+                },
+                expected_results,
+            )
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1110,8 +1432,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                distinct_id_field="userid",
-                id_field="id",
+                exposure_identifier_field="properties.$user_id",
+                after_exposure_identifier_field="userid",
                 timestamp_field="ds",
                 math="avg",
                 math_property="usage",
@@ -1256,8 +1578,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.CONTINUOUS,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                distinct_id_field="userid",
-                id_field="id",
+                exposure_identifier_field="properties.$user_id",
+                after_exposure_identifier_field="userid",
                 timestamp_field="ds",
                 math="avg",
                 math_property="usage",
@@ -1289,7 +1611,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 8)
         self.assertEqual(test_result.absolute_exposure, 10)
 
-    @pytest.mark.skip(reason="Doesn't work with the new query runner")
+    @snapshot_clickhouse_queries
     def test_query_runner_with_data_warehouse_subscriptions_table(self):
         table_name = self.create_data_warehouse_table_with_subscriptions()
 
@@ -1306,8 +1628,8 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
-                distinct_id_field="subscription_customer_id",
-                id_field="id",
+                exposure_identifier_field="person.properties.email",
+                after_exposure_identifier_field="subscription_customer.customer_email",
                 timestamp_field="subscription_created_at",
             ),
         )

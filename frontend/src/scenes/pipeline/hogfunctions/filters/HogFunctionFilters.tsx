@@ -76,7 +76,7 @@ export function HogFunctionFilters(): JSX.Element {
     }
 
     if (type === 'internal_destination') {
-        return <HogFunctionFiltersInternal />
+        return <HogFunctionFiltersInternal templateId={configuration?.template?.id} />
     }
 
     const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')

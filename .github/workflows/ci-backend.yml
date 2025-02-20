@@ -70,6 +70,7 @@ jobs:
                         - 'ee/**/*'
                         - 'common/hogvm/**/*'
                         - 'posthog/**/*'
+                        - 'dags/**'
                         - 'bin/*.py'
                         - requirements.txt
                         - requirements-dev.txt

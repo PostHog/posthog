@@ -40,6 +40,7 @@ import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema/schema-general'
 import { AvailableFeature, ProductKey, PropertyMathType } from '~/types'
 
+import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
 const Filters = (): JSX.Element => {
@@ -74,6 +75,7 @@ const Filters = (): JSX.Element => {
                     <>
                         <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
                         <WebConversionGoal />
+                        <TableSortingIndicator />
                     </>
                 ) : (
                     <LemonSegmentedSelect
