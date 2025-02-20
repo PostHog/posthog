@@ -79,19 +79,16 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             select=[
                 ast.Field(chain=["subq", "day"]),
                 ast.Field(chain=["subq", "variant"]),
-                parse_expr("count(distinct_id) as exposed_count"),
+                parse_expr("count(person_id) as exposed_count"),
             ],
             select_from=ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
-                        parse_expr("toDate(timestamp) as day"),
+                        parse_expr("toDate(toString(min(timestamp))) as day"),
                         parse_expr(
                             "replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"
                         ),
-                        parse_expr("distinct_id"),
-                        parse_expr(
-                            "min(toDate(timestamp)) OVER (PARTITION BY distinct_id, variant) as first_exposure_date"
-                        ),
+                        parse_expr("person_id"),
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     where=ast.And(
@@ -119,7 +116,6 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                                     ),
                                 ]
                             ),
-                            # Filter by experiment date range
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.GtEq,
                                 left=ast.Field(chain=["timestamp"]),
@@ -133,13 +129,12 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                             *test_accounts_filter,
                         ]
                     ),
+                    group_by=[
+                        parse_expr("person_id"),
+                        parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"),
+                    ],
                 ),
                 alias="subq",
-            ),
-            where=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["subq", "day"]),
-                right=ast.Field(chain=["subq", "first_exposure_date"]),
             ),
             group_by=[ast.Field(chain=["subq", "day"]), ast.Field(chain=["subq", "variant"])],
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["subq", "day"]), order="ASC")],

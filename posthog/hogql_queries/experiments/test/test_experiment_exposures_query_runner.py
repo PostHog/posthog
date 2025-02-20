@@ -13,6 +13,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -82,6 +83,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
     def test_exposure_query_returns_correct_timeseries(self):
         ff_property = f"$feature/{self.feature_flag.key}"
 
@@ -230,6 +232,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["test"], 5)
 
     @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
     def test_exposure_query_counts_users_only_on_first_exposure(self):
         ff_property = f"$feature/{self.feature_flag.key}"
 
