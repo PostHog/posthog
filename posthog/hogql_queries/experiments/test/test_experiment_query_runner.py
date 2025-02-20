@@ -413,7 +413,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_query_runner_includes_date_range(self):
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, end_date=datetime(2020, 2, 1, 12, 0, 0))
         experiment.stats_config = {"version": 2}
         experiment.save()
 
@@ -465,6 +465,38 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 feature_flag_property: "test",
                 "$feature_flag_response": "test",
                 "$feature_flag": feature_flag.key,
+            },
+        )
+
+        # This user is too late to be included
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_late_control_1",
+            timestamp="2021-01-01T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        # This purchase event is too late to be included for user in the experiment
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_1",
+            timestamp="2021-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_test_1",
+            timestamp="2021-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "test",
             },
         )
 

@@ -248,10 +248,26 @@ class ExperimentQueryRunner(QueryRunner):
                             ),
                         ),
                     ),
-                    where=ast.CompareOperation(
-                        left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
-                        right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
-                        op=ast.CompareOperationOp.GtEq,
+                    where=ast.And(
+                        exprs=[
+                            # Improve query performance by only fetching events after the experiment started
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.GtEq,
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                                right=ast.Constant(value=date_range_query.date_from()),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.LtEq,
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                                # NOTE: We have to append the conversion window here once we support it
+                                right=ast.Constant(value=date_range_query.date_to()),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                                right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
+                                op=ast.CompareOperationOp.GtEq,
+                            ),
+                        ],
                     ),
                 )
 
@@ -298,6 +314,18 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                     where=ast.And(
                         exprs=[
+                            # Improve query performance by only fetching events after the experiment started
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.GtEq,
+                                left=ast.Field(chain=["timestamp"]),
+                                right=ast.Constant(value=date_range_query.date_from()),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.LtEq,
+                                left=ast.Field(chain=["timestamp"]),
+                                # NOTE: We have to append the conversion window here once we support it
+                                right=ast.Constant(value=date_range_query.date_to()),
+                            ),
                             # Only include events after exposure
                             ast.CompareOperation(
                                 left=ast.Field(chain=["events", "timestamp"]),
