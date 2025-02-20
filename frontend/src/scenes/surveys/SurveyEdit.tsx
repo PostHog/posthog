@@ -94,9 +94,9 @@ function SurveyCompletionConditions(): JSX.Element {
     }
 
     return (
-        <>
-            <div className="mt-2">
-                <h3> How long would you like to collect survey responses? </h3>
+        <div className="space-y-4">
+            <div>
+                <h3>How long would you like to collect survey responses? </h3>
                 <LemonField.Pure>
                     <LemonRadio
                         value={dataCollectionType}
@@ -127,7 +127,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField.Pure>
             </div>
             {dataCollectionType == 'until_adaptive_limit' && (
-                <LemonField.Pure className="mt-4">
+                <LemonField.Pure>
                     <div className="flex flex-row gap-2 items-center ml-5">
                         Starting on{' '}
                         <Popover
@@ -189,7 +189,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField.Pure>
             )}
             {dataCollectionType == 'until_limit' && (
-                <LemonField name="responses_limit" className="mt-4 ml-5">
+                <LemonField name="responses_limit" className="ml-5">
                     {({ onChange, value }) => {
                         return (
                             <div className="flex flex-row gap-2 items-center">
@@ -219,7 +219,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField>
             )}
             <SurveyRepeatSchedule />
-        </>
+        </div>
     )
 }
 
