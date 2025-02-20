@@ -51,7 +51,6 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
-                  buildCommand: pnpm --filter=@posthog/storybook build
                   workingDir: ./common/storybook/
 
     visual-regression:
