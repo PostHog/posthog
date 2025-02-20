@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
@@ -19,6 +19,7 @@ from posthog.schema import (
     IntervalType,
     CachedExperimentExposureQueryResponse,
 )
+from typing import Optional
 
 
 class ExperimentExposuresQueryRunner(QueryRunner):
@@ -192,3 +193,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             current_date += timedelta(days=1)
 
         return complete_results
+
+    # Cache results for 24 hours
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        return last_refresh + timedelta(hours=24)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        if not last_refresh:
+            return True
+        return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

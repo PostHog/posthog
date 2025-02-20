@@ -83,6 +83,10 @@
             "eslint -c .eslintrc.js --fix",
             "prettier --write"
         ],
+        "playwright/**/*.{js,jsx,mjs,ts,tsx}": [
+            "eslint -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
         "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
             "eslint --cache -c .eslintrc.js --fix",
             "prettier --write"

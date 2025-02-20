@@ -34,7 +34,7 @@ jobs:
                     - image: cymbal
                       dockerfile: ./rust/Dockerfile
                     - image: feature-flags
-                      dockerfile: ./rust/Dockerfile
+                      dockerfile: ./rust/Dockerfile-feature-flags
                     - image: batch-import-worker
                       dockerfile: ./rust/Dockerfile
         runs-on: depot-ubuntu-22.04-4

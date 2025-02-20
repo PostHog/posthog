@@ -6917,10 +6917,10 @@
         "ExperimentDataWarehouseMetricConfig": {
             "additionalProperties": false,
             "properties": {
-                "after_exposure_identifier_field": {
+                "data_warehouse_join_key": {
                     "type": "string"
                 },
-                "exposure_identifier_field": {
+                "events_join_key": {
                     "type": "string"
                 },
                 "kind": {
@@ -6936,6 +6936,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "table_name": {
                     "type": "string"
                 },
@@ -6943,13 +6946,7 @@
                     "type": "string"
                 }
             },
-            "required": [
-                "kind",
-                "table_name",
-                "timestamp_field",
-                "exposure_identifier_field",
-                "after_exposure_identifier_field"
-            ],
+            "required": ["kind", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
             "type": "object"
         },
         "ExperimentEventMetricConfig": {
@@ -7189,7 +7186,7 @@
             "type": "string"
         },
         "ExperimentMetricType": {
-            "enum": ["count", "continuous", "funnel"],
+            "enum": ["count", "continuous", "binomial"],
             "type": "string"
         },
         "ExperimentQuery": {
