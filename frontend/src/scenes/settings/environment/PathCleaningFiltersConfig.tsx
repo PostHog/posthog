@@ -17,7 +17,7 @@ const cleanPathWithRegexes = (path: string, filters: PathCleaningFilter[]): stri
             return text
         }
 
-        return text.replace(new RegExp(filter.regex ?? ''), filter.alias ?? '')
+        return text.replace(new RegExp(filter.regex ?? '', 'gi'), filter.alias ?? '')
     }, path)
 }
 

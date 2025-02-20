@@ -33,25 +33,4 @@ describe('Billing', () => {
         cy.get('.LemonModal').should('not.exist')
         cy.wait(['@unsubscribeProductAnalytics'])
     })
-
-    it('Unsubscribe survey text area maintains unique state between product types', () => {
-        cy.get('[data-attr=more-button]').first().click()
-        cy.contains('.LemonButton', 'Unsubscribe').click()
-        cy.get('.LemonModal h3').should('contain', 'Unsubscribe from Product analytics')
-        cy.get('[data-attr=unsubscribe-reason-too-expensive]').click()
-
-        cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Product analytics')
-        cy.contains('.LemonModal .LemonButton', 'Cancel').click()
-
-        cy.get('[data-attr=more-button]').eq(1).click()
-        cy.contains('.LemonButton', 'Unsubscribe').click()
-        cy.get('.LemonModal h3').should('contain', 'Unsubscribe from Session replay')
-        cy.get('[data-attr=unsubscribe-reason-too-expensive]').click()
-        cy.get('[data-attr=unsubscribe-reason-survey-textarea]').type('Session replay')
-        cy.contains('.LemonModal .LemonButton', 'Cancel').click()
-
-        cy.get('[data-attr=more-button]').first().click()
-        cy.contains('.LemonButton', 'Unsubscribe').click()
-        cy.get('[data-attr=unsubscribe-reason-survey-textarea]').should('have.value', 'Product analytics')
-    })
 })

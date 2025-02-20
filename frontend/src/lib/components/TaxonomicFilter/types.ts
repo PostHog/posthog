@@ -39,6 +39,15 @@ export interface TaxonomicFilterProps {
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
     showNumericalPropsOnly?: boolean
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
+}
+
+export interface DataWarehousePopoverField {
+    key: string
+    label: string
+    allowHogQL?: boolean
+    hogQLOnly?: boolean
+    tableName?: string
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {

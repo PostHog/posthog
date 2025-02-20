@@ -76,7 +76,7 @@ jobs:
 
     playwright:
         name: Playwright E2E tests
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 60
         needs: [changes, container]
         permissions:
@@ -210,7 +210,7 @@ jobs:
               uses: actions/upload-artifact@v4
               with:
                   name: playwright-report
-                  path: playwright-report/
+                  path: playwright/playwright-report/
                   retention-days: 30
               if: ${{ failure() }}
 

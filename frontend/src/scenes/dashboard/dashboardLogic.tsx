@@ -81,6 +81,14 @@ export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 const REFRESH_DASHBOARD_ITEM_ACTION = 'refresh_dashboard_item'
+
+/**
+ * Once a dashboard has more tiles than this,
+ * we don't automatically preview dashboard date/filter/breakdown changes.
+ * Users will need to click the 'Apply and preview filters' button.
+ */
+const MAX_TILES_FOR_AUTOPREVIEW = 5
+
 export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType<QueryBasedInsightModel>
@@ -223,6 +231,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             filters,
             variables,
         }),
+        previewTemporaryFilters: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
@@ -569,8 +578,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     ...filters,
                 }),
-                loadDashboardSuccess: (state, { dashboard, payload }) =>
-                    dashboard
+                loadDashboardSuccess: (state, { dashboard, payload }) => {
+                    const result = dashboard
                         ? {
                               ...state,
                               // don't update filters if we're previewing
@@ -583,7 +592,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         breakdown_filter: dashboard?.filters.breakdown_filter || null,
                                     }),
                           }
-                        : state,
+                        : state
+
+                    return result
+                },
             },
         ],
         dashboard: [
@@ -789,6 +801,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     selectors(() => ({
+        canAutoPreview: [
+            (s) => [s.dashboard],
+            (dashboard) => (dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW,
+        ],
+        filtersUpdated: [
+            (s) => [s.temporaryFilters, s.dashboard],
+            (temporaryFilters, dashboard) => {
+                // both aren't falsy && both aren't equal
+                const isDateFromUpdated =
+                    !(!temporaryFilters.date_from && !dashboard?.filters.date_from) &&
+                    temporaryFilters.date_from !== dashboard?.filters.date_from
+
+                const isDateToUpdated =
+                    !(!temporaryFilters.date_to && !dashboard?.filters.date_to) &&
+                    temporaryFilters.date_to !== dashboard?.filters.date_to
+
+                const isPropertiesUpdated =
+                    JSON.stringify(temporaryFilters.properties ?? []) !==
+                    JSON.stringify(dashboard?.filters.properties ?? [])
+
+                const isBreakdownUpdated =
+                    !(!temporaryFilters.breakdown_filter && !dashboard?.filters.breakdown_filter) &&
+                    temporaryFilters.breakdown_filter !== dashboard?.filters.breakdown_filter
+
+                return isDateFromUpdated || isDateToUpdated || isPropertiesUpdated || isBreakdownUpdated
+            },
+        ],
         dashboardVariables: [
             (s) => [s.dashboard, s.variables, s.temporaryVariables],
             (
@@ -1383,6 +1422,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setBreakdownFilter(values.filters.breakdown_filter ?? null)
                     actions.resetVariables()
 
+                    // reset tile data by relaoding dashboard
+                    actions.loadDashboard({ action: 'preview' })
+
                     // also reset layout to that we stored in dashboardLayouts
                     // this is done in the reducer for dashboard
                 } else if (source === DashboardEventSource.DashboardHeaderSaveDashboard) {
@@ -1478,14 +1520,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 insights_fetched_cached: 0,
             })
         },
-        setProperties: () => {
+        previewTemporaryFilters: () => {
             actions.loadDashboard({ action: 'preview' })
+        },
+        setProperties: () => {
+            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+                actions.loadDashboard({ action: 'preview' })
+            }
         },
         setDates: () => {
-            actions.loadDashboard({ action: 'preview' })
+            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+                actions.loadDashboard({ action: 'preview' })
+            }
         },
         setBreakdownFilter: () => {
-            actions.loadDashboard({ action: 'preview' })
+            if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
+                actions.loadDashboard({ action: 'preview' })
+            }
         },
         overrideVariableValue: ({ editMode }) => {
             if (editMode) {
