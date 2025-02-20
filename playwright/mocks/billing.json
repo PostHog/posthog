@@ -159,7 +159,7 @@
         {
             "key": "multiple_release_conditions",
             "name": "Multiple release conditions",
-            "description": "Customize your rollout strategy by user or group properties, cohort, or trafic percentage.",
+            "description": "Customize your rollout strategy by user or group properties, cohort, or traffic percentage.",
             "unit": null,
             "limit": null,
             "note": null
