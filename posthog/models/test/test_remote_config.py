@@ -224,7 +224,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "start_date": None,
                 "current_iteration": None,
                 "current_iteration_start_date": None,
-                "schedule": "once",
             },
             {
                 "id": str(survey_with_flags.id),
@@ -240,7 +239,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "targeting_flag_key": "targeting-flag",
                 "internal_targeting_flag_key": "custom-targeting-flag",
                 "current_iteration_start_date": None,
-                "schedule": "once",
             },
             {
                 "id": str(survey_with_actions.id),
@@ -276,7 +274,6 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "start_date": None,
                 "current_iteration": None,
                 "current_iteration_start_date": None,
-                "schedule": "once",
             },
         ]
 
@@ -542,19 +539,19 @@ class TestRemoteConfigJS(_RemoteConfigBase):
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
   window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
     config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
-    siteApps: [
+    siteApps: [    
     {
       id: 'tokentoken',
       init: function(config) {
             (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:config.posthog });
         config.callback(); return {}  }
-    },
+    },    
     {
       id: 'tokentoken',
       init: function(config) {
             (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:config.posthog });
         config.callback(); return {}  }
-    },
+    },    
     {
       id: 'tokentoken',
       init: function(config) {
@@ -612,7 +609,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
   window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
     config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
-    siteApps: [
+    siteApps: [    
     {
       id: 'SITE_DESTINATION_ID',
       init: function(config) { return     (function() {
@@ -734,7 +731,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     ;
                 }
             }
-
+        
             function init(config) {
                 const posthog = config.posthog;
                 const callback = config.callback;
@@ -749,23 +746,23 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                 } else {
                     callback(true);
                 }
-
+        
                 const response = {}
-
+        
                 if (processEvent) {
                     response.processEvent = (globals) => processEvent(globals, posthog)
                 }
-
+        
                 return response
             }
-
+        
             return { init: init };
-        })().init(config) }
-    },
+        })().init(config) } 
+    },    
     {
       id: 'SITE_APP_ID',
       init: function(config) { return     (function() {
-
+        
         function buildInputs(globals, initial) {
         let inputs = {
         };
@@ -784,7 +781,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     ;
                 }
             }
-
+        
             function init(config) {
                 const posthog = config.posthog;
                 const callback = config.callback;
@@ -799,18 +796,18 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                 } else {
                     callback(true);
                 }
-
+        
                 const response = {}
-
+        
                 if (processEvent) {
                     response.processEvent = (globals) => processEvent(globals, posthog)
                 }
-
+        
                 return response
             }
-
+        
             return { init: init };
-        })().init(config) }
+        })().init(config) } 
     }]
   }
 })();\
