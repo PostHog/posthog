@@ -185,11 +185,11 @@ def test_table_from_py_list_with_schema_and_mixed_decimals():
     schema = pa.schema({"column": pa.decimal128(1, 0)})
     table = table_from_py_list([{"column": 1}, {"column": 1.0}], schema)
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), decimal.Decimal("1.0")]}))
+    assert table.equals(pa.table({"column": [decimal.Decimal(1), decimal.Decimal(1)]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.decimal128(1, 0)),
             ]
         )
     )

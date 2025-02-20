@@ -505,7 +505,10 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             all_values = columnar_table_data[field_name].tolist()
             all_values_as_decimals_or_none = [_convert_to_decimal_or_none(x) for x in all_values]
 
-            new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
+            if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
+                new_field_type = arrow_schema.field(field_index).type
+            else:
+                new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
 
             try:
                 number_arr = pa.array(
@@ -515,6 +518,8 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             except pa.ArrowInvalid as e:
                 if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
                     number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+                else:
+                    raise
 
             columnar_table_data[field_name] = number_arr
             py_type = decimal.Decimal
