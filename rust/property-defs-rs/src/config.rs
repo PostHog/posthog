@@ -111,8 +111,8 @@ pub struct Config {
     //
     // New Config values used in project property defs REST API query builder
     //
-    #[envconfig(default = "TODO_ELI")]
-    pub table_name: String,
+    #[envconfig(default = "ee_enterprisepropertydefinition")]
+    pub enterprise_prop_defs_table_name: String,
 
     #[envconfig(default = "posthog_propertydefinition")]
     pub prop_defs_table_name: String,
