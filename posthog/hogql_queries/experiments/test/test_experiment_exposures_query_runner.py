@@ -228,3 +228,111 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_query_counts_users_only_on_first_exposure(self):
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        journeys_for(
+            {
+                "user_control_1": [
+                    # First exposure on Jan 2
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                    # Second exposure on Jan 3 - should not be counted
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_test_1": [
+                    # First exposure on Jan 2
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                    # Later exposures on Jan 3 and 4 - should not be counted
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-04",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_test_2": [
+                    # Only exposure on Jan 3
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+        )
+
+        query_runner = ExperimentExposuresQueryRunner(
+            team=self.team,
+            query=query,
+        )
+
+        response = query_runner.calculate()
+
+        control_series = next(series for series in response.timeseries if series.variant == "control")
+        test_series = next(series for series in response.timeseries if series.variant == "test")
+
+        # Daily cumulative exposures for control variant:
+        # Day 0 (Jan 1): 0 exposures
+        # Day 1 (Jan 2): 1 new user exposed
+        # Days 2-6: No new exposures (second exposure of user_control_1 not counted)
+        self.assertEqual(control_series.exposure_counts, [0, 1, 1, 1, 1, 1, 1])
+
+        # Daily cumulative exposures for test variant:
+        # Day 0 (Jan 1): 0 exposures
+        # Day 1 (Jan 2): 1 new user exposed
+        # Day 2 (Jan 3): 1 more user exposed (user_test_2), total 2
+        # Days 3-6: No new exposures (additional exposures of user_test_1 not counted)
+        self.assertEqual(test_series.exposure_counts, [0, 1, 2, 2, 2, 2, 2])
+
+        self.assertEqual(response.total_exposures["control"], 1)
+        self.assertEqual(response.total_exposures["test"], 2)
