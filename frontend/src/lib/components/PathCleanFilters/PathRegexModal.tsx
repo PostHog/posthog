@@ -1,13 +1,10 @@
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { isValidRegexp } from 'lib/utils/regexp'
 import { useState } from 'react'
 import { AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 
 import { PathCleaningFilter } from '~/types'
-
-import { FlaggedFeature } from '../FlaggedFeature'
 
 export interface PathRegexModalProps {
     isOpen: boolean
@@ -78,10 +75,8 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                     </div>
 
                     <div className="flex space-between mt-3">
-                        <FlaggedFeature flag={FEATURE_FLAGS.PATH_CLEANING_AI_REGEX}>
-                            <AiRegexHelper onApply={setRegex} />
-                            <AiRegexHelperButton />
-                        </FlaggedFeature>
+                        <AiRegexHelper onApply={setRegex} />
+                        <AiRegexHelperButton />
 
                         <div className="flex flex-1 justify-end gap-2">
                             <LemonButton type="secondary" onClick={onClose}>
