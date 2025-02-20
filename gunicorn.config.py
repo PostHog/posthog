@@ -20,7 +20,7 @@ keepalive = 120
 # and serve the requests before the downstream timeout.
 timeout = 15
 
-graceful_timeout = 600
+graceful_timeout = 630
 
 
 METRICS_UPDATE_INTERVAL_SECONDS = int(os.getenv("GUNICORN_METRICS_UPDATE_SECONDS", 5))
