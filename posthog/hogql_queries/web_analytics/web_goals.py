@@ -10,7 +10,12 @@ from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
 from posthog.models import Action
-from posthog.schema import WebGoalsQueryResponse, WebGoalsQuery, CachedWebGoalsQueryResponse
+from posthog.schema import (
+    WebGoalsQueryResponse,
+    WebGoalsQuery,
+    CachedWebGoalsQueryResponse,
+    WebAnalyticsOrderByFields,
+)
 
 
 # Returns an array `seq` split into chunks of size `size`
@@ -222,6 +227,18 @@ WHERE {periods_expression}
                 else None
             )
             results.append([action_name, action_unique, action_total, (current_action_rate, previous_action_rate)])
+
+        if self.query.orderBy is not None:
+            index = None
+            if self.query.orderBy[0] == WebAnalyticsOrderByFields.CONVERTING_USERS:
+                index = 1
+            elif self.query.orderBy[0] == WebAnalyticsOrderByFields.TOTAL_CONVERSIONS:
+                index = 2
+            elif self.query.orderBy[0] == WebAnalyticsOrderByFields.CONVERSION_RATE:
+                index = 3
+
+            if index is not None:
+                results.sort(key=lambda x: x[index], reverse=self.query.orderBy[1] == "DESC")
 
         return WebGoalsQueryResponse(
             columns=[

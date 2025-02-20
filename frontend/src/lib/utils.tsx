@@ -118,6 +118,14 @@ export function fromParams(): Record<string, any> {
     return fromParamsGivenUrl(window.location.search)
 }
 
+export function tryDecodeURIComponent(value: string): string {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,

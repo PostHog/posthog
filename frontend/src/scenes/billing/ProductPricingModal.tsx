@@ -36,7 +36,9 @@ export const ProductPricingModal = ({
                         <span className="font-bold text-base">
                             $
                             {parseFloat(
-                                isFirstTierFree ? tiers?.[1]?.unit_amount_usd : tiers?.[0]?.unit_amount_usd
+                                isFirstTierFree && tiers?.[1]?.unit_amount_usd
+                                    ? tiers?.[1]?.unit_amount_usd
+                                    : tiers?.[0]?.unit_amount_usd
                             ).toFixed(numberOfSigFigs)}
                         </span>
                         {/* the product types we have are plural, so we need to singularlize them and this works for now */}

@@ -52,9 +52,11 @@ def redis_heartbeat() -> None:
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
 )
-@limit_concurrency(150)  # Do not go above what CH can handle (max_concurrent_queries)
+@limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
-    10, key=lambda *args, **kwargs: kwargs.get("team_id") or args[0]
+    50,
+    key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
+    limit_name="per_team",
 )  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,

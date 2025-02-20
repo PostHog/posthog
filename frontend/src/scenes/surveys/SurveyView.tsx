@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -19,6 +19,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { SurveyAnswerFilters } from 'scenes/surveys/SurveyAnswerFilters'
 import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
@@ -46,13 +47,14 @@ function SurveyResultsFilters(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            <h4 className="text-base font-semibold mb-2">Filter results</h4>
+            <h3 className="text-base">Filter survey results</h3>
+            <SurveyAnswerFilters />
             <div className="w-fit">
                 <PropertyFilters
                     propertyFilters={propertyFilters}
                     onChange={setPropertyFilters}
                     pageKey="survey-results"
-                    buttonText="Add filter to survey results"
+                    buttonText="More filters"
                 />
             </div>
         </div>
@@ -439,6 +441,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                           <div>
                                               <p>Get notified whenever a survey result is submitted</p>
                                               <LinkedHogFunctions
+                                                  logicKey="survey"
                                                   type="destination"
                                                   subTemplateId="survey-response"
                                                   filters={{
@@ -495,11 +498,18 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResultsReady,
         surveyNPSScore,
         surveyAsInsightURL,
+        isAnyResultsLoading,
     } = useValues(surveyLogic)
 
     return (
         <div className="space-y-4">
             <SurveyResultsFilters />
+            {isAnyResultsLoading && (
+                <div className="flex gap-1">
+                    <span className="text-sm text-secondary">Loading results...</span>
+                    <Spinner />
+                </div>
+            )}
             <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {

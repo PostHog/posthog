@@ -55,12 +55,13 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                     <AccessControlObjectDefaults />
                 </div>
 
-                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS} className="space-y-6">
                     <AccessControlObjectUsers />
-                </PayGateMini>
 
-                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                    <AccessControlObjectRoles />
+                    {/* Put this inside of Advanced Permissions so two aren't shown at once */}
+                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                        <AccessControlObjectRoles />
+                    </PayGateMini>
                 </PayGateMini>
             </div>
         </BindLogic>
