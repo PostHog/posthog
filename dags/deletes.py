@@ -363,7 +363,7 @@ def load_pending_person_deletions(
                 "group_type_index": deletion.group_type_index,
                 "created_at": deletion.created_at,
                 "delete_verified_at": deletion.delete_verified_at,
-                "created_by_id": str(deletion.created_by.id) if deletion.created_by else "",
+                "created_by_id": str(deletion.created_by.id) if deletion.created_by else None,
                 "team_id": deletion.team_id,
             }
         )
