@@ -53,7 +53,7 @@
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
            GROUP BY variant,
                     entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), equals(events.event, 'purchase'))) AS events_after_exposure ON and(equals(toString(exposure_data.entity_id), toString(events_after_exposure.entity_id)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -118,7 +118,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -183,7 +183,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
@@ -248,7 +248,7 @@
            GROUP BY variant,
                     entity_id,
                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0)) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
+        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0))) AS events_after_exposure ON and(equals(toString(exposure_data.exposure_identifier), toString(events_after_exposure.after_exposure_identifier)), equals(exposure_data.variant, events_after_exposure.variant))
      GROUP BY exposure_data.variant,
               exposure_data.entity_id) AS metrics_per_user
   GROUP BY metrics_per_user.variant
