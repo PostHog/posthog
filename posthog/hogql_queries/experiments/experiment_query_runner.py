@@ -552,6 +552,11 @@ class ExperimentQueryRunner(QueryRunner):
             return None
         return last_refresh + timedelta(hours=24)
 
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        payload["experiment_response_version"] = 2
+        return payload
+
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         if not last_refresh:
             return True
