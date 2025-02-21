@@ -40,11 +40,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def setUp(self):
         super().setUp()
 
-        sync_execute("TRUNCATE TABLE events")
+        sync_execute("TRUNCATE TABLE sharded_events")
         sync_execute("TRUNCATE TABLE person")
-        sync_execute("TRUNCATE TABLE session_recording_events")
+        sync_execute("TRUNCATE TABLE sharded_session_replay_events")
         SessionRecordingViewed.objects.all().delete()
         SessionRecording.objects.all().delete()
+        Person.objects.all().delete()
 
     def produce_replay_summary(
         self,
