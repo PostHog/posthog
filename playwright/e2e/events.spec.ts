@@ -59,7 +59,7 @@ test.describe('Events', () => {
 
     test('Click on an event', async ({ page }) => {
         await expect(page.locator('.DataTable .DataTable__row').first()).toBeVisible()
-        await page.locator('.DataTable .DataTable__row .LemonTable__toggle').click()
+        await page.locator('.DataTable .DataTable__row .LemonTable__toggle').first().click()
         await expect(page.locator('[data-attr=event-details]')).toBeVisible()
     })
 
