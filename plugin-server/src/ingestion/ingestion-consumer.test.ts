@@ -17,6 +17,8 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { template as removeNullPropertiesTemplate } from '../cdp/templates/_transformations/remove-null-properties/remove-null-properties.template'
+import { template as urlMaskingTemplate } from '../cdp/templates/_transformations/url-masking/url-masking.template'
 import { HogFunctionType } from '../cdp/types'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
@@ -728,12 +730,47 @@ describe('IngestionConsumer', () => {
                     id: new UUIDT().toString(),
                     team_id: team.id,
                     type: 'transformation',
-                    name: 'PII Hashing Transformation',
+                    name: removeNullPropertiesTemplate.name,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
                     execution_order: 2,
+                    bytecode: await compileHog(removeNullPropertiesTemplate.hog),
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: urlMaskingTemplate.name,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 3,
+                    bytecode: await compileHog(urlMaskingTemplate.hog),
+                    inputs: {
+                        urlProperties: {
+                            value: {
+                                $current_url: 'email, password, token',
+                                $referrer: 'email, password, token',
+                            },
+                        },
+                        maskWith: {
+                            value: '[MASKED]',
+                        },
+                    },
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: 'PII Hashing Transformation',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 4,
                     bytecode: await compileHog(piiHashingTemplate.hog),
                     inputs: {
                         propertiesToHash: { value: '$geoip_city_name,$geoip_country_name' },
@@ -750,7 +787,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 3,
+                    execution_order: 5,
                     bytecode: await compileHog(ipAnonymizationTemplate.hog),
                 },
             ]
@@ -776,10 +813,18 @@ describe('IngestionConsumer', () => {
             // Create a test event that will trigger all transformations
             const testEvent = createEvent({
                 distinct_id: 'test-user-id',
-                ip: '89.160.20.129', // This IP is in the test GeoIP database
+                ip: '89.160.20.129',
                 properties: {
                     $ip: '89.160.20.129',
                     sensitive_info: 'secret-data',
+                    $current_url: 'https://example.com?email=test@test.com&password=secret&token=abc123&safe=value',
+                    $referrer: 'https://other.com?email=old@test.com&token=xyz789',
+                    nullProp: null,
+                    validProp: 'value',
+                    nested: {
+                        nullInner: null,
+                        validInner: 'inner-value',
+                    },
                 },
             })
 
@@ -817,16 +862,14 @@ describe('IngestionConsumer', () => {
             const processedEvent = producedMessages[0].value as unknown as PipelineEvent
             const properties = JSON.parse(processedEvent.properties as unknown as string)
 
-            // GeoIP transformation should have added location data
-            expect(properties.$geoip_city_name).toBeDefined()
-            expect(properties.$geoip_country_name).toBeDefined()
-
-            // PII Hashing should have hashed the distinct_id and specified geoip fields
-            expect(processedEvent.distinct_id).not.toEqual('test-user-id')
-            expect(processedEvent.distinct_id).toMatch(/^[a-f0-9]{64}$/) // SHA-256 hash
-
-            // IP Anonymization should have zeroed the last octet
-            expect(properties.$ip).toEqual('89.160.20.0')
+            // Add assertions for all transformations in order
+            expect(properties.$geoip_city_name).toBeDefined() // GeoIP
+            expect(properties).not.toHaveProperty('nullProp') // Remove Null Properties
+            expect(properties.$current_url).toEqual(
+                'https://example.com?email=[MASKED]&password=[MASKED]&token=[MASKED]&safe=value'
+            ) // URL Masking
+            expect(processedEvent.distinct_id).toMatch(/^[a-f0-9]{64}$/) // PII Hashing
+            expect(properties.$ip).toEqual('89.160.20.0') // IP Anonymization
         })
     })
 })
