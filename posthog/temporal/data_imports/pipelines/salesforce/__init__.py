@@ -340,7 +340,7 @@ class SalesforceEndpointPaginator(BasePaginator):
             instance_url=self.instance_url,
             is_incremental=self.is_incremental,
             model_name=model_name,
-            last_record_id=last_record["id"],
+            last_record_id=last_record["Id"],
         )
 
         self._has_next_page = True
