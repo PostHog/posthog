@@ -51,7 +51,7 @@ class HogQLQueryExecutor:
     timings: HogQLTimings = dataclasses.field(default_factory=HogQLTimings)
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
-    clickhouse_context: Optional[HogQLContext] = None
+    hogql_context: Optional[HogQLContext] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -124,16 +124,13 @@ class HogQLQueryExecutor:
                     )
 
     def _generate_hogql(self):
-        hogql_query_context = dataclasses.replace(
+        self.hogql_context = hogql_query_context = dataclasses.replace(
             self.context,
             team_id=self.team.pk,
             team=self.team,
             enable_select_queries=True,
             timings=self.timings,
             modifiers=self.query_modifiers,
-            # it's valid to reuse the clickhouse DB because the modifiers are the same,
-            # and if we don't we end up creating the virtual DB twice per query
-            database=self.clickhouse_context.database if self.clickhouse_context else None,
         )
 
         with self.timings.measure("clone"):
@@ -188,6 +185,9 @@ class HogQLQueryExecutor:
                 enable_select_queries=True,
                 timings=self.timings,
                 modifiers=self.query_modifiers,
+                # it's valid to reuse the hogql DB because the modifiers are the same,
+                # and if we don't we end up creating the virtual DB twice per query
+                database=self.hogql_context.database if self.hogql_context else None,
             )
             with self.timings.measure("print_ast"):
                 self.clickhouse_sql = print_ast(
