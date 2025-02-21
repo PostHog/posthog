@@ -1,14 +1,27 @@
 use crate::{
-    api::v1::query::{Manager, PropDefResponse},
+    api::v1::query::Manager,
     api::v1::constants::*,
     //metrics_consts::{},
 };
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{
+        Path,
+        Query,
+        State,
+        OriginalUri
+    },
+    http::{
+        Uri,
+        HeaderMap
+    },
     routing::get,
-    Json, Router,
+    Json,
+    Router
 };
+use serde::Serialize;
+use url::form_urlencoded;
+use sqlx::{postgres::PgQueryResult, Executor};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,13 +37,16 @@ pub fn apply_routes(parent: Router, qmgr: Arc<Manager>) -> Router {
     parent.nest("/api/v1", api_router)
 }
 
+
 async fn project_property_definitions_handler(
     State(qmgr): State<Arc<Manager>>,
+    headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     Path(project_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Json<PropDefResponse> {
-    // parse the request parameters; use Option<T> to track presence for query step
 
+    // parse the request parameters; use Option<T> to track presence for query step
     let search: Option<Vec<String>> = match params.get("search") {
         Some(raw) => Some(
             raw.split(" ")
@@ -41,7 +57,7 @@ async fn project_property_definitions_handler(
     };
 
     let property_type = match params.get("type") {
-        Some(s) if PARENT_PROPERTY_TYPES.iter().any(|pt| *pt == s) => Some(*s),
+        Some(s) if PARENT_PROPERTY_TYPES.iter().any(|pt| *pt == s) => Some(s.clone()),
         _ => None,
     };
 
@@ -49,7 +65,7 @@ async fn project_property_definitions_handler(
     let group_type_index: i32 = match params.get("group_type_index") {
         Some(s) => match s.parse::<i32>().ok() {
             Some(gti)
-                if property_type.is_some_and(|pt| pt == "group")
+                if property_type.as_ref().is_some_and(|pt| pt == "group")
                     && gti >= 0 && gti < GROUP_TYPE_LIMIT => gti,
             _ => -1,
         },
@@ -134,7 +150,7 @@ async fn project_property_definitions_handler(
         );
 
     // construct the property definitions query
-    let mut props_query = qmgr
+    let props_query = qmgr
         .property_definitions_query(
             project_id,
             &search,
@@ -152,9 +168,109 @@ async fn project_property_definitions_handler(
             offset,
         );
 
-    // TODO: execute queries, build result structs
+    match qmgr.pool.execute(count_query.as_str()).await {
+        Ok(result) => unimplemented!("TODO: populate out.count with query result"),
+        Err(e) => unimplemented!("TODO: handle count query error!"),
+    }
 
-    // TODO: Implement!
-    Json(PropDefResponse {})
+   match qmgr.pool.execute(props_query.as_str()).await {
+        Ok(result) => unimplemented!("TODO: populate out fields with query result"),
+        Err(e) => unimplemented!("TODO: handle props query error!"),
+    }
+
+    let total_count = 0; // TODO: pick up result of count query!
+    let (prev_url, next_url) = gen_next_prev_urls(headers, uri, total_count, limit, offset);
+
+    // execute the queries, and populate the response
+    let mut out = PropDefResponse{
+        count: 0,
+        next: next_url,
+        prev: prev_url,
+        results: vec![],
+    };
+
+    Json(out)
 }
 
+fn gen_next_prev_urls(headers: HeaderMap, uri: Uri, total_count: i32, curr_limit: i32, curr_offset: i32) -> (Option<String>, Option<String>) {
+    let next_offset = curr_limit + curr_offset;
+    let prev_offset = curr_offset - curr_limit;
+
+    (gen_url(uri.clone(), total_count, prev_offset), gen_url(uri.clone(), total_count, next_offset))
+}
+
+fn gen_url(uri: Uri, total_count: i32, new_offset: i32) -> Option<String> {
+    if new_offset < 0 || new_offset >= total_count {
+        return None
+    }
+
+    // Parse the query parameters
+    let mut query_params = uri.query().map(|query| {
+        form_urlencoded::parse(query.as_bytes())
+            .into_owned()
+            .collect::<HashMap<String, String>>()
+    }).unwrap_or_default();
+
+    // Modify a single query parameter
+    query_params.insert("offset".to_string(), "new_value".to_string());
+
+    // Rebuild the Uri with the modified query parameters
+    let new_query = form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(query_params.into_iter())
+        .finish();
+
+    // Replace the original query with the modified query
+    let base_uri = uri.clone().into_parts().path_and_query.unwrap().path().to_string();
+    let uri = Uri::builder()
+        .scheme(uri.scheme().clone().unwrap().as_str())
+        .authority(uri.authority().cloned().unwrap().as_str())
+        .path_and_query(base_uri + "?" + &new_query)
+        .build()
+        .unwrap();
+
+    Some(uri.to_string())
+}
+
+#[derive(Serialize)]
+pub struct PropDefResponse {
+    count: u32,
+    next: Option<String>,
+    prev: Option<String>,
+    results: Vec<PropDef>,
+}
+
+#[derive(Serialize)]
+pub struct PropDef {
+    id: String,
+    name: String,
+    description: String,
+    is_numeric: bool,
+    updated_at: String, // UTC ISO8601
+    updated_by: Person,
+    is_seen_on_filtered_events: Option<String>, // VALIDATE THIS!
+    property_type: String,
+    verified: bool,
+    verified_at: String, // UTC ISO8601
+    verified_by: Person,
+    tags: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct Person {
+    id: u32,
+    uuid: String,
+    distinct_id: String,
+    first_name: String,
+    last_name: String,
+    email: String,
+    is_email_verified: bool,
+    hedgehog_config: HedgehogConfig,
+}
+
+#[derive(Serialize)]
+pub struct HedgehogConfig {
+    use_as_profile: bool,
+    color: String,
+    accessories: Vec<String>,
+    role_at_organization: Option<String>,
+}
