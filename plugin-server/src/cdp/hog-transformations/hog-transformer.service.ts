@@ -5,7 +5,6 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionType,
-    HogFunctionTypeType,
 } from '../../cdp/types'
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
@@ -53,6 +52,7 @@ export class HogTransformerService {
     private hogFunctionManager: HogFunctionManagerService
     private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
+    private started: boolean = false
     private hogFunctionMonitoringService: HogFunctionMonitoringService
 
     constructor(hub: Hub) {
@@ -93,12 +93,21 @@ export class HogTransformerService {
     }
 
     public async start(): Promise<void> {
-        const hogTypes: HogFunctionTypeType[] = ['transformation']
-        await this.hogFunctionManager.start(hogTypes)
+        if (this.started) {
+            return
+        }
+        this.started = true
+
+        await this.hogFunctionManager.start(['transformation'])
     }
 
     public async stop(): Promise<void> {
+        if (!this.started) {
+            return
+        }
+
         await this.hogFunctionManager.stop()
+        this.started = false
     }
 
     public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
