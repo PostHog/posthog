@@ -664,7 +664,6 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             fields=fields,
             filters=filters,
             destination_default_fields=bigquery_default_fields(),
-            use_latest_schema=True,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,

@@ -35,12 +35,19 @@ from posthog.temporal.batch_exports.redshift_batch_export import (
     insert_into_redshift_activity,
     redshift_default_fields,
 )
-from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, SessionsRecordBatchModel
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    SessionsRecordBatchModel,
+)
 from posthog.temporal.batch_exports.temporary_file import (
     remove_escaped_whitespace_recursive,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import get_record_batch_from_queue, mocked_start_batch_export_run
+from posthog.temporal.tests.batch_exports.utils import (
+    get_record_batch_from_queue,
+    mocked_start_batch_export_run,
+)
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -71,6 +78,7 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "person_version",
     "person_distinct_id_version",
     "created_at",
+    "is_deleted",
 ]
 
 
@@ -102,8 +110,6 @@ async def assert_clickhouse_records_in_redshfit(
 
     Caveats:
     * Casting records to a Python list of dicts means losing some type precision.
-    * Reading records from ClickHouse could be hiding bugs in the `iter_records` function and related.
-        * `iter_records` has its own set of related unit tests to control for this.
 
     Arguments:
         redshift_connection: A Redshift connection used to read inserted events.
@@ -191,7 +197,6 @@ async def assert_clickhouse_records_in_redshfit(
             is_backfill=backfill_details is not None,
             backfill_details=backfill_details,
             extra_query_parameters=extra_query_parameters,
-            use_latest_schema=True,
         )
         while True:
             record_batch = await get_record_batch_from_queue(queue, producer_task)
