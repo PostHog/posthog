@@ -50,6 +50,8 @@
 ee/frontend/node_modules
 common/*/*/node_modules
 common/*/node_modules
+common/*/*/dist
+common/*/dist
 products/*/node_modules
 rust/.env
 rust/.github
