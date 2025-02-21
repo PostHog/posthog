@@ -167,6 +167,11 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: pnpm --filter=@posthog/cypress... install --frozen-lockfile
 
+            - name: Prepare cypress
+              # these are required checks so, we can't skip entire sections
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              run: bin/turbo --filter=@posthog/cypress prepare
+
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -228,6 +233,12 @@ jobs:
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev
 
+                  echo "----"
+                  $DOCKER_RUN ls -l plugin-server/node_modules/@posthog/hogvm
+                  $DOCKER_RUN ls -l plugin-server/node_modules/@posthog/hogvm/
+                  echo "----"
+                  $DOCKER_RUN ls -l plugin-server/node_modules/@posthog/hogvm/dist
+
                   # only starts the plugin server so that the "wait for PostHog" step passes
                   $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
@@ -244,11 +255,6 @@ jobs:
                   verbose: true
                   log: true
                   resource: http://localhost:8000
-
-            - name: Prepare cypress
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: bin/turbo --filter=@posthog/cypress prepare
 
             - name: Cypress run
               # these are required checks so, we can't skip entire sections
