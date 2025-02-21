@@ -169,7 +169,9 @@ function UnwatchedIndicator({ otherViewers }: { otherViewers: SessionRecordingTy
                     'UnwatchedIndicator w-2 h-2 rounded-full',
                     otherViewers.length ? 'UnwatchedIndicator--secondary' : 'UnwatchedIndicator--primary'
                 )}
-                aria-label={otherViewers.length ? 'unwatched-recording-label' : 'unwatched-recording-label'}
+                aria-label={
+                    otherViewers.length ? 'unwatched-recording-by-you-label' : 'unwatched-recording-by-everyone-label'
+                }
             />
         </Tooltip>
     )
