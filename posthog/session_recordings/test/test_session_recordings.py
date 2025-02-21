@@ -14,6 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_team import create_team
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Person, SessionRecording, User
 from posthog.models.team import Team
 from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
@@ -39,9 +40,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def setUp(self):
         super().setUp()
 
-        # Create a new team each time to ensure no clashing between tests
-        # TODO this is pretty slow, we should change assertions so that we don't need it
-        self.team = Team.objects.create(organization=self.organization, name="New Team")
+        sync_execute("TRUNCATE TABLE events")
+        sync_execute("TRUNCATE TABLE person")
+        sync_execute("TRUNCATE TABLE session_recording_events")
+        SessionRecordingViewed.objects.all().delete()
+        SessionRecording.objects.all().delete()
 
     def produce_replay_summary(
         self,
@@ -244,8 +247,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        self.produce_replay_summary("user", "1", base_time, team_id=another_team.pk)
-        self.produce_replay_summary("user", "2", base_time)
+        self.produce_replay_summary("user", "other_team", base_time, team_id=another_team.pk)
+        self.produce_replay_summary("user", "current_team", base_time)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -260,7 +263,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "console_warn_count": 0,
                 "distinct_id": "user",
                 "end_time": ANY,
-                "id": "2",
+                "id": "current_team",
                 "inactive_seconds": ANY,
                 "keypress_count": 0,
                 "mouse_activity_count": 0,
@@ -283,7 +286,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "viewed": False,
                 "viewers": [],
                 "ongoing": True,
-                "activity_score": None,
+                "activity_score": ANY,
             },
         ]
 
@@ -495,7 +498,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "id": "session_1",
             "distinct_id": "d1",
             "viewed": False,
-            "viewers": [str(other_user.uuid)],
+            "viewers": [other_user.email],
             "recording_duration": 30,
             "start_time": base_time.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),

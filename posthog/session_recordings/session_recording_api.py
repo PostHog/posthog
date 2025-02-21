@@ -1076,10 +1076,10 @@ def _other_users_viewed(recording_ids_in_list: list[str], user: User, team: Team
     queryset = (
         SessionRecordingViewed.objects.filter(team=team, session_id__in=recording_ids_in_list)
         .exclude(user=user)
-        .values_list("session_id", "user__uuid")
+        .values_list("session_id", "user__email")
     )
-    for session_id, user_uuid in queryset:
-        other_viewers[session_id].append(str(user_uuid))
+    for session_id, user_email in queryset:
+        other_viewers[session_id].append(str(user_email))
 
     return other_viewers
 

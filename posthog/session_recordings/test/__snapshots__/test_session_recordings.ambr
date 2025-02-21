@@ -1157,7 +1157,7 @@
 # name: TestSessionRecordings.test_get_session_recordings.33
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('test_get_session_recordings-2',
@@ -2358,7 +2358,7 @@
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.117
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
@@ -3157,7 +3157,7 @@
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.138
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
@@ -3962,7 +3962,7 @@
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.159
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
@@ -4797,7 +4797,7 @@
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.180
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
@@ -5630,7 +5630,7 @@
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.201
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
@@ -6411,7 +6411,7 @@
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.222
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
@@ -6803,7 +6803,7 @@
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.33
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('1')
@@ -7552,7 +7552,7 @@
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.54
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('2',
@@ -8280,7 +8280,7 @@
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.75
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('2',
@@ -9071,7 +9071,7 @@
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.96
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."uuid"
+         "posthog_user"."email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('2',
