@@ -804,6 +804,23 @@ class FeatureFlagViewSet(
         methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle], required_scopes=["feature_flag:read"]
     )
     def local_evaluation(self, request: request.Request, **kwargs):
+        # Check if team is quota limited for feature flags
+        if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
+            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+            limited_tokens_flags = list_limited_team_attributes(
+                QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            if self.team.api_token in limited_tokens_flags:
+                return Response(
+                    {
+                        "type": "quota_limited",
+                        "detail": "You have exceeded your feature flag request quota",
+                        "code": "payment_required",
+                    },
+                    status=status.HTTP_402_PAYMENT_REQUIRED,
+                )
+
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
             ~Q(is_remote_configuration=True),
             team__project_id=self.project_id,

@@ -222,19 +222,39 @@ function BoldNumberComparison({
 export function HogQLBoldNumber(): JSX.Element {
     const { response, responseLoading, tabularData } = useValues(dataVisualizationLogic)
 
-    const displayValue =
-        ((!response || responseLoading) && 'Loading...') ||
-        tabularData?.[0]?.[0]?.formattedValue ||
-        response?.[0]?.[0] ||
-        response?.results?.[0]?.[0] ||
-        response?.result?.[0]?.[0] ||
-        'Error'
+    if (!response || responseLoading) {
+        return (
+            <div className="BoldNumber LemonTable HogQL">
+                <div className="BoldNumber__value">
+                    <Textfit min={32} max={120}>
+                        Loading...
+                    </Textfit>
+                </div>
+            </div>
+        )
+    }
+
+    const formattedValue = tabularData?.[0]?.[0]?.formattedValue
+    const directValue = response?.[0]?.[0]
+    const resultsValue = response?.results?.[0]?.[0]
+    const resultValue = response?.result?.[0]?.[0]
+
+    // If any of the values is null, show empty state
+    if (formattedValue === null || directValue === null || resultsValue === null || resultValue === null) {
+        return (
+            <div className="LemonTable HogQL">
+                <InsightEmptyState />
+            </div>
+        )
+    }
+
+    const value = formattedValue ?? directValue ?? resultsValue ?? resultValue
 
     return (
         <div className="BoldNumber LemonTable HogQL">
             <div className="BoldNumber__value">
                 <Textfit min={32} max={120}>
-                    {displayValue}
+                    {String(value ?? 'Error')}
                 </Textfit>
             </div>
         </div>
