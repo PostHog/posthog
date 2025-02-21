@@ -121,13 +121,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         from posthog.hogql.resolver import resolve_types
         from posthog.models.property.util import S3TableVisitor
 
+        context_modifiers = create_default_modifiers_for_team(self.team)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            modifiers=create_default_modifiers_for_team(self.team),
+            modifiers=context_modifiers,
         )
         node = parse_select(self.query["query"])
-        context.database = create_hogql_database(context.team_id)
+        context.database = create_hogql_database(context.team_id, context_modifiers)
 
         node = resolve_types(node, context, dialect="clickhouse")
         table_collector = S3TableVisitor()
