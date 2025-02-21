@@ -33,6 +33,7 @@ from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentS
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.schema import ExperimentEventExposureConfig
 
 EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 60  # 1 hour
 
@@ -290,6 +291,22 @@ class ExperimentSerializer(serializers.ModelSerializer):
             return True
 
         raise ValidationError("Feature flag is not eligible for experiments.")
+
+    def validate_exposure_criteria(self, exposure_criteria: dict | None):
+        if not exposure_criteria:
+            return exposure_criteria
+
+        if "filterTestAccounts" in exposure_criteria and not isinstance(exposure_criteria["filterTestAccounts"], bool):
+            raise ValidationError("filterTestAccounts must be a boolean")
+
+        if "exposure_config" in exposure_criteria:
+            try:
+                ExperimentEventExposureConfig.model_validate(exposure_criteria["exposure_config"])
+                return exposure_criteria
+            except Exception as e:
+                raise ValidationError(f"Invalid exposure criteria: {str(e)}")
+
+        return exposure_criteria
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
