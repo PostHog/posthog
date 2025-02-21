@@ -1071,7 +1071,7 @@ def _other_users_viewed(recording_ids_in_list: list[str], user: User, team: Team
     # we're looping in python
     # but since we limit the number of session recordings in the results set
     # it shouldn't be too bad
-    other_viewers: dict[str, list[str]] = {}
+    other_viewers: dict[str, list[str]] = {str(x): [] for x in recording_ids_in_list}
     queryset = (
         SessionRecordingViewed.objects.filter(team=team, session_id__in=recording_ids_in_list)
         .exclude(user=user)
