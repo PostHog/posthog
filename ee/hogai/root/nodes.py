@@ -24,6 +24,7 @@ from ee.hogai.root.prompts import (
 )
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog import settings
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
 RouteName = Literal["trends", "funnel", "retention", "root", "end"]
@@ -106,7 +107,7 @@ class RootNode(AssistantNode):
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
         base_model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True)
 
-        # The agent can now be involved in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
+        # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent don't have any other option but to exit.
         if self._is_hard_limit_reached(state):
             return base_model
@@ -169,11 +170,14 @@ class RootNode(AssistantNode):
 
     def _find_new_window_id(self, state: AssistantState, window: list[BaseMessage]) -> str | None:
         """
-        If we simply trim the conversation on 64k tokens, the cache will be invalidated for every new message after that
-        limit leading to increased latency. Instead, when we hit the limit, we trim the conversation to 32k tokens, so
+        If we simply trim the conversation on N tokens, the cache will be invalidated for every new message after that
+        limit leading to increased latency. Instead, when we hit the limit, we trim the conversation to N/2 tokens, so
         the cache invalidates only for the next generation.
         """
-        model = self._get_model(state)
+        if settings.TEST:
+            model = ChatOpenAI(model="gpt-4o", api_key="token_counter")
+        else:
+            model = self._get_model(state)
 
         if model.get_num_tokens_from_messages(window) > self.CONVERSATION_WINDOW_SIZE:
             trimmed_window: list[BaseMessage] = trim_messages(
@@ -188,7 +192,7 @@ class RootNode(AssistantNode):
                 if trimmed_window:
                     new_start_id = trimmed_window[0].id
                     return new_start_id
-                # We don't want the conversation to be empty. Return the last message id as a fallback.
+                # We don't want the conversation to be completely empty.
                 if isinstance(window[-1], LangchainHumanMessage):
                     return window[-1].id
                 if len(window) > 1 and isinstance(window[-2], LangchainAIMessage):

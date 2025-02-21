@@ -346,6 +346,49 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(messages), 4)
         self.assertIsNone(window_id)
 
+    def test_run_updates_conversation_window(self):
+        with (
+            patch("ee.hogai.root.nodes.RootNode._get_model") as mock_get_model,
+        ):
+            # Mock the model to return a simple response
+            mock_get_model.return_value = RunnableLambda(lambda _: LangchainAIMessage(content="Simple response"))
+            node = RootNode(self.team)
+
+            # Create initial state with a large conversation
+            initial_state = AssistantState(
+                messages=[
+                    HumanMessage(content="Foo", id="1"),
+                    AssistantMessage(content="Bar" * 65000, id="2"),  # Large message to exceed token limit
+                    HumanMessage(content="Question", id="3"),
+                ]
+            )
+
+            # First run should set a new window ID
+            result_1 = node.run(initial_state, {})
+            self.assertIsNotNone(result_1.root_conversation_start_id)
+            self.assertEqual(result_1.root_conversation_start_id, "3")  # Should start from last human message
+
+            # Create a new state using the window ID from previous run
+            state_2 = AssistantState(
+                messages=[*initial_state.messages, *result_1.messages, HumanMessage(content="Follow-up", id="4")],
+                root_conversation_start_id=result_1.root_conversation_start_id,
+            )
+
+            # Second run should maintain the window
+            result_2 = node.run(state_2, {})
+            self.assertIsNone(result_2.root_conversation_start_id)  # No new window needed
+            self.assertEqual(len(result_2.messages), 1)
+
+            state_3 = AssistantState(
+                messages=[*state_2.messages, *result_2.messages],
+                root_conversation_start_id=result_2.root_conversation_start_id,
+            )
+
+            # Verify the full conversation flow by checking the messages that would be sent to the model
+            messages, _ = node._construct_messages(state_3)
+            self.assertEqual(len(messages), 4)  # Question + Response + Follow-up + New Response
+            self.assertEqual(messages[0].content, "Question")  # Starts from the window ID message
+
 
 class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):

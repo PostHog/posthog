@@ -102,6 +102,7 @@ class PartialAssistantState(_SharedAssistantState):
             root_tool_insight_plan="",
             root_tool_insight_type="",
             root_tool_calls_count=0,
+            root_conversation_start_id="",
         )
 
 
