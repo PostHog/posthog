@@ -218,6 +218,7 @@ export const RecordingsUniversalFilters = ({
                     title="Hide viewed recordings"
                     label="Hide viewed recordings"
                     onClick={() => setHideViewedRecordings(!hideViewedRecordings)}
+                    rounded={true}
                 />
                 <SettingsMenu
                     highlightWhenActive={false}
@@ -240,6 +241,7 @@ export const RecordingsUniversalFilters = ({
                     ]}
                     icon={<IconClock />}
                     label={TimestampFormatToLabel[playlistTimestampFormat]}
+                    rounded={true}
                 />
             </div>
         </>
