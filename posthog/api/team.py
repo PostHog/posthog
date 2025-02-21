@@ -147,7 +147,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-CONFIG_FIELDS = (
+TEAM_CONFIG_FIELDS = (
     "app_urls",
     "slack_incoming_webhook",
     "anonymize_ips",
@@ -196,7 +196,7 @@ CONFIG_FIELDS = (
     "onboarding_tasks",
 )
 
-CONFIG_FIELDS_SET = set(CONFIG_FIELDS)
+TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -224,7 +224,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "person_on_events_querying_enabled",
             "user_access_level",
             # Config fields
-            *CONFIG_FIELDS,
+            *TEAM_CONFIG_FIELDS,
             # Computed fields
             "effective_membership_level",
             "has_group_types",
@@ -521,8 +521,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # Otherwise, require write:team scope (handled by APIScopePermission)
         if self.action == "partial_update":
             request_fields = set(request.data.keys())
-            non_config_fields = request_fields - CONFIG_FIELDS_SET
-            if not non_config_fields:
+            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+            if not non_team_config_fields:
                 return ["team:read"]
 
         # Fall back to the default behavior
