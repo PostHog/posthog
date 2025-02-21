@@ -322,3 +322,93 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
             ),
             "root",
         )
+
+    def test_node_terminates_after_max_iterations(self):
+        # Create state with 16 intermediate steps
+        intermediate_steps = [
+            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            for i in range(16)
+        ]
+        state = AssistantState(
+            intermediate_steps=intermediate_steps,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should reset state and return message about reaching limit
+        self.assertEqual(len(state_update.intermediate_steps), 0)
+        self.assertEqual(len(state_update.messages), 1)
+        self.assertIn("maximum number of iterations", state_update.messages[0].content.lower())
+
+    def test_node_allows_final_answer_at_max_iterations(self):
+        # Create state with 16 intermediate steps, last one being final_answer
+        intermediate_steps = [
+            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            for i in range(15)
+        ]
+        intermediate_steps.append(
+            (AgentAction(tool="final_answer", tool_input="This is the final plan", log="final"), None)
+        )
+
+        state = AssistantState(
+            intermediate_steps=intermediate_steps,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should accept the final answer even at max iterations
+        self.assertEqual(len(state_update.intermediate_steps), 0)
+        self.assertEqual(state_update.plan, "This is the final plan")
+
+    def test_node_allows_help_request_at_max_iterations(self):
+        # Create state with 16 intermediate steps, last one being ask_user_for_help
+        intermediate_steps = [
+            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            for i in range(15)
+        ]
+        intermediate_steps.append(
+            (AgentAction(tool="ask_user_for_help", tool_input="Need help with this", log="help"), None)
+        )
+
+        state = AssistantState(
+            intermediate_steps=intermediate_steps,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should accept the help request even at max iterations
+        self.assertEqual(len(state_update.intermediate_steps), 0)
+        self.assertEqual(len(state_update.messages), 1)
+        self.assertIn("need help with this", state_update.messages[0].content.lower())
+
+    def test_node_prioritizes_max_iterations_over_validation_error(self):
+        # Create state with 16 intermediate steps, last one causing validation error
+        intermediate_steps = [
+            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            for i in range(15)
+        ]
+        intermediate_steps.append((AgentAction(tool="invalid_tool", tool_input="bad input", log="error"), None))
+
+        state = AssistantState(
+            intermediate_steps=intermediate_steps,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should return max iterations message instead of validation error
+        self.assertEqual(len(state_update.intermediate_steps), 0)
+        self.assertEqual(len(state_update.messages), 1)
+        self.assertIn("maximum number of iterations", state_update.messages[0].content.lower())
+        self.assertNotIn("pydantic", state_update.messages[0].content.lower())
