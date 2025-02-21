@@ -77,50 +77,67 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         exposure_query = ast.SelectQuery(
             select=[
-                parse_expr("toDate(timestamp) as day"),
-                parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
-                parse_expr("count(DISTINCT distinct_id) as exposed_count"),
+                ast.Field(chain=["subq", "day"]),
+                ast.Field(chain=["subq", "variant"]),
+                parse_expr("count(person_id) as exposed_count"),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(
-                exprs=[
-                    ast.And(
+            select_from=ast.JoinExpr(
+                table=ast.SelectQuery(
+                    select=[
+                        parse_expr("toDate(toString(min(timestamp))) as day"),
+                        parse_expr(
+                            "replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"
+                        ),
+                        parse_expr("person_id"),
+                    ],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    where=ast.And(
                         exprs=[
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["event"]),
-                                right=ast.Constant(value="$feature_flag_called"),
+                            ast.And(
+                                exprs=[
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=["event"]),
+                                        right=ast.Constant(value="$feature_flag_called"),
+                                    ),
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=parse_expr(
+                                            "replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"
+                                        ),
+                                        right=ast.Constant(value=feature_flag_key),
+                                    ),
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.In,
+                                        left=parse_expr(
+                                            "replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"
+                                        ),
+                                        right=ast.Constant(value=self.variants),
+                                    ),
+                                ]
                             ),
                             ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"),
-                                right=ast.Constant(value=feature_flag_key),
+                                op=ast.CompareOperationOp.GtEq,
+                                left=ast.Field(chain=["timestamp"]),
+                                right=ast.Constant(value=date_range_query.date_from()),
                             ),
                             ast.CompareOperation(
-                                op=ast.CompareOperationOp.In,
-                                left=parse_expr(
-                                    "replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"
-                                ),
-                                right=ast.Constant(value=self.variants),
+                                op=ast.CompareOperationOp.LtEq,
+                                left=ast.Field(chain=["timestamp"]),
+                                right=ast.Constant(value=date_range_query.date_to()),
                             ),
+                            *test_accounts_filter,
                         ]
                     ),
-                    # Filter by experiment date range
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["timestamp"]),
-                        right=ast.Constant(value=date_range_query.date_from()),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.LtEq,
-                        left=ast.Field(chain=["timestamp"]),
-                        right=ast.Constant(value=date_range_query.date_to()),
-                    ),
-                    *test_accounts_filter,
-                ]
+                    group_by=[
+                        parse_expr("person_id"),
+                        parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"),
+                    ],
+                ),
+                alias="subq",
             ),
-            group_by=[ast.Field(chain=["day"]), ast.Field(chain=["variant"])],
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["day"]), order="ASC")],
+            group_by=[ast.Field(chain=["subq", "day"]), ast.Field(chain=["subq", "variant"])],
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["subq", "day"]), order="ASC")],
         )
 
         return exposure_query

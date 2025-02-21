@@ -33,11 +33,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
-    AnyPropertyFilter,
     EncodedRecordingSnapshot,
-    PersonType,
-    PropertyFilterType,
-    PropertyOperator,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingReportLoadTimes,
@@ -365,35 +361,6 @@ export interface SessionRecordingDataLogicProps {
     realTimePollingIntervalMilliseconds?: number
 }
 
-function makeEventsQuery(
-    person: PersonType | null,
-    distinctId: string | null,
-    start: Dayjs,
-    end: Dayjs,
-    properties: AnyPropertyFilter[]
-): Promise<unknown> {
-    return api.query({
-        kind: NodeKind.EventsQuery,
-        // NOTE: Be careful adding fields here. We want to keep the payload as small as possible to load all events quickly
-        select: [
-            'uuid',
-            'event',
-            'timestamp',
-            'elements_chain',
-            'properties.$window_id',
-            'properties.$current_url',
-            'properties.$event_type',
-        ],
-        orderBy: ['timestamp ASC'],
-        limit: 1000000,
-        personId: person ? String(person.id) : undefined,
-        after: start.subtract(BUFFER_MS, 'ms').format(),
-        before: end.add(BUFFER_MS, 'ms').format(),
-        properties: properties,
-        where: distinctId ? [`distinct_id = ('${distinctId}')`] : undefined,
-    })
-}
-
 async function processEncodedResponse(
     encodedResponse: (EncodedRecordingSnapshot | string)[],
     props: SessionRecordingDataLogicProps,
@@ -607,16 +574,44 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return null
                     }
 
+                    const sessionEventsQuery = hogql`
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+                            FROM events
+                            WHERE timestamp > ${start.subtract(BUFFER_MS, 'ms')}
+                              AND timestamp < ${end.add(BUFFER_MS, 'ms')}
+                              AND $session_id = ${props.sessionRecordingId}
+                              ORDER BY timestamp ASC
+                        LIMIT 1000000
+                        `
+
+                    let relatedEventsQuery = hogql`
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+                            FROM events
+                            WHERE timestamp > ${start.subtract(BUFFER_MS, 'ms')}
+                              AND timestamp < ${end.add(BUFFER_MS, 'ms')}
+                              AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
+                        `
+                    if (person?.uuid) {
+                        relatedEventsQuery += `
+                            AND person_id = '${person.uuid}'
+                        `
+                    }
+                    if (!person?.uuid && values.sessionPlayerMetaData?.distinct_id) {
+                        relatedEventsQuery += `
+                            AND distinct_id = ${values.sessionPlayerMetaData.distinct_id}
+                        `
+                    }
+                    relatedEventsQuery += `
+                        ORDER BY timestamp ASC
+                        LIMIT 1000000
+                    `
+
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session
-                        makeEventsQuery(null, null, start, end, [
-                            {
-                                key: '$session_id',
-                                value: [props.sessionRecordingId],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ]),
+                        api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: sessionEventsQuery,
+                        }),
                         // make a second for all events from that person,
                         // not marked as part of the session
                         // but in the same time range
@@ -624,20 +619,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         // but with no session id
                         // since posthog-js must always add session id we can also
                         // take advantage of lib being materialized and further filter
-                        makeEventsQuery(null, values.sessionPlayerMetaData?.distinct_id || null, start, end, [
-                            {
-                                key: '$session_id',
-                                value: '',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                            {
-                                key: '$lib',
-                                value: ['web'],
-                                operator: PropertyOperator.IsNot,
-                                type: PropertyFilterType.Event,
-                            },
-                        ]),
+                        api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: relatedEventsQuery,
+                        }),
                     ])
 
                     return [...sessionEvents.results, ...relatedEvents.results].map(

@@ -110,7 +110,11 @@ class DeltaTableHelper:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
-            normalized_primary_keys = [normalize_column_name(x) for x in primary_keys]
+            # Normalize keys and check the keys actually exist in the dataset
+            py_table_column_names = data.column_names
+            normalized_primary_keys = [
+                normalize_column_name(x) for x in primary_keys if normalize_column_name(x) in py_table_column_names
+            ]
 
             delta_table.merge(
                 source=data,

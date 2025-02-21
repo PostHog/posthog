@@ -56,6 +56,7 @@ import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
+    logicKey?: string
     templateId?: string | null
     id?: string | null
 }
@@ -202,8 +203,9 @@ export function convertToHogFunctionInvocationGlobals(
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
-        return id ?? templateId ?? 'new'
+    key(({ id, templateId, logicKey }: HogFunctionConfigurationLogicProps) => {
+        const baseKey = id ?? templateId ?? 'new'
+        return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
     connect(({ id }: HogFunctionConfigurationLogicProps) => ({
         values: [
@@ -1088,7 +1090,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id))
+                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template.id))
             }
         },
         sparklineQuery: async (sparklineQuery) => {
