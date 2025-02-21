@@ -21,16 +21,29 @@ from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse, CachedEventsQueryResponse
 from posthog.utils import relative_date_parse
 
+# These properties are always expected to be present on an event
+BASE_REQUIRED_PROPERTIES = [
+    "properties.$current_url",
+    "$session_id",
+    "properties.$exception_fingerprint",
+    "properties.$exception_issue_id",
+    "properties.$recording_status",
+]
+
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [
     "uuid",
     "event",
-    "properties",
     "timestamp",
     "team_id",
     "distinct_id",
     "elements_chain",
     "created_at",
+    "properties.$current_url",
+    "$session_id",
+    "properties.$exception_fingerprint",
+    "properties.$exception_issue_id",
+    "properties.$recording_status",
 ]
 
 
@@ -211,8 +224,22 @@ class EventsQueryRunner(QueryRunner):
                     self.paginator.results[index] = list(result)
                     select = result[star_idx]
                     new_result = dict(zip(self.star_fields_for_query(), select))
+                    # original behavior was to always load all properties, that is slow and hungry
                     if new_result.get("properties", None):
                         new_result["properties"] = orjson.loads(new_result["properties"])
+                    else:
+                        # there is a base set of properties that e.g. the events table expects will be present
+                        keys_to_remove = []
+                        new_result["properties"] = {}
+                        for pk, pv in new_result.items():
+                            if pk in BASE_REQUIRED_PROPERTIES:
+                                new_result["properties"][pk.replace("properties.", "")] = pv
+                                # don't keep it on the top level of the result if present
+                                if pk.startswith("properties."):
+                                    keys_to_remove.append(pk)
+                        for k in keys_to_remove:
+                            del new_result[k]
+
                     if new_result["elements_chain"]:
                         new_result["elements"] = ElementSerializer(
                             chain_to_elements(new_result["elements_chain"]), many=True
