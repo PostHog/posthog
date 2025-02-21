@@ -1,6 +1,11 @@
+import { IconFilter } from '@posthog/icons'
+import { Popover } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconWithCount } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useState } from 'react'
 
 import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
 
@@ -11,18 +16,46 @@ export const WebPropertyFilters = ({
     webAnalyticsFilters: WebAnalyticsPropertyFilters
     setWebAnalyticsFilters: (filters: WebAnalyticsPropertyFilters) => void
 }): JSX.Element => {
+    const [displayFilters, setDisplayFilters] = useState(false)
+
     return (
-        <PropertyFilters
-            hasRowOperator={false}
-            taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.SessionProperties,
-            ]}
-            onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))}
-            propertyFilters={webAnalyticsFilters}
-            pageKey="web-analytics"
-            eventNames={['$pageview']}
-        />
+        <Popover
+            visible={displayFilters}
+            onClickOutside={() => setDisplayFilters(false)}
+            placement="bottom"
+            maxContentWidth
+            className="max-w-200"
+            overlay={
+                <div className="p-2">
+                    <PropertyFilters
+                        disablePopover
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.SessionProperties,
+                        ]}
+                        onChange={(filters) =>
+                            setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))
+                        }
+                        propertyFilters={webAnalyticsFilters}
+                        pageKey="web-analytics"
+                        eventNames={['$pageview']}
+                    />
+                </div>
+            }
+        >
+            <LemonButton
+                icon={
+                    <IconWithCount count={webAnalyticsFilters.length} showZero={false}>
+                        <IconFilter />
+                    </IconWithCount>
+                }
+                type="secondary"
+                data-attr="show-web-analytics-filters"
+                onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
+            >
+                Filters
+            </LemonButton>
+        </Popover>
     )
 }
