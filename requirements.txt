@@ -182,7 +182,7 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.23.2
+deltalake==0.25.1
     # via -r requirements.in
 distro==1.9.0
     # via
@@ -332,6 +332,8 @@ graphql-core==3.2.5
     #   graphql-relay
 graphql-relay==3.2.0
     # via graphene
+greenlet==3.1.1
+    # via sqlalchemy
 grpcio==1.63.2
     # via
     #   -r requirements.in

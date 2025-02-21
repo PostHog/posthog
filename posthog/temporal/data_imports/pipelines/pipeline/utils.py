@@ -1,24 +1,25 @@
 import decimal
+from ipaddress import IPv4Address, IPv6Address
 import json
-from collections.abc import Sequence
 import math
-from typing import Any, Optional
-from collections.abc import Hashable
-from collections.abc import Iterator
-from dateutil import parser
 import uuid
-import orjson
+from collections.abc import Hashable, Iterator, Sequence
+from typing import Any, Optional
+
+import deltalake as deltalake
 import numpy as np
+import orjson
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
-from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
-from dlt.sources import DltResource
-import deltalake as deltalake
+from dateutil import parser
 from django.db.models import F
-from posthog.temporal.common.logger import FilteringBoundLogger
 from dlt.common.data_types.typing import TDataType
+from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
+from dlt.sources import DltResource
+
+from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
@@ -328,15 +329,29 @@ def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type 
 
 
 def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | pa.Decimal256Type:
+    """Determine maximum precision and scale from all `decimal.Decimal` values.
+
+    Returns:
+        A `pa.Decimal128Type` or `pa.Decimal256Type` with enough precision and
+        scale to hold all `values`.
+    """
     max_precision = 1
     max_scale = 0
 
     for value in values:
-        sign, digits, exponent = value.as_tuple()
+        _, digits, exponent = value.as_tuple()
         if not isinstance(exponent, int):
             continue
-        precision = len(digits)
-        scale = -exponent if exponent < 0 else 0
+
+        # This implementation accounts for leading zeroes being excluded from digits
+        # It is based on Arrow, see:
+        # https://github.com/apache/arrow/blob/main/python/pyarrow/src/arrow/python/decimal.cc#L75
+        if exponent < 0:
+            precision = max(len(digits), -exponent)
+            scale = -exponent
+        else:
+            precision = len(digits) + exponent
+            scale = 0
 
         max_precision = max(precision, max_precision)
         max_scale = max(scale, max_scale)
@@ -545,6 +560,14 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 [None if s is None else _json_dumps(s) for s in columnar_table_data[field_name].tolist()]
             )
             columnar_table_data[field_name] = json_str_array
+            py_type = str
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
+
+        # Convert IP types to string
+        if issubclass(py_type, IPv4Address | IPv6Address):
+            str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
+            columnar_table_data[field_name] = str_array
             py_type = str
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))

@@ -9,6 +9,7 @@ import {
     EventsNode,
     ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
+    ExperimentEventExposureConfig,
     ExperimentEventMetricConfig,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -392,6 +393,46 @@ export function getExperimentMetricFromInsight(
     return undefined
 }
 
+export function exposureConfigToFilter(exposure_config: ExperimentEventExposureConfig): FilterType {
+    if (exposure_config.kind === NodeKind.ExperimentEventExposureConfig) {
+        return {
+            events: [
+                {
+                    id: exposure_config.event,
+                    name: exposure_config.event,
+                    kind: NodeKind.EventsNode,
+                    type: 'events',
+                    properties: exposure_config.properties,
+                } as EventsNode,
+            ],
+            actions: [],
+            data_warehouse: [],
+        }
+    }
+
+    return {}
+}
+
+export function filterToExposureConfig(
+    entity: Record<string, any> | undefined
+): ExperimentEventExposureConfig | undefined {
+    if (!entity) {
+        return undefined
+    }
+
+    if (entity.kind === NodeKind.EventsNode) {
+        if (entity.type === 'events') {
+            return {
+                kind: NodeKind.ExperimentEventExposureConfig,
+                event: entity.id,
+                properties: entity.properties,
+            }
+        }
+    }
+
+    return undefined
+}
+
 export function metricConfigToFilter(
     metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
 ): FilterType {
@@ -497,7 +538,10 @@ export function filterToMetricConfig(
     }
 }
 
-export function metricToQuery(metric: ExperimentMetric): FunnelsQuery | TrendsQuery | undefined {
+export function metricToQuery(
+    metric: ExperimentMetric,
+    filterTestAccounts: boolean
+): FunnelsQuery | TrendsQuery | undefined {
     const commonTrendsQueryProps: Partial<TrendsQuery> = {
         kind: NodeKind.TrendsQuery,
         interval: 'day',
@@ -509,7 +553,7 @@ export function metricToQuery(metric: ExperimentMetric): FunnelsQuery | TrendsQu
         trendsFilter: {
             display: ChartDisplayType.ActionsLineGraph,
         },
-        filterTestAccounts: !!metric.filterTestAccounts,
+        filterTestAccounts,
     }
 
     if (metric.metric_type === ExperimentMetricType.COUNT) {
@@ -539,7 +583,7 @@ export function metricToQuery(metric: ExperimentMetric): FunnelsQuery | TrendsQu
     } else if (metric.metric_type === ExperimentMetricType.BINOMIAL) {
         return {
             kind: NodeKind.FunnelsQuery,
-            filterTestAccounts: !!metric.filterTestAccounts,
+            filterTestAccounts,
             dateRange: {
                 date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                 date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),

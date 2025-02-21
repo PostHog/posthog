@@ -13,6 +13,7 @@ import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { ExposureCriteria } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Info } from './Info'
 import { Overview } from './Overview'
@@ -103,6 +104,9 @@ export function ExperimentView(): JSX.Element {
                         <div className="xl:flex">
                             <div className="w-1/2 mt-8 xl:mt-0">
                                 <DataCollection />
+                            </div>
+                            <div className="w-1/2 mt-8 xl:mt-0">
+                                {shouldUseExperimentMetrics && <ExposureCriteria />}
                             </div>
                         </div>
                         <LemonTabs
