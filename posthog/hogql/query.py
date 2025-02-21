@@ -130,6 +130,9 @@ class HogQLQueryExecutor:
             enable_select_queries=True,
             timings=self.timings,
             modifiers=self.query_modifiers,
+            # it's valid to reuse the clickhouse DB because the modifiers are the same,
+            # and if we don't we end up creating the virtual DB twice per query
+            database=self.clickhouse_context.database,
         )
 
         with self.timings.measure("clone"):
