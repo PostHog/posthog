@@ -319,6 +319,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
+            playerSettingsLogic,
+            ['setHideViewedRecordings'],
         ],
         values: [
             featureFlagLogic,
@@ -596,6 +598,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
+        },
+
+        setHideViewedRecordings: () => {
+            actions.maybeLoadSessionRecordings()
         },
     })),
     selectors({
