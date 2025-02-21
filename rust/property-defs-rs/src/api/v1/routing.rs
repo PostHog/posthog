@@ -17,14 +17,14 @@ pub fn apply_routes(parent: Router, qmgr: Arc<Manager>) -> Router {
     let api_router = Router::new()
         .route(
             "projects/{project_id}/property_definitions/",
-            get(handle_prop_defs_by_project),
+            get(project_property_definitions_handler),
         )
         .with_state(qmgr);
 
     parent.nest("/api/v1", api_router)
 }
 
-async fn handle_prop_defs_by_project(
+async fn project_property_definitions_handler(
     State(qmgr): State<Arc<Manager>>,
     Path(project_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,

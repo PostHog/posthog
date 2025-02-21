@@ -1,11 +1,19 @@
 use crate::{
-    api::v1::constants::*,
+    api::v1::constants::{
+        extract_aliases,
+        POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS,
+        EVENTS_HIDDEN_PROPERTY_DEFINITIONS,
+        SEARCH_SCREEN_WORD,
+        SEARCH_TRIGGER_WORD,
+    },
     //metrics_consts::{},
     config::Config,
 };
 
 use serde::Serialize;
 use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, QueryBuilder};
+
+use std::collections::HashMap;
 
 // Wraps Postgres client and builds queries
 pub struct Manager {
@@ -14,6 +22,7 @@ pub struct Manager {
     enterprise_prop_defs_table: String,
     prop_defs_table: String,
     event_props_table: String,
+    search_term_aliases: HashMap<&'static str, &'static str>,
 }
 
 impl Manager {
@@ -26,13 +35,14 @@ impl Manager {
             enterprise_prop_defs_table: cfg.enterprise_prop_defs_table_name.clone(),
             prop_defs_table: cfg.prop_defs_table_name.clone(),
             event_props_table: cfg.event_props_table_name.clone(),
+            search_term_aliases: extract_aliases(),
         })
     }
 
     pub fn count_query<'a>(
         &self,
         project_id: i32,
-        search: &Option<Vec<String>>,
+        search_terms: &Option<Vec<String>>,
         property_type: &Option<String>,
         group_type_index: i32,
         properties: &'a Option<Vec<String>>,
@@ -167,18 +177,103 @@ impl Manager {
             );
         }
 
-        // conditionally apply search term matching
+        // conditionally apply search term matching; skip this if possible, it's not cheap!
         // logic: https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
-        // helpers logic:
-        // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L308-L323
-        // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
-        //
-        // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
+        if search_terms.as_ref().is_some_and(|terms| !terms.is_empty()) {
+            // step 1: prep list of legal search fields (default: just property "name")
+            // TODO: augment w/user-supplied fields to search in? verify in Django orig
+            let mut search_fields = vec!["name"];
 
-        /* **** TODO: implement! ****
-           let search_extras = HashMap::<String, String>::new();
-           **************************
-        */
+            // step 2: identify property def "aliases" to enrich our fuzzy matching; see also:
+            // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L309-L324
+
+            // attempt to enrich basic search terms using a heuristic:
+            // if the long slug associated with any std PostHog event properties
+            // matches *every search term* in the incoming query, capture the
+            // associated property name and add it to the search terms we'll
+            // attempt to return from the prop defs query. This is expensive :(
+            let term_aliases: Vec<&str> = self.search_term_aliases
+                .iter()
+                .filter(|(key, prop_long_slug)|
+                    search_terms
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .all(|term| prop_long_slug.contains(term)))
+                .map(|(key, _matched_slug)| *key)
+                .collect();
+
+            // build a query fragment if we found aliases. We can do this
+            // outside of the builder because these aren't user inputs
+            let search_extras = if !term_aliases.is_empty() {
+                format!(" OR name = ANY(ARRAY[{}])",
+                    term_aliases
+                        .iter()
+                        .map(|ta| format!("'{}'", ta))
+                        .collect::<Vec<_>>()
+                        .join(", "))
+            } else { "".to_string() };
+
+            // step 3: filter "initial" prop defs if the user wants "latest"
+            // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
+            let screening_clause = if term_aliases.iter().any(|ta| *ta == SEARCH_TRIGGER_WORD) {
+                format!(" OR NOT name ILIKE '%{}%'", SEARCH_SCREEN_WORD)
+            } else { "".to_string() };
+
+            // step 3.5: join whatever we found in search_extras and trigger word result
+            let search_extras = format!("{}{}", search_extras, screening_clause);
+
+            // step 4: generate the search SQL which consistes of nested AND/OR clauses of arbitrary size,
+            // with each clasue testing search *fields* (like "name") in the table against fuzzy-matched
+            // search *terms* (event props.) Original Django monolith query construction step is here:
+            // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
+            if !search_fields.is_empty() || !search_terms.as_ref().is_some_and(|s| s.is_empty()) {
+                /* TODO: I don't think we need this cleansing step in the Rust service as Django does 
+                let cleansed_terms: Vec<String> = search
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|s| s.replace("\0", ""))
+                    .collect();
+                */
+
+                // TODO: this code is unhinged!! I'll circle back to refactor after
+                // I battle the borrow checker some more, apologies! :)
+                if let Some(terms) = search_terms {
+                    for (tndx, term) in terms.iter().enumerate() {
+                        if search_fields.is_empty() {
+                            continue
+                        }
+                        if tndx == 0 {
+                            qb.push(" AND ((");
+                        }
+                        for (fndx, field ) in search_fields.iter().enumerate() {
+                            if fndx == 0 {
+                                qb.push("(");
+                            }
+                            qb.push_bind(field.clone());
+                            qb.push(" ILIKE '%");
+                            qb.push_bind(term);
+                            qb.push("%' ");
+                            if search_fields.len() > 1 && fndx < search_fields.len() - 1 {
+                                qb.push(" OR ");
+                            }
+                            if fndx == search_fields.len() - 1 {
+                                qb.push(") ");
+                            }
+                        }
+                        if terms.len() > 1 && tndx < terms.len() - 1 {
+                            qb.push(" AND ");
+                        }
+                        if tndx == terms.len() - 1 {
+                            qb.push(") ");
+                            qb.push_bind(search_extras.clone());
+                            qb.push(") ");
+                        }
+                    }
+                }
+            }
+        }
 
         // conditionally apply event_names filter for outer query
         //
