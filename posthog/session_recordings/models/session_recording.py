@@ -58,6 +58,7 @@ class SessionRecording(UUIDModel):
     # DYNAMIC FIELDS
 
     viewed: Optional[bool] = False
+    viewers: Optional[list[str]] = None
     _person: Optional[Person] = None
     matching_events: Optional[RecordingMatchingEvents] = None
     ongoing: Optional[bool] = None
