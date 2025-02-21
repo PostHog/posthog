@@ -116,6 +116,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             feature_flag=feature_flag,
             start_date=start_date,
             end_date=end_date,
+            exposure_criteria=None,
         )
 
     def create_data_warehouse_table_with_usage(self):

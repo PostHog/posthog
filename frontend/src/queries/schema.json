@@ -8869,6 +8869,9 @@
                 "code_name": {
                     "type": "string"
                 },
+                "isNull": {
+                    "type": "boolean"
+                },
                 "value": {},
                 "variableId": {
                     "type": "string"
