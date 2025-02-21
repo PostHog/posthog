@@ -437,10 +437,8 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertEqual(history[15].type, "ai")
 
         # New query
-        self.assertEqual(history[13].type, "human")
-        self.assertIn("Plan 7", history[13].content)
-        self.assertEqual(history[14].type, "human")
-        self.assertIn("Query 7", history[14].content)
+        self.assertEqual(history[16].type, "human")
+        self.assertIn("Query 8", history[16].content)
 
 
 class TestSchemaGeneratorToolsNode(BaseTest):

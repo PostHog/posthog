@@ -108,7 +108,7 @@ class RootNode(AssistantNode):
         base_model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True)
 
         # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
-        # This will remove the functions, so the agent don't have any other option but to exit.
+        # This will remove the functions, so the agent doesn't have any other option but to exit.
         if self._is_hard_limit_reached(state):
             return base_model
 
