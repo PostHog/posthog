@@ -108,8 +108,9 @@ class IntegrationViewSet(
         instance = self.get_object()
         google_ads = GoogleAdsIntegration(instance)
         customer_id = request.query_params.get("customerId")
+        parent_id = request.query_params.get("parentId")
 
-        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id)
+        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
 
         if len(conversion_actions) == 0:
             return Response({"conversionActions": []})
@@ -120,7 +121,7 @@ class IntegrationViewSet(
                 "name": conversionAction["conversionAction"]["name"],
                 "resourceName": conversionAction["conversionAction"]["resourceName"],
             }
-            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id)[0]["results"]
+            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id, parent_id)[0]["results"]
         ]
 
         return Response({"conversionActions": conversion_actions})
