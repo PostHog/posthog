@@ -180,6 +180,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         ]:
             from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
             from posthog.temporal.data_imports.pipelines.postgres.postgres import postgres_source
+            from posthog.temporal.data_imports.pipelines.mysql.mysql import mysql_source
 
             host = model.pipeline.job_inputs.get("host")
             port = model.pipeline.job_inputs.get("port")
@@ -238,6 +239,29 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                             else None,
                             team_id=inputs.team_id,
                         )
+                    elif ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MYSQL:
+                        source = mysql_source(
+                            host=tunnel.local_bind_host,
+                            port=int(tunnel.local_bind_port),
+                            user=user,
+                            password=password,
+                            database=database,
+                            using_ssl=using_ssl,
+                            schema=pg_schema,
+                            table_names=endpoints,
+                            is_incremental=schema.is_incremental,
+                            logger=logger,
+                            incremental_field=schema.sync_type_config.get("incremental_field")
+                            if schema.is_incremental
+                            else None,
+                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                            if schema.is_incremental
+                            else None,
+                            db_incremental_field_last_value=processed_incremental_last_value
+                            if schema.is_incremental
+                            else None,
+                            team_id=inputs.team_id,
+                        )
                     else:
                         source = sql_source_for_type(
                             source_type=ExternalDataSource.Type(model.pipeline.source_type),
@@ -279,6 +303,27 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     password=password,
                     database=database,
                     sslmode="prefer",
+                    schema=pg_schema,
+                    table_names=endpoints,
+                    is_incremental=schema.is_incremental,
+                    logger=logger,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.is_incremental
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.is_incremental
+                    else None,
+                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                    team_id=inputs.team_id,
+                )
+            elif ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MYSQL:
+                source = mysql_source(
+                    host=host,
+                    port=int(port),
+                    user=user,
+                    password=password,
+                    database=database,
+                    using_ssl=using_ssl,
                     schema=pg_schema,
                     table_names=endpoints,
                     is_incremental=schema.is_incremental,

@@ -131,7 +131,7 @@ click-repl==0.3.0
     # via celery
 clickhouse-connect==0.8.11
     # via -r requirements.in
-clickhouse-driver==0.2.7
+clickhouse-driver==0.2.9
     # via
     #   -r requirements.in
     #   clickhouse-pool
