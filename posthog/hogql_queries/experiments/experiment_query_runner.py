@@ -119,7 +119,8 @@ class ExperimentQueryRunner(QueryRunner):
         # Filter Test Accounts
         test_accounts_filter: list[ast.Expr] = []
         if (
-            self.experiment.exposure_criteria.get("filterTestAccounts")
+            self.experiment.exposure_criteria
+            and self.experiment.exposure_criteria.get("filterTestAccounts")
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):
@@ -140,7 +141,9 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
         event_name = "$feature_flag_called"
-        exposure_config = self.experiment.exposure_criteria.get("exposure_config")
+        exposure_config = (
+            self.experiment.exposure_criteria.get("exposure_config") if self.experiment.exposure_criteria else None
+        )
         if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
             event_name = exposure_config.get("event")
             exposure_property_filters: list[ast.Expr] = []
