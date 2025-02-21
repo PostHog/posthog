@@ -4218,10 +4218,17 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
 }
 
+export enum ExternalDataJobStatus {
+    Running = 'Running',
+    Completed = 'Completed',
+    Failed = 'Failed',
+    BillingLimits = 'Billing limits',
+}
+
 export interface ExternalDataJob {
     id: string
     created_at: string
-    status: 'Running' | 'Failed' | 'Completed' | 'Billing limits'
+    status: ExternalDataJobStatus
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string

@@ -2,7 +2,7 @@ import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posth
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { ExternalDataJob } from '~/types'
+import { ExternalDataJob, ExternalDataJobStatus } from '~/types'
 
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
 import { LogsView } from './Logs'
@@ -41,7 +41,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                         const tagContent = (
                             <LemonTag type={StatusTagSetting[job.status] || 'default'}>{job.status}</LemonTag>
                         )
-                        return job.latest_error && job.status === 'Failed' ? (
+                        return job.latest_error && job.status === ExternalDataJobStatus.Failed ? (
                             <Tooltip title={job.latest_error}>{tagContent}</Tooltip>
                         ) : (
                             tagContent
