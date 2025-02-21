@@ -169,11 +169,11 @@ export function ReplayMenu({ templateId, id, displayOptions = {} }: HogFunctionC
     )
 }
 
-function RunResult({ run }: { run: any }): JSX.Element {
+function RetryResults({ retry }: { retry: any }): JSX.Element {
     return (
         <div className="space-y-2" data-attr="test-results">
             <LemonTable
-                dataSource={run.logs ?? []}
+                dataSource={retry.logs ?? []}
                 columns={[
                     {
                         title: 'Timestamp',
@@ -203,7 +203,15 @@ function RunResult({ run }: { run: any }): JSX.Element {
     )
 }
 
-function RunRetryButton({ row, retryHogFunction }: { row: any; retryHogFunction: any }): JSX.Element {
+function RunRetryButton({
+    loadingRetries,
+    row,
+    retryHogFunction,
+}: {
+    loadingRetries: string[]
+    row: any
+    retryHogFunction: any
+}): JSX.Element {
     const handleRetry = (): void => {
         LemonDialog.open({
             title: 'Replay event?',
@@ -231,7 +239,14 @@ function RunRetryButton({ row, retryHogFunction }: { row: any; retryHogFunction:
 
     return (
         <span className="flex items-center gap-1">
-            <LemonButton size="small" type="secondary" icon={<IconRefresh />} onClick={handleRetry} />
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconRefresh />}
+                loading={loadingRetries.includes(row[0].uuid)}
+                disabledReason={loadingRetries.includes(row[0].uuid) ? 'Retrying...' : undefined}
+                onClick={handleRetry}
+            />
         </span>
     )
 }
@@ -322,7 +337,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
 
 export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionReplayLogic({ id })
-    const { eventsLoading, eventsWithRetries } = useValues(logic)
+    const { eventsLoading, eventsWithRetries, loadingRetries } = useValues(logic)
     const { retryHogFunction } = useActions(logic)
 
     return (
@@ -360,7 +375,7 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
                                 {
                                     title: 'Test invocation logs',
                                     key: 'testInvocationLogs',
-                                    render: (_, run) => <RunResult run={run} />,
+                                    render: (_, retry) => <RetryResults retry={retry} />,
                                 },
                             ]}
                         />
@@ -428,7 +443,11 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
                     render: function RenderActions(_, row) {
                         return (
                             <div className="flex gap-1">
-                                <RunRetryButton row={row} retryHogFunction={retryHogFunction} />
+                                <RunRetryButton
+                                    loadingRetries={loadingRetries}
+                                    row={row}
+                                    retryHogFunction={retryHogFunction}
+                                />
                             </div>
                         )
                     },

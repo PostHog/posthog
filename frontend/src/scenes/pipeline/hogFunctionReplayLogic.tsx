@@ -33,6 +33,8 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
     }),
     actions({
         changeDateRange: (after: string | null, before: string | null) => ({ after, before }),
+        addLoadingRetry: (eventId: string) => ({ eventId }),
+        removeLoadingRetry: (eventId: string) => ({ eventId }),
     }),
     reducers({
         dateRange: [
@@ -44,8 +46,16 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                 }),
             },
         ],
+        loadingRetries: [
+            [] as string[],
+            {
+                addLoadingRetry: (state, { eventId }: { eventId: string }) => [...state, eventId],
+                removeLoadingRetry: (state, { eventId }: { eventId: string }) =>
+                    state.filter((id: string) => id !== eventId),
+            },
+        ],
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         events: [
             [] as any[],
             {
@@ -62,6 +72,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
             [] as any[],
             {
                 retryHogFunction: async (row: any) => {
+                    actions.addLoadingRetry(row[0].uuid)
                     const globals = convertToHogFunctionInvocationGlobals(row[0], row[1])
                     globals.groups = {}
                     values.groupTypes.forEach((groupType, index) => {
@@ -101,6 +112,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                         lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
                     }
 
+                    actions.removeLoadingRetry(row[0].uuid)
                     return [
                         {
                             eventId: row[0].uuid,
