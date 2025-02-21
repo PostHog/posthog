@@ -1,4 +1,5 @@
 import decimal
+from ipaddress import IPv4Address, IPv6Address
 import json
 from collections.abc import Sequence
 import math
@@ -545,6 +546,14 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 [None if s is None else _json_dumps(s) for s in columnar_table_data[field_name].tolist()]
             )
             columnar_table_data[field_name] = json_str_array
+            py_type = str
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
+
+        # Convert IP types to string
+        if issubclass(py_type, IPv4Address | IPv6Address):
+            str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
+            columnar_table_data[field_name] = str_array
             py_type = str
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
