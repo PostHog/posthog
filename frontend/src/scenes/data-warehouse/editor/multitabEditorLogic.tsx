@@ -132,15 +132,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         console.error(e)
                     }
 
+                    const localEditorModels = localStorage.getItem(editorModelsStateKey(props.key))
+                    const localActiveModelUri = localStorage.getItem(activeModelStateKey(props.key))
+
                     if (queryTabStateModel === null) {
                         queryTabStateModel = await api.queryTabState.create({
                             state: {
-                                editorModelsStateKey: JSON.stringify(
-                                    localStorage.getItem(editorModelsStateKey(props.key))
-                                ),
-                                activeModelStateKey: JSON.stringify(
-                                    localStorage.getItem(activeModelStateKey(props.key))
-                                ),
+                                editorModelsStateKey: localEditorModels || '',
+                                activeModelStateKey: localActiveModelUri || '',
+                                sourceQuery: values.sourceQuery ? JSON.stringify(values.sourceQuery) : '',
                             },
                         })
                     }
@@ -372,8 +372,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         initialize: () => {
             // TODO: replace with queryTabState
-            const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
-            const activeModelUri = localStorage.getItem(activeModelStateKey(props.key))
+            const remoteModelQueries = values.queryTabState?.state.editorModelsStateKey
+            const remoteActiveModelUri = values.queryTabState?.state.activeModelStateKey
+            const remoteSourceQuery = values.queryTabState?.state.sourceQuery
+
+            if (remoteSourceQuery) {
+                actions.setSourceQuery(JSON.parse(remoteSourceQuery))
+            }
+
+            const allModelQueries = remoteModelQueries || localStorage.getItem(editorModelsStateKey(props.key))
+            const activeModelUri = remoteActiveModelUri || localStorage.getItem(activeModelStateKey(props.key))
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -621,6 +629,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (activeTab && activeTab.uri.path != values.activeModelUri?.uri.path) {
                 actions.selectTab(activeTab)
             }
+        },
+        queryTabState: () => {
+            actions.initialize()
         },
     })),
     selectors({
