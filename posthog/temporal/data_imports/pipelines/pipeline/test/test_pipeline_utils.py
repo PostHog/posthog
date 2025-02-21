@@ -87,11 +87,11 @@ def test_table_from_py_list_with_lists():
 def test_table_from_py_list_with_nan():
     table = table_from_py_list([{"column": 1.0}, {"column": float("NaN")}])
 
-    assert table.equals(pa.table({"column": [1.0, None]}))
+    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.float64()),
+                ("column", pa.decimal128(2, 1)),
             ]
         )
     )
@@ -100,11 +100,11 @@ def test_table_from_py_list_with_nan():
 def test_table_from_py_list_with_inf():
     table = table_from_py_list([{"column": 1.0}, {"column": float("Inf")}])
 
-    assert table.equals(pa.table({"column": [1.0, None]}))
+    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.float64()),
+                ("column", pa.decimal128(2, 1)),
             ]
         )
     )
@@ -113,11 +113,11 @@ def test_table_from_py_list_with_inf():
 def test_table_from_py_list_with_negative_inf():
     table = table_from_py_list([{"column": 1.0}, {"column": -float("Inf")}])
 
-    assert table.equals(pa.table({"column": [1.0, None]}))
+    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.float64()),
+                ("column", pa.decimal128(2, 1)),
             ]
         )
     )
@@ -126,11 +126,11 @@ def test_table_from_py_list_with_negative_inf():
 def test_table_from_py_list_with_decimal_inf():
     table = table_from_py_list([{"column": decimal.Decimal(1)}, {"column": decimal.Decimal("Infinity")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal(1), None]}))
+    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(1, 0)),
+                ("column", pa.decimal128(2, 1)),
             ]
         )
     )
@@ -139,11 +139,11 @@ def test_table_from_py_list_with_decimal_inf():
 def test_table_from_py_list_with_negative_decimal_inf():
     table = table_from_py_list([{"column": decimal.Decimal(1)}, {"column": decimal.Decimal("-Infinity")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal(1), None]}))
+    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(1, 0)),
+                ("column", pa.decimal128(2, 1)),
             ]
         )
     )
@@ -152,11 +152,11 @@ def test_table_from_py_list_with_negative_decimal_inf():
 def test_table_from_py_list_with_binary_column():
     table = table_from_py_list([{"column": 1.0, "some_bytes": b"hello"}])
 
-    assert table.equals(pa.table({"column": [1.0]}))
+    assert table.equals(pa.table({"column": [decimal.Decimal("1.0")]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.float64()),
+                ("column", pa.decimal128(2, 1)),
             ]
         )
     )
@@ -168,7 +168,7 @@ def test_table_from_py_list_with_mixed_decimal_float_sizes():
     expected_schema = pa.schema({"column": pa.decimal128(6, 2)})
     assert table.equals(
         pa.table(
-            {"column": pa.array([decimal.Decimal(1.0), decimal.Decimal(str(1000.01))], type=pa.decimal128(6, 2))},
+            {"column": pa.array([decimal.Decimal("1.0"), decimal.Decimal(str(1000.01))], type=pa.decimal128(6, 2))},
             schema=expected_schema,
         )
     )
