@@ -3,6 +3,7 @@ import LRUCache from 'lru-cache'
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { GroupType, HogFunctionInvocationGlobals } from '../types'
+import { HogFunctionManagerService } from './hog-function-manager.service'
 
 export type GroupsMap = Record<string, GroupType>
 export type GroupsCache = Record<Team['id'], GroupsMap>
