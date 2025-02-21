@@ -214,6 +214,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "id",
             "uuid",
             "name",
+            "access_control",
             "organization",
             "project_id",
             "api_token",
