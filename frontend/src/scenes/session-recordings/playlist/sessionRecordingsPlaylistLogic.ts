@@ -601,7 +601,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
 
         setHideViewedRecordings: () => {
-            actions.maybeLoadSessionRecordings()
+            actions.maybeLoadSessionRecordings('older')
         },
     })),
     selectors({
