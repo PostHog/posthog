@@ -7,24 +7,24 @@ import {
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { AvailableFeature } from '~/types'
 
-import { hogFunctionConfigurationLogic } from './hogfunctions/hogFunctionConfigurationLogic'
-import { TZLabel } from 'lib/components/TZLabel'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { hogFunctionReplayLogic } from './hogFunctionReplayLogic'
-import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { hogFunctionConfigurationLogic } from './hogfunctions/hogFunctionConfigurationLogic'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -44,11 +44,7 @@ export interface HogFunctionConfigurationProps {
     }
 }
 
-export function ReplayMenu({
-    templateId,
-    id,
-    displayOptions = {},
-}: HogFunctionConfigurationProps): JSX.Element {
+export function ReplayMenu({ templateId, id, displayOptions = {} }: HogFunctionConfigurationProps): JSX.Element {
     const logicProps = { templateId, id }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
@@ -64,18 +60,13 @@ export function ReplayMenu({
         template,
         type,
     } = useValues(logic)
-    const {
-        submitConfiguration,
-        resetForm,
-        duplicate,
-        deleteHogFunction,
-    } = useActions(logic)
+    const { submitConfiguration, resetForm, duplicate, deleteHogFunction } = useActions(logic)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
     }
 
-    if (!loaded) {
+    if (!loaded || !id) {
         return <NotFound object="Hog function" />
     }
 
@@ -130,12 +121,14 @@ export function ReplayMenu({
                 onClick={submitConfiguration}
                 loading={isConfigurationSubmitting}
             >
-                {templateId ? 'Create' : 'Save'}
-                {willReEnableOnSave
-                    ? ' & re-enable'
-                    : willChangeEnabledOnSave
-                    ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                    : ''}
+                <span>{templateId ? 'Create' : 'Save'}</span>
+                <span>
+                    {willReEnableOnSave
+                        ? ' & re-enable'
+                        : willChangeEnabledOnSave
+                        ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
+                        : ''}
+                </span>
             </LemonButton>
         </>
     )
@@ -210,14 +203,23 @@ function RunResult({ run }: { run: any }): JSX.Element {
     )
 }
 
-function RunRetryButton({ event, person, retryHogFunction }: { event: any; person: any; retryHogFunction: any }): JSX.Element {
-    const handleRetry = () => {
+function RunRetryButton({
+    event,
+    person,
+    retryHogFunction,
+}: {
+    event: any
+    person: any
+    retryHogFunction: any
+}): JSX.Element {
+    const handleRetry = (): void => {
         LemonDialog.open({
             title: 'Replay event?',
             description: (
-                <>  
+                <>
                     <p>
-                        This will execute the hog function using this event. Consider the impact of this function on your destination.
+                        This will execute the hog function using this event. Consider the impact of this function on
+                        your destination.
                     </p>
                     <p>
                         <b>Note -</b> do not close this page until the replay is complete.
@@ -237,12 +239,7 @@ function RunRetryButton({ event, person, retryHogFunction }: { event: any; perso
 
     return (
         <span className="flex items-center gap-1">
-            <LemonButton
-                size="small"
-                type="secondary"
-                icon={<IconRefresh />}
-                onClick={handleRetry}
-            />
+            <LemonButton size="small" type="secondary" icon={<IconRefresh />} onClick={handleRetry} />
         </span>
     )
 }
@@ -265,7 +262,7 @@ export function RetryStatusIcon({
         }
     }
 
-    const status = retries.some(retry => retry.status === 'success') ? 'success' : 'error'
+    const status = retries.some((retry) => retry.status === 'success') ? 'success' : 'error'
     const color = colorForStatus(status)
 
     return (
@@ -306,26 +303,32 @@ function EmptyColumn(): JSX.Element {
     )
 }
 
-function RunsFilters({ id }: { id?: string | null }): JSX.Element {
+function RunsFilters({ id }: { id: string }): JSX.Element {
     const logic = hogFunctionReplayLogic({ id })
     const { eventsLoading, baseEventsQuery } = useValues(logic)
     const { loadEvents, changeDateRange } = useActions(logic)
 
     return (
         <div className="flex items-center gap-2">
-            <LemonButton onClick={loadEvents} loading={eventsLoading} type="secondary" icon={<IconRefresh />} size="small">
+            <LemonButton
+                onClick={loadEvents}
+                loading={eventsLoading}
+                type="secondary"
+                icon={<IconRefresh />}
+                size="small"
+            >
                 Refresh
             </LemonButton>
             <DateFilter
-                dateFrom={baseEventsQuery.after ?? undefined}
-                dateTo={baseEventsQuery.before ?? undefined}
+                dateFrom={baseEventsQuery?.after ?? undefined}
+                dateTo={baseEventsQuery?.before ?? undefined}
                 onChange={changeDateRange}
             />
         </div>
     )
 }
 
-export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.Element | null {
+export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionReplayLogic({ id })
     const { eventsLoading, events } = useValues(logic)
     const { retryHogFunction } = useActions(logic)
@@ -338,7 +341,7 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
             pagination={{
                 controlled: false,
                 pageSize: 20,
-                hideOnSinglePage: false
+                hideOnSinglePage: false,
             }}
             expandable={{
                 noIndent: true,
@@ -357,8 +360,10 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
                                             <LemonBanner type={retry.status === 'success' ? 'success' : 'error'}>
                                                 {retry.status === 'success' ? 'Success' : 'Error'}
                                             </LemonBanner>
-                                        ) : <RetryStatusIcon retries={[retry]} showLabel />
-                                    }
+                                        ) : (
+                                            <RetryStatusIcon retries={[retry]} showLabel />
+                                        )
+                                    },
                                 },
                                 {
                                     title: 'Test invocation logs',
@@ -384,7 +389,11 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
                     key: 'event',
                     className: 'max-w-80',
                     render: (_, { event }) => {
-                        return event.event ? <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} /> : <EmptyColumn />
+                        return event.event ? (
+                            <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
+                        ) : (
+                            <EmptyColumn />
+                        )
                     },
                 },
                 {
@@ -398,7 +407,12 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
                     title: 'URL / Screen',
                     key: 'url',
                     className: 'max-w-80',
-                    render: (_, { event }) => event.properties['$current_url'] || event.properties['$screen_name'] ? <span>{event.properties['$current_url'] || event.properties['$screen_name']}</span> : <EmptyColumn />
+                    render: (_, { event }) =>
+                        event.properties['$current_url'] || event.properties['$screen_name'] ? (
+                            <span>{event.properties['$current_url'] || event.properties['$screen_name']}</span>
+                        ) : (
+                            <EmptyColumn />
+                        ),
                 },
                 {
                     title: 'Library',
@@ -428,9 +442,7 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
                     },
                 },
             ]}
-            emptyState={
-                <InsightEmptyState /> 
-            }
+            emptyState={<InsightEmptyState />}
         />
     )
 }

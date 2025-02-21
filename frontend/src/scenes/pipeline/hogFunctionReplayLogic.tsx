@@ -1,23 +1,35 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
-import { actions, connect, events, kea, key, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { EventsQuery, NodeKind } from '~/queries/schema'
+
+import { groupsModel } from '~/models/groupsModel'
+import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
+import { EventType, PersonType } from '~/types'
+
+import type { hogFunctionReplayLogicType } from './hogFunctionReplayLogicType'
 import {
     convertToHogFunctionInvocationGlobals,
     hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogfunctions/hogFunctionConfigurationLogic'
-import { lemonToast } from '@posthog/lemon-ui'
-import { EventType, PersonType } from '~/types'
-import { groupsModel } from '~/models/groupsModel'
 
-import type { hogFunctionReplayLogicType } from './hogFunctionReplayLogicType'
+export interface HogFunctionReplayLogicProps {
+    id: string
+}
+
+export interface RetryType {
+    eventId: string
+    status: string
+    logs: { timestamp: string; message: string; level: string }[]
+}
 
 export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
-    key(({ id }) => id),
     path((key) => ['scenes', 'pipeline', 'hogFunctionReplayLogic', key]),
+    props({} as HogFunctionReplayLogicProps),
+    key(({ id }: HogFunctionReplayLogicProps) => id),
     connect({
         values: [
             hogFunctionConfigurationLogic,
@@ -27,23 +39,20 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
         ],
     }),
     actions({
-        changeDateRange: (after: string, before: string) => ({ after, before }),
+        changeDateRange: (after: string | null, before: string | null) => ({ after, before }),
     }),
     reducers({
         dateRange: [
-            { after: '-7d', before: undefined },
+            { after: '-7d', before: null } as { after: string | null; before: string | null },
             {
-                changeDateRange: (_, { after, before }: { after: string; before: string }) => ({ after, before }),
-            },
-        ],
-        retries: [
-            [],
-            {
-                addRetry: (state, { retry }) => [...state.retries, retry],
+                changeDateRange: (_, { after, before }: { after: string | null; before: string | null }) => ({
+                    after,
+                    before,
+                }),
             },
         ],
     }),
-    selectors(({}) => ({
+    selectors(() => ({
         baseEventsQuery: [
             (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.dateRange],
             (configuration, matchingFilters, groupTypes, dateRange): EventsQuery | null => {
@@ -52,8 +61,8 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
                     fixedProperties: [matchingFilters],
                     select: ['*', 'person'],
-                    after: dateRange.after,
-                    before: dateRange.before,
+                    after: dateRange?.after ?? undefined,
+                    before: dateRange?.before ?? undefined,
                     orderBy: ['timestamp DESC'],
                 }
                 groupTypes.forEach((groupType) => {
@@ -69,9 +78,12 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
     })),
     loaders(({ values, props }) => ({
         events: [
-            [],
+            [] as Array<{ event: EventType; person: PersonType; retries: any[] }>,
             {
                 loadEvents: async () => {
+                    if (!values.baseEventsQuery) {
+                        return []
+                    }
                     const response = await api.query(values.baseEventsQuery)
                     return response.results.map((row: any) => ({
                         event: row[0],
@@ -82,7 +94,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
             },
         ],
         retries: [
-            [],
+            [] as RetryType[],
             {
                 retryHogFunction: async ({ event, person }: { event: EventType; person: PersonType }) => {
                     const globals = convertToHogFunctionInvocationGlobals(event, person)
