@@ -98,7 +98,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                 handleFolderToggle(folder.id, isExpanded)
                             }
                         }}
-                        setExpandedItemIds={setExpandedFolders}
+                        onSetExpandedItemIds={setExpandedFolders}
                         onDragEnd={(sourceId, targetId) => {
                             const oldPath = sourceId
                             const folder = targetId
