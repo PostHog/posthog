@@ -155,8 +155,8 @@ function RecordingOngoingIndicator(): JSX.Element {
 function UnwatchedIndicator({ otherViewers }: { otherViewers: SessionRecordingType['viewers'] }): JSX.Element {
     const tooltip = otherViewers.length ? (
         <span>
-            You've not watched this recording. But {otherViewers.length} other{' '}
-            {otherViewers.length === 1 ? 'user has' : 'users have'}.
+            You have not watched this recording yet. {otherViewers.length} other{' '}
+            {otherViewers.length === 1 ? 'person has' : 'people have'}.
         </span>
     ) : (
         <span>Nobody has watched this recording yet.</span>
