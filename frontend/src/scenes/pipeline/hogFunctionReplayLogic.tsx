@@ -125,11 +125,11 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     }
 
                     return [
-                        ...values.retries,
                         {
                             eventId: event.uuid,
                             ...res,
                         },
+                        ...values.retries,
                     ]
                 },
             },

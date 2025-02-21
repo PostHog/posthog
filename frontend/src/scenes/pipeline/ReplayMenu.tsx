@@ -330,22 +330,16 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
     const { eventsLoading, events } = useValues(logic)
     const { retryHogFunction } = useActions(logic)
 
-    const loadOlderRuns = () => {}
-
     return (
         <LemonTable
             dataSource={events}
             loading={eventsLoading}
             loadingSkeletonRows={5}
-            footer={
-                events?.hasMore && (
-                    <div className="flex items-center m-2">
-                        <LemonButton center fullWidth onClick={loadOlderRuns} loading={eventsLoading}>
-                            Load more rows
-                        </LemonButton>
-                    </div>
-                )
-            }
+            pagination={{
+                controlled: false,
+                pageSize: 20,
+                hideOnSinglePage: false
+            }}
             expandable={{
                 noIndent: true,
                 expandedRowRender: ({ retries }) => {
@@ -365,11 +359,6 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
                                             </LemonBanner>
                                         ) : <RetryStatusIcon retries={[retry]} showLabel />
                                     }
-                                },
-                                {
-                                    title: 'ID',
-                                    key: 'runId',
-                                    render: (_, retry) => "abc",
                                 },
                                 {
                                     title: 'Test invocation logs',
@@ -393,6 +382,7 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
                 {
                     title: 'Event',
                     key: 'event',
+                    className: 'max-w-80',
                     render: (_, { event }) => {
                         return event.event ? <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} /> : <EmptyColumn />
                     },
@@ -407,11 +397,13 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
                 {
                     title: 'URL / Screen',
                     key: 'url',
+                    className: 'max-w-80',
                     render: (_, { event }) => event.properties['$current_url'] || event.properties['$screen_name'] ? <span>{event.properties['$current_url'] || event.properties['$screen_name']}</span> : <EmptyColumn />
                 },
                 {
                     title: 'Library',
                     key: 'library',
+                    className: 'max-w-80',
                     render: (_, { event }) => {
                         return event.properties['$lib'] ? <span>{event.properties['$lib']}</span> : <EmptyColumn />
                     },
@@ -419,6 +411,7 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
                 {
                     title: 'Time',
                     key: 'time',
+                    className: 'max-w-80',
                     render: (_, { event }) => {
                         return event.timestamp ? <TZLabel time={event.timestamp} /> : <EmptyColumn />
                     },
