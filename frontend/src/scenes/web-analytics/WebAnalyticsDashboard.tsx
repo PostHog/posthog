@@ -1,4 +1,4 @@
-import { IconChevronDown, IconExpand45, IconGear, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
+import { IconExpand45, IconFilter, IconGear, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -43,7 +43,6 @@ import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
 // TODO: Make the domain dropdown work
-// TODO: Hide filters inside `WebPropertyFilters`
 const AllFilters = (): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
 
@@ -72,29 +71,29 @@ const AllFilters = (): JSX.Element => {
                         <span className="text-muted-alt">|</span>
                         <WebAnalyticsLiveUserCount />
                     </div>
+
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        className="sm:hidden"
+                        onClick={() => setExpanded((expanded) => !expanded)}
+                        icon={<IconFilter />}
+                    />
                 </div>
             </div>
 
-            {/* On mobile and up, just display Foldable Fields, else use a dropdown like button to display them */}
+            {/* On more than mobile, just display Foldable Fields, on smaller delegate displaying it to the expanded state */}
             <div className="hidden sm:flex gap-2">
                 <FoldableFields />
             </div>
 
-            <div className="flex flex-col sm:hidden gap-2">
-                <LemonButton className="w-full" onClick={() => setExpanded((expanded) => !expanded)}>
-                    <span className="flex-1">{expanded ? 'Hide filters' : 'Show Filters'}</span>
-                    <IconChevronDown
-                        className={clsx('transition-transform duration-150', { 'rotate-180': expanded })}
-                    />
-                </LemonButton>
-                <div
-                    className={clsx(
-                        'flex flex-col gap-2 overflow-hidden transition-all duration-200',
-                        expanded ? 'max-h-[500px]' : 'max-h-0'
-                    )}
-                >
-                    <FoldableFields />
-                </div>
+            <div
+                className={clsx(
+                    'flex sm:hidden flex-col gap-2 overflow-hidden transition-all duration-200',
+                    expanded ? 'max-h-[500px]' : 'max-h-0'
+                )}
+            >
+                <FoldableFields />
             </div>
         </div>
     )
@@ -114,7 +113,7 @@ const FoldableFields = (): JSX.Element => {
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
 
     return (
-        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
+        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
             <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} allowTimePrecision={true} />
 
             {productTab === ProductTab.ANALYTICS ? (
