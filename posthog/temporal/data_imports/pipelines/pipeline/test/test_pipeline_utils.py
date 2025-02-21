@@ -231,6 +231,8 @@ def test_table_from_py_list_with_schema_and_too_small_decimal_type():
         ([decimal.Decimal("1.001112")], pa.decimal128(7, 6)),
         ([decimal.Decimal("0.001112")], pa.decimal128(6, 6)),
         ([decimal.Decimal("1.0100000")], pa.decimal128(8, 7)),
+        # That is 1 followed by 37 zeroes to go over the pa.Decimal128 precision limit of 38.
+        ([decimal.Decimal("10000000000000000000000000000000000000.1")], pa.decimal256(39, 1)),
     ],
 )
 def test_get_max_decimal_type_returns_correct_decimal_type(
