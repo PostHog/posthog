@@ -77,9 +77,9 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     const buttonPropsFinal: Omit<LemonButtonProps, 'sideIcon' | 'sideAction'> = buttonPropsRest
     buttonPropsFinal.children = localValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
-    ) : (
+    ) : placeholder || placeholderClass ? (
         <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
-    )
+    ) : null
     buttonPropsFinal.onClick = () => setVisible(!visible)
     if (!buttonPropsFinal.type) {
         buttonPropsFinal.type = 'secondary'
