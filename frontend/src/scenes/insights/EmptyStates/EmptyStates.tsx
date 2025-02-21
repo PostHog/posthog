@@ -231,10 +231,12 @@ export function StatelessInsightLoadingState({
         }
     }, [pollResponse, showLoadingDetails])
 
+    // Toggle between loading messages every 3 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
     useEffect(() => {
         const TOGGLE_INTERVAL = 3000
         const FADE_OUT_DURATION = 300
 
+        // Don't toggle loading messages in storybook, will make tests flaky if so
         if (inStorybook() || inStorybookTestRunner()) {
             return
         }
@@ -243,6 +245,7 @@ export function StatelessInsightLoadingState({
             setIsLoadingMessageVisible(false)
             setTimeout(() => {
                 setLoadingMessageIndex((current) => {
+                    // Attempt to do random messages, but don't do the same message twice
                     let newIndex = Math.floor(Math.random() * LOADING_MESSAGES.length)
                     if (newIndex === current) {
                         newIndex = (newIndex + 1) % LOADING_MESSAGES.length
@@ -267,9 +270,9 @@ export function StatelessInsightLoadingState({
     return (
         <div
             data-attr="insight-empty-state"
-            className={clsx('flex flex-col rounded p-4 w-full h-full', {
+            className={clsx('flex flex-col gap-1 rounded p-4 w-full h-full', {
                 'justify-center items-center': !renderEmptyStateAsSkeleton,
-                'insights-loading-state': renderEmptyStateAsSkeleton,
+                'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
             })}
         >
             <span
@@ -305,7 +308,7 @@ export function StatelessInsightLoadingState({
             {showLoadingDetails && (
                 <div className="flex flex-col items-center justify-center">
                     {!renderEmptyStateAsSkeleton && <LoadingBar className="w-16 mx-auto mb-2" />}
-                    {showLoadingDetails && suggestions}
+                    {suggestions}
                     <LoadingDetails
                         pollResponse={pollResponse}
                         queryId={queryId}
@@ -385,7 +388,7 @@ export function SlowQuerySuggestions({
             <IconInfo className="text-xl shrink-0" />
             <div className="text-xs">
                 <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">
-                    Need to speed things up? {steps.length > 0 ? <span>Some steps to optimize this query:</span> : null}
+                    Need to speed things up? Some steps to optimize this query:
                 </p>
                 <ul className="mb-0 list-disc list-inside ml-2">{steps}</ul>
             </div>
