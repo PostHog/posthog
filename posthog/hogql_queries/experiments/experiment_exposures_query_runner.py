@@ -62,6 +62,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
     def _get_exposure_query(self) -> ast.SelectQuery:
         feature_flag_key = self.feature_flag.key
+        feature_flag_property = f"$feature/{feature_flag_key}"
 
         test_accounts_filter: list[ast.Expr] = []
         if (
@@ -79,6 +80,53 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
+        event_name = "$feature_flag_called"
+        exposure_config = self.experiment.exposure_criteria.get("exposure_config")
+        if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
+            event_name = exposure_config.get("event")
+            exposure_property_filters: list[ast.Expr] = []
+            if exposure_config.get("properties"):
+                for property in exposure_config.get("properties"):
+                    exposure_property_filters.append(property_to_expr(property, self.team))
+            exposure_where_clause = ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=event_name),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=parse_expr(
+                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '')",
+                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
+                        ),
+                        right=ast.Constant(value=self.variants),
+                    ),
+                    *exposure_property_filters,
+                ]
+            )
+        else:
+            exposure_where_clause = ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value="$feature_flag_called"),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"),
+                        right=ast.Constant(value=feature_flag_key),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"),
+                        right=ast.Constant(value=self.variants),
+                    ),
+                ]
+            )
+
         exposure_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["subq", "day"]),
@@ -90,36 +138,15 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                     select=[
                         parse_expr("toDate(toString(min(timestamp))) as day"),
                         parse_expr(
-                            "replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"
+                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '') AS variant",
+                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
                         ),
                         parse_expr("person_id"),
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     where=ast.And(
                         exprs=[
-                            ast.And(
-                                exprs=[
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Eq,
-                                        left=ast.Field(chain=["event"]),
-                                        right=ast.Constant(value="$feature_flag_called"),
-                                    ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Eq,
-                                        left=parse_expr(
-                                            "replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"
-                                        ),
-                                        right=ast.Constant(value=feature_flag_key),
-                                    ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.In,
-                                        left=parse_expr(
-                                            "replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"
-                                        ),
-                                        right=ast.Constant(value=self.variants),
-                                    ),
-                                ]
-                            ),
+                            exposure_where_clause,
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.GtEq,
                                 left=ast.Field(chain=["timestamp"]),
@@ -135,7 +162,10 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                     ),
                     group_by=[
                         parse_expr("person_id"),
-                        parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"),
+                        parse_expr(
+                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '')",
+                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
+                        ),
                     ],
                 ),
                 alias="subq",

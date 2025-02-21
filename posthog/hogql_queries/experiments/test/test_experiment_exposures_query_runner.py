@@ -8,7 +8,7 @@ from django.utils import timezone
 from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
-from posthog.schema import ExperimentExposureQuery
+from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -521,3 +521,120 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.timeseries), 2)
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 6)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_exposure_query_with_custom_exposure(self):
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        # Create test data using journeys
+        journeys_for(
+            {
+                "user_control_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                "user_control_2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            ff_property: "control",
+                        },
+                    },
+                ],
+                "user_control_3": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-03",
+                        "properties": {ff_property: "control", "plan": "pro"},
+                    },
+                ],
+                "user_control_4": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-03",
+                        "properties": {ff_property: "control", "plan": "free"},
+                    },
+                ],
+                "user_test_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+                "user_test_2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+                "user_test_3": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+                "user_test_4": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+                "user_test_5": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            ff_property: "test",
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        exposure_config = ExperimentEventExposureConfig(
+            event="$pageview",
+            properties=[
+                {"key": "plan", "operator": "is_not", "value": "free", "type": "event"},
+            ],
+        )
+        self.experiment.exposure_criteria = {
+            "exposure_config": exposure_config.model_dump(mode="json"),
+        }
+        self.experiment.save()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+        )
+        query_runner = ExperimentExposuresQueryRunner(
+            team=self.team,
+            query=query,
+        )
+        response = query_runner.calculate()
+
+        self.assertEqual(len(response.timeseries), 2)
+
+        self.assertEqual(response.total_exposures["control"], 3)
+        self.assertEqual(response.total_exposures["test"], 5)
