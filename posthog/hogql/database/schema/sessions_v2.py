@@ -163,22 +163,10 @@ def select_from_sessions_table_v2(
         requested_fields = {**requested_fields, "session_id_v7": ["session_id_v7"]}
 
     def arg_min_merge_field(field_name: str) -> ast.Call:
-        return ast.Call(
-            name="nullIf",
-            args=[
-                ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, field_name])]),
-                ast.Constant(value="null"),
-            ],
-        )
+        return ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, field_name])])
 
     def arg_max_merge_field(field_name: str) -> ast.Call:
-        return ast.Call(
-            name="nullIf",
-            args=[
-                ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, field_name])]),
-                ast.Constant(value="null"),
-            ],
-        )
+        return ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, field_name])])
 
     aggregate_fields: dict[str, ast.Expr] = {
         "session_id": ast.Call(

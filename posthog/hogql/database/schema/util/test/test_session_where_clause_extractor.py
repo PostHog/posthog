@@ -528,21 +528,21 @@ GROUP BY session_id
             """\
 SELECT
     s.session_id AS session_id,
-    min(toTimeZone(s.min_first_timestamp, %(hogql_val_6)s)) AS start_time
+    min(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s)) AS start_time
 FROM
     session_replay_events AS s
     LEFT JOIN (SELECT
-        path(nullIf(nullIf(argMinMerge(sessions.entry_url), %(hogql_val_0)s), %(hogql_val_1)s)) AS `$entry_pathname`,
+        path(nullIf(argMinMerge(sessions.entry_url), %(hogql_val_0)s)) AS `$entry_pathname`,
         sessions.session_id AS session_id
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_2)s), toIntervalDay(3)), %(hogql_val_3)s), lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_4)s), toIntervalDay(3)), now64(6, %(hogql_val_5)s)))
+        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s), toIntervalDay(3)), %(hogql_val_2)s), lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), now64(6, %(hogql_val_4)s)))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS s__session ON equals(s.session_id, s__session.session_id)
 WHERE
-    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_7)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), %(hogql_val_9)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_10)s), now64(6, %(hogql_val_11)s)), 0))
+    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), 0))
 GROUP BY
     s.session_id
 LIMIT 50000\

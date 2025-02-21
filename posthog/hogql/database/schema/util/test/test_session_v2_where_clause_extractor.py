@@ -560,21 +560,21 @@ GROUP BY session_id
             """\
 SELECT
     s.session_id AS session_id,
-    min(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s)) AS start_time
+    min(toTimeZone(s.min_first_timestamp, %(hogql_val_4)s)) AS start_time
 FROM
     session_replay_events AS s
     LEFT JOIN (SELECT
-        path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), %(hogql_val_0)s), %(hogql_val_1)s)) AS `$entry_pathname`,
+        path(nullIf(argMinMerge(raw_sessions.entry_url), %(hogql_val_0)s)) AS `$entry_pathname`,
         raw_sessions.session_id_v7 AS session_id_v7
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_2)s), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), now64(6, %(hogql_val_3)s)), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_1)s), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), now64(6, %(hogql_val_2)s)), 0))
     GROUP BY
         raw_sessions.session_id_v7,
-        raw_sessions.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_4)s)), s__session.session_id_v7)
+        raw_sessions.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_3)s)), s__session.session_id_v7)
 WHERE
-    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), 0))
+    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_5)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_6)s), %(hogql_val_7)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_8)s), now64(6, %(hogql_val_9)s)), 0))
 GROUP BY
     s.session_id
 LIMIT 50000\
