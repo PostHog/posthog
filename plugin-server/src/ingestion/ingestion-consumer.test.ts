@@ -2,9 +2,12 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
+import { template as ipAnonymizationTemplate } from '~/src/cdp/templates/_transformations/ip-anonymization/ip-anonymization.template'
+import { template as piiHashingTemplate } from '~/src/cdp/templates/_transformations/pii-hashing/pii-hashing.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
 import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
 import {
+    DecodedKafkaMessage,
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
     mockProducer,
@@ -682,5 +685,149 @@ describe('IngestionConsumer', () => {
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
+    })
+
+    describe('transformation chains', () => {
+        beforeEach(async () => {
+            fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+            jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+            hub = await createHub()
+            await resetTestDatabase()
+
+            // Create team first before inserting hog functions
+            const team = await getFirstTeam(hub)
+
+            // Set up GeoIP database
+            const mmdbBrotliContents = readFileSync(join(__dirname, '../../tests/assets/GeoLite2-City-Test.mmdb.br'))
+            hub.mmdb = Reader.openBuffer(brotliDecompressSync(mmdbBrotliContents))
+
+            hub.kafkaProducer = mockProducer
+
+            // Create ingester
+            ingester = new IngestionConsumer(hub)
+
+            // Start hogFunctionManager with correct types before starting ingester
+            await ingester.hogTransformer['hogFunctionManager'].start(['transformation'])
+            await ingester.start()
+
+            // Set up the transformations in order
+            const transformations: Partial<HogFunctionType>[] = [
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: 'GeoIP Transformation',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 1,
+                    bytecode: await compileHog(geoipTemplate.hog),
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: 'PII Hashing Transformation',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 2,
+                    bytecode: await compileHog(piiHashingTemplate.hog),
+                    inputs: {
+                        propertiesToHash: { value: '$geoip_city_name,$geoip_country_name' },
+                        hashDistinctId: { value: true },
+                        salt: { value: 'test-salt', secret: true },
+                    },
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: 'IP Anonymization Transformation',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 3,
+                    bytecode: await compileHog(ipAnonymizationTemplate.hog),
+                },
+            ]
+
+            // Insert the transformations
+            for (const transformation of transformations) {
+                await _insertHogFunction(hub.postgres, team.id, transformation)
+            }
+
+            // Reload functions after inserting them
+            await ingester.hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+        })
+
+        afterEach(async () => {
+            jest.restoreAllMocks()
+            if (ingester) {
+                await ingester.stop()
+            }
+            await closeHub(hub)
+        })
+
+        it('should chain transformations in correct order', async () => {
+            // Create a test event that will trigger all transformations
+            const testEvent = createEvent({
+                distinct_id: 'test-user-id',
+                ip: '89.160.20.129', // This IP is in the test GeoIP database
+                properties: {
+                    $ip: '89.160.20.129',
+                    sensitive_info: 'secret-data',
+                },
+            })
+
+            // Process the event through the ingestion consumer
+            await ingester.handleKafkaBatch(createKafkaMessages([testEvent]))
+
+            // Get the produced messages and verify the transformations
+            const producedMessages: DecodedKafkaMessage[] = getProducedKafkaMessages()
+
+            // Replace timing-dependent values in messages for consistent snapshots
+            const messagesForSnapshot = producedMessages.map((message) => {
+                if (
+                    typeof message.value?.message === 'string' &&
+                    message.value.message.includes('Function completed in')
+                ) {
+                    return {
+                        ...message,
+                        value: {
+                            ...message.value,
+                            message: message.value.message.replace(/\d+\.\d+ms/g, '<timing>ms'),
+                        },
+                    }
+                }
+                // Replace UUIDs in messages for consistent snapshots
+                if (message.value?.uuid) {
+                    message.value.uuid = '<REPLACED-UUID>'
+                }
+                return message
+            })
+
+            // Use snapshot testing to verify the final state
+            expect(forSnapshot(messagesForSnapshot)).toMatchSnapshot()
+
+            // Optional: Add some specific assertions to make the test more readable
+            const processedEvent = producedMessages[0].value as unknown as PipelineEvent
+            const properties = JSON.parse(processedEvent.properties as unknown as string)
+
+            // GeoIP transformation should have added location data
+            expect(properties.$geoip_city_name).toBeDefined()
+            expect(properties.$geoip_country_name).toBeDefined()
+
+            // PII Hashing should have hashed the distinct_id and specified geoip fields
+            expect(processedEvent.distinct_id).not.toEqual('test-user-id')
+            expect(processedEvent.distinct_id).toMatch(/^[a-f0-9]{64}$/) // SHA-256 hash
+
+            // IP Anonymization should have zeroed the last octet
+            expect(properties.$ip).toEqual('89.160.20.0')
+        })
     })
 })
