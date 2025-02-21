@@ -2,6 +2,7 @@ import datetime
 from typing import Literal, cast
 from uuid import uuid4
 
+from django.conf import settings
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -101,9 +102,11 @@ class RootNode(AssistantNode):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        return base_model.bind_tools(
-            [create_and_query_insight, search_documentation], strict=True, parallel_tool_calls=False
-        )
+        available_tools: list[BaseModel] = [create_and_query_insight]
+        if settings.INKEEP_API_KEY:
+            available_tools.append(search_documentation)
+
+        return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         # `assistant` messages must be contiguous with the respective `tool` messages.
@@ -171,14 +174,14 @@ class RootNodeTools(AssistantNode):
         tool_call = parsed_tool_calls[0]
         if isinstance(tool_call, create_and_query_insight):
             return PartialAssistantState(
-                root_tool_call_id=last_message.tool_calls[-1].id,
+                root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
                 root_tool_insight_plan=tool_call.query_description,
                 root_tool_insight_type=tool_call.query_kind,
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif isinstance(tool_call, search_documentation):
             return PartialAssistantState(
-                root_tool_call_id=last_message.tool_calls[-1].id,
+                root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
                 root_tool_insight_plan=None,  # No insight plan for docs search
                 root_tool_insight_type=None,  # No insight type for docs search
                 root_tool_calls_count=tool_call_count + 1,

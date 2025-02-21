@@ -9,6 +9,7 @@ from langchain_core.messages import (
     BaseMessage,
 )
 from langchain_core.runnables import RunnableConfig
+from ee.hogai.inkeep_docs.prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT
 from ee.hogai.root.nodes import RootNode
 from ee.hogai.utils.state import PartialAssistantState
 from ee.hogai.utils.types import AssistantState
@@ -18,8 +19,6 @@ from langchain_core.prompts import ChatPromptTemplate
 
 class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same message construction
     """Node for searching PostHog documentation using Inkeep."""
-
-    DATA_CONTINUATION_PHRASE = "Now, let get to your data request!"
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
@@ -38,13 +37,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         )
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
-        messages: list[BaseMessage] = [
-            LangchainSystemMessage(
-                content=f"""
-IMPORTANT: If the user has directly or indirectly requested a query on data (aka an insight), you MUST append "{self.DATA_CONTINUATION_PHRASE}" to the end of your response.
-""".strip()
-            )
-        ]
+        messages: list[BaseMessage] = [LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)]
         for message in super()._construct_messages(state):
             if message.content:
                 messages.append(message)
@@ -58,8 +51,8 @@ IMPORTANT: If the user has directly or indirectly requested a query on data (aka
             messages = messages[: last_human_message_index + 1]
         return messages
 
-    def _get_model(self):
-        return ChatOpenAI(  # type: ignore
+    def _get_model(self):  # type: ignore
+        return ChatOpenAI(
             model="inkeep-qa-expert",
             base_url="https://api.inkeep.com/v1/",
             api_key=settings.INKEEP_API_KEY,
@@ -69,8 +62,8 @@ IMPORTANT: If the user has directly or indirectly requested a query on data (aka
 
     def router(self, state: AssistantState) -> Literal["end", "root"]:
         last_message = state.messages[-1]
-        if isinstance(last_message, AssistantMessage) and self.DATA_CONTINUATION_PHRASE in last_message.content:
-            # The CONTINUATION_PHRASE solution is a little weird, but it's the best solution for agentic capabilities
+        if isinstance(last_message, AssistantMessage) and INKEEP_DATA_CONTINUATION_PHRASE in last_message.content:
+            # The continuation phrase solution is a little weird, but seems it's the best one for agentic capabilities
             # I've found here. The alternatives that definitively don't work are:
             # 1. Using tool calls in this node - the Inkeep API only supports providing their own pre-defined tools
             #    (for including extra search metadata), nothing else
