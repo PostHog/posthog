@@ -2,7 +2,7 @@ from django.core.files.uploadedfile import UploadedFile
 import structlog
 import hashlib
 
-from rest_framework import serializers, viewsets, status
+from rest_framework import serializers, viewsets, status, request
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 
@@ -19,8 +19,11 @@ from posthog.models.error_tracking import (
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
 )
+from posthog.models.activity_logging.activity_log import log_activity, Detail, Change, load_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
+from loginas.utils import is_impersonated_session
 
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
@@ -66,6 +69,37 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
+    def update(self, instance, validated_data):
+        status_after = validated_data.get("status")
+        status_before = instance.status
+        status_updated = "status" in validated_data and status_after != status_before
+
+        updated_instance = super().update(instance, validated_data)
+
+        if status_updated:
+            log_activity(
+                organization_id=self.organization_id,
+                team_id=self.context["team_id"],
+                user=self.context["request"].user,
+                was_impersonated=is_impersonated_session(self.context["request"]),
+                item_id=str(updated_instance.id),
+                scope="ErrorTrackingIssue",
+                activity="updated",
+                detail=Detail(
+                    changes=[
+                        Change(
+                            type="ErrorTrackingIssue",
+                            field="status",
+                            before=status_before,
+                            after=status_after,
+                            action="changed",
+                        )
+                    ],
+                ),
+            )
+
+        return updated_instance
+
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")
         if fingerprint:
@@ -93,19 +127,69 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @action(methods=["PATCH"], detail=True)
     def assign(self, request, **kwargs):
         assignee = request.data.get("assignee", None)
+        instance = self.get_object()
+
+        serialized_assignment_before = ErrorTrackingIssueAssignmentSerializer(instance.assignment).data
 
         if assignee:
-            ErrorTrackingIssueAssignment.objects.update_or_create(
-                issue_id=self.get_object().id,
+            assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
+                issue_id=instance.id,
                 defaults={
                     "user_id": None if assignee["type"] == "user_group" else assignee["id"],
                     "user_group_id": None if assignee["type"] == "user" else assignee["id"],
                 },
             )
+            serialized_assignment_after = ErrorTrackingIssueAssignmentSerializer(assignment_after).data
         else:
-            ErrorTrackingIssueAssignment.objects.filter(issue_id=self.get_object().id).delete()
+            ErrorTrackingIssueAssignment.objects.filter(issue_id=instance.id).delete()
+            serialized_assignment_after = None
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.team_id,
+            user=request.user,
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(instance.id),
+            scope="ErrorTrackingIssue",
+            activity="assigned",
+            detail=Detail(
+                changes=Change(
+                    type="ErrorTrackingIssue",
+                    field="assignee",
+                    before=serialized_assignment_before,
+                    after=serialized_assignment_after,
+                    action="changed",
+                ),
+            ),
+        )
 
         return Response({"success": True})
+
+    @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
+    def all_activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(scope="ErrorTrackingIssue", team_id=self.team_id, limit=limit, page=page)
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+        if not ErrorTrackingIssue.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(
+            scope="ErrorTrackingIssue",
+            team_id=self.team_id,
+            item_ids=[str(item_id)],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
 
 
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
