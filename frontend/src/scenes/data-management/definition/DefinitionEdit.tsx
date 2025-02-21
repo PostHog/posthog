@@ -36,8 +36,9 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
 
-    const showVerifiedCheckbox =
-        hasTaxonomyFeatures && !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
+    const allowVerification = hasTaxonomyFeatures && !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
+
+    const showHiddenOption = hasTaxonomyFeatures && 'hidden' in editDefinition
 
     if (definitionMissing) {
         return <NotFound object="event" />
@@ -111,7 +112,7 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
                             </LemonField>
                         </div>
                     )}
-                    {showVerifiedCheckbox &&
+                    {(allowVerification || showHiddenOption) &&
                         (isProperty ? (
                             <div className="ph-ignore-input">
                                 <LemonField name="verified" label="Status" data-attr="definition-status">
@@ -121,6 +122,8 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
                                                 <PropertyStatusControl
                                                     verified={!!verified}
                                                     hidden={!!hidden}
+                                                    showHiddenOption={showHiddenOption}
+                                                    allowVerification={allowVerification}
                                                     onChange={({ verified: newVerified, hidden: newHidden }) => {
                                                         onChange(newVerified)
                                                         onHiddenChange(newHidden)
