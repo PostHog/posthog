@@ -1,3 +1,5 @@
+import './SessionRecordingPreview.scss'
+
 import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
@@ -150,10 +152,25 @@ function RecordingOngoingIndicator(): JSX.Element {
     )
 }
 
-function UnwatchedIndicator(): JSX.Element {
+function UnwatchedIndicator({ otherViewers }: { otherViewers: SessionRecordingType['viewers'] }): JSX.Element {
+    const tooltip = otherViewers.length ? (
+        <span>
+            You've not watched this recording. But {otherViewers.length} other{' '}
+            {otherViewers.length === 1 ? 'user has' : 'users have'}.
+        </span>
+    ) : (
+        <span>Nobody has watched this recording yet.</span>
+    )
+
     return (
-        <Tooltip title="Indicates the recording has not been watched yet">
-            <div className="w-2 h-2 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
+        <Tooltip title={tooltip}>
+            <div
+                className={clsx(
+                    'UnwatchedIndicator w-2 h-2 rounded-full',
+                    otherViewers.length ? 'UnwatchedIndicator--secondary' : 'UnwatchedIndicator--primary'
+                )}
+                aria-label={otherViewers.length ? 'unwatched-recording-label' : 'unwatched-recording-label'}
+            />
         </Tooltip>
     )
 }
@@ -261,7 +278,7 @@ export function SessionRecordingPreview({
                 >
                     {recording.ongoing ? <RecordingOngoingIndicator /> : null}
                     {pinned ? <PinnedIndicator /> : null}
-                    {!recording.viewed ? <UnwatchedIndicator /> : null}
+                    {!recording.viewed ? <UnwatchedIndicator otherViewers={recording.viewers} /> : null}
                 </div>
             </div>
         </DraggableToNotebook>

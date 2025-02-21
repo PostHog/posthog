@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast, Literal
 
+from mypy.checkexpr import defaultdict
 from posthoganalytics.ai.openai import OpenAI
 from urllib.parse import urlparse
 
@@ -161,6 +162,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
 
     ongoing = serializers.SerializerMethodField()
     viewed = serializers.SerializerMethodField()
+    viewers = serializers.SerializerMethodField()
     activity_score = serializers.SerializerMethodField()
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
@@ -171,6 +173,9 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
         # viewed is a custom field that we load from PG Sql and merge into the model
         return getattr(obj, "viewed", False)
 
+    def get_viewers(self, obj: SessionRecording) -> list[str]:
+        return getattr(obj, "viewers", [])
+
     def get_activity_score(self, obj: SessionRecording) -> Optional[float]:
         return getattr(obj, "activity_score", None)
 
@@ -180,6 +185,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "id",
             "distinct_id",
             "viewed",
+            "viewers",
             "recording_duration",
             "active_seconds",
             "inactive_seconds",
@@ -1016,11 +1022,28 @@ def list_recordings_from_query(
     if not request.user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
 
+    recording_ids_in_list: list[str] = [str(r.session_id) for r in recordings]
     # Update the viewed status for all loaded recordings
     with timer("load_viewed_recordings"):
         viewed_session_recordings = set(
-            SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
+            SessionRecordingViewed.objects.filter(team=team, user=request.user)
+            .filter(session_id__in=recording_ids_in_list)
+            .values_list("session_id", flat=True)
         )
+
+    with timer("load_other_viewers_by_recording"):
+        # we're looping in python
+        # but since we limit the number of session recordings in the results set
+        # it shouldn't be too bad
+        other_viewers: dict[str, list[str]] = defaultdict(list)
+        queryset = (
+            SessionRecordingViewed.objects.filter(team=team, session_id__in=recording_ids_in_list)
+            .exclude(user=request.user)
+            .values_list("session_id", "user__uuid")
+        )
+
+        for session_id, user_uuid in queryset:
+            other_viewers[session_id].append(user_uuid)
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
@@ -1039,6 +1062,7 @@ def list_recordings_from_query(
 
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
+            recording.viewers = other_viewers.get(recording.session_id, [])
             person = distinct_id_to_person.get(recording.distinct_id)
             if person:
                 recording.person = person
