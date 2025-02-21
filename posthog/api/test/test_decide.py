@@ -435,17 +435,17 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["masking"], None)
+        assert response["sessionRecording"]["masking"] is None
 
         self._update_team({"session_recording_masking_config": {"maskAllInputs": True}})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["masking"], {"maskAllInputs": True})
+        assert response["sessionRecording"]["masking"] == {"maskAllInputs": True}
 
         self._update_team({"session_recording_masking_config": {"maskAllInputs": False, "maskTextSelector": "*"}})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["masking"], {"maskAllInputs": False, "maskTextSelector": "*"})
+        assert response["sessionRecording"]["masking"] == {"maskAllInputs": False, "maskTextSelector": "*"}
 
     def test_session_recording_empty_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching
