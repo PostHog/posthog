@@ -11,10 +11,7 @@ use axum::{
         State,
         OriginalUri
     },
-    http::{
-        Uri,
-        HeaderMap
-    },
+    http::Uri,
     routing::get,
     Json,
     Router
@@ -40,7 +37,6 @@ pub fn apply_routes(parent: Router, qmgr: Arc<Manager>) -> Router {
 
 async fn project_property_definitions_handler(
     State(qmgr): State<Arc<Manager>>,
-    headers: HeaderMap,
     OriginalUri(uri): OriginalUri,
     Path(project_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,
@@ -179,7 +175,7 @@ async fn project_property_definitions_handler(
     }
 
     let total_count = 0; // TODO: pick up result of count query!
-    let (prev_url, next_url) = gen_next_prev_urls(headers, uri, total_count, limit, offset);
+    let (prev_url, next_url) = gen_next_prev_urls(uri, total_count, limit, offset);
 
     // execute the queries, and populate the response
     let mut out = PropDefResponse{
@@ -192,7 +188,7 @@ async fn project_property_definitions_handler(
     Json(out)
 }
 
-fn gen_next_prev_urls(headers: HeaderMap, uri: Uri, total_count: i32, curr_limit: i32, curr_offset: i32) -> (Option<String>, Option<String>) {
+fn gen_next_prev_urls(uri: Uri, total_count: i32, curr_limit: i32, curr_offset: i32) -> (Option<String>, Option<String>) {
     let next_offset = curr_limit + curr_offset;
     let prev_offset = curr_offset - curr_limit;
 
