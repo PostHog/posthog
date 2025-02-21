@@ -1,7 +1,7 @@
 QUERY_RESULTS_PROMPT = """
 {example}
 
-Here is the results table of the {query_kind} I created to answer your latest question:
+Here is the results table of the {query_kind} created to answer "{query_description}":
 
 ```
 {results}

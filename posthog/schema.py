@@ -251,8 +251,8 @@ class AssistantTrendsFilter(BaseModel):
             " series; use when user explicitly asks for a single output number. `ActionsBarValue` - total value (NOT"
             " time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for"
             " visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or"
-            " other entities. `WorldMap` - total value world map; use when breaking down by country name using property"
-            " `$geoip_country_name`, and only then."
+            " other entities. `WorldMap` - total value world map; MUST be combined with a breakdown on event property"
+            " `$geoip_country_name`."
         ),
     )
     formulas: Optional[list[str]] = Field(default=None, description="If the formula is provided, apply it here.")

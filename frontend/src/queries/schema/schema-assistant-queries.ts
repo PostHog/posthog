@@ -195,7 +195,7 @@ export interface AssistantTrendsFilter {
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
-     * `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.
+     * `WorldMap` - total value world map; MUST be combined with a breakdown on event property `$geoip_country_name`.
      * @default ActionsLineGraph
      */
     display?: AssistantTrendsDisplayType
