@@ -638,3 +638,131 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.total_exposures["control"], 3)
         self.assertEqual(response.total_exposures["test"], 5)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_exposure_query_invalid_feature_flag_property(self):
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        # Create test data using journeys
+        journeys_for(
+            {
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_control_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_control_3": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "",  # Intentionally empty
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_control_4": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_test_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_test_3": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_test_4": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_test_5": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+        )
+        query_runner = ExperimentExposuresQueryRunner(
+            team=self.team,
+            query=query,
+        )
+        response = query_runner.calculate()
+
+        self.assertEqual(len(response.timeseries), 2)
+
+        self.assertEqual(response.total_exposures["control"], 3)
+        self.assertEqual(response.total_exposures["test"], 5)

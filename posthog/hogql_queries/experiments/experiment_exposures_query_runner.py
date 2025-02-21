@@ -124,6 +124,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                         left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"),
                         right=ast.Constant(value=self.variants),
                     ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=parse_expr(
+                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '')",
+                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
+                        ),
+                        right=ast.Constant(value=self.variants),
+                    ),
                 ]
             )
 
