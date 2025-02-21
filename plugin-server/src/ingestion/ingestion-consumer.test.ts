@@ -19,6 +19,7 @@ import {
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
+import { posthogFilterOutPlugin } from '../cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { posthogPluginGeoip } from '../cdp/legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { posthogPluginSnowplowRefererParser } from '../cdp/legacy-plugins/_transformations/posthog-plugin-snowplow-referer-parser/template'
 import { posthogRouteCensorPlugin } from '../cdp/legacy-plugins/_transformations/posthog-route-censor-plugin/template'
@@ -753,13 +754,39 @@ describe('IngestionConsumer', () => {
                     id: new UUIDT().toString(),
                     team_id: team.id,
                     type: 'transformation',
+                    name: posthogFilterOutPlugin.template.name,
+                    template_id: posthogFilterOutPlugin.template.id,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 2,
+                    bytecode: await compileHog(posthogFilterOutPlugin.template.hog),
+                    hog: posthogFilterOutPlugin.template.hog,
+                    inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
+                    inputs: {
+                        filters: {
+                            value: '[]',
+                        },
+                        eventsToDrop: {
+                            value: 'filtered_event',
+                        },
+                        keepUndefinedProperties: {
+                            value: 'No',
+                        },
+                    },
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
                     name: posthogPluginGeoip.template.name,
                     template_id: posthogPluginGeoip.template.id,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 2,
+                    execution_order: 3,
                     bytecode: await compileHog(posthogPluginGeoip.template.hog),
                     hog: posthogPluginGeoip.template.hog,
                     inputs_schema: posthogPluginGeoip.template.inputs_schema,
@@ -773,7 +800,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 3,
+                    execution_order: 4,
                     bytecode: await compileHog(removeNullPropertiesTemplate.hog),
                 },
                 {
@@ -785,7 +812,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 4,
+                    execution_order: 5,
                     bytecode: await compileHog(urlMaskingTemplate.hog),
                     inputs: {
                         urlProperties: {
@@ -809,7 +836,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 5,
+                    execution_order: 6,
                     bytecode: await compileHog(urlParserPlugin.template.hog),
                     hog: urlParserPlugin.template.hog,
                     inputs_schema: urlParserPlugin.template.inputs_schema,
@@ -824,7 +851,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 6,
+                    execution_order: 7,
                     bytecode: await compileHog(posthogUrlNormalizerPlugin.template.hog),
                     hog: posthogUrlNormalizerPlugin.template.hog,
                     inputs_schema: posthogUrlNormalizerPlugin.template.inputs_schema,
@@ -839,7 +866,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 7,
+                    execution_order: 8,
                     bytecode: await compileHog(posthogPluginSnowplowRefererParser.template.hog),
                     hog: posthogPluginSnowplowRefererParser.template.hog,
                     inputs_schema: posthogPluginSnowplowRefererParser.template.inputs_schema,
@@ -859,7 +886,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 8,
+                    execution_order: 9,
                     bytecode: await compileHog(posthogRouteCensorPlugin.template.hog),
                     hog: posthogRouteCensorPlugin.template.hog,
                     inputs_schema: posthogRouteCensorPlugin.template.inputs_schema,
@@ -897,7 +924,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 9,
+                    execution_order: 10,
                     bytecode: await compileHog(userAgentPlugin.template.hog),
                     hog: userAgentPlugin.template.hog,
                     inputs_schema: userAgentPlugin.template.inputs_schema,
@@ -916,7 +943,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 10,
+                    execution_order: 11,
                     bytecode: await compileHog(piiHashingTemplate.hog),
                     inputs: {
                         propertiesToHash: { value: '$geoip_city_name,$geoip_country_name' },
@@ -933,7 +960,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 11,
+                    execution_order: 12,
                     bytecode: await compileHog(ipAnonymizationTemplate.hog),
                 },
                 {
@@ -946,7 +973,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 12,
+                    execution_order: 13,
                     bytecode: await compileHog(propertyFilterPlugin.template.hog),
                     hog: propertyFilterPlugin.template.hog,
                     inputs_schema: propertyFilterPlugin.template.inputs_schema,
@@ -966,7 +993,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 13,
+                    execution_order: 14,
                     bytecode: await compileHog(semverFlattenerPlugin.template.hog),
                     hog: semverFlattenerPlugin.template.hog,
                     inputs_schema: semverFlattenerPlugin.template.inputs_schema,
@@ -986,7 +1013,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 14,
+                    execution_order: 15,
                     bytecode: await compileHog(taxonomyPlugin.template.hog),
                     hog: taxonomyPlugin.template.hog,
                     inputs_schema: taxonomyPlugin.template.inputs_schema,
@@ -1006,7 +1033,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 15,
+                    execution_order: 16,
                     bytecode: await compileHog(timestampParserPlugin.template.hog),
                     hog: timestampParserPlugin.template.hog,
                     inputs_schema: timestampParserPlugin.template.inputs_schema,
@@ -1031,7 +1058,7 @@ describe('IngestionConsumer', () => {
         })
 
         it('should chain transformations in correct order and filter bot events', async () => {
-            // Create two test events - one from a bot and one from a real user
+            // Create three test events - one from a bot, one to be filtered, and one real user
             const botEvent = createEvent({
                 distinct_id: 'bot-user-id',
                 ip: '89.160.20.129',
@@ -1041,6 +1068,18 @@ describe('IngestionConsumer', () => {
                     sensitive_info: 'secret-bot-data',
                     $current_url: 'https://example.com?email=bot@test.com&password=secret&token=abc123',
                     nullProp: null,
+                },
+            })
+
+            const filteredEvent = createEvent({
+                distinct_id: 'filtered-user-id',
+                ip: '89.160.20.129',
+                event: 'filtered_event', // This should be filtered
+                properties: {
+                    $ip: '89.160.20.129',
+                    $useragent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    $current_url: 'https://example.com/filtered-out/page', // This should trigger filtering
+                    sensitive_info: 'secret-filtered-data',
                 },
             })
 
@@ -1072,8 +1111,8 @@ describe('IngestionConsumer', () => {
                 },
             })
 
-            // Process both events
-            await ingester.handleKafkaBatch(createKafkaMessages([botEvent, realUserEvent]))
+            // Process all three events
+            await ingester.handleKafkaBatch(createKafkaMessages([botEvent, filteredEvent, realUserEvent]))
 
             // Get the produced messages
             const producedMessages: DecodedKafkaMessage[] = getProducedKafkaMessages()
@@ -1111,6 +1150,8 @@ describe('IngestionConsumer', () => {
 
             // Verify bot event was filtered out
             expect(processedEvent.distinct_id).not.toEqual('bot-user-id')
+            expect(processedEvent.distinct_id).not.toEqual('filtered-user-id')
+            expect(processedEvent.event).not.toEqual('filtered_event')
 
             // Add assertions for all transformations in order
             expect(properties.$browser).toEqual('chrome') // User Agent plugin processed the Windows browser
@@ -1163,6 +1204,10 @@ describe('IngestionConsumer', () => {
             expect(properties.referrer_parser).toEqual('snowplow')
             expect(properties.$set.source).toEqual('unknown')
             expect(properties.$set_once.initial_source).toEqual('unknown')
+
+            // Add assertions after bot detection checks
+            expect(processedEvent.event).not.toEqual('filtered_event') // Filter Out Plugin dropped filtered events
+            expect(properties.$current_url).not.toContain('filtered-out') // Filter Out Plugin dropped events with filtered-out in URL
         })
     })
 })
