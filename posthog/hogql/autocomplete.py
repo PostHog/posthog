@@ -369,21 +369,13 @@ def get_hogql_autocomplete(
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
 
-    if database_arg is not None:
-        database = database_arg
-    else:
-        database = create_hogql_database(team_id=team.pk, team_arg=team)
-
+    database = database_arg or create_hogql_database(team_id=team.pk, team_arg=team)
     context = HogQLContext(team_id=team.pk, team=team, database=database)
-    if query.sourceQuery:
-        if query.sourceQuery.kind == "HogQLQuery" and (
-            query.sourceQuery.query is None or query.sourceQuery.query == ""
-        ):
-            source_query = parse_select("select 1")
-        else:
-            source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
-    else:
+
+    if not query.sourceQuery or (query.sourceQuery.kind == "HogQLQuery" and not query.sourceQuery.query):
         source_query = parse_select("select 1")
+    else:
+        source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
 
     for extra_characters, length_to_add in [
         ("", 0),
