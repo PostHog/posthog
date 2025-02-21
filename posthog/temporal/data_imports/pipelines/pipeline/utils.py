@@ -494,6 +494,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             except pa.ArrowInvalid as e:
                 if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
                     number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+                    new_field_type = number_arr.type
                 else:
                     raise
 
