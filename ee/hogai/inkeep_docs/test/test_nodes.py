@@ -10,6 +10,7 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableLambda
 
 from ee.hogai.inkeep_docs.nodes import InkeepDocsNode
+from ee.hogai.inkeep_docs.prompts import INKEEP_DATA_CONTINUATION_PHRASE
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, HumanMessage
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -47,7 +48,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
 
     def test_node_handles_response_with_data_continuation(self):
         test_tool_call_id = str(uuid4())
-        response_with_continuation = f"Here's what I found... {InkeepDocsNode.DATA_CONTINUATION_PHRASE}"
+        response_with_continuation = f"Here's what I found... {INKEEP_DATA_CONTINUATION_PHRASE}"
         with patch(
             "ee.hogai.inkeep_docs.nodes.InkeepDocsNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content=response_with_continuation)),
@@ -82,14 +83,14 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(messages[1], LangchainHumanMessage)
         self.assertIsInstance(messages[2], LangchainAIMessage)
         self.assertIsInstance(messages[3], LangchainHumanMessage)
-        self.assertIn(InkeepDocsNode.DATA_CONTINUATION_PHRASE, messages[0].content)
+        self.assertIn(INKEEP_DATA_CONTINUATION_PHRASE, messages[2].content)
 
     def test_router_with_data_continuation(self):
         node = InkeepDocsNode(self.team)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Explain PostHog trends, and show me an example trends insight"),
-                AssistantMessage(content=f"Here's the documentation: XYZ.\n{InkeepDocsNode.DATA_CONTINUATION_PHRASE}"),
+                AssistantMessage(content=f"Here's the documentation: XYZ.\n{INKEEP_DATA_CONTINUATION_PHRASE}"),
             ]
         )
         self.assertEqual(node.router(state), "root")  # Going back to root, so that the agent can continue with the task

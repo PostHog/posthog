@@ -314,7 +314,11 @@ class AssistantGraph:
         }
         inkeep_docs_node = InkeepDocsNode(self._team)
         builder.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node.run)
-        builder.add_conditional_edges(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node.router, path_map=path_map)
+        builder.add_conditional_edges(
+            AssistantNodeName.INKEEP_DOCS,
+            inkeep_docs_node.router,
+            path_map=cast(dict[Hashable, str], path_map),
+        )
         return self
 
     def compile_full_graph(self):

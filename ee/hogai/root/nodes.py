@@ -102,7 +102,7 @@ class RootNode(AssistantNode):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        available_tools: list[BaseModel] = [create_and_query_insight]
+        available_tools: list[type[BaseModel]] = [create_and_query_insight]
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
 
