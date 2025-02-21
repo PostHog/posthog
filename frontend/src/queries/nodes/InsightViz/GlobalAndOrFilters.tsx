@@ -5,7 +5,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { EditorFilterProps } from '~/types'
 
 import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'

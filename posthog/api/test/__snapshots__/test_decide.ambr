@@ -1,7 +1,4 @@
 # serializer version: 1
-# name: TestDatabaseCheckForDecide.test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached
-  'SELECT 1'
-# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down
   '''
   SELECT "posthog_user"."id",
@@ -563,6 +560,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -579,6 +577,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -595,6 +594,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -610,7 +610,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -1019,11 +1020,13 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.34
@@ -1425,11 +1428,13 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.11
@@ -1633,6 +1638,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -1649,6 +1655,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -1665,6 +1672,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -1680,7 +1688,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -1830,8 +1839,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.19
@@ -1883,8 +1893,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.21
@@ -2021,6 +2032,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -2037,6 +2049,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -2053,6 +2066,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -2068,7 +2082,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -2497,11 +2512,13 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.11
@@ -2705,6 +2722,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -2721,6 +2739,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -2737,6 +2756,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -2752,7 +2772,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -2902,8 +2923,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.19
@@ -2951,8 +2973,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.21
@@ -3085,6 +3108,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -3101,6 +3125,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -3117,6 +3142,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -3132,7 +3158,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -3460,11 +3487,13 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecide.test_web_app_queries.10
@@ -3788,6 +3817,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -3804,6 +3834,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -3820,6 +3851,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -3835,7 +3867,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -4330,6 +4363,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -4346,6 +4380,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -4362,6 +4397,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -4377,7 +4413,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -4963,6 +5000,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -4979,6 +5017,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -4995,6 +5034,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -5010,7 +5050,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -5531,6 +5572,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -5547,6 +5589,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -5563,6 +5606,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -5578,7 +5622,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -5774,11 +5819,13 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.41
@@ -5910,6 +5957,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -5926,6 +5974,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -5942,6 +5991,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -5957,7 +6007,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -6449,11 +6500,13 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.11
@@ -6657,6 +6710,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -6673,6 +6727,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -6689,6 +6744,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -6704,7 +6760,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -6975,6 +7032,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -6991,6 +7049,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -7007,6 +7066,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -7022,7 +7082,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -7172,8 +7233,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.25
@@ -7322,6 +7384,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -7338,6 +7401,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -7354,6 +7418,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -7369,7 +7434,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -7597,8 +7663,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.33
@@ -7657,6 +7724,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -7673,6 +7741,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -7689,6 +7758,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -7704,7 +7774,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -8133,11 +8204,13 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration"
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.11
@@ -8341,6 +8414,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -8357,6 +8431,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -8373,6 +8448,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -8388,7 +8464,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -8659,6 +8736,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -8675,6 +8753,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -8691,6 +8770,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -8706,7 +8786,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -8856,8 +8937,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.25
@@ -9002,6 +9084,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -9018,6 +9101,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -9034,6 +9118,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -9049,7 +9134,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -9277,8 +9363,9 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.33
@@ -9333,6 +9420,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -9349,6 +9437,7 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
          T4."id",
          T4."key",
          T4."name",
@@ -9365,6 +9454,7 @@
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
          T4."is_remote_configuration",
+         T4."has_encrypted_payloads",
          T5."id",
          T5."key",
          T5."name",
@@ -9380,7 +9470,8 @@
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
          T5."has_enriched_analytics",
-         T5."is_remote_configuration"
+         T5."is_remote_configuration",
+         T5."has_encrypted_payloads"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")

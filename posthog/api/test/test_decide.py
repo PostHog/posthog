@@ -824,6 +824,76 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
 
+    def test_feature_flags_across_multiple_environments(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        second_team_in_project = Team.objects.create(
+            organization=self.organization, project=self.project, name="Second Team"
+        )
+        self.client.logout()
+        Person.objects.create(
+            team=second_team_in_project,  # Person is in second team, but flags are in first!
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=50,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+
+        # Test number of queries with multiple property filter feature flags
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
+            rollout_percentage=50,
+            name="Filter by property",
+            key="filer-by-property",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "tim@posthog.com",
+                                "type": "person",
+                            }
+                        ]
+                    }
+                ]
+            },
+            name="Filter by property 2",
+            key="filer-by-property-2",
+            created_by=self.user,
+        )
+
+        response = self._post_decide(
+            {"token": second_team_in_project.api_token, "distinct_id": "example_id"}, assert_num_queries=4
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("default-flag", response.json()["featureFlags"])
+        self.assertIn("beta-feature", response.json()["featureFlags"])
+        self.assertIn("filer-by-property-2", response.json()["featureFlags"])
+
+        response = self._post_decide(
+            {"token": second_team_in_project.api_token, "distinct_id": "another_id"}, assert_num_queries=4
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["featureFlags"], ["default-flag"])
+
     def test_feature_flags_v3_json(self, *args):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -2798,7 +2868,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response_data = response.json()
             self.assertEqual(
                 response_data["detail"],
-                f"Team with ID {short_circuited_team.id} cannot access the /decide endpoint.Please contact us at hey@posthog.com",
+                f"Team with ID {short_circuited_team.id} cannot access the /decide endpoint. Please contact us at hey@posthog.com",
             )
 
     def test_invalid_payload_on_decide_endpoint(self, *args):
@@ -3624,6 +3694,40 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 200)
         self.assertTrue("defaultIdentifiedOnly" in response.json())
         self.assertTrue(response.json()["defaultIdentifiedOnly"])
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_decide_return_empty_objects_for_all_feature_flag_related_fields_when_quota_limited(
+        self, _fake_token_limiting, *args
+    ):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token] if args[0] == QuotaResource.FEATURE_FLAG_REQUESTS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._post_decide().json()
+            assert response["featureFlags"] == {}
+            assert response["featureFlagPayloads"] == {}
+            assert response["errorsWhileComputingFlags"] is False
+            assert "feature_flags" in response["quotaLimited"]
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    def test_feature_flags_are_empty_list_when_not_quota_limited(self, _fake_token_limiting, *args):
+        from ee.billing.quota_limiting import QuotaResource
+
+        with self.settings(DECIDE_FEATURE_FLAG_QUOTA_CHECK=True):
+
+            def fake_limiter(*args, **kwargs):
+                return [self.team.api_token + "a"] if args[0] == QuotaResource.FEATURE_FLAG_REQUESTS else []
+
+            _fake_token_limiting.side_effect = fake_limiter
+
+            response = self._post_decide().json()
+            assert isinstance(response["featureFlags"], list)
+            assert "feature_flags" not in response.get("quotaLimited", [])
 
 
 class TestDecideRemoteConfig(TestDecide):

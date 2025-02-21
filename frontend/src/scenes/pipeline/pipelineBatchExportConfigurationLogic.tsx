@@ -6,7 +6,7 @@ import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
+import { DatabaseSchemaBatchExportTable } from '~/queries/schema/schema-general'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { humanizeBatchExportName } from './batch-exports/utils'
@@ -197,6 +197,12 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             name: 'created_at',
             hogql_value: 'created_at',
             type: 'datetime',
+            schema_valid: true,
+        },
+        is_deleted: {
+            name: 'is_deleted',
+            hogql_value: 'is_deleted',
+            type: 'boolean',
             schema_valid: true,
         },
     },

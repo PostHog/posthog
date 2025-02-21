@@ -5,7 +5,7 @@ import { useValues } from 'kea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
-import { PathsFilter } from '~/queries/schema'
+import { PathsFilter } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
 import { pathsDataLogicType } from './pathsDataLogicType'

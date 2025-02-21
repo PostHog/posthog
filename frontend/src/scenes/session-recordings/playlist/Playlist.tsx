@@ -1,14 +1,20 @@
 import './Playlist.scss'
 
-import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { IconX } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
+import posthog from 'posthog-js'
 import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { AiFilter } from 'scenes/session-recordings/components/AiFilter/AiFilter'
 
 import { SessionRecordingType } from '~/types'
+
+import { playlistLogic } from './playlistLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -83,6 +89,9 @@ export function Playlist({
         750: 'medium',
     })
 
+    const { isExpanded } = useValues(playlistLogic)
+    const { setIsExpanded } = useActions(playlistLogic)
+
     const onChangeActiveItem = (item: SessionRecordingType): void => {
         setControlledActiveItemId(item.id)
         onSelect?.(item)
@@ -132,90 +141,117 @@ export function Playlist({
         .flatMap((s) => s.items).length
 
     return (
-        <div className="flex flex-col xl:flex-row w-full gap-2 h-full">
+        <>
             <div
-                ref={playlistRef}
-                data-attr={dataAttr}
-                className={clsx('Playlist w-full xl:max-w-80 min-w-60 min-h-96', {
-                    'Playlist--wide': size !== 'small',
-                    'Playlist--embedded': embedded,
+                className={clsx(`w-full mb-8`, {
+                    hidden: !isExpanded,
                 })}
             >
-                <div
-                    ref={playlistListRef}
-                    className="Playlist__list flex flex-col relative overflow-hidden h-full w-full"
-                >
-                    <DraggableToNotebook href={notebooksHref}>{filterActions}</DraggableToNotebook>
+                <div className="flex justify-end">
+                    <LemonButton
+                        icon={<IconX />}
+                        onClick={() => {
+                            setIsExpanded(false)
+                            posthog.capture('ai_filter_close')
+                        }}
+                    />
+                </div>
+                <AiFilter isExpanded={isExpanded} />
+            </div>
 
-                    <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
-                        <DraggableToNotebook href={notebooksHref}>
-                            <div className="flex flex-col gap-1">
-                                <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
-                                    {title && <TitleWithCount title={title} count={itemsCount} />}
-                                    {headerActions}
+            <div
+                className={clsx('flex flex-col w-full gap-2 h-full', {
+                    'xl:flex-row': true,
+                })}
+            >
+                <div className="flex flex-col gap-2 xl:max-w-80">
+                    <DraggableToNotebook href={notebooksHref}>{filterActions}</DraggableToNotebook>
+                    <div
+                        ref={playlistRef}
+                        data-attr={dataAttr}
+                        className={clsx('Playlist w-full min-w-60 min-h-96', {
+                            'Playlist--wide': size !== 'small',
+                            'Playlist--embedded': embedded,
+                        })}
+                    >
+                        <div
+                            ref={playlistListRef}
+                            className="Playlist__list flex flex-col relative overflow-hidden h-full w-full"
+                        >
+                            <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
+                                <DraggableToNotebook href={notebooksHref}>
+                                    <div className="flex flex-col gap-1">
+                                        <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                                            {title && <TitleWithCount title={title} count={itemsCount} />}
+                                            {headerActions}
+                                        </div>
+                                        <LemonTableLoader loading={loading} />
+                                    </div>
+                                </DraggableToNotebook>
+                                <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
+                                    {sectionCount > 1 ? (
+                                        <LemonCollapse
+                                            defaultActiveKeys={openSections}
+                                            panels={sections.map((s) => {
+                                                return {
+                                                    key: s.key,
+                                                    header: s.title ?? '',
+                                                    content: (
+                                                        <SectionContent
+                                                            section={s}
+                                                            loading={!!loading}
+                                                            setActiveItemId={onChangeActiveItem}
+                                                            activeItemId={activeItemId}
+                                                            emptyState={listEmptyState}
+                                                        />
+                                                    ),
+                                                    className: 'p-0',
+                                                }
+                                            })}
+                                            onChange={onChangeOpenSections}
+                                            multiple
+                                            embedded
+                                            size="small"
+                                        />
+                                    ) : sectionCount === 1 ? (
+                                        <SectionContent
+                                            section={sections[0]}
+                                            loading={!!loading}
+                                            setActiveItemId={onChangeActiveItem}
+                                            activeItemId={activeItemId}
+                                            emptyState={listEmptyState}
+                                        />
+                                    ) : loading ? (
+                                        <LoadingState />
+                                    ) : (
+                                        listEmptyState
+                                    )}
                                 </div>
-                                <LemonTableLoader loading={loading} />
+                                <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap">
+                                    {footerActions}
+                                </div>
                             </div>
-                        </DraggableToNotebook>
-                        <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
-                            {sectionCount > 1 ? (
-                                <LemonCollapse
-                                    defaultActiveKeys={openSections}
-                                    panels={sections.map((s) => {
-                                        return {
-                                            key: s.key,
-                                            header: s.title ?? '',
-                                            content: (
-                                                <SectionContent
-                                                    section={s}
-                                                    loading={!!loading}
-                                                    setActiveItemId={onChangeActiveItem}
-                                                    activeItemId={activeItemId}
-                                                    emptyState={listEmptyState}
-                                                />
-                                            ),
-                                            className: 'p-0',
-                                        }
-                                    })}
-                                    onChange={onChangeOpenSections}
-                                    multiple
-                                    embedded
-                                    size="small"
-                                />
-                            ) : sectionCount === 1 ? (
-                                <SectionContent
-                                    section={sections[0]}
-                                    loading={!!loading}
-                                    setActiveItemId={onChangeActiveItem}
-                                    activeItemId={activeItemId}
-                                    emptyState={listEmptyState}
-                                />
-                            ) : loading ? (
-                                <LoadingState />
-                            ) : (
-                                listEmptyState
-                            )}
-                        </div>
-                        <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap">
-                            {footerActions}
                         </div>
                     </div>
                 </div>
+                <div
+                    className={clsx(
+                        'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
+                        {
+                            'Playlist--wide': size !== 'small',
+                            'Playlist--embedded': embedded,
+                        }
+                    )}
+                >
+                    {content && (
+                        <div className="Playlist__main h-full">
+                            {' '}
+                            {typeof content === 'function' ? content({ activeItem }) : content}
+                        </div>
+                    )}
+                </div>
             </div>
-            <div
-                className={clsx('Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none', {
-                    'Playlist--wide': size !== 'small',
-                    'Playlist--embedded': embedded,
-                })}
-            >
-                {content && (
-                    <div className="Playlist__main h-full">
-                        {' '}
-                        {typeof content === 'function' ? content({ activeItem }) : content}
-                    </div>
-                )}
-            </div>
-        </div>
+        </>
     )
 }
 

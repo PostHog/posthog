@@ -4,7 +4,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { SavedInsightNode } from '~/queries/schema'
+import { SavedInsightNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 

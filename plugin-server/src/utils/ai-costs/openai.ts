@@ -2,6 +2,13 @@ import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
+        model: 'o3-mini-high',
+        cost: {
+            prompt_token: 0.0000011,
+            completion_token: 0.0000044,
+        },
+    },
+    {
         model: 'o3-mini',
         cost: {
             prompt_token: 0.0000011,

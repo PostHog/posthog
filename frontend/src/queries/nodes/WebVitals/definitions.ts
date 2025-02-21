@@ -2,7 +2,7 @@ import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { WebVitalsPercentile } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema'
+import { WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
 
 const PERCENTILE_NAME: Record<WebVitalsPercentile, string> = {
     p75: '75%',
@@ -151,7 +151,7 @@ export const WEB_VITALS_THRESHOLDS: Record<WebVitalsMetric, WebVitalsThreshold> 
 }
 
 export const WEB_VITALS_COLORS = {
-    good: 'var(--color-green-700)',
-    needs_improvements: 'var(--color-amber-500)',
-    poor: 'var(--color-red-700)',
+    good: 'light-dark(var(--color-green-700), var(--color-green-500))',
+    needs_improvements: 'light-dark(var(--color-amber-500), var(--color-amber-400))',
+    poor: 'light-dark(var(--color-red-700), var(--color-red-500))',
 } as const

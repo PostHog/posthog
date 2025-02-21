@@ -13,8 +13,7 @@ import { urls } from 'scenes/urls'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
-import { DataVisualizationNode } from '~/queries/schema'
-import { HogQLMetadataResponse, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLMetadataResponse, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, ExportContext } from '~/types'
 
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
@@ -129,6 +128,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     query: '',
                 },
             } as DataVisualizationNode,
+            { persist: true },
             {
                 setSourceQuery: (_, { sourceQuery }) => sourceQuery,
             },
@@ -264,6 +264,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return t
             })
             actions.setTabs(updatedTabs)
+            const activeTab = updatedTabs.find((t) => t.uri.toString() === tab.uri.toString())
+            if (activeTab) {
+                actions.selectTab(activeTab)
+            }
             actions.updateState()
         },
         selectTab: ({ tab }) => {
@@ -289,7 +293,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } else if (values.queryInput !== '' && !values.activeModelUri?.view) {
                 LemonDialog.open({
                     title: 'Delete query',
-                    description: 'Are you sure you want to delete this query?',
+                    description: 'There are unsaved changes. Are you sure you want to delete this query?',
                     primaryButton: {
                         children: 'Delete',
                         status: 'danger',
@@ -329,12 +333,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         initialize: () => {
             const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
             const activeModelUri = localStorage.getItem(activeModelStateKey(props.key))
-            const activeModelVariablesString = localStorage.getItem(activeModelVariablesStateKey(props.key))
-
-            const activeModelVariables =
-                activeModelVariablesString && activeModelVariablesString != 'undefined'
-                    ? JSON.parse(activeModelVariablesString)
-                    : {}
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -377,13 +375,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     activeModel && props.editor?.setModel(activeModel)
                     const val = activeModel?.getValue()
                     if (val) {
-                        actions.setSourceQuery({
-                            ...values.sourceQuery,
-                            source: {
-                                ...values.sourceQuery.source,
-                                variables: activeModelVariables,
-                            },
-                        })
                         actions.setQueryInput(val)
                         actions.runQuery()
                     }
@@ -427,11 +418,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
         },
-        setSourceQuery: ({ sourceQuery }) => {
-            // NOTE: this is a hack to get the variables to persist.
-            // Variables should be handled first in this logic and then in the downstream variablesLogic
-            localStorage.setItem(activeModelVariablesStateKey(props.key), JSON.stringify(sourceQuery.source.variables))
-        },
         runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
 
@@ -454,7 +440,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         saveAsView: async () => {
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: '' },
+                initialValues: { viewName: values.activeModelUri?.name || '' },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (
                     <LemonField name="viewName">

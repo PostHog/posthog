@@ -33,6 +33,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     tags: [],
     surveys: [],
     is_remote_configuration: false,
+    has_encrypted_payloads: false,
     status: 'ACTIVE',
 }
 

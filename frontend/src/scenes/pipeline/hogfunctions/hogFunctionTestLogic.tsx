@@ -32,6 +32,9 @@ export type HogTransformationEvent = {
 const convertToTransformationEvent = (result: any): HogTransformationEvent => {
     const properties = result.properties ?? {}
     properties.$ip = properties.$ip ?? '89.160.20.129'
+    // We don't want to use these values given they will change in the test invocation
+    delete properties.$transformations_failed
+    delete properties.$transformations_succeeded
     return {
         event: result.event,
         uuid: result.uuid,
@@ -42,6 +45,8 @@ const convertToTransformationEvent = (result: any): HogTransformationEvent => {
 }
 
 const convertFromTransformationEvent = (result: HogTransformationEvent): Record<string, any> => {
+    delete result.properties.$transformations_failed
+    delete result.properties.$transformations_succeeded
     return {
         event: result.event,
         uuid: result.uuid,
@@ -96,6 +101,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
             ({ value, editor, decorations } as CodeEditorValidation),
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
+        cancelSampleGlobalsLoading: true,
     }),
     reducers({
         expanded: [
@@ -142,10 +148,21 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 setJsonError: () => [], // Clear decorations when error state changes
             },
         ],
+
+        fetchCancelled: [
+            false as boolean,
+            {
+                loadSampleGlobals: () => false,
+                cancelSampleGlobalsLoading: () => true,
+                toggleExpanded: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
-            actions.receiveExampleGlobals(values.sampleGlobals)
+            if (values.expanded && !values.fetchCancelled && values.sampleGlobals) {
+                actions.receiveExampleGlobals(values.sampleGlobals)
+            }
         },
         setSampleGlobals: ({ sampleGlobals }) => {
             actions.receiveExampleGlobals(sampleGlobals)
@@ -246,6 +263,10 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 }, 100)
             }
         },
+
+        cancelSampleGlobalsLoading: () => {
+            // Just mark as cancelled - we'll ignore any results that come back
+        },
     })),
 
     forms(({ props, actions, values }) => ({
@@ -330,8 +351,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        if (values.type === 'transformation') {
-            actions.receiveExampleGlobals(values.exampleInvocationGlobals)
-        }
+        actions.receiveExampleGlobals(values.exampleInvocationGlobals)
     }),
 ])
