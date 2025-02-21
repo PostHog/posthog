@@ -52,7 +52,8 @@ class EventsQueryRunner(QueryRunner):
             # Selecting a "*" expands the list of columns, resulting in a table that's not what we asked for.
             # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
             if col == "*":
-                select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
+                field_to_use = self.star_fields_for_query()
+                select_input.append(f"tuple({', '.join(field_to_use)})")
             elif col.split("--")[0].strip() == "person":
                 # This will be expanded into a followup query
                 select_input.append("distinct_id")
@@ -60,6 +61,12 @@ class EventsQueryRunner(QueryRunner):
             else:
                 select_input.append(col)
         return select_input, [parse_expr(column, timings=self.timings) for column in select_input]
+
+    def star_fields_for_query(self):
+        field_to_use = SELECT_STAR_FROM_EVENTS_FIELDS
+        if self.query.excludePropertiesInStarSelect:
+            field_to_use = [field for field in field_to_use if field != "properties"]
+        return field_to_use
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -203,8 +210,9 @@ class EventsQueryRunner(QueryRunner):
                 for index, result in enumerate(self.paginator.results):
                     self.paginator.results[index] = list(result)
                     select = result[star_idx]
-                    new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
-                    new_result["properties"] = orjson.loads(new_result["properties"])
+                    new_result = dict(zip(self.star_fields_for_query(), select))
+                    if new_result.get("properties", None):
+                        new_result["properties"] = orjson.loads(new_result["properties"])
                     if new_result["elements_chain"]:
                         new_result["elements"] = ElementSerializer(
                             chain_to_elements(new_result["elements_chain"]), many=True

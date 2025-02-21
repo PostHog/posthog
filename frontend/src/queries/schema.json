@@ -6731,6 +6731,10 @@
                     "description": "Limit to events matching this string",
                     "type": ["string", "null"]
                 },
+                "excludePropertiesInStarSelect": {
+                    "description": "By default the events table has `*` as the default column.  That includes properties. Which is slow.  This flag excludes properties in the star * select. It is opt in since other consumers might want to include properties.",
+                    "type": "boolean"
+                },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
                     "type": "boolean"

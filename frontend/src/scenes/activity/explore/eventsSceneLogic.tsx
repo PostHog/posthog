@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { Node } from '~/queries/schema/schema-general'
+import { isEventsQuery } from '~/queries/utils'
 import { ActivityTab } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
@@ -27,7 +28,11 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             (currentTeam) => {
                 const defaultSourceForTeam = currentTeam && getDefaultEventsQueryForTeam(currentTeam)
                 const defaultForScene = getDefaultEventsSceneQuery()
-                return defaultSourceForTeam ? { ...defaultForScene, source: defaultSourceForTeam } : defaultForScene
+                const q = defaultSourceForTeam ? { ...defaultForScene, source: defaultSourceForTeam } : defaultForScene
+                if (isEventsQuery(q.source)) {
+                    q.source.excludePropertiesInStarSelect = true
+                }
+                return q
             },
         ],
         query: [(s) => [s.savedQuery, s.defaultQuery], (savedQuery, defaultQuery) => savedQuery || defaultQuery],

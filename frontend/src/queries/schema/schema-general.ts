@@ -620,6 +620,12 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
+    /** By default the events table has `*` as the default column.
+     * That includes properties. Which is slow.
+     * This flag excludes properties in the star * select.
+     * It is opt in since other consumers might want to include properties.
+     * */
+    excludePropertiesInStarSelect?: boolean
 }
 
 /**

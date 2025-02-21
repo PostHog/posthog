@@ -7016,6 +7016,14 @@ class EventsQuery(BaseModel):
     after: Optional[str] = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: Optional[str] = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: Optional[str] = Field(default=None, description="Limit to events matching this string")
+    excludePropertiesInStarSelect: Optional[bool] = Field(
+        default=None,
+        description=(
+            "By default the events table has `*` as the default column.  That includes properties. Which is slow.  This"
+            " flag excludes properties in the star * select. It is opt in since other consumers might want to include"
+            " properties."
+        ),
+    )
     filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
     fixedProperties: Optional[
         list[
