@@ -173,7 +173,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                     new_column_data = pa.array([None] * table.num_rows, type=field.type)
                 else:
                     new_column_data = pa.array(
-                        [_get_default_value_from_pyarrow_type(field.type)] * table.num_rows, type=field.type
+                        [get_default_value_for_pyarrow_type(field.type)] * table.num_rows, type=field.type
                     )
                 table = table.append_column(field, new_column_data)
 
@@ -181,13 +181,14 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             # pyarrow schema to use the larger values so that we're not trying to downscale
             if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
                 py_arrow_table_column = table.column(field.name)
-                assert isinstance(py_arrow_table_column.type, pa.Decimal128Type) or isinstance(
-                    py_arrow_table_column.type, pa.Decimal256Type
-                )
 
                 if (
-                    field.type.precision > py_arrow_table_column.type.precision
-                    or field.type.scale > py_arrow_table_column.type.scale
+                    isinstance(py_arrow_table_column.type, pa.Decimal128Type)
+                    or isinstance(py_arrow_table_column.type, pa.Decimal256Type)
+                    and (
+                        field.type.precision > py_arrow_table_column.type.precision
+                        or field.type.scale > py_arrow_table_column.type.scale
+                    )
                 ):
                     field_index = table.schema.get_field_index(field.name)
 
@@ -255,30 +256,6 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
 
     column = pa.array([debug_info] * table.num_rows, type=pa.string())
     return table.append_column("_ph_debug", column)
-
-
-def _get_default_value_from_pyarrow_type(pyarrow_type: pa.DataType):
-    """
-    Returns a default value for the given PyArrow type.
-    """
-    if pa.types.is_integer(pyarrow_type):
-        return 0
-    elif pa.types.is_floating(pyarrow_type):
-        return 0.0
-    elif pa.types.is_string(pyarrow_type):
-        return ""
-    elif pa.types.is_boolean(pyarrow_type):
-        return False
-    elif pa.types.is_binary(pyarrow_type):
-        return b""
-    elif pa.types.is_timestamp(pyarrow_type):
-        return pa.scalar(0, type=pyarrow_type).as_py()
-    elif pa.types.is_date(pyarrow_type):
-        return pa.scalar(0, type=pyarrow_type).as_py()
-    elif pa.types.is_time(pyarrow_type):
-        return pa.scalar(0, type=pyarrow_type).as_py()
-    else:
-        raise ValueError(f"No default value defined for type: {pyarrow_type}")
 
 
 def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table, logger: FilteringBoundLogger) -> None:
@@ -363,6 +340,11 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
 
         max_precision = max(precision, max_precision)
         max_scale = max(scale, max_scale)
+
+    # Deltalake doesn't like writing decimals with scale of 0 - it auto appends `.0`
+    if max_scale == 0:
+        max_scale = 1
+        max_precision += 1
 
     return build_pyarrow_decimal_type(max_precision, max_scale)
 
@@ -500,7 +482,10 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             all_values = columnar_table_data[field_name].tolist()
             all_values_as_decimals_or_none = [_convert_to_decimal_or_none(x) for x in all_values]
 
-            new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
+            if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
+                new_field_type = arrow_schema.field(field_index).type
+            else:
+                new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
 
             try:
                 number_arr = pa.array(
@@ -510,10 +495,15 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             except pa.ArrowInvalid as e:
                 if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
                     number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+                    new_field_type = number_arr.type
+                else:
+                    raise
 
             columnar_table_data[field_name] = number_arr
             py_type = decimal.Decimal
             unique_types_in_column = {decimal.Decimal}
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(new_field_type))
 
         # If one type is a list, then make everything into a list
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:

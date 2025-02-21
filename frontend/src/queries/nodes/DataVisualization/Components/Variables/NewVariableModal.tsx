@@ -1,5 +1,6 @@
 import {
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonInputSelect,
     LemonModal,
@@ -7,10 +8,12 @@ import {
     LemonSelect,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { Variable, VariableType } from '../../types'
 import { VariableCalendar } from './VariableCalendar'
+import { variableDataLogic } from './variableDataLogic'
 import { variableModalLogic } from './variableModalLogic'
 
 const renderVariableSpecificFields = (
@@ -97,8 +100,7 @@ const renderVariableSpecificFields = (
         return (
             <LemonField.Pure label="Default value" className="gap-1">
                 <VariableCalendar
-                    showDefault={true}
-                    variable={variable}
+                    value={dayjs(variable.default_value)}
                     updateVariable={(date) => {
                         updateVariable({ ...variable, default_value: date })
                         // calendar is a special case to reuse LemonCalendarSelect
@@ -115,8 +117,29 @@ const renderVariableSpecificFields = (
 export const NewVariableModal = (): JSX.Element => {
     const { closeModal, updateVariable, save, openNewVariableModal } = useActions(variableModalLogic)
     const { isModalOpen, variable, modalType } = useValues(variableModalLogic)
-
+    const { deleteVariable } = useActions(variableDataLogic)
     const title = modalType === 'new' ? `New ${variable.type} variable` : `Editing ${variable.name}`
+
+    const handleDelete = (): void => {
+        if (variable.id) {
+            LemonDialog.open({
+                title: 'Delete',
+                description:
+                    'Are you sure you want to delete this variable? This cannot be undone. Queries that use this variable will no longer work.',
+                primaryButton: {
+                    status: 'danger',
+                    children: 'Delete variable',
+                    onClick: (): void => {
+                        deleteVariable(variable.id)
+                        closeModal()
+                    },
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        }
+    }
 
     return (
         <LemonModal
@@ -127,6 +150,12 @@ export const NewVariableModal = (): JSX.Element => {
             footer={
                 variable.type !== 'Date' && (
                     <div className="flex flex-1 justify-end gap-2">
+                        {modalType === 'existing' && (
+                            <LemonButton type="secondary" status="danger" onClick={handleDelete}>
+                                Delete variable
+                            </LemonButton>
+                        )}
+                        <div className="flex-1" />
                         <LemonButton type="secondary" onClick={closeModal}>
                             Close
                         </LemonButton>

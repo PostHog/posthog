@@ -6,14 +6,7 @@ export function ErrorTrackingAlerting(): JSX.Element {
             logicKey="error-tracking"
             type="internal_destination"
             subTemplateId="error-tracking"
-            filters={{
-                events: [
-                    {
-                        id: `$error_tracking_issue_created`,
-                        type: 'events',
-                    },
-                ],
-            }}
+            filters={{}}
         />
     )
 }
