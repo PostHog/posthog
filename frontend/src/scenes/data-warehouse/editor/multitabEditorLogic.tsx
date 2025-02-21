@@ -301,6 +301,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return t
             })
             actions.setTabs(updatedTabs)
+            const activeTab = updatedTabs.find((t) => t.uri.toString() === tab.uri.toString())
+            if (activeTab) {
+                actions.selectTab(activeTab)
+            }
             actions.updateState()
         },
         selectTab: ({ tab }) => {
@@ -329,7 +333,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } else if (values.queryInput !== '' && !values.activeModelUri?.view) {
                 LemonDialog.open({
                     title: 'Delete query',
-                    description: 'Are you sure you want to delete this query?',
+                    description: 'There are unsaved changes. Are you sure you want to delete this query?',
                     primaryButton: {
                         children: 'Delete',
                         status: 'danger',
@@ -478,7 +482,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         saveAsView: async () => {
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: '' },
+                initialValues: { viewName: values.activeModelUri?.name || '' },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (
                     <LemonField name="viewName">
