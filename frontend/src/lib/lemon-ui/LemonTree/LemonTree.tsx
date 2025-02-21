@@ -1,67 +1,12 @@
-import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
-import { IconChevronRight } from '@posthog/icons'
+import { DndContext } from '@dnd-kit/core'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 import { forwardRef, HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react'
 
 import { LemonButton, SideAction } from '../LemonButton'
-
-const IconFolderOpen = (props: { className?: string }): JSX.Element => {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={cn('', props.className)}
-        >
-            <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
-        </svg>
-    )
-}
-const IconFolder = (props: { className?: string }): JSX.Element => {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={cn('', props.className)}
-        >
-            <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-        </svg>
-    )
-}
-const IconFile = (props: { className?: string }): JSX.Element => {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={cn('', props.className)}
-        >
-            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-            <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-        </svg>
-    )
-}
+import { LemonSkeleton } from '../LemonSkeleton'
+import { getIcon, TreeNodeDraggable, TreeNodeDroppable } from './utils'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -83,73 +28,65 @@ export type TreeDataItem = {
     onClick?: (open?: boolean) => void
 
     /** The type of the item. */
-    type: 'folder' | 'file' | 'project' | 'separator'
+    type: 'folder' | 'file' | 'project' | 'separator' | 'loading'
 
     /** The path of the item. */
     filePath?: string
 }
 
-export type LemonTreeNodeProps = LemonTreeProps & {
+type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
+    /** The data to render in the tree. */
+    data: TreeDataItem[] | TreeDataItem
+    /** The ID of the folder/node to select by default. Will expand the node if it has children. */
+    defaultSelectedFolderOrNodeId?: string
+    /** The IDs of the expanded items. */
+    expandedItemIds: string[]
+    /** The icon to use for node items. Defaults to <IconChevronRight />. */
+    defaultNodeIcon?: React.ReactNode
+    /** Whether to show an active state on folder nodes when selected. Defaults to false. */
+    showFolderActiveState?: boolean
+    /** Whether the item is draggable */
+    isItemDraggable?: (item: TreeDataItem) => boolean
+    /** Whether the item can accept drops */
+    isItemDroppable?: (item: TreeDataItem) => boolean
+    /** The side action to render for the item. */
+    itemSideAction?: (item: TreeDataItem) => SideAction
+    /** Whether the item is loading */
+    isItemLoading?: (item: TreeDataItem) => boolean
+    /** Whether the item is unapplied */
+    isItemUnapplied?: (item: TreeDataItem) => boolean
+    /** The render function for the item. */
+    renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
+    /** Set the IDs of the expanded items. */
+    setExpandedItemIds?: (ids: string[]) => void
+}
+
+export type LemonTreeProps = LemonTreeBaseProps & {
+    /** Whether to expand all folders by default. Defaults to false. Disabled folders will not be expanded. */
+    expandAllFolders?: boolean
+    /** handler for folder clicks.*/
+    onFolderClick?: (folder: TreeDataItem | undefined, isExpanded: boolean) => void
+    /** handler for node clicks. */
+    onNodeClick?: (node: TreeDataItem | undefined) => void
+    /** The ref of the content to focus when the tree is clicked. TODO: make non-optional. */
+    contentRef?: React.RefObject<HTMLElement>
+    /** Handler for when a drag operation completes */
+    onDragEnd?: (sourceId: string, targetId: string) => void
+}
+
+export type LemonTreeNodeProps = LemonTreeBaseProps & {
     /** The ID of the item. */
     selectedId?: string
     /** The ID of the focused item. */
     focusedId?: string
     /** Handle a click on the item. */
     handleClick: (item: TreeDataItem | undefined) => void
-    /** The render function for the item. */
-    renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
-    /** Set the IDs of the expanded items. */
-    setExpandedItemIds: (ids: string[]) => void
     /** Whether the item is draggable. */
     isDraggable?: (item: TreeDataItem) => boolean
     /** Whether the item is droppable. */
     isDroppable?: (item: TreeDataItem) => boolean
     /** The depth of the item. */
     depth?: number
-}
-
-const Draggable = (props: { id: string; children: React.ReactNode; enableDragging: boolean }): JSX.Element => {
-    const { attributes, listeners, setNodeRef, transform } = useDraggable({
-        id: props.id,
-    })
-    const style = transform
-        ? {
-              transform: CSS.Translate.toString(transform),
-              zIndex: props.enableDragging ? 10 : undefined,
-              opacity: props.enableDragging ? 0.5 : 1,
-          }
-        : undefined
-
-    return (
-        // Apply transform to the entire container and make it the drag reference
-        <div
-            className="relative"
-            ref={setNodeRef}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={style}
-            {...(props.enableDragging ? listeners : {})}
-        >
-            <div className="flex-1" {...attributes}>
-                {props.children}
-            </div>
-        </div>
-    )
-}
-
-const Droppable = (props: { id: string; children: React.ReactNode; isDroppable: boolean }): JSX.Element => {
-    const { setNodeRef, isOver } = useDroppable({ id: props.id })
-
-    return (
-        <div
-            ref={setNodeRef}
-            className={cn(
-                'transition-all duration-150 rounded',
-                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent-primary bg-accent-primary-highlight'
-            )}
-        >
-            {props.children}
-        </div>
-    )
 }
 
 const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
@@ -172,56 +109,13 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         },
         ref
     ): JSX.Element => {
-        const [isModifierKeyPressed, setIsModifierKeyPressed] = useState(false)
-        const ICON_CLASSES = 'size-6 aspect-square flex place-items-center'
         const DEPTH_OFFSET = 4 + 8 * depth // 4 is .25rem to match lemon button padding x axis
+
+        // Handle meta key to enable dragging
+        const [isModifierKeyPressed, setIsModifierKeyPressed] = useState(false)
 
         if (!(data instanceof Array)) {
             data = [data]
-        }
-
-        // Get the node or folder icon
-        // If no icon is provided, use a defaultNodeIcon icon
-        // If no defaultNodeIcon icon is provided, use empty div
-        function getIcon(item: TreeDataItem, expandedItemIds: string[]): JSX.Element {
-            const isOpen = expandedItemIds.includes(item.id)
-            const isFolder = item.type === 'folder'
-            const isFile = item.type === 'file'
-            const isProject = item.type === 'project'
-
-            if (isFolder || isProject) {
-                return (
-                    <>
-                        <span className={ICON_CLASSES}>
-                            <IconChevronRight
-                                className={cn('transition-transform scale-75 stroke-2', isOpen ? 'rotate-90' : '')}
-                            />
-                        </span>
-                        {isOpen ? <IconFolderOpen className="size-4" /> : <IconFolder className="size-4" />}
-                    </>
-                )
-            }
-
-            if (isFile) {
-                return (
-                    <>
-                        <span className={ICON_CLASSES}>&nbsp;</span>
-                        <span className={ICON_CLASSES}>
-                            <IconFile className="size-4" />
-                        </span>
-                    </>
-                )
-            }
-
-            return (
-                <span
-                    className={cn(ICON_CLASSES, {
-                        'text-secondary': item.disabledReason,
-                    })}
-                >
-                    {item.icon || defaultNodeIcon || <div className={ICON_CLASSES} />}
-                </span>
-            )
         }
 
         // TODO: move this kea
@@ -254,7 +148,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         <AccordionPrimitive.Root
                             type="multiple"
                             value={expandedItemIds}
-                            onValueChange={(s) => setExpandedItemIds(s)}
+                            onValueChange={(s) => setExpandedItemIds?.(s)}
                             ref={ref}
                             key={item.id}
                             disabled={!!item.disabledReason}
@@ -264,7 +158,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     <LemonButton
                                         className={cn('flex-1 flex items-center gap-2 cursor-pointer font-normal')}
                                         onClick={() => handleClick(item)}
-                                        type={selectedId === item.id ? 'secondary' : 'tertiary'}
+                                        type="tertiary"
                                         role="treeitem"
                                         tabIndex={-1}
                                         size="small"
@@ -278,7 +172,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 item.children &&
                                                 expandedItemIds.includes(item.id))
                                         }
-                                        icon={getIcon(item, expandedItemIds)}
+                                        icon={getIcon({ item, expandedItemIds, defaultNodeIcon })}
                                         disabledReason={item.disabledReason}
                                         tooltipPlacement="right"
                                         style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
@@ -288,7 +182,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     >
                                         <span
                                             className={cn('', {
-                                                'font-semibold': selectedId === item.id,
+                                                'font-semibold text-accent-primary': selectedId === item.id,
                                                 'text-secondary': item.disabledReason,
                                             })}
                                         >
@@ -327,20 +221,24 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         </AccordionPrimitive.Root>
                     )
 
+                    if (item.type === 'loading') {
+                        return <LemonSkeleton key={item.id} className="h-[33px] w-full" />
+                    }
+
                     // Wrap content in Draggable/Droppable if needed
                     let wrappedContent = content
                     if (isDraggable?.(item) && item.filePath) {
                         wrappedContent = (
-                            <Draggable id={item.filePath} enableDragging={isModifierKeyPressed}>
+                            <TreeNodeDraggable id={item.filePath} enableDragging={isModifierKeyPressed}>
                                 {wrappedContent}
-                            </Draggable>
+                            </TreeNodeDraggable>
                         )
                     }
                     if (isDroppable?.(item) && item.filePath) {
                         wrappedContent = (
-                            <Droppable id={item.filePath} isDroppable={isDroppable(item)}>
+                            <TreeNodeDroppable id={item.filePath} isDroppable={isDroppable(item)}>
                                 {wrappedContent}
-                            </Droppable>
+                            </TreeNodeDroppable>
                         )
                     }
 
@@ -351,55 +249,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
     }
 )
 LemonTreeNode.displayName = 'LemonTreeNode'
-
-export type LemonTreeProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
-    /** The data to render in the tree. */
-    data: TreeDataItem[] | TreeDataItem
-    /** The ID of the folder/node to select by default. Will expand the node if it has children. */
-    defaultSelectedFolderOrNodeId?: string
-    /** Whether to expand all folders by default. Defaults to false. Disabled folders will not be expanded. */
-    expandAllFolders?: boolean
-    /** The icon to use for node items. Defaults to <IconChevronRight />. */
-    defaultNodeIcon?: React.ReactNode
-    /** Whether to show an active state on folder nodes when selected. Defaults to false. */
-    showFolderActiveState?: boolean
-    /** The render function for the item. */
-    renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
-    /** handler for folder clicks.
-     * @param folder - the folder that was clicked
-     */
-    onFolderClick?: (folder: TreeDataItem | undefined, isExpanded: boolean) => void
-    /** handler for node clicks.
-     * @param node - the node that was clicked
-     */
-    onNodeClick?: (node: TreeDataItem | undefined) => void
-
-    /** The ref of the content to focus when the tree is clicked. TODO: make non-optional. */
-    contentRef?: React.RefObject<HTMLDivElement>
-
-    /** Handler for when a drag operation completes */
-    onDragEnd?: (sourceId: string, targetId: string) => void
-
-    /** Whether the item is draggable */
-    isItemDraggable?: (item: TreeDataItem) => boolean
-
-    /** Whether the item can accept drops */
-    isItemDroppable?: (item: TreeDataItem) => boolean
-
-    /** Whether the item is loading */
-    isItemLoading?: (item: TreeDataItem) => boolean
-
-    /** Whether the item is unapplied */
-    isItemUnapplied?: (item: TreeDataItem) => boolean
-
-    /** The side action to render for the item. */
-    itemSideAction?: (item: TreeDataItem) => SideAction
-
-    /** The IDs of the expanded items. */
-    expandedItemIds: string[]
-
-    setExpandedItemIds?: (ids: string[]) => void
-}
 
 const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
     (
@@ -426,10 +275,14 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         ref
     ): JSX.Element => {
         const TYPE_AHEAD_TIMEOUT = 500
+        // Scrollable container
+        const containerRef = useRef<HTMLDivElement>(null)
 
+        // Selected item (you click on it)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+        // Focused item (you press arrow keys to navigate)
         const [focusedId, setFocusedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
-        // Add new state for type-ahead
+        // Type-ahead buffer (you type while in focus of the tree)
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
         const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
 
@@ -455,6 +308,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
 
         const [expandedItemIdsState, setExpandedItemIdsState] = useState<string[]>((): string[] => {
             const ids: string[] = expandedItemIds ?? []
+
             if (expandAllFolders) {
                 // If expandAll is true, collect all item IDs
                 const allIds: string[] = []
@@ -570,19 +424,19 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         )
 
         const handleClick = useCallback(
-            (item: TreeDataItem | undefined): void => {
+            (item: TreeDataItem | undefined, isKeyboardAction = false): void => {
                 // Update focusedId when clicking
                 setFocusedId(item?.id)
-
-                // console.log('handleClick', item)
-                // console.log('focusedId', focusedId)
 
                 // Handle click on a node
                 if (item?.type === 'file') {
                     if (onNodeClick) {
                         setSelectedId(item?.id)
                         onNodeClick(item)
-                        focusContent() // Add focus content here as well
+                        // Only focus content if this was triggered by a keyboard action
+                        if (isKeyboardAction) {
+                            focusContent()
+                        }
                     }
                 } else if (item?.type === 'folder') {
                     // Handle click on a folder
@@ -632,7 +486,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                                 const nextItem = visibleItems[currentIndex + 1]
                                 if (nextItem) {
                                     setFocusedId(nextItem.id)
-                                    setSelectedId(undefined)
+                                    // setSelectedId(undefined)
                                 }
                             }
                         }
@@ -647,30 +501,33 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         e.preventDefault()
                         const currentItem = visibleItems[currentIndex]
 
-                        if (currentItem?.children && expandedItemIds.includes(currentItem.id)) {
-                            // If current item is an expanded folder, collapse it
-                            setExpandedItemIdsState(expandedItemIds.filter((id) => id !== currentItem.id))
-                            setExpandedItemIds &&
-                                setExpandedItemIds(expandedItemIds.filter((id) => id !== currentItem.id))
-                            setFocusedId(currentItem.id)
-                        } else {
-                            // Otherwise find and focus parent folder
-                            const findParent = (items: TreeDataItem[], targetId: string): TreeDataItem | null => {
-                                for (const item of items) {
-                                    if (item.children?.some((child) => child.id === targetId)) {
-                                        return item
-                                    }
-                                    if (item.children) {
-                                        const found = findParent(item.children, targetId)
-                                        if (found) {
-                                            return found
-                                        }
+                        // Find parent of current item
+                        const findParent = (items: TreeDataItem[], targetId: string): TreeDataItem | null => {
+                            for (const item of items) {
+                                if (item.children?.some((child) => child.id === targetId)) {
+                                    return item
+                                }
+                                if (item.children) {
+                                    const found = findParent(item.children, targetId)
+                                    if (found) {
+                                        return found
                                     }
                                 }
-                                return null
                             }
-                            const parentItem = findParent(Array.isArray(data) ? data : [data], currentItem.id)
-                            if (parentItem) {
+                            return null
+                        }
+
+                        // Find parent folder
+                        const parentItem = findParent(Array.isArray(data) ? data : [data], currentItem.id)
+                        if (parentItem) {
+                            // If parent is expanded, collapse it and focus it
+                            if (expandedItemIds.includes(parentItem.id)) {
+                                setExpandedItemIdsState(expandedItemIds.filter((id) => id !== parentItem.id))
+                                setExpandedItemIds &&
+                                    setExpandedItemIds(expandedItemIds.filter((id) => id !== parentItem.id))
+                                setFocusedId(parentItem.id)
+                            } else {
+                                // If parent is already collapsed, just focus it
                                 setFocusedId(parentItem.id)
                             }
                         }
@@ -689,7 +546,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             }
                         } else if (currentIndex < visibleItems.length - 1) {
                             setFocusedId(visibleItems[currentIndex + 1].id)
-                            setSelectedId(undefined)
+                            // setSelectedId(undefined)
                         }
                         break
                     }
@@ -707,7 +564,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         } else if (currentIndex > 0) {
                             // Otherwise move focus to previous item
                             setFocusedId(visibleItems[currentIndex - 1].id)
-                            setSelectedId(undefined)
+                            // setSelectedId(undefined)
                         }
                         break
                     }
@@ -744,7 +601,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         if (!currentItem.disabledReason) {
                             if (currentItem.children) {
                                 // Handle folder click
-                                handleClick(currentItem)
+                                handleClick(currentItem, true)
 
                                 // Toggle folder expanded state
                                 if (expandedItemIds.includes(currentItem.id)) {
@@ -770,7 +627,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                                         currentItem.onClick()
                                     }
 
-                                    focusContent() // Use the new focusContent function
+                                    focusContent()
                                 }
                             }
                         }
@@ -791,6 +648,52 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             ]
         )
 
+        // Add function to scroll focused item into view
+        const scrollFocusedIntoView = useCallback(() => {
+            if (!containerRef.current) {
+                return
+            }
+
+            // Look for either focused or selected element
+            const elementId = focusedId || selectedId
+            if (!elementId) {
+                return
+            }
+
+            // Find the element
+            const element = containerRef.current.querySelector(`[data-id="${elementId}"]`)
+            if (!element) {
+                return
+            }
+
+            // Get container bounds
+            const containerBounds = containerRef.current.getBoundingClientRect()
+            const elementBounds = element.getBoundingClientRect()
+
+            // Calculate if element is outside visible area
+            const isAbove = elementBounds.top < containerBounds.top
+            const isBelow = elementBounds.bottom > containerBounds.bottom - 32 // Smaller padding
+
+            if (isAbove || isBelow) {
+                element.scrollIntoView({
+                    block: isBelow ? 'end' : 'start',
+                    behavior: 'smooth',
+                })
+            }
+        }, [selectedId, focusedId])
+
+        // TODO: Add effect to scroll when focusedId changes
+        useEffect(() => {
+            scrollFocusedIntoView()
+        }, [selectedId, focusedId, scrollFocusedIntoView])
+
+        useEffect(() => {
+            if (defaultSelectedFolderOrNodeId) {
+                setFocusedId(defaultSelectedFolderOrNodeId)
+                setSelectedId(defaultSelectedFolderOrNodeId)
+            }
+        }, [defaultSelectedFolderOrNodeId])
+
         return (
             <DndContext
                 onDragEnd={(event) => {
@@ -799,13 +702,17 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     }
                 }}
             >
-                <div
-                    className={cn('overflow-hidden relative p-2', className)}
+                <ScrollableShadows
+                    direction="vertical"
+                    ref={containerRef}
                     tabIndex={0}
                     role="tree"
                     aria-label="Tree navigation"
+                    aria-activedescendant={focusedId}
                     onKeyDown={handleKeyDown}
                     onBlur={() => setFocusedId(undefined)}
+                    className="flex-1"
+                    innerClassName="p-2"
                 >
                     <LemonTreeNode
                         data={data}
@@ -828,7 +735,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         itemSideAction={itemSideAction}
                         {...props}
                     />
-                </div>
+                </ScrollableShadows>
             </DndContext>
         )
     }

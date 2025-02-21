@@ -6,7 +6,7 @@ import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ReactNode } from 'react'
+import { ReactNode, useRef } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -30,6 +30,8 @@ export function Navigation({
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { activeNavbarItem, mode } = useValues(navigation3000Logic)
+    // We pass down to the ProjectTree to focus the content when the tree is clicked
+    const contentRef = useRef<HTMLElement>(null)
 
     if (mode !== 'full') {
         return (
@@ -45,12 +47,12 @@ export function Navigation({
         // eslint-disable-next-line react/forbid-dom-props
         <div className={clsx('Navigation3000', mobileLayout && 'Navigation3000--mobile')} style={theme?.mainStyle}>
             <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>
-                <ProjectTree />
+                <ProjectTree contentRef={contentRef} />
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
-            <main>
+            <main ref={contentRef} role="main" tabIndex={-1}>
                 {(sceneConfig?.layout !== 'app-raw-no-header' || mobileLayout) && <TopBar />}
                 <div
                     className={clsx(

@@ -107,6 +107,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 loadUnfiledItemsFailure: (state) => state - 1,
             },
         ],
+        loadingTree: [
+            true, // Start as true since we load items on mount
+            {
+                loadSavedItems: () => true,
+                loadSavedItemsSuccess: () => false,
+                loadSavedItemsFailure: () => false,
+                loadUnfiledItems: () => true,
+                loadUnfiledItemsSuccess: () => false,
+                loadUnfiledItemsFailure: () => false,
+            },
+        ],
         pendingActions: [
             [] as ProjectTreeAction[],
             {
@@ -304,9 +315,34 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ],
         ],
         treeData: [
-            (s) => [s.defaultTreeNodes, s.projectTree, s.projectRow],
-            (defaultTreeNodes, projectTree, projectRow): TreeDataItem[] => {
-                return [...defaultTreeNodes, ...projectRow, ...projectTree]
+            (s) => [s.defaultTreeNodes, s.projectTree, s.projectRow, s.loadingTree],
+            (defaultTreeNodes, projectTree, projectRow, loadingTree): TreeDataItem[] => {
+                return loadingTree
+                    ? [
+                          ...defaultTreeNodes,
+                          ...projectRow,
+                          {
+                              id: '',
+                              name: '',
+                              type: 'loading' as const,
+                              filePath: '',
+                          },
+                      ]
+                    : [...defaultTreeNodes, ...projectRow, ...projectTree]
+            },
+        ],
+        currentItemFromUrl: [
+            (s) => [s.viableItems, router.selectors.location],
+            (viableItems, location): FileSystemEntry | null => {
+                const currentPath = location.pathname
+                return (
+                    viableItems.find((item) => {
+                        if (item.href && currentPath.endsWith(item.href)) {
+                            return item
+                        }
+                        return false
+                    }) || null
+                )
             },
         ],
     }),
