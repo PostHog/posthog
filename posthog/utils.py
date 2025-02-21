@@ -5,6 +5,7 @@ import datetime
 import datetime as dt
 import gzip
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -1535,3 +1536,18 @@ def get_from_dict_or_attr(obj: Any, key: str):
         return getattr(obj, key, None)
     else:
         raise AttributeError(f"Object {obj} has no key {key}")
+
+
+def is_constant_in_current_stack(value: str):
+    """
+    Go back through the current stack, and look for a given value in its constants.
+
+    This can be used as an imperfect signal whether the given argument is a constant (i.e. a static string),
+    though obviously there are cases where a false negative is possible.
+    """
+    for frame_info in inspect.stack():
+        frame = frame_info.frame
+        code_context = frame.f_code.co_consts
+        if value in code_context:
+            return True
+    return False

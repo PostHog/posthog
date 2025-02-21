@@ -1,10 +1,18 @@
-from typing import Literal, Optional, cast
 from collections.abc import Callable
+from typing import Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
+from hogql_parser import (
+    parse_expr as _parse_expr_cpp,
+    parse_order_expr as _parse_order_expr_cpp,
+    parse_select as _parse_select_cpp,
+    parse_full_template_string as _parse_full_template_string_cpp,
+    parse_program as _parse_program_cpp,
+)
 from prometheus_client import Histogram
 
+from posthog.cache_utils import lru_cache_ignore_args
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST
@@ -15,13 +23,8 @@ from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string_literal_text, parse_string_literal_ctx, parse_string_text_ctx
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
-from hogql_parser import (
-    parse_expr as _parse_expr_cpp,
-    parse_order_expr as _parse_order_expr_cpp,
-    parse_select as _parse_select_cpp,
-    parse_full_template_string as _parse_full_template_string_cpp,
-    parse_program as _parse_program_cpp,
-)
+from posthog.settings import TEST
+from posthog.utils import is_constant_in_current_stack
 
 
 def safe_lambda(f):
@@ -109,6 +112,38 @@ def parse_expr(
     return node
 
 
+@lru_cache_ignore_args(ignore_args={"timings"}, maxsize=1000)
+def _parse_expr_static_inner(
+    statement: str,
+    start: Optional[int],
+    backend: Literal["python", "cpp"] = "cpp",
+    timings: Optional[HogQLTimings] = None,
+) -> ast.Expr:
+    return parse_expr(statement, start=start, backend=backend, timings=timings)
+
+
+def parse_expr_static(
+    expr: str,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
+    start: Optional[int] = 0,
+    timings: Optional[HogQLTimings] = None,
+    *,
+    backend: Literal["python", "cpp"] = "cpp",
+) -> ast.Expr:
+    if TEST:
+        if not is_constant_in_current_stack(expr):
+            raise NotImplementedError("parse_expr_static is only for static strings")
+    if timings is None:
+        timings = HogQLTimings()
+    parsed = _parse_expr_static_inner(expr, start=start, backend=backend, timings=timings)
+    if placeholders:
+        with timings.measure("replace_placeholders"):
+            replaced = replace_placeholders(parsed, placeholders)
+            assert isinstance(replaced, ast.Expr)
+            return replaced
+    return parsed
+
+
 def parse_order_expr(
     order_expr: str,
     placeholders: Optional[dict[str, ast.Expr]] = None,
@@ -143,6 +178,36 @@ def parse_select(
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
     return node
+
+
+@lru_cache_ignore_args(ignore_args={"timings"}, maxsize=1000)
+def _parse_select_static_inner(
+    statement: str,
+    backend: Literal["python", "cpp"] = "cpp",
+    timings: Optional[HogQLTimings] = None,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(statement, backend=backend, timings=timings)
+
+
+def parse_select_static(
+    statement: str,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
+    timings: Optional[HogQLTimings] = None,
+    *,
+    backend: Literal["python", "cpp"] = "cpp",
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    if TEST:
+        if not is_constant_in_current_stack(statement):
+            raise NotImplementedError("parse_static_select is only for static strings")
+    if timings is None:
+        timings = HogQLTimings()
+    parsed = _parse_select_static_inner(statement, backend=backend, timings=timings)
+    if placeholders:
+        with timings.measure("replace_placeholders"):
+            replaced = replace_placeholders(parsed, placeholders)
+            assert isinstance(replaced, ast.SelectQuery | ast.SelectSetQuery)
+            return replaced
+    return parsed
 
 
 def parse_program(
