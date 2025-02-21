@@ -7,7 +7,7 @@ from posthog.hogql.database.models import (
 )
 
 NUMBERS_TABLE_FIELDS = {
-    "number": IntegerDatabaseField(name="number"),
+    "number": IntegerDatabaseField(name="number", nullable=False),
 }
 
 
