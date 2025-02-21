@@ -3,6 +3,8 @@ from typing import Optional
 from uuid import UUID
 from sentry_sdk import capture_exception
 
+from celery.contrib.abortable import AbortableTask
+
 import requests
 from celery import shared_task
 from django.conf import settings
@@ -51,6 +53,7 @@ def redis_heartbeat() -> None:
     max_retries=10,
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
+    base=AbortableTask,
 )
 @limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
