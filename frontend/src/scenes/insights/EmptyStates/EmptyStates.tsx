@@ -87,19 +87,13 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
     )
 }
 
-function QueryIdDisplay({
-    queryId,
-    compact = false,
-}: {
-    queryId?: string | null
-    compact?: boolean
-}): JSX.Element | null {
+function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element | null {
     if (queryId == null) {
         return null
     }
 
     return (
-        <div className={clsx('text-muted text-xs', { 'mt-20': !compact })}>
+        <div className="text-muted text-xs">
             Query ID: <span className="font-mono">{queryId}</span>
         </div>
     )
@@ -142,14 +136,12 @@ export const DELAYED_LOADING_MESSAGE = 'Waiting for changes...'
 function LoadingDetails({
     pollResponse,
     queryId,
-    compact,
     rowsRead,
     bytesRead,
     secondsElapsed,
 }: {
     pollResponse?: Record<string, QueryStatus | null> | null
     queryId?: string | null
-    compact?: boolean
     rowsRead: number
     bytesRead: number
     secondsElapsed: number
@@ -181,7 +173,7 @@ function LoadingDetails({
                     </>
                 )}
             </p>
-            <QueryIdDisplay queryId={queryId} compact={compact} />
+            <QueryIdDisplay queryId={queryId} />
         </>
     )
 }
@@ -192,7 +184,6 @@ export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
     suggestion,
-    compact = false,
     delayLoadingAnimation = false,
     loadingTimeSeconds = 0,
     renderEmptyStateAsSkeleton = false,
@@ -200,7 +191,6 @@ export function StatelessInsightLoadingState({
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
     suggestion?: JSX.Element
-    compact?: boolean
     delayLoadingAnimation?: boolean
     loadingTimeSeconds?: number
     renderEmptyStateAsSkeleton?: boolean
@@ -319,7 +309,6 @@ export function StatelessInsightLoadingState({
                     <LoadingDetails
                         pollResponse={pollResponse}
                         queryId={queryId}
-                        compact={compact}
                         rowsRead={rowsRead}
                         bytesRead={bytesRead}
                         secondsElapsed={secondsElapsed}
