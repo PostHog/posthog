@@ -17,6 +17,10 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { propertyFilterPlugin } from '../cdp/legacy-plugins/_transformations/property-filter-plugin/template'
+import { semverFlattenerPlugin } from '../cdp/legacy-plugins/_transformations/semver-flattener-plugin/template'
+import { taxonomyPlugin } from '../cdp/legacy-plugins/_transformations/taxonomy-plugin/template'
+import { timestampParserPlugin } from '../cdp/legacy-plugins/_transformations/timestamp-parser-plugin/template'
 import { template as botDetectionTemplate } from '../cdp/templates/_transformations/bot-detection/bot-detection.template'
 import { template as removeNullPropertiesTemplate } from '../cdp/templates/_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from '../cdp/templates/_transformations/url-masking/url-masking.template'
@@ -807,6 +811,81 @@ describe('IngestionConsumer', () => {
                     execution_order: 6,
                     bytecode: await compileHog(ipAnonymizationTemplate.hog),
                 },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: propertyFilterPlugin.template.name,
+                    template_id: propertyFilterPlugin.template.id,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 7,
+                    bytecode: await compileHog(propertyFilterPlugin.template.hog),
+                    hog: propertyFilterPlugin.template.hog,
+                    inputs_schema: propertyFilterPlugin.template.inputs_schema,
+                    inputs: {
+                        properties: {
+                            value: '$geoip_latitude,$geoip_longitude,$geoip_postal_code,$geoip_subdivision_2_code,sensitive_info,nested.secretValue',
+                        },
+                    },
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: semverFlattenerPlugin.template.name,
+                    template_id: semverFlattenerPlugin.template.id,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 8,
+                    bytecode: await compileHog(semverFlattenerPlugin.template.hog),
+                    hog: semverFlattenerPlugin.template.hog,
+                    inputs_schema: semverFlattenerPlugin.template.inputs_schema,
+                    inputs: {
+                        properties: {
+                            value: 'app_version,lib_version',
+                        },
+                    },
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: taxonomyPlugin.template.name,
+                    template_id: taxonomyPlugin.template.id,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 9,
+                    bytecode: await compileHog(taxonomyPlugin.template.hog),
+                    hog: taxonomyPlugin.template.hog,
+                    inputs_schema: taxonomyPlugin.template.inputs_schema,
+                    inputs: {
+                        defaultNamingConvention: {
+                            value: 'snake_case',
+                        },
+                    },
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: timestampParserPlugin.template.name,
+                    template_id: timestampParserPlugin.template.id,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 10,
+                    bytecode: await compileHog(timestampParserPlugin.template.hog),
+                    hog: timestampParserPlugin.template.hog,
+                    inputs_schema: timestampParserPlugin.template.inputs_schema,
+                },
             ]
 
             // Insert the transformations
@@ -843,6 +922,8 @@ describe('IngestionConsumer', () => {
             const realUserEvent = createEvent({
                 distinct_id: 'test-user-id',
                 ip: '89.160.20.129',
+                event: 'ButtonClicked',
+                timestamp: '2024-01-01T12:30:45.000Z',
                 properties: {
                     $ip: '89.160.20.129',
                     $useragent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -855,6 +936,8 @@ describe('IngestionConsumer', () => {
                         nullInner: null,
                         validInner: 'inner-value',
                     },
+                    app_version: '1.2.3-beta+exp.sha.5114f85',
+                    lib_version: '2.0.0-alpha+001',
                 },
             })
 
@@ -907,6 +990,32 @@ describe('IngestionConsumer', () => {
             ) // URL Masking
             expect(processedEvent.distinct_id).toMatch(/^[a-f0-9]{64}$/) // PII Hashing
             expect(properties.$ip).toEqual('89.160.20.0') // IP Anonymization
+
+            // Property Filter assertions after IP check
+            expect(properties).not.toHaveProperty('sensitive_info')
+            expect(properties.nested).not.toHaveProperty('secretValue')
+            expect(properties).not.toHaveProperty('$geoip_latitude')
+            expect(properties).not.toHaveProperty('$geoip_longitude')
+            expect(properties).not.toHaveProperty('$geoip_postal_code')
+            expect(properties).not.toHaveProperty('$geoip_subdivision_2_code')
+
+            // Semver Flattener
+            expect(properties.app_version__major).toEqual(1)
+            expect(properties.app_version__minor).toEqual(2)
+            expect(properties.app_version__patch).toEqual(3)
+            expect(properties.app_version__preRelease).toEqual('beta')
+            expect(properties.app_version__build).toEqual('exp.sha.5114f85')
+
+            // Taxonomy standardization
+            expect(processedEvent.event).toEqual('button_clicked') // converted to snake_case
+
+            // Timestamp Parser
+            expect(properties.day_of_the_week).toEqual('Monday')
+            expect(properties.year).toEqual('2024')
+            expect(properties.month).toEqual('01')
+            expect(properties.day).toEqual('01')
+            expect(properties.hour).toEqual(13)
+            expect(properties.minute).toEqual(30)
         })
     })
 })
