@@ -1,5 +1,6 @@
 import decimal
 import uuid
+from ipaddress import IPv4Address, IPv6Address
 
 import pyarrow as pa
 import pytest
@@ -242,3 +243,29 @@ def test_get_max_decimal_type_returns_correct_decimal_type(
     """Test whether expected PyArrow decimal type variant is returned."""
     result = _get_max_decimal_type(decimals)
     assert result == expected
+
+
+def test_table_from_py_list_with_ipv4_address():
+    table = table_from_py_list([{"column": IPv4Address("127.0.0.1")}])
+
+    assert table.equals(pa.table({"column": ["127.0.0.1"]}))
+    assert table.schema.equals(
+        pa.schema(
+            [
+                ("column", pa.string()),
+            ]
+        )
+    )
+
+
+def test_table_from_py_list_with_ipv6_address():
+    table = table_from_py_list([{"column": IPv6Address("::1")}])
+
+    assert table.equals(pa.table({"column": ["::1"]}))
+    assert table.schema.equals(
+        pa.schema(
+            [
+                ("column", pa.string()),
+            ]
+        )
+    )
