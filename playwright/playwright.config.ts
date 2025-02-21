@@ -18,7 +18,7 @@ export default defineConfig({
          * Maximum time expect() should wait for the condition to be met.
          * For example in `await expect(locator).toHaveText();`
          */
-        timeout: 30 * 1000,
+        timeout: 45 * 1000,
     },
     /* Run tests in files in parallel */
     fullyParallel: true,
@@ -26,8 +26,8 @@ export default defineConfig({
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
     retries: process.env.CI ? 8 : 2,
-    /* Run one worker per core in GitHub Actions. */
-    workers: process.env.CI ? 4 : undefined,
+    /* 4 cores in GitHub Actions so run 3 workers and leave one core for all the rest */
+    workers: process.env.CI ? 3 : undefined,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [['html', { open: 'never' }]],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */

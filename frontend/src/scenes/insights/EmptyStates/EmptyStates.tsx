@@ -50,7 +50,7 @@ export function InsightEmptyState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col flex-1 rounded p-4 m-2 w-full items-center justify-center"
+            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
         >
             <IconArchive className="text-5xl mb-2 text-tertiary" />
             <h2 className="text-xl leading-tight">{heading}</h2>
@@ -122,6 +122,9 @@ export const LOADING_MESSAGES = [
     'Polishing graphs with tiny hedgehog paws…',
     'Rolling through data like a spiky ball of insights…',
     'Gathering nuts and numbers from the data forest…',
+    <>
+        Reticulating <s>splines</s> spines…
+    </>,
 ]
 
 export function StatelessInsightLoadingState({
@@ -215,7 +218,7 @@ export function StatelessInsightLoadingState({
     return (
         <div
             data-attr="insight-empty-state"
-            className={clsx('flex flex-col gap-1 rounded p-4 m-2 w-full h-full', {
+            className={clsx('flex flex-col gap-1 rounded p-4 w-full h-full', {
                 'justify-center items-center': !renderEmptyStateAsSkeleton,
                 'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
             })}
@@ -388,7 +391,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <div data-attr="insight-empty-state" className="rounded p-4 m-2 h-full w-full">
+        <div data-attr="insight-empty-state" className="rounded p-4 h-full w-full">
             <h2 className="text-xl leading-tight mb-6">
                 <IconWarning className="text-xl shrink-0 mr-2" />
                 Your query took too long to complete
@@ -422,7 +425,7 @@ export function InsightValidationError({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center justify-center gap-2 rounded p-4 m-2 h-full w-full"
+            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full"
         >
             <IconWarning className="text-4xl shrink-0 text-muted" />
 
@@ -475,7 +478,7 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center gap-2 justify-center rounded p-4 m-2 h-full w-full"
+            className="flex flex-col items-center gap-2 justify-center rounded p-4 h-full w-full"
         >
             <IconErrorOutline className="text-5xl shrink-0" />
 
@@ -535,7 +538,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
-        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center m-2">
+        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center">
             <div className="text-5xl text-muted mb-2">
                 <IconPlusSquare />
             </div>
