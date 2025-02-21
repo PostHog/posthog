@@ -343,7 +343,7 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
             continue
 
         # This implementation accounts for leading zeroes being excluded from digits
-        # It based on Arrow, see:
+        # It is based on Arrow, see:
         # https://github.com/apache/arrow/blob/main/python/pyarrow/src/arrow/python/decimal.cc#L75
         if exponent < 0:
             precision = max(len(digits), -exponent)
