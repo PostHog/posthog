@@ -462,6 +462,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.NotFound("Recording not found")
 
         recording.load_person()
+        if not request.user.is_anonymous:
+            viewed = _current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+            other_viewers = _other_users_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+
+            recording.viewed = str(recording.session_id) in viewed
+            recording.viewers = other_viewers.get(str(recording.session_id), [])
 
         serializer = self.get_serializer(recording)
 
@@ -1025,25 +1031,10 @@ def list_recordings_from_query(
     recording_ids_in_list: list[str] = [str(r.session_id) for r in recordings]
     # Update the viewed status for all loaded recordings
     with timer("load_viewed_recordings"):
-        viewed_session_recordings = set(
-            SessionRecordingViewed.objects.filter(team=team, user=request.user)
-            .filter(session_id__in=recording_ids_in_list)
-            .values_list("session_id", flat=True)
-        )
+        viewed_session_recordings = _current_user_viewed(recording_ids_in_list, cast(User, request.user), team)
 
     with timer("load_other_viewers_by_recording"):
-        # we're looping in python
-        # but since we limit the number of session recordings in the results set
-        # it shouldn't be too bad
-        other_viewers: dict[str, list[str]] = defaultdict(list)
-        queryset = (
-            SessionRecordingViewed.objects.filter(team=team, session_id__in=recording_ids_in_list)
-            .exclude(user=request.user)
-            .values_list("session_id", "user__uuid")
-        )
-
-        for session_id, user_uuid in queryset:
-            other_viewers[session_id].append(user_uuid)
+        other_viewers = _other_users_viewed(recording_ids_in_list, cast(User, request.user), team)
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
@@ -1075,6 +1066,31 @@ def list_recordings_from_query(
         {"results": results, "has_next": more_recordings_available, "version": 4},
         all_timings,
     )
+
+
+def _other_users_viewed(recording_ids_in_list: list[str], user: User, team: Team) -> dict[str, list[str]]:
+    # we're looping in python
+    # but since we limit the number of session recordings in the results set
+    # it shouldn't be too bad
+    other_viewers: dict[str, list[str]] = defaultdict(list)
+    queryset = (
+        SessionRecordingViewed.objects.filter(team=team, session_id__in=recording_ids_in_list)
+        .exclude(user=user)
+        .values_list("session_id", "user__uuid")
+    )
+    for session_id, user_uuid in queryset:
+        other_viewers[session_id].append(str(user_uuid))
+
+    return other_viewers
+
+
+def _current_user_viewed(recording_ids_in_list: list[str], user: User, team: Team) -> set[str]:
+    viewed_session_recordings = set(
+        SessionRecordingViewed.objects.filter(team=team, user=user)
+        .filter(session_id__in=recording_ids_in_list)
+        .values_list("session_id", flat=True)
+    )
+    return viewed_session_recordings
 
 
 def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryModifiers:

@@ -14,7 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_team import create_team
-from posthog.models import Organization, Person, SessionRecording
+from posthog.models import Organization, Person, SessionRecording, User
 from posthog.models.team import Team
 from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
@@ -281,6 +281,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
                 "viewed": False,
+                "viewers": [],
                 "ongoing": True,
                 "activity_score": None,
             },
@@ -480,6 +481,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 distinct_id="d1",
             )
 
+            other_user = User.objects.create(email="paul@not-first-user.com")
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=other_user,
+                session_id=session_recording_id,
+            )
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
         response_data = response.json()
 
@@ -487,6 +495,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "id": "session_1",
             "distinct_id": "d1",
             "viewed": False,
+            "viewers": [str(other_user.uuid)],
             "recording_duration": 30,
             "start_time": base_time.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
