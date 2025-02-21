@@ -34,6 +34,13 @@ K = TypeVar("K")
 V = TypeVar("V")
 
 
+def format_exception_summary(e: Exception, max_length: int = 256) -> str:
+    value = repr(e).splitlines()[0]
+    if len(value) > max_length:
+        value = value[:max_length] + "..."
+    return value
+
+
 class FuturesMap(dict[K, Future[V]]):
     def as_completed(self, timeout: float | int | None = None) -> Iterator[tuple[K, Future[V]]]:
         reverse_map = {v: k for k, v in self.items()}
@@ -62,8 +69,11 @@ class FuturesMap(dict[K, Future[V]]):
                     errors[k] = e
 
         if errors:
-            # TODO: messaging could be improved here
-            raise ExceptionGroup("not all futures returned a result", [*errors.values()])
+            raise ExceptionGroup(
+                f"{len(errors)} future(s) did not return a result:\n\n"
+                + "\n".join([f"* {key}: {format_exception_summary(e)}" for key, e in errors.items()]),
+                [*errors.values()],
+            )
 
         return results
 
@@ -156,8 +166,8 @@ class ClickhouseCluster:
                 self.__logger.info("Executing %r on %r...", fn, host)
                 try:
                     result = fn(client)
-                except Exception:
-                    self.__logger.warn("Failed to execute %r on %r!", fn, host, exc_info=True)
+                except Exception as e:
+                    self.__logger.warn("Failed to execute %r on %r: %s", fn, host, e, exc_info=True)
                     raise
                 else:
                     self.__logger.info("Successfully executed %r on %r.", fn, host)

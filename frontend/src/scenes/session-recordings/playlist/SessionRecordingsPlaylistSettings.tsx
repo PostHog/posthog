@@ -1,12 +1,11 @@
 import { IconEllipsis } from '@posthog/icons'
-import { IconClock, IconSort } from '@posthog/icons'
+import { IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
-import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
+import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 
 import { RecordingUniversalFilters } from '~/types'
 
-import { PlaybackMode, playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
+import { PlaybackMode, playerSettingsLogic } from '../player/playerSettingsLogic'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -90,43 +89,6 @@ function SortedBy({
             icon={<IconSort className="text-lg" />}
             label={SortingKeyToLabel[filters.order || 'start_time']}
         />
-    )
-}
-
-export function SessionRecordingPlaylistBottomSettings(): JSX.Element {
-    const { hideViewedRecordings, playlistTimestampFormat } = useValues(playerSettingsLogic)
-    const { setHideViewedRecordings, setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
-    return (
-        <SettingsBar border="top">
-            <SettingsToggle
-                active={hideViewedRecordings}
-                title="Hide viewed recordings"
-                label="Hide viewed recordings"
-                onClick={() => setHideViewedRecordings(!hideViewedRecordings)}
-            />
-            <SettingsMenu
-                highlightWhenActive={false}
-                items={[
-                    {
-                        label: 'UTC',
-                        onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
-                        active: playlistTimestampFormat === TimestampFormat.UTC,
-                    },
-                    {
-                        label: 'Device',
-                        onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
-                        active: playlistTimestampFormat === TimestampFormat.Device,
-                    },
-                    {
-                        label: 'Relative',
-                        onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
-                        active: playlistTimestampFormat === TimestampFormat.Relative,
-                    },
-                ]}
-                icon={<IconClock />}
-                label={TimestampFormatToLabel[playlistTimestampFormat]}
-            />
-        </SettingsBar>
     )
 }
 

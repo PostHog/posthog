@@ -23,6 +23,10 @@ interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
     whenUnavailable?: LemonMenuItem
     highlightWhenActive?: boolean
     closeOnClickInside?: boolean
+    /**
+     * Whether the button should be rounded or not
+     */
+    rounded?: boolean
 }
 
 export function SettingsBar({
@@ -57,6 +61,7 @@ export function SettingsMenu({
     closeOnClickInside = true,
     highlightWhenActive = true,
     whenUnavailable,
+    rounded = false,
     ...props
 }: SettingsMenuProps): JSX.Element {
     const active = items.some((cf) => !!cf.active)
@@ -68,7 +73,7 @@ export function SettingsMenu({
             {...props}
         >
             <LemonButton
-                className="rounded-[0px]"
+                className={clsx(rounded ? 'rounded' : 'rounded-[0px]')}
                 status={highlightWhenActive && active ? 'danger' : 'default'}
                 size="xsmall"
                 icon={icon}
@@ -90,16 +95,17 @@ type SettingsButtonProps = (
 
 type SettingsToggleProps = SettingsButtonProps & {
     active: boolean
+    rounded?: boolean
 }
 
 export function SettingsButton(props: SettingsButtonProps): JSX.Element {
     return <SettingsToggle active={false} {...props} />
 }
 
-export function SettingsToggle({ title, icon, label, active, ...props }: SettingsToggleProps): JSX.Element {
+export function SettingsToggle({ title, icon, label, active, rounded, ...props }: SettingsToggleProps): JSX.Element {
     const button = (
         <LemonButton
-            className="rounded-[0px]"
+            className={clsx(rounded ? 'rounded' : 'rounded-[0px]')}
             icon={icon}
             size="xsmall"
             status={active ? 'danger' : 'default'}

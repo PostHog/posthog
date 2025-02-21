@@ -328,6 +328,7 @@ class FeatureFlag(models.Model):
         context = {
             "request": http_request,
             "team_id": self.team_id,
+            "project_id": self.team.project_id,
         }
 
         serializer_data = {}

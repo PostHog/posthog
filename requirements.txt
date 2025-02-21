@@ -131,7 +131,7 @@ click-repl==0.3.0
     # via celery
 clickhouse-connect==0.8.11
     # via -r requirements.in
-clickhouse-driver==0.2.7
+clickhouse-driver==0.2.9
     # via
     #   -r requirements.in
     #   clickhouse-pool
@@ -332,6 +332,8 @@ graphql-core==3.2.5
     #   graphql-relay
 graphql-relay==3.2.0
     # via graphene
+greenlet==3.1.1
+    # via sqlalchemy
 grpcio==1.63.2
     # via
     #   -r requirements.in

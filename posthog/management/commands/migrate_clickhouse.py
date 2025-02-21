@@ -110,7 +110,8 @@ class Command(BaseCommand):
         return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
 
     def _create_database_if_not_exists(self, database: str, cluster: str):
-        with default_client() as client:
-            client.execute(
-                f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster}",
-            )
+        if settings.TEST or settings.E2E_TESTING:
+            with default_client() as client:
+                client.execute(
+                    f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster}",
+                )
