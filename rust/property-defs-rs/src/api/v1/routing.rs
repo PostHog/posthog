@@ -1,5 +1,5 @@
 use crate::{
-    api::v1::query::{Manager, PropDefResponse},
+    api::v1::query::Manager,
     api::v1::constants::*,
     //metrics_consts::{},
 };
@@ -7,8 +7,11 @@ use crate::{
 use axum::{
     extract::{Path, Query, State},
     routing::get,
-    Json, Router,
+    Json,
+    Router,
 };
+use serde::Serialize;
+use sqlx::{postgres::PgQueryResult, Executor};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -41,7 +44,7 @@ async fn project_property_definitions_handler(
     };
 
     let property_type = match params.get("type") {
-        Some(s) if PARENT_PROPERTY_TYPES.iter().any(|pt| *pt == s) => Some(*s),
+        Some(s) if PARENT_PROPERTY_TYPES.iter().any(|pt| *pt == s) => Some(s.clone()),
         _ => None,
     };
 
@@ -49,7 +52,7 @@ async fn project_property_definitions_handler(
     let group_type_index: i32 = match params.get("group_type_index") {
         Some(s) => match s.parse::<i32>().ok() {
             Some(gti)
-                if property_type.is_some_and(|pt| pt == "group")
+                if property_type.as_ref().is_some_and(|pt| pt == "group")
                     && gti >= 0 && gti < GROUP_TYPE_LIMIT => gti,
             _ => -1,
         },
@@ -134,7 +137,7 @@ async fn project_property_definitions_handler(
         );
 
     // construct the property definitions query
-    let mut props_query = qmgr
+    let props_query = qmgr
         .property_definitions_query(
             project_id,
             &search,
@@ -152,9 +155,67 @@ async fn project_property_definitions_handler(
             offset,
         );
 
-    // TODO: execute queries, build result structs
+    // execute the queries, and populate the response
+    let mut out = PropDefResponse{
+        count: 0,
+        next: None,
+        prev: None,
+        results: vec![],
+    };
 
-    // TODO: Implement!
-    Json(PropDefResponse {})
+    match qmgr.pool.execute(count_query.as_str()).await {
+        Ok(result) => unimplemented!("TODO: populate out.count with query result"),
+        Err(e) => unimplemented!("TODO: handle count query error!"),
+    }
+
+   match qmgr.pool.execute(props_query.as_str()).await {
+        Ok(result) => unimplemented!("TODO: populate out fields with query result"),
+        Err(e) => unimplemented!("TODO: handle props query error!"),
+    }
+
+    Json(out)
 }
 
+#[derive(Serialize)]
+pub struct PropDefResponse {
+    count: u32,
+    next: Option<String>,
+    prev: Option<String>,
+    results: Vec<PropDef>,
+}
+
+#[derive(Serialize)]
+pub struct PropDef {
+    id: String,
+    name: String,
+    description: String,
+    is_numeric: bool,
+    updated_at: String, // UTC ISO8601
+    updated_by: Person,
+    is_seen_on_filtered_events: Option<String>, // VALIDATE THIS!
+    property_type: String,
+    verified: bool,
+    verified_at: String, // UTC ISO8601
+    verified_by: Person,
+    tags: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct Person {
+    id: u32,
+    uuid: String,
+    distinct_id: String,
+    first_name: String,
+    last_name: String,
+    email: String,
+    is_email_verified: bool,
+    hedgehog_config: HedgehogConfig,
+}
+
+#[derive(Serialize)]
+pub struct HedgehogConfig {
+    use_as_profile: bool,
+    color: String,
+    accessories: Vec<String>,
+    role_at_organization: Option<String>,
+}

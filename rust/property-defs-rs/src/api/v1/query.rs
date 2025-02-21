@@ -10,7 +10,6 @@ use crate::{
     config::Config,
 };
 
-use serde::Serialize;
 use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, QueryBuilder};
 
 use std::collections::HashMap;
@@ -18,7 +17,7 @@ use std::collections::HashMap;
 // Wraps Postgres client and builds queries
 pub struct Manager {
     // TODO: capture more config::Config values here as needed
-    pool: PgPool,
+    pub pool: PgPool,
     enterprise_prop_defs_table: String,
     prop_defs_table: String,
     event_props_table: String,
@@ -194,7 +193,7 @@ impl Manager {
             // attempt to return from the prop defs query. This is expensive :(
             let term_aliases: Vec<&str> = self.search_term_aliases
                 .iter()
-                .filter(|(key, prop_long_slug)|
+                .filter(|(_key, prop_long_slug)|
                     search_terms
                         .as_ref()
                         .unwrap()
@@ -251,7 +250,7 @@ impl Manager {
                             if fndx == 0 {
                                 qb.push("(");
                             }
-                            qb.push_bind(field.clone());
+                            qb.push_bind(*field);
                             qb.push(" ILIKE '%");
                             qb.push_bind(term);
                             qb.push("%' ");
@@ -381,48 +380,4 @@ impl Manager {
     fn is_prop_type_event(&self, property_type: &Option<String>) -> bool {
         property_type.is_some() && property_type.as_ref().unwrap() == "event"
     }
-}
-
-#[derive(Serialize)]
-pub struct PropDefResponse {
-    count: u32,
-    next: Option<String>,
-    prev: Option<String>,
-    results: Vec<PropDef>,
-}
-
-#[derive(Serialize)]
-struct PropDef {
-    id: String,
-    name: String,
-    description: String,
-    is_numeric: bool,
-    updated_at: String, // UTC ISO8601
-    updated_by: Person,
-    is_seen_on_filtered_events: Option<String>, // VALIDATE THIS!
-    property_type: String,
-    verified: bool,
-    verified_at: String, // UTC ISO8601
-    verified_by: Person,
-    tags: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct Person {
-    id: u32,
-    uuid: String,
-    distinct_id: String,
-    first_name: String,
-    last_name: String,
-    email: String,
-    is_email_verified: bool,
-    hedgehog_config: HedgehogConfig,
-}
-
-#[derive(Serialize)]
-struct HedgehogConfig {
-    use_as_profile: bool,
-    color: String,
-    accessories: Vec<String>,
-    role_at_organization: Option<String>,
 }
