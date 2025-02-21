@@ -90,7 +90,7 @@ export function SharedMetric(): JSX.Element {
             )}
             <div className={`border rounded ${isDarkModeOn ? 'bg-light' : 'bg-white'} p-4`}>
                 <div className="mb-4">
-                    <LemonLabel>Name</LemonLabel>
+                    <LemonLabel className="mb-1">Name</LemonLabel>
                     <LemonInput
                         value={sharedMetric.name}
                         onChange={(newName) => {
@@ -101,7 +101,7 @@ export function SharedMetric(): JSX.Element {
                     />
                 </div>
                 <div className="mb-4">
-                    <LemonLabel>Description (optional)</LemonLabel>
+                    <LemonLabel className="mb-1">Description (optional)</LemonLabel>
                     <LemonInput
                         value={sharedMetric.description}
                         onChange={(newDescription) => {
