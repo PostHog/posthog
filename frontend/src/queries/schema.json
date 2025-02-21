@@ -14924,12 +14924,16 @@
                 "plan": {
                     "type": "string"
                 },
+                "query": {
+                    "default": "",
+                    "type": "string"
+                },
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": ["type", "query"],
             "type": "object"
         },
         "VizSpecificOptions": {
