@@ -8,15 +8,11 @@
         transform: rotate(0deg);
     }
 
-    95% {
-        transform: rotate(360deg);
-    }
-
     100% {
         transform: rotate(360deg);
     }
 }
 
 .brief-spin {
-    animation: InsightsEmptyState__BriefSpin 3s infinite;
+    animation: InsightsEmptyState__BriefSpin 2s infinite ease-in-out;
 }

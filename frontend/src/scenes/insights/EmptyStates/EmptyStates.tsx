@@ -15,11 +15,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
@@ -414,6 +416,7 @@ export function InsightLoadingState({
         insightDataLogic(insightProps)
     )
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const personsOnEventsMode =
         currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
@@ -422,7 +425,11 @@ export function InsightLoadingState({
         <StatelessInsightLoadingState
             queryId={queryId}
             pollResponse={insightPollResponse}
-            delayLoadingAnimation={activeScene == Scene.Insight && queryChanged}
+            delayLoadingAnimation={
+                featureFlags[FEATURE_FLAGS.DELAYED_LOADING_ANIMATION] === 'test' &&
+                activeScene == Scene.Insight &&
+                queryChanged
+            }
             loadingTimeSeconds={insightLoadingTimeSeconds}
             renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
             suggestion={
