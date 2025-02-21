@@ -297,9 +297,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Max]: {
         projectBased: true,
-        name: 'Max AI',
+        name: 'Max',
         layout: 'app-raw',
-        hideProjectNotice: true, // FIXME: Currently doesn't render well...
+        hideProjectNotice: true,
     },
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations redirect',

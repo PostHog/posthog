@@ -2,12 +2,14 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { SidePanelTab } from '~/types'
 
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -65,6 +67,19 @@ export const SidePanelActivation: StoryFn = () => {
 
 export const SidePanelNotebooks: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Notebooks} />
+}
+
+export const SidePanelMax: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/core_memory': EMPTY_PAGINATED_RESPONSE,
+        },
+    })
+
+    return <BaseTemplate panel={SidePanelTab.Max} />
+}
+SidePanelMax.parameters = {
+    featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG],
 }
 
 export const SidePanelFeaturePreviews: StoryFn = () => {

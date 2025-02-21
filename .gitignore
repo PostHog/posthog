@@ -80,6 +80,7 @@ share/GeoLite2-City.mmdb
 staticfiles
 storybook-static
 frontend/storybook-static
+common/storybook/dist
 temp_test_run_data.json
 # ignore all dagster tmp directories that may be created
 tmp*/
@@ -94,4 +95,3 @@ playwright-report/
 test-results/
 playwright/playwright-report/
 playwright/test-results/
-

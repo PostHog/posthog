@@ -2,6 +2,7 @@ import time
 from datetime import datetime
 from typing import Any, Literal, Optional, Union, cast
 
+import posthoganalytics
 import structlog
 from django.conf import settings
 from django.db import connection, models
@@ -261,19 +262,22 @@ class Cohort(models.Model):
                 fn()
                 return
 
-            # Jan 29 2025 - Temporarily commented out because of celery load issues
-            return
-
-            # try:
-            #     fn()
-            # except Exception:
-            #     logger.exception(
-            #         "cohort_hogql_calculation_failed",
-            #         id=self.pk,
-            #         current_version=self.version,
-            #         new_version=pending_version,
-            #         exc_info=True,
-            #     )
+            if posthoganalytics.feature_enabled(
+                "enable_hogql_cohort_calculation",
+                str(self.team.organization_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+            ):
+                try:
+                    fn()
+                except Exception:
+                    logger.exception(
+                        "cohort_hogql_calculation_failed",
+                        id=self.pk,
+                        current_version=self.version,
+                        new_version=pending_version,
+                        exc_info=True,
+                    )
 
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """

@@ -1,5 +1,3 @@
-from django.conf import settings
-from django.db.models import F
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
@@ -7,17 +5,19 @@ from typing import Any, Optional, cast
 import jwt
 import requests
 import structlog
+from django.conf import settings
+from django.db.models import F
 from django.utils import timezone
-from sentry_sdk import capture_message
-from requests import JSONDecodeError  # type: ignore[attr-defined]
+from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated
-from posthog.exceptions_capture import capture_exception
+from sentry_sdk import capture_message
 
 from ee.billing.billing_types import BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
@@ -301,6 +301,7 @@ class BillingManager:
                 events=usage_summary["events"],
                 recordings=usage_summary["recordings"],
                 rows_synced=usage_summary.get("rows_synced", {}),
+                feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],

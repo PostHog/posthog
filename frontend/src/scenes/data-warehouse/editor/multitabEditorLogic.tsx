@@ -37,7 +37,6 @@ export interface MultitabEditorLogicProps {
 
 export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
 export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
-export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
 
 export const NEW_QUERY = 'Untitled'
 
@@ -142,9 +141,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                                 activeModelStateKey: JSON.stringify(
                                     localStorage.getItem(activeModelStateKey(props.key))
                                 ),
-                                activeModelVariablesStateKey: JSON.stringify(
-                                    localStorage.getItem(activeModelVariablesStateKey(props.key))
-                                ),
                             },
                         })
                     }
@@ -169,6 +165,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     query: '',
                 },
             } as DataVisualizationNode,
+            { persist: true },
             {
                 setSourceQuery: (_, { sourceQuery }) => sourceQuery,
             },
@@ -304,6 +301,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return t
             })
             actions.setTabs(updatedTabs)
+            const activeTab = updatedTabs.find((t) => t.uri.toString() === tab.uri.toString())
+            if (activeTab) {
+                actions.selectTab(activeTab)
+            }
             actions.updateState()
         },
         selectTab: ({ tab }) => {
@@ -332,7 +333,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } else if (values.queryInput !== '' && !values.activeModelUri?.view) {
                 LemonDialog.open({
                     title: 'Delete query',
-                    description: 'Are you sure you want to delete this query?',
+                    description: 'There are unsaved changes. Are you sure you want to delete this query?',
                     primaryButton: {
                         children: 'Delete',
                         status: 'danger',
@@ -373,12 +374,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             // TODO: replace with queryTabState
             const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
             const activeModelUri = localStorage.getItem(activeModelStateKey(props.key))
-            const activeModelVariablesString = localStorage.getItem(activeModelVariablesStateKey(props.key))
-
-            const activeModelVariables =
-                activeModelVariablesString && activeModelVariablesString != 'undefined'
-                    ? JSON.parse(activeModelVariablesString)
-                    : {}
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -421,13 +416,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     activeModel && props.editor?.setModel(activeModel)
                     const val = activeModel?.getValue()
                     if (val) {
-                        actions.setSourceQuery({
-                            ...values.sourceQuery,
-                            source: {
-                                ...values.sourceQuery.source,
-                                variables: activeModelVariables,
-                            },
-                        })
                         actions.setQueryInput(val)
                         actions.runQuery()
                     }
@@ -472,12 +460,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
             actions.updateQueryTabState()
         },
-        setSourceQuery: ({ sourceQuery }) => {
-            // NOTE: this is a hack to get the variables to persist.
-            // Variables should be handled first in this logic and then in the downstream variablesLogic
-            localStorage.setItem(activeModelVariablesStateKey(props.key), JSON.stringify(sourceQuery.source.variables))
-            actions.updateQueryTabState()
-        },
         runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
 
@@ -500,7 +482,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         saveAsView: async () => {
             LemonDialog.openForm({
                 title: 'Save as view',
-                initialValues: { viewName: '' },
+                initialValues: { viewName: values.activeModelUri?.name || '' },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (
                     <LemonField name="viewName">
@@ -616,7 +598,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     state: {
                         editorModelsStateKey: localStorage.getItem(editorModelsStateKey(props.key)),
                         activeModelStateKey: localStorage.getItem(activeModelStateKey(props.key)),
-                        activeModelVariablesStateKey: localStorage.getItem(activeModelVariablesStateKey(props.key)),
+                        sourceQuery: JSON.stringify(values.sourceQuery),
                     },
                 })
             } catch (e) {

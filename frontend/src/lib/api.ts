@@ -370,18 +370,18 @@ class ApiRequest {
     }
 
     // # File System
-    public fileSystem(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('file_system')
+    public fileSystem(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('file_system')
     }
-    public fileSystemUnfiled(type?: FileSystemType, teamId?: TeamType['id']): ApiRequest {
-        const path = this.projectsDetail(teamId).addPathComponent('file_system').addPathComponent('unfiled')
+    public fileSystemUnfiled(type?: FileSystemType, projectId?: ProjectType['id']): ApiRequest {
+        const path = this.fileSystem(projectId).addPathComponent('unfiled')
         if (type) {
             path.withQueryString({ type })
         }
         return path
     }
-    public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
-        return this.fileSystem(teamId).addPathComponent(id)
+    public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id)
     }
 
     // # Plugins
@@ -830,7 +830,7 @@ class ApiRequest {
 
     // # Integrations
     public integrations(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('integrations')
+        return this.environmentsDetail(teamId).addPathComponent('integrations')
     }
 
     public integration(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -947,9 +947,13 @@ class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
     }
 
+    public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
+    }
+
     // Notebooks
-    public notebooks(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('notebooks')
+    public notebooks(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('notebooks')
     }
 
     public notebook(id: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
@@ -1015,8 +1019,8 @@ class ApiRequest {
     }
 
     // ActivityLog
-    public activity_log(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('activity_log')
+    public activityLog(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('activity_log')
     }
 
     // Personal API keys
@@ -1270,9 +1274,9 @@ const api = {
     activity: {
         list(
             filters: Partial<Pick<ActivityLogItem, 'item_id' | 'scope'> & { user?: UserBasicType['id'] }>,
-            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+            projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): Promise<PaginatedResponse<ActivityLogItem>> {
-            return api.activity.listRequest(filters, teamId).get()
+            return api.activity.listRequest(filters, projectId).get()
         },
 
         listRequest(
@@ -1284,18 +1288,18 @@ const api = {
                 page_size?: number
                 item_id?: number | string
             }>,
-            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+            projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): ApiRequest {
             if (Array.isArray(filters.scopes)) {
                 filters.scopes = filters.scopes.join(',')
             }
-            return new ApiRequest().activity_log(teamId).withQueryString(toParams(filters))
+            return new ApiRequest().activityLog(projectId).withQueryString(toParams(filters))
         },
 
         listLegacy(
             props: ActivityLogProps,
             page: number = 1,
-            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+            projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
             const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
 
@@ -1314,17 +1318,17 @@ const api = {
             // TODO: Can we replace all these endpoint specific implementations with the generic REST endpoint above?
             const requestForScope: { [key in ActivityScope]?: () => ApiRequest | null } = {
                 [ActivityScope.FEATURE_FLAG]: () => {
-                    return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
+                    return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, projectId)
                 },
                 [ActivityScope.PERSON]: () => {
                     return new ApiRequest().personActivity(props.id)
                 },
                 [ActivityScope.INSIGHT]: () => {
-                    return new ApiRequest().insightsActivity(teamId)
+                    return new ApiRequest().insightsActivity(projectId)
                 },
                 [ActivityScope.PLUGIN_CONFIG]: () => {
                     return props.id
-                        ? new ApiRequest().pluginConfig(props.id as number, teamId).withAction('activity')
+                        ? new ApiRequest().pluginConfig(props.id as number, projectId).withAction('activity')
                         : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
@@ -1347,7 +1351,7 @@ const api = {
                     return new ApiRequest().projectsDetail().withAction('activity')
                 },
                 [ActivityScope.SURVEY]: () => {
-                    return new ApiRequest().surveyActivity((props.id ?? null) as string, teamId)
+                    return new ApiRequest().surveyActivity((props.id ?? null) as string, projectId)
                 },
             }
 
@@ -2636,6 +2640,9 @@ const api = {
         async update(variableId: string, data: Partial<Variable>): Promise<Variable> {
             return await new ApiRequest().insightVariable(variableId).update({ data })
         },
+        async delete(variableId: string): Promise<void> {
+            await new ApiRequest().insightVariable(variableId).delete()
+        },
     },
 
     subscriptions: {
@@ -2860,8 +2867,15 @@ const api = {
     },
 
     conversations: {
-        async create(data: { content: string; conversation?: string | null; trace_id: string }): Promise<Response> {
-            return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
+        async stream(
+            data: { content: string; conversation?: string | null; trace_id: string },
+            options?: ApiMethodOptions
+        ): Promise<Response> {
+            return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)
+        },
+
+        cancel(conversationId: string): Promise<void> {
+            return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
     },
 
