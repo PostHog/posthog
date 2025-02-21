@@ -105,7 +105,7 @@ export function ExperimentMetricModal({
             }
         >
             <div className="mb-4">
-                <LemonLabel>Name (optional)</LemonLabel>
+                <LemonLabel className="mb-1">Name (optional)</LemonLabel>
                 <LemonInput
                     value={metric.name}
                     onChange={(newName) => {
@@ -125,6 +125,7 @@ export function ExperimentMetricModal({
                 handleSetMetric={({ newMetric }: { newMetric: ExperimentMetric }) => {
                     setMetric({ metricIdx, metric: newMetric, isSecondary })
                 }}
+                filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
             />
         </LemonModal>
     )
