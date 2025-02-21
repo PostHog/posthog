@@ -385,7 +385,7 @@ def squash_person_overrides():
     dictionary_after_override_delete_mutations = wait_for_overrides_delete_mutations(
         start_overrides_delete_mutations(dictionary_after_person_id_update_mutations)
     )
-    cleanup_overrides_snapshot(dictionary_after_override_delete_mutations)
+    cleanup_snapshot_resources(dictionary_after_override_delete_mutations)
 
 
 @dagster.job
