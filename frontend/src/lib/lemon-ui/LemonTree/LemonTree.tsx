@@ -702,8 +702,9 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             const elementBounds = element.getBoundingClientRect()
 
             // Calculate if element is outside visible area
+            const SCROLL_PADDING = 32 // Smaller padding at bottom of container
             const isAbove = elementBounds.top < containerBounds.top
-            const isBelow = elementBounds.bottom > containerBounds.bottom - 32 // Smaller padding
+            const isBelow = elementBounds.bottom > containerBounds.bottom - SCROLL_PADDING
 
             if (isAbove || isBelow) {
                 element.scrollIntoView({
