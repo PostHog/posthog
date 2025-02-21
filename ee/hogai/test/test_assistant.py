@@ -445,7 +445,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating trends query")),
-            ("message", VisualizationMessage(answer=query, plan="Plan")),
+            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
@@ -513,7 +513,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating funnel query")),
-            ("message", VisualizationMessage(answer=query, plan="Plan")),
+            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
@@ -581,7 +581,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ("message", ReasoningMessage(content="Creating retention query")),
-            ("message", VisualizationMessage(answer=query, plan="Plan")),
+            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)

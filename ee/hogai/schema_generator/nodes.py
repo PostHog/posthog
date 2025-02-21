@@ -177,8 +177,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         # Add the initiator message and the generated plan to the end, so instructions are clear.
         if generated_plan:
+            prompt = NEW_PLAN_PROMPT if messages else PLAN_PROMPT
             conversation.append(
-                HumanMessagePromptTemplate.from_template(NEW_PLAN_PROMPT, template_format="mustache").format(
+                HumanMessagePromptTemplate.from_template(prompt, template_format="mustache").format(
                     plan=generated_plan or ""
                 )
             )

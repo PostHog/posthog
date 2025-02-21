@@ -120,7 +120,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     def test_node_reconstructs_conversation(self):
         node = RootNode(self.team)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
-        self.assertEqual(node._construct_messages(state_1), [LangchainHumanMessage(content="Hello")])
+        self.assertEqual(node._construct_messages(state_1)[0], [LangchainHumanMessage(content="Hello")])
 
         # We want full access to message history in root
         state_2 = AssistantState(
@@ -131,7 +131,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ]
         )
         self.assertEqual(
-            node._construct_messages(state_2),
+            node._construct_messages(state_2)[0],
             [
                 LangchainHumanMessage(content="Hello"),
                 LangchainAIMessage(content="Welcome!"),
@@ -160,7 +160,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ]
         )
         self.assertEqual(
-            node._construct_messages(state),
+            node._construct_messages(state)[0],
             [
                 LangchainHumanMessage(content="Hello"),
                 LangchainAIMessage(
@@ -204,7 +204,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantToolCallMessage(content="Answer for xyz1", tool_call_id="xyz1"),
             ]
         )
-        messages = node._construct_messages(state)
+        messages, _ = node._construct_messages(state)
 
         # Verify we get exactly 3 messages
         self.assertEqual(len(messages), 3)
@@ -226,9 +226,12 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(tool_message.tool_call_id, "xyz1")
 
     def test_hard_limit_removes_tools(self):
+        mock = RunnableLambda(lambda _: LangchainAIMessage(content="I can't help with that anymore."))
+        mock.get_num_tokens_from_messages = lambda _: 1
+
         with patch(
             "ee.hogai.root.nodes.ChatOpenAI",
-            return_value=RunnableLambda(lambda _: LangchainAIMessage(content="I can't help with that anymore.")),
+            return_value=mock,
         ):
             node = RootNode(self.team)
 
@@ -247,7 +250,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(message.tool_calls, [])
 
             # Verify the hard limit message was added to the conversation
-            messages = node._construct_messages(state)
+            messages, _ = node._construct_messages(state)
             self.assertIn("iterations", messages[-1].content)
 
     @patch("ee.hogai.root.nodes.RootNode._get_model", return_value=ChatOpenAI(model="gpt-4o", api_key="no-key"))

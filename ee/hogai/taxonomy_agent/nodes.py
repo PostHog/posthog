@@ -9,7 +9,6 @@ from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     AIMessage as LangchainAssistantMessage,
     BaseMessage,
-    HumanMessage as LangchainHumanMessage,
     merge_message_runs,
 )
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
@@ -209,7 +208,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     question=message.query
                 )
             )
-            conversation.append(LangchainHumanMessage(content=message.query or ""))
             conversation.append(LangchainAssistantMessage(content=message.plan or ""))
 
         # The description of a new insight is added to the end of the conversation.
