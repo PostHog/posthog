@@ -15,16 +15,18 @@ import {
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { Hub, PipelineEvent, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
 import { propertyFilterPlugin } from '../cdp/legacy-plugins/_transformations/property-filter-plugin/template'
 import { semverFlattenerPlugin } from '../cdp/legacy-plugins/_transformations/semver-flattener-plugin/template'
 import { taxonomyPlugin } from '../cdp/legacy-plugins/_transformations/taxonomy-plugin/template'
 import { timestampParserPlugin } from '../cdp/legacy-plugins/_transformations/timestamp-parser-plugin/template'
+import { urlParserPlugin } from '../cdp/legacy-plugins/_transformations/url-parser/template'
+import { userAgentPlugin } from '../cdp/legacy-plugins/_transformations/user-agent-plugin/template'
 import { template as botDetectionTemplate } from '../cdp/templates/_transformations/bot-detection/bot-detection.template'
 import { template as removeNullPropertiesTemplate } from '../cdp/templates/_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from '../cdp/templates/_transformations/url-masking/url-masking.template'
 import { HogFunctionType } from '../cdp/types'
+import { Hub, PipelineEvent, Team } from '../types'
+import { closeHub, createHub } from '../utils/db/hub'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
@@ -786,12 +788,47 @@ describe('IngestionConsumer', () => {
                     id: new UUIDT().toString(),
                     team_id: team.id,
                     type: 'transformation',
-                    name: 'PII Hashing Transformation',
+                    name: urlParserPlugin.template.name,
+                    template_id: urlParserPlugin.template.id,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
                     execution_order: 5,
+                    bytecode: await compileHog(urlParserPlugin.template.hog),
+                    hog: urlParserPlugin.template.hog,
+                    inputs_schema: urlParserPlugin.template.inputs_schema,
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: userAgentPlugin.template.name,
+                    template_id: userAgentPlugin.template.id,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 6,
+                    bytecode: await compileHog(userAgentPlugin.template.hog),
+                    hog: userAgentPlugin.template.hog,
+                    inputs_schema: userAgentPlugin.template.inputs_schema,
+                    inputs: {
+                        overrideUserAgentDetails: { value: 'true' },
+                        enableSegmentAnalyticsJs: { value: 'false' },
+                        debugMode: { value: 'false' },
+                    },
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: 'PII Hashing Transformation',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 7,
                     bytecode: await compileHog(piiHashingTemplate.hog),
                     inputs: {
                         propertiesToHash: { value: '$geoip_city_name,$geoip_country_name' },
@@ -808,7 +845,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 6,
+                    execution_order: 8,
                     bytecode: await compileHog(ipAnonymizationTemplate.hog),
                 },
                 {
@@ -821,7 +858,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 7,
+                    execution_order: 9,
                     bytecode: await compileHog(propertyFilterPlugin.template.hog),
                     hog: propertyFilterPlugin.template.hog,
                     inputs_schema: propertyFilterPlugin.template.inputs_schema,
@@ -841,7 +878,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 8,
+                    execution_order: 10,
                     bytecode: await compileHog(semverFlattenerPlugin.template.hog),
                     hog: semverFlattenerPlugin.template.hog,
                     inputs_schema: semverFlattenerPlugin.template.inputs_schema,
@@ -861,7 +898,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 9,
+                    execution_order: 11,
                     bytecode: await compileHog(taxonomyPlugin.template.hog),
                     hog: taxonomyPlugin.template.hog,
                     inputs_schema: taxonomyPlugin.template.inputs_schema,
@@ -881,7 +918,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 10,
+                    execution_order: 12,
                     bytecode: await compileHog(timestampParserPlugin.template.hog),
                     hog: timestampParserPlugin.template.hog,
                     inputs_schema: timestampParserPlugin.template.inputs_schema,
@@ -926,7 +963,8 @@ describe('IngestionConsumer', () => {
                 timestamp: '2024-01-01T12:30:45.000Z',
                 properties: {
                     $ip: '89.160.20.129',
-                    $useragent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    $useragent:
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     sensitive_info: 'secret-data',
                     $current_url: 'https://example.com?email=test@test.com&password=secret&token=abc123&safe=value',
                     $referrer: 'https://other.com?email=old@test.com&token=xyz789',
@@ -982,7 +1020,10 @@ describe('IngestionConsumer', () => {
             expect(processedEvent.distinct_id).not.toEqual('bot-user-id')
 
             // Add assertions for all transformations in order
-            expect(properties.$useragent).toContain('Windows NT 10.0') // Bot Detection passed
+            expect(properties.$browser).toEqual('chrome') // User Agent plugin processed the Windows browser
+            expect(properties.$browser_version).toEqual('120.0.0')
+            expect(properties.$os).toEqual('Windows 10')
+            expect(properties.$device_type).toEqual('Desktop')
             expect(properties.$geoip_city_name).toBeDefined() // GeoIP
             expect(properties).not.toHaveProperty('nullProp') // Remove Null Properties
             expect(properties.$current_url).toEqual(
@@ -1016,6 +1057,9 @@ describe('IngestionConsumer', () => {
             expect(properties.day).toEqual('01')
             expect(properties.hour).toEqual(13)
             expect(properties.minute).toEqual(30)
+
+            // URL Parser
+            expect(properties.url_safe).toEqual('value') // From $current_url query params
         })
     })
 })
