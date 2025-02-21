@@ -115,6 +115,7 @@ export const userLogic = kea<userLogicType>([
     listeners(({ actions, values }) => ({
         logout: () => {
             posthog.reset()
+            localStorage.clear()
             window.location.href = '/logout'
         },
         loadUserSuccess: ({ user }) => {
