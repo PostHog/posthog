@@ -303,8 +303,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             try:
                 ExperimentEventExposureConfig.model_validate(exposure_criteria["exposure_config"])
                 return exposure_criteria
-            except Exception as e:
-                raise ValidationError(f"Invalid exposure criteria: {str(e)}")
+            except Exception:
+                raise ValidationError("Invalid exposure criteria")
 
         return exposure_criteria
 
