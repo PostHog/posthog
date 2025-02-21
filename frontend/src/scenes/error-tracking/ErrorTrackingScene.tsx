@@ -179,10 +179,10 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="space-x-1">
-                            <TZLabel time={record.first_seen} className="border-dotted border-b" />
+                            <TZLabel time={record.first_seen} className="border-dotted border-b" delayMs={750} />
                             <span>|</span>
                             {record.last_seen ? (
-                                <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                                <TZLabel time={record.last_seen} className="border-dotted border-b" delayMs={750} />
                             ) : (
                                 <LemonSkeleton />
                             )}
