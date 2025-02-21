@@ -1,17 +1,17 @@
 from dagster import (
+    DagsterRunStatus,
     Definitions,
+    RunRequest,
+    ScheduleDefinition,
+    fs_io_manager,
     load_assets_from_modules,
     run_status_sensor,
-    ScheduleDefinition,
-    RunRequest,
-    DagsterRunStatus,
 )
 from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import s3_resource
-from dagster import fs_io_manager
 from django.conf import settings
 
-from . import ch_examples, deletes, orm_examples, person_overrides, materialized_columns
+from . import ch_examples, deletes, materialized_columns, orm_examples, person_overrides
 from .common import ClickhouseClusterResource
 
 all_assets = load_assets_from_modules([ch_examples, orm_examples])
