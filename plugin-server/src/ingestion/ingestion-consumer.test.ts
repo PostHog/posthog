@@ -17,6 +17,7 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { template as botDetectionTemplate } from '../cdp/templates/_transformations/bot-detection/bot-detection.template'
 import { template as removeNullPropertiesTemplate } from '../cdp/templates/_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from '../cdp/templates/_transformations/url-masking/url-masking.template'
 import { HogFunctionType } from '../cdp/types'
@@ -718,12 +719,28 @@ describe('IngestionConsumer', () => {
                     id: new UUIDT().toString(),
                     team_id: team.id,
                     type: 'transformation',
-                    name: 'GeoIP Transformation',
+                    name: 'Bot Detection',
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
                     execution_order: 1,
+                    bytecode: await compileHog(botDetectionTemplate.hog),
+                    inputs: {
+                        userAgent: { value: '$useragent' },
+                        customBotPatterns: { value: 'custom-bot,test-crawler' },
+                    },
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
+                    name: 'GeoIP Transformation',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 2,
                     bytecode: await compileHog(geoipTemplate.hog),
                 },
                 {
@@ -735,7 +752,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 2,
+                    execution_order: 3,
                     bytecode: await compileHog(removeNullPropertiesTemplate.hog),
                 },
                 {
@@ -747,7 +764,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 3,
+                    execution_order: 4,
                     bytecode: await compileHog(urlMaskingTemplate.hog),
                     inputs: {
                         urlProperties: {
@@ -770,7 +787,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 4,
+                    execution_order: 5,
                     bytecode: await compileHog(piiHashingTemplate.hog),
                     inputs: {
                         propertiesToHash: { value: '$geoip_city_name,$geoip_country_name' },
@@ -787,7 +804,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 5,
+                    execution_order: 6,
                     bytecode: await compileHog(ipAnonymizationTemplate.hog),
                 },
             ]
@@ -809,13 +826,26 @@ describe('IngestionConsumer', () => {
             await closeHub(hub)
         })
 
-        it('should chain transformations in correct order', async () => {
-            // Create a test event that will trigger all transformations
-            const testEvent = createEvent({
+        it('should chain transformations in correct order and filter bot events', async () => {
+            // Create two test events - one from a bot and one from a real user
+            const botEvent = createEvent({
+                distinct_id: 'bot-user-id',
+                ip: '89.160.20.129',
+                properties: {
+                    $ip: '89.160.20.129',
+                    $useragent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+                    sensitive_info: 'secret-bot-data',
+                    $current_url: 'https://example.com?email=bot@test.com&password=secret&token=abc123',
+                    nullProp: null,
+                },
+            })
+
+            const realUserEvent = createEvent({
                 distinct_id: 'test-user-id',
                 ip: '89.160.20.129',
                 properties: {
                     $ip: '89.160.20.129',
+                    $useragent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     sensitive_info: 'secret-data',
                     $current_url: 'https://example.com?email=test@test.com&password=secret&token=abc123&safe=value',
                     $referrer: 'https://other.com?email=old@test.com&token=xyz789',
@@ -828,13 +858,13 @@ describe('IngestionConsumer', () => {
                 },
             })
 
-            // Process the event through the ingestion consumer
-            await ingester.handleKafkaBatch(createKafkaMessages([testEvent]))
+            // Process both events
+            await ingester.handleKafkaBatch(createKafkaMessages([botEvent, realUserEvent]))
 
-            // Get the produced messages and verify the transformations
+            // Get the produced messages
             const producedMessages: DecodedKafkaMessage[] = getProducedKafkaMessages()
 
-            // Replace timing-dependent values in messages for consistent snapshots
+            // Replace timing-dependent values for snapshot
             const messagesForSnapshot = producedMessages.map((message) => {
                 if (
                     typeof message.value?.message === 'string' &&
@@ -855,14 +885,21 @@ describe('IngestionConsumer', () => {
                 return message
             })
 
-            // Use snapshot testing to verify the final state
+            // Use snapshot testing
             expect(forSnapshot(messagesForSnapshot)).toMatchSnapshot()
 
-            // Optional: Add some specific assertions to make the test more readable
-            const processedEvent = producedMessages[0].value as unknown as PipelineEvent
+            // Verify that only one event made it through (the real user event)
+            const processedEvents = producedMessages.filter((msg) => msg.topic === 'clickhouse_events_json_test')
+            expect(processedEvents).toHaveLength(1)
+
+            const processedEvent = processedEvents[0].value as unknown as PipelineEvent
             const properties = JSON.parse(processedEvent.properties as unknown as string)
 
+            // Verify bot event was filtered out
+            expect(processedEvent.distinct_id).not.toEqual('bot-user-id')
+
             // Add assertions for all transformations in order
+            expect(properties.$useragent).toContain('Windows NT 10.0') // Bot Detection passed
             expect(properties.$geoip_city_name).toBeDefined() // GeoIP
             expect(properties).not.toHaveProperty('nullProp') // Remove Null Properties
             expect(properties.$current_url).toEqual(
