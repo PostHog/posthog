@@ -56,7 +56,7 @@ _T_AST = TypeVar("_T_AST", bound=AST)
 @dataclass(kw_only=True)
 class Type(AST):
     def get_child(self, name: str, context: "HogQLContext") -> "Type":
-        raise NotImplementedError("Type.get_child not overridden")
+        raise NotImplementedError(f"Type.get_child not overridden: {name}")
 
     def has_child(self, name: str, context: "HogQLContext") -> bool:
         return self.get_child(name, context) is not None
