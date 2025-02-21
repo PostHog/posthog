@@ -282,6 +282,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setDeviceTab: (tab: string) => ({ tab }),
         setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
+        setDomainFilter: (domain: string | null) => ({ domain }),
         clearTablesOrderBy: () => true,
         setTablesOrderBy: (orderBy: WebAnalyticsOrderByFields, direction: WebAnalyticsOrderByDirection) => ({
             orderBy,
@@ -377,6 +378,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
 
                     return [...oldPropertyFilters, newFilter]
+                },
+            },
+        ],
+        domainFilter: [
+            null as string | null,
+            persistConfig,
+            {
+                setDomainFilter: (state: string | null, payload: unknown) => {
+                    const { domain } = payload as { domain: string | null }
+                    return domain
                 },
             },
         ],
@@ -576,20 +587,48 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled,
         ],
         webAnalyticsFilters: [
-            (s) => [s._webAnalyticsFilters, s.isPathCleaningEnabled, () => values.featureFlags],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters, isPathCleaningEnabled: boolean, featureFlags) => {
-                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_IMPROVED_PATH_CLEANING] || !isPathCleaningEnabled) {
-                    return webAnalyticsFilters
+            (s) => [
+                s._webAnalyticsFilters,
+                s.isPathCleaningEnabled,
+                () => values.domainFilter,
+                () => values.featureFlags,
+            ],
+            (
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
+                isPathCleaningEnabled: boolean,
+                domainFilter: string | null,
+                featureFlags: Record<string, boolean>
+            ) => {
+                let filters = webAnalyticsFilters
+
+                // Remove all the `$host` filters because it's controlled by the domain filter below
+                filters = filters.filter((filter) => filter.key !== '$host')
+
+                // Add domain filter if set
+                if (domainFilter) {
+                    filters = [
+                        ...filters,
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$host',
+                            value: domainFilter,
+                            operator: PropertyOperator.Exact,
+                        },
+                    ]
                 }
 
                 // Translate exact path filters to cleaned path filters
-                return webAnalyticsFilters.map((filter) => ({
-                    ...filter,
-                    operator:
-                        filter.operator === PropertyOperator.Exact
-                            ? PropertyOperator.IsCleanedPathExact
-                            : filter.operator,
-                }))
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_IMPROVED_PATH_CLEANING] && isPathCleaningEnabled) {
+                    filters = filters.map((filter) => ({
+                        ...filter,
+                        operator:
+                            filter.operator === PropertyOperator.Exact
+                                ? PropertyOperator.IsCleanedPathExact
+                                : filter.operator,
+                    }))
+                }
+
+                return filters
             },
         ],
         tabs: [
@@ -2017,6 +2056,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 compareFilter,
                 productTab,
                 webVitalsPercentile,
+                domainFilter,
             } = values
 
             const urlParams = new URLSearchParams()
@@ -2065,6 +2105,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
+            if (domainFilter) {
+                urlParams.set('domain', domainFilter)
+            }
 
             const basePath = productTab === ProductTab.WEB_VITALS ? '/web/web-vitals' : '/web'
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
@@ -2085,6 +2128,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setProductTab: stateToUrl,
             setWebVitalsPercentile: stateToUrl,
             setIsPathCleaningEnabled: stateToUrl,
+            setDomainFilter: stateToUrl,
         }
     }),
 
@@ -2107,6 +2151,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filter_test_accounts,
                 compare_filter,
                 percentile,
+                domain,
             }: Record<string, any>
         ): void => {
             if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS].includes(productTab)) {
@@ -2165,6 +2210,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (percentile && percentile !== values.webVitalsPercentile) {
                 actions.setWebVitalsPercentile(percentile as WebVitalsPercentile)
+            }
+            if (domain && domain !== values.domainFilter) {
+                actions.setDomainFilter(domain === 'all' ? null : domain)
             }
         }
 
