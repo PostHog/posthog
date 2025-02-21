@@ -9,7 +9,11 @@ else:
 
 
 SubTemplateId = Literal[
-    "early-access-feature-enrollment", "survey-response", "activity-log", "error-tracking-issue-created"
+    "early-access-feature-enrollment",
+    "survey-response",
+    "activity-log",
+    "error-tracking-issue-created",
+    "error-tracking-issue-reopened",
 ]
 
 
