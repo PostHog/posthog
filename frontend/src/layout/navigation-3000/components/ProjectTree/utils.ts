@@ -10,13 +10,15 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
 
     // Helper to find an existing folder node or create one if it doesn't exist.
     const findOrCreateFolder = (nodes: TreeDataItem[], folderName: string, fullPath: string): TreeDataItem => {
-        let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
+        let folderNode: TreeDataItem | undefined = nodes.find((node) => node.filePath === fullPath)
         if (!folderNode) {
             folderNode = {
-                id: 'project/' + fullPath,
+                id: fullPath,
                 name: folderName,
                 record: { type: 'folder', id: 'project/' + fullPath, path: fullPath },
                 children: [],
+                type: 'folder' as const,
+                filePath: fullPath,
             }
             nodes.push(folderNode)
         }
@@ -46,13 +48,13 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
             currentLevel = folderNode.children!
         }
 
-        if (item.type === 'folder' && currentLevel.find((node) => node.record?.path === item.path)) {
+        if (item.type === 'folder' && currentLevel.find((node) => node.filePath === item.path)) {
             continue
         }
 
         // Create the actual item node.
         const node: TreeDataItem = {
-            id: 'project/' + (item.id || item.path),
+            id: item.id || item.path,
             name: itemName,
             icon: item.icon || iconForType(item.type),
             record: item,
@@ -61,6 +63,8 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
                     router.actions.push(item.href)
                 }
             },
+            type: item.type === 'folder' ? ('folder' as const) : ('file' as const),
+            filePath: item.path,
         }
         // Place the item in the current (deepest) folder.
         currentLevel.push(node)
