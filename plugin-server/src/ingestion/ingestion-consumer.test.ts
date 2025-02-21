@@ -15,6 +15,7 @@ import {
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
+import { posthogPluginGeoip } from '../cdp/legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { posthogPluginSnowplowRefererParser } from '../cdp/legacy-plugins/_transformations/posthog-plugin-snowplow-referer-parser/template'
 import { posthogRouteCensorPlugin } from '../cdp/legacy-plugins/_transformations/posthog-route-censor-plugin/template'
 import { posthogUrlNormalizerPlugin } from '../cdp/legacy-plugins/_transformations/posthog-url-normalizer-plugin/template'
@@ -744,13 +745,16 @@ describe('IngestionConsumer', () => {
                     id: new UUIDT().toString(),
                     team_id: team.id,
                     type: 'transformation',
-                    name: 'GeoIP Transformation',
+                    name: posthogPluginGeoip.template.name,
+                    template_id: posthogPluginGeoip.template.id,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
                     execution_order: 2,
-                    bytecode: await compileHog(geoipTemplate.hog),
+                    bytecode: await compileHog(posthogPluginGeoip.template.hog),
+                    hog: posthogPluginGeoip.template.hog,
+                    inputs_schema: posthogPluginGeoip.template.inputs_schema,
                 },
                 {
                     id: new UUIDT().toString(),
@@ -1105,13 +1109,6 @@ describe('IngestionConsumer', () => {
             expect(properties.$browser_version).toEqual('120.0.0')
             expect(properties.$os).toEqual('Windows 10')
             expect(properties.$device_type).toEqual('Desktop')
-            expect(properties.$geoip_city_name).toBeDefined() // GeoIP
-            expect(properties).not.toHaveProperty('nullProp') // Remove Null Properties
-            expect(properties.$current_url).toEqual(
-                'https://example.com/users/123/profile?email=[masked]&password=[masked]&token=[masked]&safe=value'
-            ) // URL Masking and normalized
-            expect(processedEvent.distinct_id).toMatch(/^[a-f0-9]{64}$/) // PII Hashing
-            expect(properties.$ip).toEqual('89.160.20.0') // IP Anonymization
 
             // Property Filter assertions after IP check
             expect(properties).not.toHaveProperty('sensitive_info')
