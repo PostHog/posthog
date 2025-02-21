@@ -325,8 +325,6 @@ class SalesforceEndpointPaginator(BasePaginator):
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
-        self._next_page = None
-
         if not res or not res["records"]:
             self._has_next_page = False
             self.logger.debug(
