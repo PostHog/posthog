@@ -185,8 +185,7 @@ async fn find_sourcemap_url(
             let found = line.trim_start_matches("//# sourceMappingURL=");
 
             // If we can parse this as a data URL, we can just use that
-            if let Some(data) =
-                maybe_as_data_url(&final_url.to_string(), found, data_url_to_json_str)?
+            if let Some(data) = maybe_as_data_url(final_url.as_ref(), found, data_url_to_json_str)?
             {
                 return Ok((SourceMappingUrl::Data(data), body));
             }
