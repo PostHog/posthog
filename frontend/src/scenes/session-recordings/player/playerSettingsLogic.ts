@@ -156,7 +156,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             // hideViewRecordings used to be flat boolean
             // if someone has it set to true, we should set it to 'current-user'
             // to upgrade them to the new behavior
-            // this can be deleted afer a few weeks
+            // this can be deleted after a few weeks
             if (hideViewedRecordings === true) {
                 actions.setHideViewedRecordings('current-user')
             }
