@@ -181,13 +181,14 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             # pyarrow schema to use the larger values so that we're not trying to downscale
             if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
                 py_arrow_table_column = table.column(field.name)
-                assert isinstance(py_arrow_table_column.type, pa.Decimal128Type) or isinstance(
-                    py_arrow_table_column.type, pa.Decimal256Type
-                )
 
                 if (
-                    field.type.precision > py_arrow_table_column.type.precision
-                    or field.type.scale > py_arrow_table_column.type.scale
+                    isinstance(py_arrow_table_column.type, pa.Decimal128Type)
+                    or isinstance(py_arrow_table_column.type, pa.Decimal256Type)
+                    and (
+                        field.type.precision > py_arrow_table_column.type.precision
+                        or field.type.scale > py_arrow_table_column.type.scale
+                    )
                 ):
                     field_index = table.schema.get_field_index(field.name)
 
