@@ -2,6 +2,7 @@ import requests
 from django.conf import settings
 from dlt.common.pendulum import pendulum
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
+from requests.exceptions import JSONDecodeError
 
 
 class SalseforceAuth(BearerTokenAuth):
@@ -48,7 +49,7 @@ class SalesforceAuthRequestError(Exception):
 
         try:
             error_description = response.json()["error_description"]
-        except requests.exceptions.JSONDecodeError:
+        except JSONDecodeError:
             if response.text:
                 error_message += response.text
             else:
