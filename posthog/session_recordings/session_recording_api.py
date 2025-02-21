@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast, Literal
 
-from mypy.checkexpr import defaultdict
 from posthoganalytics.ai.openai import OpenAI
 from urllib.parse import urlparse
 
@@ -1072,7 +1071,7 @@ def _other_users_viewed(recording_ids_in_list: list[str], user: User, team: Team
     # we're looping in python
     # but since we limit the number of session recordings in the results set
     # it shouldn't be too bad
-    other_viewers: dict[str, list[str]] = defaultdict(list)
+    other_viewers: dict[str, list[str]] = {}
     queryset = (
         SessionRecordingViewed.objects.filter(team=team, session_id__in=recording_ids_in_list)
         .exclude(user=user)
