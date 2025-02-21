@@ -124,7 +124,7 @@ class HogQLQueryExecutor:
                     )
 
     def _generate_hogql(self):
-        self.hogql_context = hogql_query_context = dataclasses.replace(
+        self.hogql_context = dataclasses.replace(
             self.context,
             team_id=self.team.pk,
             team=self.team,
@@ -139,13 +139,13 @@ class HogQLQueryExecutor:
         with self.timings.measure("prepare_ast_for_printing"):
             select_query_hogql = cast(
                 ast.SelectQuery,
-                prepare_ast_for_printing(node=cloned_query, context=hogql_query_context, dialect="hogql"),
+                prepare_ast_for_printing(node=cloned_query, context=self.hogql_context, dialect="hogql"),
             )
 
         with self.timings.measure("print_prepared_ast"):
             self.hogql = print_prepared_ast(
                 select_query_hogql,
-                hogql_query_context,
+                self.hogql_context,
                 "hogql",
                 pretty=self.pretty if self.pretty is not None else True,
             )
@@ -162,7 +162,7 @@ class HogQLQueryExecutor:
                     self.print_columns.append(
                         print_prepared_ast(
                             node=node,
-                            context=hogql_query_context,
+                            context=self.hogql_context,
                             dialect="hogql",
                             stack=[select_query_hogql],
                         )
