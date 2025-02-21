@@ -68,7 +68,7 @@ export function SettingsMenu({
             {...props}
         >
             <LemonButton
-                className="rounded-[0px]"
+                className="rounded"
                 status={highlightWhenActive && active ? 'danger' : 'default'}
                 size="xsmall"
                 icon={icon}
@@ -98,13 +98,7 @@ export function SettingsButton(props: SettingsButtonProps): JSX.Element {
 
 export function SettingsToggle({ title, icon, label, active, ...props }: SettingsToggleProps): JSX.Element {
     const button = (
-        <LemonButton
-            className="rounded-[0px]"
-            icon={icon}
-            size="xsmall"
-            status={active ? 'danger' : 'default'}
-            {...props}
-        >
+        <LemonButton className="rounded" icon={icon} size="xsmall" status={active ? 'danger' : 'default'} {...props}>
             {label}
         </LemonButton>
     )
