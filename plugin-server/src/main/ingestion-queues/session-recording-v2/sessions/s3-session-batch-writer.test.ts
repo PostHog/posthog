@@ -20,7 +20,7 @@ describe('S3SessionBatchFileStorage', () => {
         mockUpload = jest.fn().mockImplementation(({ params: { Body: stream } }) => {
             const done = async () => {
                 return new Promise((resolve, reject) => {
-                    stream.on('data', (chunk) => {
+                    stream.on('data', (chunk: any) => {
                         uploadedData = Buffer.concat([uploadedData, chunk])
                     })
                     stream.on('error', reject)

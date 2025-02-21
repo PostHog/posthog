@@ -23,5 +23,5 @@ in another
 
 ```bash
 pnpm exec playwright install
-pnpm test:visual:debug
+pnpm --filter=@posthog/storybook test:visual:debug
 ```

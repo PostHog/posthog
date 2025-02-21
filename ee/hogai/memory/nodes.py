@@ -192,7 +192,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
-        if not state.resumed:
+        if state.graph_status != "resumed":
             raise NodeInterrupt(
                 AssistantMessage(
                     content=SCRAPING_VERIFICATION_MESSAGE,

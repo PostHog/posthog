@@ -2,6 +2,9 @@ import json
 from copy import deepcopy
 from typing import Optional, cast
 from collections.abc import Callable
+
+from django.db.models.functions.comparison import Coalesce
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database, create_hogql_database
 from posthog.hogql.database.models import (
@@ -41,6 +44,7 @@ from posthog.schema import (
 )
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
+from django.db import models
 
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
@@ -368,9 +372,9 @@ def get_hogql_autocomplete(
     if database_arg is not None:
         database = database_arg
     else:
-        database = create_hogql_database(team_id=team.pk, team_arg=team)
+        database = create_hogql_database(team_id=team.pk, team_arg=team, timings=timings)
 
-    context = HogQLContext(team_id=team.pk, team=team, database=database)
+    context = HogQLContext(team_id=team.pk, team=team, database=database, timings=timings)
     if query.sourceQuery:
         if query.sourceQuery.kind == "HogQLQuery" and (
             query.sourceQuery.query is None or query.sourceQuery.query == ""
@@ -564,9 +568,13 @@ def get_hogql_autocomplete(
                                         match_term = ""
 
                                     with timings.measure("property_filter"):
-                                        property_query = PropertyDefinition.objects.filter(
+                                        property_query = PropertyDefinition.objects.alias(
+                                            effective_project_id=Coalesce(
+                                                "project_id", "team_id", output_field=models.BigIntegerField()
+                                            )
+                                        ).filter(
+                                            effective_project_id=context.team.project_id,  # type: ignore
                                             name__contains=match_term,
-                                            team_id=team.pk,
                                             type=property_type,
                                         )
 

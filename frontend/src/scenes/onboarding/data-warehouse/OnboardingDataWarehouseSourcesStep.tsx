@@ -5,7 +5,7 @@ import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 
-export function DataWarehouseSources({
+export function OnboardingDataWarehouseSourcesStep({
     stepKey = OnboardingStepKey.INSTALL,
 }: {
     usersAction?: string

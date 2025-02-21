@@ -32,19 +32,6 @@ const deprecatedColors = {
     'glass-bg-3000-light': 'var(--glass-bg-3000-light)',
     'glass-border-3000-light': 'var(--glass-border-3000-light)',
     'link-3000-light': 'var(--link-3000-light)',
-
-    // --color-primary-highlight-light: var(--primary-highlight-light);
-    'primary-3000-hover-light': 'var(--primary-3000-hover-light)',
-    'primary-3000-active-light': 'var(--primary-3000-active-light)',
-    'secondary-3000-light': 'var(--secondary-3000-light)',
-    'secondary-3000-hover-light': 'var(--secondary-3000-hover-light)',
-    'accent-3000-light': 'var(--accent-3000-light)',
-    'bg-3000-light': 'var(--bg-3000-light)',
-    'border-3000-light': 'var(--border-3000-light)',
-    'border-bold-3000-light': 'var(--border-bold-3000-light)',
-    'glass-bg-3000-light': 'var(--glass-bg-3000-light)',
-    'glass-border-3000-light': 'var(--glass-border-3000-light)',
-    'link-3000-light': 'var(--link-3000-light)',
     'primary-3000-frame-bg-light': 'var(--primary-3000-frame-bg-light)',
     'primary-3000-button-bg-light': 'var(--primary-3000-button-bg-light)',
     'primary-3000-button-border-light': 'var(--primary-3000-button-border-light)',
@@ -319,7 +306,8 @@ const deprecatedColors = {
 
 const config = {
     content: [
-        // Starting all paths with '.." to share this between frontend/ and cypress/
+        // Starting all paths with '.." to share this between frontend/, cypress/, playwright/ and common/storybook/
+        // Update common/storybook/tailwind.config.js if you change this
         '../frontend/src/**/*.{ts,tsx}',
         '../ee/frontend/**/*.{ts,tsx}',
         '../frontend/src/index.html',

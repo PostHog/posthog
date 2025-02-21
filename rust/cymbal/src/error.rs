@@ -1,4 +1,5 @@
 use aws_sdk_s3::primitives::ByteStreamError;
+use common_kafka::kafka_producer::KafkaProduceError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -20,6 +21,8 @@ pub enum UnhandledError {
     ConfigError(#[from] envconfig::Error),
     #[error("Kafka error: {0}")]
     KafkaError(#[from] KafkaError),
+    #[error("Produce error: {0}")]
+    KafkaProduceError(#[from] KafkaProduceError),
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
     #[error("S3 error: {0}")]
