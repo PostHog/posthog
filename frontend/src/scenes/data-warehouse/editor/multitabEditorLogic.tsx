@@ -133,15 +133,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         console.error(e)
                     }
 
+                    const localEditorModels = localStorage.getItem(editorModelsStateKey(props.key))
+                    const localActiveModelUri = localStorage.getItem(activeModelStateKey(props.key))
+
                     if (queryTabStateModel === null) {
                         queryTabStateModel = await api.queryTabState.create({
                             state: {
-                                editorModelsStateKey: JSON.stringify(
-                                    localStorage.getItem(editorModelsStateKey(props.key))
-                                ),
-                                activeModelStateKey: JSON.stringify(
-                                    localStorage.getItem(activeModelStateKey(props.key))
-                                ),
+                                editorModelsStateKey: localEditorModels || '',
+                                activeModelStateKey: localActiveModelUri || '',
+                                sourceQuery: values.sourceQuery ? JSON.stringify(values.sourceQuery) : '',
                             },
                         })
                     }
