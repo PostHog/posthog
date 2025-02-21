@@ -26,7 +26,6 @@ export const WebPropertyFilters = ({
             visible={displayFilters}
             onClickOutside={() => setDisplayFilters(false)}
             placement="bottom"
-            maxContentWidth
             className="max-w-200"
             overlay={
                 <div className="p-2">
