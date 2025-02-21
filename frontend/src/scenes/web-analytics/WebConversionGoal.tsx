@@ -2,12 +2,15 @@ import { IconCursor } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useState } from 'react'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 
 export const WebConversionGoal = (): JSX.Element | null => {
+    const { isWindowLessThan } = useWindowSize()
+
     const { conversionGoal } = useValues(webAnalyticsLogic)
     const { setConversionGoal } = useActions(webAnalyticsLogic)
     const { actions } = useValues(actionsModel)
@@ -51,7 +54,9 @@ export const WebConversionGoal = (): JSX.Element | null => {
             }}
             groupTypes={[TaxonomicFilterGroupType.CustomEvents, TaxonomicFilterGroupType.Actions]}
             icon={<IconCursor />}
-            placeholder="Add conversion goal"
+            placeholder={
+                isWindowLessThan('xl') ? 'Goal' : isWindowLessThan('2xl') ? 'Conversion goal' : 'Add conversion goal'
+            }
             placeholderClass=""
             size="small"
         />

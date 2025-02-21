@@ -1,6 +1,7 @@
 import { IconClock } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRangeFilter'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { dateFromToText } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
@@ -20,6 +21,8 @@ export function CompareFilter({
     // This keeps the state of the rolling date range filter, even when different drop down options are selected
     // The default value for this is one month
     const [tentativeCompareTo, setTentativeCompareTo] = useState<string>(compareFilter?.compare_to || '-1m')
+
+    const { isWindowLessThan } = useWindowSize()
 
     useEffect(() => {
         const newCompareTo = compareFilter?.compare_to
@@ -77,11 +80,25 @@ export function CompareFilter({
                     updateCompareFilter({ compare: true, compare_to: tentativeCompareTo })
                 }
             }}
-            renderButtonContent={(leaf) =>
-                (leaf?.value == 'compareTo'
-                    ? `Compare to ${dateFromToText(tentativeCompareTo)} earlier`
-                    : leaf?.label) || 'Compare to'
-            }
+            renderButtonContent={(leaf) => {
+                if (!leaf) {
+                    return 'Compare to'
+                }
+
+                const isHugeScreen = !isWindowLessThan('2xl')
+                if (leaf.value == 'compareTo') {
+                    return isHugeScreen
+                        ? `Compare to ${dateFromToText(tentativeCompareTo)} earlier`
+                        : `${dateFromToText(tentativeCompareTo)} earlier`
+                } else if (leaf.value === 'previous') {
+                    return isHugeScreen ? 'Compare to previous period' : 'Previous period'
+                } else if (leaf.value === 'none') {
+                    return isHugeScreen ? 'No comparison between periods' : 'No comparison'
+                }
+
+                // Should never happen
+                return 'Compare to'
+            }}
             value={value}
             dropdownMatchSelectWidth={false}
             onChange={(value) => {

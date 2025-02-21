@@ -1,18 +1,17 @@
-import { IconExpand45, IconGear, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
-import { LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconExpand45, IconGear, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
+import { LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
@@ -43,7 +42,65 @@ import { AvailableFeature, ProductKey, PropertyMathType } from '~/types'
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
-const Filters = (): JSX.Element => {
+// TODO: Make the domain dropdown work
+// TODO: Hide filters inside `WebPropertyFilters`
+const AllFilters = (): JSX.Element => {
+    const [expanded, setExpanded] = useState(false)
+
+    const { authorizedUrls } = useValues(
+        authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null })
+    )
+
+    return (
+        <div className="flex flex-col md:flex-row md:justify-between gap-2">
+            <div className="flex items-start shrink-0">
+                <div className="flex flex-1 flex-row gap-2 items-center">
+                    <div className="flex flex-row gap-1 items-center flex-1 md:flex-none">
+                        <ReloadAll iconOnly />
+                        <LemonSelect
+                            className="grow md:grow-0"
+                            size="small"
+                            value="all"
+                            options={[
+                                { label: '🌐 All domains', value: 'all' },
+                                ...authorizedUrls.map((url) => ({ label: url, value: url })),
+                            ]}
+                        />
+                    </div>
+
+                    <div className="hidden md:flex items-center gap-2">
+                        <span className="text-muted-alt">|</span>
+                        <WebAnalyticsLiveUserCount />
+                    </div>
+                </div>
+            </div>
+
+            {/* On mobile and up, just display Foldable Fields, else use a dropdown like button to display them */}
+            <div className="hidden sm:flex gap-2">
+                <FoldableFields />
+            </div>
+
+            <div className="flex flex-col sm:hidden gap-2">
+                <LemonButton className="w-full" onClick={() => setExpanded((expanded) => !expanded)}>
+                    <span className="flex-1">{expanded ? 'Hide filters' : 'Show Filters'}</span>
+                    <IconChevronDown
+                        className={clsx('transition-transform duration-150', { 'rotate-180': expanded })}
+                    />
+                </LemonButton>
+                <div
+                    className={clsx(
+                        'flex flex-col gap-2 overflow-hidden transition-all duration-200',
+                        expanded ? 'max-h-[500px]' : 'max-h-0'
+                    )}
+                >
+                    <FoldableFields />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+const FoldableFields = (): JSX.Element => {
     const {
         webAnalyticsFilters,
         dateFilter: { dateTo, dateFrom },
@@ -56,12 +113,8 @@ const Filters = (): JSX.Element => {
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
 
-    const webPropertyFilters = (
-        <WebPropertyFilters setWebAnalyticsFilters={setWebAnalyticsFilters} webAnalyticsFilters={webAnalyticsFilters} />
-    )
-
     return (
-        <div className="flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
+        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
             <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} allowTimePrecision={true} />
 
             {productTab === ProductTab.ANALYTICS ? (
@@ -92,16 +145,10 @@ const Filters = (): JSX.Element => {
 
             {hasAdvancedPaths && <PathCleaningToggle />}
 
-            {/* Desktop filters, rendered to the left of the reload button */}
-            <div className="hidden md:block">{webPropertyFilters}</div>
-
-            {/* Reload is right aligned on bigger screens, looks nicer */}
-            <div className="xl:ml-auto">
-                <ReloadAll />
-            </div>
-
-            {/* Mobile filters, same as above but these ones are rendered under the reload button */}
-            <div className="block md:hidden">{webPropertyFilters}</div>
+            <WebPropertyFilters
+                setWebAnalyticsFilters={setWebAnalyticsFilters}
+                webAnalyticsFilters={webAnalyticsFilters}
+            />
         </div>
     )
 }
@@ -418,7 +465,6 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     const { mobileLayout } = useValues(navigationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { productTab } = useValues(webAnalyticsLogic)
 
     const { setProductTab } = useActions(webAnalyticsLogic)
@@ -437,29 +483,19 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                                 : 'top-[var(--breadcrumbs-height-compact)]'
                         )}
                     >
-                        <div className="flex flex-row">
-                            {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
-                                <div className="flex-1">
-                                    <LemonTabs<ProductTab>
-                                        size="small"
-                                        activeKey={productTab}
-                                        onChange={setProductTab}
-                                        tabs={[
-                                            { key: ProductTab.ANALYTICS, label: 'Web analytics' },
-                                            { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
-                                        ]}
-                                    />
-                                </div>
-                            )}
+                        <LemonTabs<ProductTab>
+                            activeKey={productTab}
+                            onChange={setProductTab}
+                            tabs={[
+                                { key: ProductTab.ANALYTICS, label: 'Web analytics' },
+                                { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
+                            ]}
+                        />
 
-                            <WebAnalyticsLiveUserCount />
-                        </div>
-
-                        <Filters />
+                        <AllFilters />
                     </div>
 
                     <WebAnalyticsHealthCheck />
-
                     <Tiles />
                 </div>
             </BindLogic>

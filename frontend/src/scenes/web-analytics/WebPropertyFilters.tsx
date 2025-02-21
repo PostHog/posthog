@@ -13,6 +13,7 @@ export const WebPropertyFilters = ({
 }): JSX.Element => {
     return (
         <PropertyFilters
+            hasRowOperator={false}
             taxonomicGroupTypes={[
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
