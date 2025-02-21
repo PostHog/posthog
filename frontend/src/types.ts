@@ -3324,7 +3324,7 @@ export enum PropertyDefinitionState {
     Error = 'error',
 }
 
-export type PropertyDefinitionVerificationStatus = 'verified' | 'hidden' | 'standard'
+export type PropertyDefinitionVerificationStatus = 'verified' | 'hidden' | 'visible'
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {

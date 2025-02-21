@@ -88,7 +88,7 @@ export function PropertyStatusControl({
     const copy = {
         verified:
             'Prioritize this property in filters and other selection components to signal to collaborators that this property should be used in favor of similar properties.',
-        standard: 'Property is available for use but has not been verified by the team.',
+        visible: 'Property is available for use but has not been verified by the team.',
         hidden: 'Hide this property from filters and other selection components by default. Use this for deprecated or irrelevant properties.',
     }
 
@@ -96,11 +96,11 @@ export function PropertyStatusControl({
 
     const icon = {
         verified: <IconCheckCircle />,
-        standard: <IconEye />,
+        visible: <IconEye />,
         hidden: <IconHide />,
     }
 
-    const currentStatus: PropertyDefinitionStatus = hidden ? 'hidden' : verified ? 'verified' : 'standard'
+    const currentStatus: PropertyDefinitionStatus = hidden ? 'hidden' : verified ? 'verified' : 'visible'
 
     return (
         <>
@@ -123,10 +123,10 @@ export function PropertyStatusControl({
                             disabledReason: !allowVerification ? verifiedDisabledCorePropCopy : undefined,
                         },
                         {
-                            value: 'standard',
-                            label: 'Standard',
-                            tooltip: copy.standard,
-                            icon: icon.standard,
+                            value: 'visible',
+                            label: 'Visible',
+                            tooltip: copy.visible,
+                            icon: icon.visible,
                         },
                         ...(showHiddenOption
                             ? [

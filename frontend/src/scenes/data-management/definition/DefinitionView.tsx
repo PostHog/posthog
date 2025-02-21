@@ -68,7 +68,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             ? 'verified'
             : (definition as PropertyDefinition).hidden
             ? 'hidden'
-            : 'standard'
+            : 'visible'
         : null
 
     type StatusProps = {
@@ -91,11 +91,11 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             icon: <IconHide />,
             tooltip: 'This property is hidden and will not appear in filters and other selection components.',
         },
-        standard: {
+        visible: {
             tagType: 'default',
-            label: 'Standard',
+            label: 'Visible',
             icon: <IconEye />,
-            tooltip: 'This property is standard and can be used in filters and other selection components.',
+            tooltip: 'This property is visible and can be used in filters and other selection components.',
         },
     }
 
