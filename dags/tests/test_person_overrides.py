@@ -9,7 +9,7 @@ from dags.person_overrides import (
     PersonOverridesSnapshotDictionary,
     PersonOverridesSnapshotTable,
     PopulateSnapshotTableConfig,
-    cleanup_overrides_snapshot,
+    cleanup_orphaned_person_overrides_snapshot,
     get_existing_dictionary_for_run_id,
     populate_snapshot_table,
     squash_person_overrides,
@@ -131,7 +131,7 @@ def test_cleanup_job(cluster: ClickhouseCluster) -> None:
     assert all(cluster.map_all_hosts(table.exists).result().values())
     assert all(cluster.map_all_hosts(dictionary.exists).result().values())
 
-    cleanup_overrides_snapshot.execute_in_process(
+    cleanup_orphaned_person_overrides_snapshot.execute_in_process(
         run_config={
             {
                 get_existing_dictionary_for_run_id.name: GetExistingDictionaryConfig(

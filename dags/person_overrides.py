@@ -389,7 +389,7 @@ def squash_person_overrides():
 
 
 @dagster.job
-def cleanup_overrides_snapshot():
+def cleanup_orphaned_person_overrides_snapshot():
     """
     Cleans up overrides snapshot resources after an irrecoverable job failure. This should only be run manually when the
     resources are guaranteed to no longer be in use (i.e. no mutations are in progress, and the specified job is no
