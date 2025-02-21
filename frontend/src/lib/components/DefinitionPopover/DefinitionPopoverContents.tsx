@@ -1,6 +1,6 @@
 import { hide } from '@floating-ui/react'
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconEye, IconHide, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -21,6 +21,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { Fragment, useEffect, useMemo } from 'react'
+import { PropertyDefinitionStatus } from 'scenes/data-management/definition/definitionLogic'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
@@ -65,6 +66,82 @@ export function VerifiedDefinitionCheckbox({
                     </>
                 }
             />
+        </>
+    )
+}
+
+export function PropertyStatusControl({
+    verified,
+    hidden,
+    showHiddenOption,
+    allowVerification,
+    onChange,
+    compact = false,
+}: {
+    verified: boolean
+    hidden: boolean
+    showHiddenOption: boolean
+    allowVerification: boolean
+    onChange: (status: { verified: boolean; hidden: boolean }) => void
+    compact?: boolean
+}): JSX.Element {
+    const copy = {
+        verified:
+            'Prioritize this property in filters and other selection components to signal to collaborators that this property should be used in favor of similar properties.',
+        visible: 'Property is available for use but has not been verified by the team.',
+        hidden: 'Hide this property from filters and other selection components by default. Use this for deprecated or irrelevant properties.',
+    }
+
+    const verifiedDisabledCorePropCopy = 'Core PostHog properties cannot be verified, but they can be hidden.'
+
+    const icon = {
+        verified: <IconCheckCircle />,
+        visible: <IconEye />,
+        hidden: <IconHide />,
+    }
+
+    const currentStatus: PropertyDefinitionStatus = hidden ? 'hidden' : verified ? 'verified' : 'visible'
+
+    return (
+        <>
+            <div>
+                <LemonSegmentedButton
+                    value={currentStatus}
+                    onChange={(value) => {
+                        const status = value as PropertyDefinitionStatus
+                        onChange({
+                            verified: status === 'verified',
+                            hidden: status === 'hidden',
+                        })
+                    }}
+                    options={[
+                        {
+                            value: 'verified',
+                            label: 'Verified',
+                            tooltip: allowVerification ? copy.verified : undefined,
+                            icon: icon.verified,
+                            disabledReason: !allowVerification ? verifiedDisabledCorePropCopy : undefined,
+                        },
+                        {
+                            value: 'visible',
+                            label: 'Visible',
+                            tooltip: copy.visible,
+                            icon: icon.visible,
+                        },
+                        ...(showHiddenOption
+                            ? [
+                                  {
+                                      value: 'hidden',
+                                      label: 'Hidden',
+                                      tooltip: copy.hidden,
+                                      icon: icon.hidden,
+                                  },
+                              ]
+                            : []),
+                    ]}
+                />
+            </div>
+            {!compact && <p className="italic">{copy[currentStatus]}</p>}
         </>
     )
 }
@@ -201,6 +278,15 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         return (
             <>
                 {sharedComponents}
+                {_definition.verified && (
+                    <div className="mb-4">
+                        <Tooltip title="This property is verified by the team. It is prioritized in filters and other selection components.">
+                            <LemonTag type="success">
+                                <IconCheckCircle /> Verified
+                            </LemonTag>
+                        </Tooltip>
+                    </div>
+                )}
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopover.Grid>
@@ -382,6 +468,10 @@ function DefinitionEdit(): JSX.Element {
         return <></>
     }
 
+    const showHiddenOption = hasTaxonomyFeatures && 'hidden' in localDefinition
+    const allowVerification =
+        hasTaxonomyFeatures && !isCoreFilter(definition.name || '') && 'verified' in localDefinition
+
     return (
         <>
             <LemonDivider className="DefinitionPopover my-4" />
@@ -421,15 +511,30 @@ function DefinitionEdit(): JSX.Element {
                         </div>
                     </>
                 )}
-                {definition && definition.name && !isCoreFilter(definition.name) && 'verified' in localDefinition && (
-                    <VerifiedDefinitionCheckbox
-                        verified={!!localDefinition.verified}
-                        isProperty={isProperty}
-                        onChange={(nextVerified) => {
-                            setLocalDefinition({ verified: nextVerified })
-                        }}
-                        compact
-                    />
+                {definition && definition.name && (showHiddenOption || allowVerification) && (
+                    <div className="mb-4">
+                        {isProperty ? (
+                            <PropertyStatusControl
+                                verified={!!localDefinition.verified}
+                                hidden={!!(localDefinition as Partial<PropertyDefinition>).hidden}
+                                onChange={({ verified, hidden }) => {
+                                    setLocalDefinition({ verified, hidden } as Partial<PropertyDefinition>)
+                                }}
+                                compact
+                                showHiddenOption={showHiddenOption}
+                                allowVerification={allowVerification}
+                            />
+                        ) : (
+                            <VerifiedDefinitionCheckbox
+                                verified={!!localDefinition.verified}
+                                isProperty={isProperty}
+                                onChange={(nextVerified) => {
+                                    setLocalDefinition({ verified: nextVerified })
+                                }}
+                                compact
+                            />
+                        )}
+                    </div>
                 )}
                 <LemonDivider className="DefinitionPopover mt-0" />
                 <div className="flex items-center justify-between gap-2 click-outside-block">

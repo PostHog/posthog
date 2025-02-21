@@ -5,12 +5,12 @@ from unittest.mock import ANY, patch
 from rest_framework import status
 
 from posthog.models import (
+    ActivityLog,
     EventDefinition,
     EventProperty,
     Organization,
     PropertyDefinition,
     Team,
-    ActivityLog,
 )
 from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer
 from posthog.test.base import APIBaseTest, BaseTest
@@ -505,6 +505,46 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         # Test retrieving other team's property should fail
         response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{other_team_prop.id}")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_exclude_hidden_properties(self):
+        # Create some properties with hidden flag
+        PropertyDefinition.objects.create(team=self.team, name="visible_property", property_type="String")
+        PropertyDefinition.objects.create(team=self.team, name="hidden_property1", property_type="String", hidden=True)
+        PropertyDefinition.objects.create(team=self.team, name="hidden_property2", property_type="String", hidden=True)
+
+        # Test without enterprise taxonomy - hidden properties should still be shown even with exclude_hidden=true
+        with patch("posthog.api.property_definition.AvailableFeature") as available_feature:
+            available_feature.INGESTION_TAXONOMY = "ingestion-taxonomy"
+            self.organization.available_features = []
+            self.organization.save()
+
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            property_names = {p["name"] for p in response.json()["results"]}
+            self.assertIn("visible_property", property_names)
+            self.assertIn("hidden_property1", property_names)
+            self.assertIn("hidden_property2", property_names)
+
+        # Test with enterprise taxonomy enabled - hidden properties should be excluded when exclude_hidden=true
+        with patch("posthog.api.property_definition.AvailableFeature") as available_feature:
+            available_feature.INGESTION_TAXONOMY = "ingestion-taxonomy"
+            self.organization.available_features = ["ingestion-taxonomy"]
+            self.organization.save()
+
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            property_names = {p["name"] for p in response.json()["results"]}
+            self.assertIn("visible_property", property_names)
+            self.assertNotIn("hidden_property1", property_names)
+            self.assertNotIn("hidden_property2", property_names)
+
+            # Test with exclude_hidden=false (should be same as not setting it)
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=false")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            property_names = {p["name"] for p in response.json()["results"]}
+            self.assertIn("visible_property", property_names)
+            self.assertIn("hidden_property1", property_names)
+            self.assertIn("hidden_property2", property_names)
 
 
 class TestPropertyDefinitionQuerySerializer(BaseTest):
