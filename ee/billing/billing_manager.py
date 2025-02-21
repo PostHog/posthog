@@ -301,6 +301,7 @@ class BillingManager:
                 events=usage_summary["events"],
                 recordings=usage_summary["recordings"],
                 rows_synced=usage_summary.get("rows_synced", {}),
+                feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
