@@ -216,7 +216,7 @@ if (res.status != 200 or res.body.ok == false) {
             input_schema_overrides={
                 "blocks": {
                     "default": [
-                        {"type": "header", "text": {"type": "plain_text", "text": "{event.properties.name}"}},
+                        {"type": "header", "text": {"type": "plain_text", "text": "🔴 {event.properties.name}"}},
                         {"type": "section", "text": {"type": "plain_text", "text": "New issue created"}},
                         {"type": "section", "text": {"type": "mrkdwn", "text": "```{event.properties.description}```"}},
                         {
@@ -241,6 +241,44 @@ if (res.status != 200 or res.body.ok == false) {
                 },
                 "text": {
                     "default": "New issue created: {event.properties.name}",
+                    "hidden": True,
+                },
+            },
+        ),
+        HogFunctionSubTemplate(
+            id="error-tracking-issue-reopened",
+            name="Post to Slack on issue reopened",
+            description="",
+            filters={"events": [{"id": "$error_tracking_issue_reopened", "type": "events"}]},
+            type="internal_destination",
+            input_schema_overrides={
+                "blocks": {
+                    "default": [
+                        {"type": "header", "text": {"type": "plain_text", "text": "🔄 {event.properties.name}"}},
+                        {"type": "section", "text": {"type": "plain_text", "text": "Issue reopened"}},
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "```{event.properties.description}```"}},
+                        {
+                            "type": "context",
+                            "elements": [
+                                {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
+                                {"type": "mrkdwn", "text": "Alert: <{source.url}|{source.name}>"},
+                            ],
+                        },
+                        {"type": "divider"},
+                        {
+                            "type": "actions",
+                            "elements": [
+                                {
+                                    "url": "{project.url}/error-tracking/{event.distinct_id}",
+                                    "text": {"text": "View Issue", "type": "plain_text"},
+                                    "type": "button",
+                                }
+                            ],
+                        },
+                    ]
+                },
+                "text": {
+                    "default": "Issue reopened: {event.properties.name}",
                     "hidden": True,
                 },
             },
