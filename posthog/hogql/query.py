@@ -51,6 +51,7 @@ class HogQLQueryExecutor:
     timings: HogQLTimings = dataclasses.field(default_factory=HogQLTimings)
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
+    clickhouse_context: Optional[HogQLContext] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -132,7 +133,7 @@ class HogQLQueryExecutor:
             modifiers=self.query_modifiers,
             # it's valid to reuse the clickhouse DB because the modifiers are the same,
             # and if we don't we end up creating the virtual DB twice per query
-            database=self.clickhouse_context.database,
+            database=self.clickhouse_context.database if self.clickhouse_context else None,
         )
 
         with self.timings.measure("clone"):
