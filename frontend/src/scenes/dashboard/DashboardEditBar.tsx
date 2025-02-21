@@ -15,7 +15,15 @@ import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { DashboardMode, InsightLogicProps } from '~/types'
 
 export function DashboardEditBar(): JSX.Element {
-    const { canAutoPreview, dashboard, temporaryFilters, dashboardMode, filtersUpdated } = useValues(dashboardLogic)
+    const {
+        canAutoPreview,
+        dashboard,
+        loadingPreview,
+        cancellingPreview,
+        temporaryFilters,
+        dashboardMode,
+        filtersUpdated,
+    } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardMode, previewTemporaryFilters } =
         useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -42,12 +50,13 @@ export function DashboardEditBar(): JSX.Element {
                 <div className="flex items-center gap-2 m-1">
                     <LemonButton
                         onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                        loading={cancellingPreview}
                         type="secondary"
                         size="small"
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton onClick={previewTemporaryFilters} type="primary" size="small">
+                    <LemonButton onClick={previewTemporaryFilters} loading={loadingPreview} type="primary" size="small">
                         Apply filters and preview
                     </LemonButton>
                 </div>
