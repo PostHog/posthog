@@ -50,7 +50,7 @@ export function ValueColumnItem({ index, item, trendsFilter }: ValueColumnItemPr
         <span>
             {isStickiness ? (
                 <div>
-                    <div>{((item.data[index] / item.count) * 100).toFixed(1)}%</div>
+                    <div>{item.count ? ((item.data[index] / item.count) * 100).toFixed(1) : '0'}%</div>
                     <div>({formattedValue})</div>
                 </div>
             ) : (
