@@ -1,15 +1,16 @@
-from rest_framework import serializers
 from django.utils import timezone
+from loginas.utils import is_impersonated_session
+from rest_framework import serializers
+
 from ee.models.property_definition import EnterprisePropertyDefinition
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import (
+    Detail,
     dict_changes_between,
     log_activity,
-    Detail,
 )
-from loginas.utils import is_impersonated_session
 
 
 class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -31,6 +32,7 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "verified",
             "verified_at",
             "verified_by",
+            "hidden",
         )
         read_only_fields = [
             "id",
@@ -41,7 +43,7 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "verified_by",
         ]
 
-    def update(self, property_definition: EnterprisePropertyDefinition, validated_data):
+    def update(self, property_definition: EnterprisePropertyDefinition, validated_data: dict):
         validated_data["updated_by"] = self.context["request"].user
         if "property_type" in validated_data:
             if validated_data["property_type"] == "Numeric":

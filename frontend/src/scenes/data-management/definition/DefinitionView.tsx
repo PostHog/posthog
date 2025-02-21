@@ -1,4 +1,7 @@
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { IconEye } from '@posthog/icons'
+import { IconHide } from '@posthog/icons'
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonDivider, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
@@ -22,7 +25,7 @@ import { urls } from 'scenes/urls'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyDefinition, ReplayTabs } from '~/types'
+import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus, ReplayTabs } from '~/types'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -58,6 +61,42 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
 
     if (definitionMissing) {
         return <NotFound object="event" />
+    }
+
+    const definitionStatus = isProperty
+        ? (definition as PropertyDefinition).verified
+            ? 'verified'
+            : (definition as PropertyDefinition).hidden
+            ? 'hidden'
+            : 'standard'
+        : null
+
+    type StatusProps = {
+        tagType: LemonTagType
+        label: string
+        icon: React.ReactNode
+        tooltip: string
+    }
+
+    const statusProps: Record<PropertyDefinitionVerificationStatus, StatusProps> = {
+        verified: {
+            tagType: 'success',
+            label: 'Verified',
+            icon: <IconCheckCircle />,
+            tooltip: 'This property is verified and can be used in filters and other selection components.',
+        },
+        hidden: {
+            tagType: 'caution',
+            label: 'Hidden',
+            icon: <IconHide />,
+            tooltip: 'This property is hidden and will not appear in filters and other selection components.',
+        },
+        standard: {
+            tagType: 'default',
+            label: 'Standard',
+            icon: <IconEye />,
+            tooltip: 'This property is standard and can be used in filters and other selection components.',
+        },
     }
 
     return (
@@ -196,6 +235,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         <b>
                             <TZLabel time={definition.last_seen_at} />
                         </b>
+                    </div>
+                )}
+
+                {isProperty && definitionStatus && (
+                    <div className="flex-1 flex flex-col">
+                        <h5>Verification status</h5>
+                        <div>
+                            <Tooltip title={statusProps[definitionStatus].tooltip}>
+                                <LemonTag type={statusProps[definitionStatus].tagType as LemonTagType}>
+                                    {statusProps[definitionStatus].icon}
+                                    {statusProps[definitionStatus].label}
+                                </LemonTag>
+                            </Tooltip>
+                        </div>
                     </div>
                 )}
 

@@ -1,6 +1,6 @@
 import { hide } from '@floating-ui/react'
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconEye, IconHide, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -21,6 +21,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { Fragment, useEffect, useMemo } from 'react'
+import { PropertyDefinitionStatus } from 'scenes/data-management/definition/definitionLogic'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
@@ -65,6 +66,76 @@ export function VerifiedDefinitionCheckbox({
                     </>
                 }
             />
+        </>
+    )
+}
+
+export function PropertyStatusControl({
+    verified,
+    hidden,
+    onChange,
+    compact = false,
+}: {
+    verified: boolean
+    hidden: boolean
+    onChange: (status: { verified: boolean; hidden: boolean }) => void
+    compact?: boolean
+}): JSX.Element {
+    const copy = {
+        verified:
+            'Prioritize this property in filters and other selection components to signal to collaborators that this property should be used in favor of similar properties.',
+        standard: 'Property is available for use but has not been verified by the team.',
+        hidden: 'Hide this property from filters and other selection components by default. Use this for deprecated or irrelevant properties.',
+    }
+
+    const icon = {
+        verified: <IconCheckCircle />,
+        standard: <IconEye />,
+        hidden: <IconHide />,
+    }
+
+    const currentStatus: PropertyDefinitionStatus = hidden ? 'hidden' : verified ? 'verified' : 'standard'
+
+    return (
+        <>
+            <div>
+                <LemonSegmentedButton
+                    value={currentStatus}
+                    onChange={(value) => {
+                        const status = value as PropertyDefinitionStatus
+                        onChange({
+                            verified: status === 'verified',
+                            hidden: status === 'hidden',
+                        })
+                    }}
+                    options={[
+                        {
+                            value: 'verified',
+                            label: 'Verified',
+                            tooltip: copy.verified,
+                            icon: icon.verified,
+                        },
+                        {
+                            value: 'standard',
+                            label: 'Standard',
+                            tooltip: copy.standard,
+                            icon: icon.standard,
+                        },
+                        {
+                            value: 'hidden',
+                            label: 'Hidden',
+                            tooltip: copy.hidden,
+                            icon: icon.hidden,
+                        },
+                    ]}
+                />
+                {compact && (
+                    <Tooltip title={copy[currentStatus]}>
+                        <IconInfo className="text-secondary text-xl shrink-0" />
+                    </Tooltip>
+                )}
+            </div>
+            {!compact && <p className="italic">{copy[currentStatus]}</p>}
         </>
     )
 }
@@ -421,16 +492,29 @@ function DefinitionEdit(): JSX.Element {
                         </div>
                     </>
                 )}
-                {definition && definition.name && !isCoreFilter(definition.name) && 'verified' in localDefinition && (
-                    <VerifiedDefinitionCheckbox
-                        verified={!!localDefinition.verified}
-                        isProperty={isProperty}
-                        onChange={(nextVerified) => {
-                            setLocalDefinition({ verified: nextVerified })
-                        }}
-                        compact
-                    />
-                )}
+                {definition &&
+                    definition.name &&
+                    !isCoreFilter(definition.name) &&
+                    'verified' in localDefinition &&
+                    (isProperty ? (
+                        <PropertyStatusControl
+                            verified={!!localDefinition.verified}
+                            hidden={!!(localDefinition as Partial<PropertyDefinition>).hidden}
+                            onChange={({ verified, hidden }) => {
+                                setLocalDefinition({ verified, hidden } as Partial<PropertyDefinition>)
+                            }}
+                            compact
+                        />
+                    ) : (
+                        <VerifiedDefinitionCheckbox
+                            verified={!!localDefinition.verified}
+                            isProperty={isProperty}
+                            onChange={(nextVerified) => {
+                                setLocalDefinition({ verified: nextVerified })
+                            }}
+                            compact
+                        />
+                    ))}
                 <LemonDivider className="DefinitionPopover mt-0" />
                 <div className="flex items-center justify-between gap-2 click-outside-block">
                     {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
