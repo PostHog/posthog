@@ -72,17 +72,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 applyPendingActions: async () => {
                     for (const action of values.pendingActions) {
                         if (action.type === 'move' && action.newFilePath) {
-                            if (!action.item.id) {
+                            if (action.item.id && action.item.created_at) {
+                                const response = await api.fileSystem.update(action.item.id, {
+                                    path: action.newFilePath,
+                                })
+                                actions.updateSavedItem(response)
+                            } else {
                                 const response = await api.fileSystem.create({
                                     ...action.item,
                                     path: action.newFilePath,
                                 })
                                 actions.createSavedItem(response)
-                            } else {
-                                const response = await api.fileSystem.update(action.item.id, {
-                                    path: action.newFilePath,
-                                })
-                                actions.updateSavedItem(response)
                             }
                         } else if (action.type === 'create') {
                             const response = await api.fileSystem.create(action.item)
