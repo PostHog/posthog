@@ -708,7 +708,6 @@ describe('IngestionConsumer', () => {
             ingester = new IngestionConsumer(hub)
 
             // Start hogFunctionManager with correct types before starting ingester
-            await ingester.hogTransformer['hogFunctionManager'].start(['transformation'])
             await ingester.start()
 
             // Set up the transformations in order
