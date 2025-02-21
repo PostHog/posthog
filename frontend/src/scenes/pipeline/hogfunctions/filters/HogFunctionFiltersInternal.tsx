@@ -18,6 +18,10 @@ const getFilterOptions = (logicKey?: HogFunctionConfigurationLogicProps['logicKe
                 label: 'Error tracking issue created',
                 value: '$error_tracking_issue_created',
             },
+            {
+                label: 'Error tracking issue reopened',
+                value: '$error_tracking_issue_reopened',
+            },
         ]
     }
     return [

@@ -669,6 +669,7 @@
          "posthog_experiment"."archived",
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
+         "posthog_experiment"."exposure_criteria",
          "posthog_experiment"."metrics",
          "posthog_experiment"."metrics_secondary",
          "posthog_experiment"."stats_config"
@@ -1416,6 +1417,7 @@
          "posthog_experiment"."archived",
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
+         "posthog_experiment"."exposure_criteria",
          "posthog_experiment"."metrics",
          "posthog_experiment"."metrics_secondary",
          "posthog_experiment"."stats_config"
