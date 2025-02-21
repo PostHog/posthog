@@ -17,6 +17,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
@@ -470,7 +471,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setFilters: (state, { filters }) => {
                     try {
                         if (!isValidRecordingFilters(filters)) {
-                            console.error('Invalid filters provided:', filters)
+                            posthog.captureException(new Error('Invalid filters provided'), {
+                                filters,
+                            })
                             return getDefaultFilters(props.personUUID)
                         }
                         return {
@@ -478,7 +481,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             ...filters,
                         }
                     } catch (e) {
-                        console.error('Error setting filters:', e)
+                        posthog.captureException(e)
                         return getDefaultFilters(props.personUUID)
                     }
                 },
