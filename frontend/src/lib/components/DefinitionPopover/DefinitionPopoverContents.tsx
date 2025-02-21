@@ -279,15 +279,13 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 {_definition.verified && (
-                    <DefinitionPopover.Grid cols={2}>
-                        <div className="mb-4">
-                            <Tooltip title="This property is verified by the team. It is prioritized in filters and other selection components.">
-                                <LemonTag type="success">
-                                    <IconCheckCircle /> Verified
-                                </LemonTag>
-                            </Tooltip>
-                        </div>
-                    </DefinitionPopover.Grid>
+                    <div className="mb-4">
+                        <Tooltip title="This property is verified by the team. It is prioritized in filters and other selection components.">
+                            <LemonTag type="success">
+                                <IconCheckCircle /> Verified
+                            </LemonTag>
+                        </Tooltip>
+                    </div>
                 )}
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />

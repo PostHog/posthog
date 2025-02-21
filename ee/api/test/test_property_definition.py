@@ -1,13 +1,14 @@
-from typing import cast, Optional
-from freezegun import freeze_time
+from typing import Optional, cast
+
 import pytest
 from django.db.utils import IntegrityError
 from django.utils import timezone
+from freezegun import freeze_time
 from rest_framework import status
 
 from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition
-from posthog.models import EventProperty, Tag, ActivityLog
+from posthog.models import ActivityLog, EventProperty, Tag
 from posthog.models.property_definition import PropertyDefinition
 from posthog.test.base import APIBaseTest
 
@@ -378,6 +379,116 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_hidden_property_behavior(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="hidden test property")
+        response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["hidden"] is False
+        assert response.json()["verified"] is False
+
+        # Hide the property
+        self.client.patch(
+            f"/api/projects/@current/property_definitions/{property.id}",
+            {"hidden": True},
+        )
+        response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["hidden"] is True
+        assert response.json()["verified"] is False  # Hiding should ensure verified is False
+
+        # Try to verify a hidden property (should fail)
+        response = self.client.patch(
+            f"/api/projects/@current/property_definitions/{property.id}",
+            {"verified": True, "hidden": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cannot be both hidden and verified", response.json()["detail"].lower())
+
+        # Unhide the property
+        self.client.patch(
+            f"/api/projects/@current/property_definitions/{property.id}",
+            {"hidden": False},
+        )
+        response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["hidden"] is False
+        assert response.json()["verified"] is False
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_verified_property_cannot_be_hidden(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        property = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="verified test property", verified=True
+        )
+        response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["hidden"] is False
+        assert response.json()["verified"] is True
+
+        # Try to hide a verified property (should fail)
+        response = self.client.patch(
+            f"/api/projects/@current/property_definitions/{property.id}",
+            {"hidden": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cannot be both hidden and verified", response.json()["detail"].lower())
+
+    def test_list_hidden_properties(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        properties: list[dict] = [
+            {"name": "1_test", "verified": True, "hidden": False},
+            {"name": "2_test", "verified": False, "hidden": True},
+            {"name": "3_test", "verified": False, "hidden": True},
+            {"name": "4_test", "verified": False, "hidden": False},
+        ]
+
+        for property in properties:
+            EnterprisePropertyDefinition.objects.create(
+                team=self.team, name=property["name"], verified=property["verified"], hidden=property["hidden"]
+            )
+
+        response = self.client.get("/api/projects/@current/property_definitions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], len(properties))
+
+        results = response.json()["results"]
+        # Verify properties should be first, then standard properties, then hidden properties
+        assert [(r["name"], r["verified"], r["hidden"]) for r in results] == [
+            ("1_test", True, False),  # Verified first
+            ("4_test", False, False),  # Then standard
+            ("2_test", False, True),  # Then hidden
+            ("3_test", False, True),  # Then hidden
+        ]
+
+        # We should prefer properties that have been seen on an event
+        EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="3_test")
+        EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="4_test")
+
+        response = self.client.get("/api/projects/@current/property_definitions/?event_names=%5B%22%24pageview%22%5D")
+        results = response.json()["results"]
+
+        # Within each category (verified, standard, hidden), properties seen on events should be first
+        assert [(r["name"], r["verified"], r["hidden"], r["is_seen_on_filtered_events"]) for r in results] == [
+            ("1_test", True, False, False),  # Verified first (not seen)
+            ("4_test", False, False, True),  # Standard seen on event
+            ("3_test", False, True, True),  # Hidden seen on event
+            ("2_test", False, True, False),  # Hidden not seen
+        ]
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
@@ -445,7 +556,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
-    def test_list_property_definitions(self):
+    def test_list_property_definitions_verified_ordering(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
@@ -494,7 +605,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         ]
 
         # We should prefer properties that have been seen on an event if that is available
-
         EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="3_when_verified")
         EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="4_when_verified")
 
