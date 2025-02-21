@@ -516,7 +516,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             return TeamBasicSerializer
         return super().get_serializer_class()
 
-    def dangerously_get_required_scopes(self, request, view) -> list[str]:
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
         # If the request only contains config fields, require read:team scope
         # Otherwise, require write:team scope (handled by APIScopePermission)
         if self.action == "partial_update":
