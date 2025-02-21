@@ -89,7 +89,7 @@ pub enum JsResolveErr {
     RedirectError(String),
     #[error("JSDataError: {0}")]
     JSDataError(#[from] JsDataError),
-    #[error("Invalid data url found at {0}. {0}")]
+    #[error("Invalid data url found at {0}. {1}")]
     InvalidDataUrl(String, String),
 }
 
