@@ -7,7 +7,6 @@ import api from 'lib/api'
 import { groupsModel } from '~/models/groupsModel'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
-import { EventType, PersonType } from '~/types'
 
 import type { hogFunctionReplayLogicType } from './hogFunctionReplayLogicType'
 import {
@@ -18,12 +17,6 @@ import {
 
 export interface HogFunctionReplayLogicProps {
     id: string
-}
-
-export interface RetryType {
-    eventId: string
-    status: string
-    logs: { timestamp: string; message: string; level: string }[]
 }
 
 export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
@@ -52,55 +45,27 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
             },
         ],
     }),
-    selectors(() => ({
-        baseEventsQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.dateRange],
-            (configuration, matchingFilters, groupTypes, dateRange): EventsQuery | null => {
-                const query: EventsQuery = {
-                    kind: NodeKind.EventsQuery,
-                    filterTestAccounts: configuration.filters?.filter_test_accounts,
-                    fixedProperties: [matchingFilters],
-                    select: ['*', 'person'],
-                    after: dateRange?.after ?? undefined,
-                    before: dateRange?.before ?? undefined,
-                    orderBy: ['timestamp DESC'],
-                }
-                groupTypes.forEach((groupType) => {
-                    const name = escapePropertyAsHogQlIdentifier(groupType.group_type)
-                    query.select.push(
-                        `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
-                    )
-                })
-                return query
-            },
-            { resultEqualityCheck: equal },
-        ],
-    })),
     loaders(({ values, props }) => ({
         events: [
-            [] as Array<{ event: EventType; person: PersonType; retries: any[] }>,
+            [] as any[],
             {
                 loadEvents: async () => {
                     if (!values.baseEventsQuery) {
                         return []
                     }
                     const response = await api.query(values.baseEventsQuery)
-                    return response.results.map((row: any) => ({
-                        event: row[0],
-                        person: row[1],
-                        retries: values.retries.filter((r: any) => r.eventId === row[0].uuid),
-                    }))
+                    return response.results
                 },
             },
         ],
         retries: [
-            [] as RetryType[],
+            [] as any[],
             {
-                retryHogFunction: async ({ event, person }: { event: EventType; person: PersonType }) => {
-                    const globals = convertToHogFunctionInvocationGlobals(event, person)
+                retryHogFunction: async (row: any) => {
+                    const globals = convertToHogFunctionInvocationGlobals(row[0], row[1])
                     globals.groups = {}
                     values.groupTypes.forEach((groupType, index) => {
-                        const tuple = event?.[2 + index]
+                        const tuple = row?.[3 + index]
                         if (tuple && Array.isArray(tuple) && tuple[2]) {
                             let properties = {}
                             try {
@@ -138,13 +103,46 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
 
                     return [
                         {
-                            eventId: event.uuid,
+                            eventId: row[0].uuid,
                             ...res,
                         },
                         ...values.retries,
                     ]
                 },
             },
+        ],
+    })),
+    selectors(() => ({
+        baseEventsQuery: [
+            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.dateRange],
+            (configuration, matchingFilters, groupTypes, dateRange): EventsQuery | null => {
+                const query: EventsQuery = {
+                    kind: NodeKind.EventsQuery,
+                    filterTestAccounts: configuration.filters?.filter_test_accounts,
+                    fixedProperties: [matchingFilters],
+                    select: ['*', 'person'],
+                    after: dateRange?.after ?? undefined,
+                    before: dateRange?.before ?? undefined,
+                    orderBy: ['timestamp DESC'],
+                }
+                groupTypes.forEach((groupType) => {
+                    const name = escapePropertyAsHogQlIdentifier(groupType.group_type)
+                    query.select.push(
+                        `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
+                    )
+                })
+                return query
+            },
+            { resultEqualityCheck: equal },
+        ],
+        eventsWithRetries: [
+            (s) => [s.events, s.retries],
+            (events: any[], retries: any[]) =>
+                events.map((row) => [
+                    ...row.slice(0, 2),
+                    retries.filter((r) => r.eventId === row[0].uuid),
+                    ...row.slice(2),
+                ]),
         ],
     })),
     listeners(({ actions }) => ({

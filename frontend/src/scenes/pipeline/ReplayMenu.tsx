@@ -203,15 +203,7 @@ function RunResult({ run }: { run: any }): JSX.Element {
     )
 }
 
-function RunRetryButton({
-    event,
-    person,
-    retryHogFunction,
-}: {
-    event: any
-    person: any
-    retryHogFunction: any
-}): JSX.Element {
+function RunRetryButton({ row, retryHogFunction }: { row: any; retryHogFunction: any }): JSX.Element {
     const handleRetry = (): void => {
         LemonDialog.open({
             title: 'Replay event?',
@@ -229,7 +221,7 @@ function RunRetryButton({
             width: '20rem',
             primaryButton: {
                 children: 'Retry',
-                onClick: () => retryHogFunction({ event, person }),
+                onClick: () => retryHogFunction(row),
             },
             secondaryButton: {
                 children: 'Cancel',
@@ -330,12 +322,12 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
 
 export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionReplayLogic({ id })
-    const { eventsLoading, events } = useValues(logic)
+    const { eventsLoading, eventsWithRetries } = useValues(logic)
     const { retryHogFunction } = useActions(logic)
 
     return (
         <LemonTable
-            dataSource={events}
+            dataSource={eventsWithRetries}
             loading={eventsLoading}
             loadingSkeletonRows={5}
             pagination={{
@@ -345,7 +337,7 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
             }}
             expandable={{
                 noIndent: true,
-                expandedRowRender: ({ retries }) => {
+                expandedRowRender: ([, , retries]) => {
                     return (
                         <LemonTable
                             dataSource={retries}
@@ -380,7 +372,7 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
                     key: 'retries',
                     title: 'Retries',
                     width: 0,
-                    render: (_, { retries }) => {
+                    render: (_, [, , retries]) => {
                         return <RetryStatusIcon retries={retries} />
                     },
                 },
@@ -388,7 +380,7 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
                     title: 'Event',
                     key: 'event',
                     className: 'max-w-80',
-                    render: (_, { event }) => {
+                    render: (_, [event]) => {
                         return event.event ? (
                             <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
                         ) : (
@@ -399,7 +391,7 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
                 {
                     title: 'Person',
                     key: 'person',
-                    render: (_, { person }) => {
+                    render: (_, [, person]) => {
                         return person ? <PersonDisplay person={person} withIcon /> : <EmptyColumn />
                     },
                 },
@@ -407,7 +399,7 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
                     title: 'URL / Screen',
                     key: 'url',
                     className: 'max-w-80',
-                    render: (_, { event }) =>
+                    render: (_, [event]) =>
                         event.properties['$current_url'] || event.properties['$screen_name'] ? (
                             <span>{event.properties['$current_url'] || event.properties['$screen_name']}</span>
                         ) : (
@@ -418,7 +410,7 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
                     title: 'Library',
                     key: 'library',
                     className: 'max-w-80',
-                    render: (_, { event }) => {
+                    render: (_, [event]) => {
                         return event.properties['$lib'] ? <span>{event.properties['$lib']}</span> : <EmptyColumn />
                     },
                 },
@@ -426,17 +418,17 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
                     title: 'Time',
                     key: 'time',
                     className: 'max-w-80',
-                    render: (_, { event }) => {
+                    render: (_, [event]) => {
                         return event.timestamp ? <TZLabel time={event.timestamp} /> : <EmptyColumn />
                     },
                 },
                 {
                     key: 'actions',
                     width: 0,
-                    render: function RenderActions(_, { event, person }) {
+                    render: function RenderActions(_, row) {
                         return (
                             <div className="flex gap-1">
-                                <RunRetryButton event={event} person={person} retryHogFunction={retryHogFunction} />
+                                <RunRetryButton row={row} retryHogFunction={retryHogFunction} />
                             </div>
                         )
                     },
