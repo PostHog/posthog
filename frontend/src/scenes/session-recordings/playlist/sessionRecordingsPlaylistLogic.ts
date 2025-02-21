@@ -706,7 +706,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         return false
                     }
 
-                    if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
+                    if (hideViewedRecordings === 'current-user' && rec.viewed && rec.id !== selectedRecordingId) {
                         return false
                     }
 
