@@ -14,8 +14,8 @@ interface DateDisplayProps {
 const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
     minute: 'HH:mm:00',
     hour: 'HH:00',
-    day: 'MMM D',
-    week: 'MMM D',
+    day: 'D MMM',
+    week: 'D MMM',
     month: 'MMM',
 }
 
