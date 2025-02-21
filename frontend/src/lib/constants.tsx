@@ -249,6 +249,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_NEW_QUERY_RUNNER_AA_TEST: 'experiments-new-query-runner-aa-test', // #team-experiments
     WEB_ANALYTICS_TABLE_SORTING: 'web-analytics-table-sorting', // owner: @rafaeelaudibert #team-web-analytics
     ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny #team-growth
+    WEB_ANALYTICS_DOMAIN_DROPDOWN: 'web-analytics-domain-dropdown', // owner: @rafaeelaudibert #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
