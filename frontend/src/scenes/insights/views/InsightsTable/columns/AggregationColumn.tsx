@@ -10,7 +10,7 @@ import { formatAggregationValue } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { TrendsFilter } from '~/queries/schema'
+import { TrendsFilter } from '~/queries/schema/schema-general'
 import { TrendsFilterType } from '~/types'
 
 import { CalcColumnState } from '../InsightsTable'

@@ -37,9 +37,10 @@ import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { QuerySchema } from '~/queries/schema'
+import { QuerySchema } from '~/queries/schema/schema-general'
 import { AvailableFeature, ProductKey, PropertyMathType } from '~/types'
 
+import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
 const Filters = (): JSX.Element => {
@@ -51,7 +52,6 @@ const Filters = (): JSX.Element => {
         webVitalsPercentile,
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates, setCompareFilter, setWebVitalsPercentile } = useActions(webAnalyticsLogic)
-    const { mobileLayout } = useValues(navigationLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
@@ -61,53 +61,47 @@ const Filters = (): JSX.Element => {
     )
 
     return (
-        <div
-            className={clsx(
-                'sticky z-20 bg-primary border-b py-2',
-                mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
+        <div className="flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
+            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} allowTimePrecision={true} />
+
+            {productTab === ProductTab.ANALYTICS ? (
+                <>
+                    <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+                    <WebConversionGoal />
+                    <TableSortingIndicator />
+                </>
+            ) : (
+                <LemonSegmentedSelect
+                    size="small"
+                    value={webVitalsPercentile}
+                    onChange={setWebVitalsPercentile}
+                    options={[
+                        { value: PropertyMathType.P75, label: 'P75' },
+                        {
+                            value: PropertyMathType.P90,
+                            label: (
+                                <Tooltip title="P90 is recommended by the standard as a good baseline" delayMs={0}>
+                                    P90
+                                </Tooltip>
+                            ),
+                        },
+                        { value: PropertyMathType.P99, label: 'P99' },
+                    ]}
+                />
             )}
-        >
-            <div className="flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
-                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} allowTimePrecision={true} />
 
-                {productTab === ProductTab.ANALYTICS ? (
-                    <>
-                        <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                        <WebConversionGoal />
-                    </>
-                ) : (
-                    <LemonSegmentedSelect
-                        size="small"
-                        value={webVitalsPercentile}
-                        onChange={setWebVitalsPercentile}
-                        options={[
-                            { value: PropertyMathType.P75, label: 'P75' },
-                            {
-                                value: PropertyMathType.P90,
-                                label: (
-                                    <Tooltip title="P90 is recommended by the standard as a good baseline" delayMs={0}>
-                                        P90
-                                    </Tooltip>
-                                ),
-                            },
-                            { value: PropertyMathType.P99, label: 'P99' },
-                        ]}
-                    />
-                )}
+            {hasAdvancedPaths && <PathCleaningToggle />}
 
-                {hasAdvancedPaths && <PathCleaningToggle />}
+            {/* Desktop filters, rendered to the left of the reload button */}
+            <div className="hidden md:block">{webPropertyFilters}</div>
 
-                {/* Desktop filters, rendered to the left of the reload button */}
-                <div className="hidden md:block">{webPropertyFilters}</div>
-
-                {/* Reload is right aligned on bigger screens, looks nicer */}
-                <div className="xl:ml-auto">
-                    <ReloadAll />
-                </div>
+            {/* Reload is right aligned on bigger screens, looks nicer */}
+            <div className="xl:ml-auto">
+                <ReloadAll />
             </div>
 
             {/* Mobile filters, same as above but these ones are rendered under the reload button */}
-            <div className="block md:hidden mt-4">{webPropertyFilters}</div>
+            <div className="block md:hidden">{webPropertyFilters}</div>
         </div>
     )
 }
@@ -304,13 +298,7 @@ export const WebTabs = ({
         canOpenModal?: boolean
         canOpenInsight: boolean
         query: QuerySchema
-        docs:
-            | {
-                  url?: PostHogComDocsURL
-                  title: string
-                  description: string | JSX.Element
-              }
-            | undefined
+        docs: LearnMorePopoverProps | undefined
     }[]
     setActiveTabId: (id: string) => void
     openModal: (tileId: TileId, tabId: string) => void
@@ -429,10 +417,11 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
-    const { productTab } = useValues(webAnalyticsLogic)
-    const { setProductTab } = useActions(webAnalyticsLogic)
-
+    const { mobileLayout } = useValues(navigationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { productTab } = useValues(webAnalyticsLogic)
+
+    const { setProductTab } = useActions(webAnalyticsLogic)
 
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
@@ -440,24 +429,35 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
-                    <div className="flex flex-row">
-                        {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
-                            <div className="flex-1">
-                                <LemonTabs<ProductTab>
-                                    activeKey={productTab}
-                                    onChange={setProductTab}
-                                    tabs={[
-                                        { key: ProductTab.ANALYTICS, label: 'Web analytics' },
-                                        { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
-                                    ]}
-                                />
-                            </div>
+                    <div
+                        className={clsx(
+                            'sticky z-20 bg-primary border-b pb-2',
+                            mobileLayout
+                                ? 'top-[var(--breadcrumbs-height-full)]'
+                                : 'top-[var(--breadcrumbs-height-compact)]'
                         )}
+                    >
+                        <div className="flex flex-row">
+                            {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
+                                <div className="flex-1">
+                                    <LemonTabs<ProductTab>
+                                        size="small"
+                                        activeKey={productTab}
+                                        onChange={setProductTab}
+                                        tabs={[
+                                            { key: ProductTab.ANALYTICS, label: 'Web analytics' },
+                                            { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
+                                        ]}
+                                    />
+                                </div>
+                            )}
 
-                        <WebAnalyticsLiveUserCount />
+                            <WebAnalyticsLiveUserCount />
+                        </div>
+
+                        <Filters />
                     </div>
 
-                    <Filters />
                     <WebAnalyticsHealthCheck />
 
                     <Tiles />

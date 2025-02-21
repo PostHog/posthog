@@ -13,6 +13,7 @@ from posthog.warehouse.api import (
     saved_query,
     table,
     view_link,
+    query_tab_state,
 )
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
@@ -309,7 +310,12 @@ projects_router.register(
     "project_warehouse_model_paths",
     ["team_id"],
 )
-
+projects_router.register(
+    r"query_tab_state",
+    query_tab_state.QueryTabStateViewSet,
+    "project_query_tab_state",
+    ["project_id"],
+)
 
 register_grandfathered_environment_nested_viewset(
     r"external_data_schemas",

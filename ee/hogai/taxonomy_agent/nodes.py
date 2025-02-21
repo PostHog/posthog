@@ -15,7 +15,6 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from langgraph.errors import NodeInterrupt
 from pydantic import ValidationError
 
 from ee.hogai.taxonomy_agent.parsers import (
@@ -29,6 +28,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
     REACT_FORMAT_REMINDER_PROMPT,
+    REACT_HELP_REQUEST_PROMPT,
     REACT_HUMAN_IN_THE_LOOP_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
     REACT_MISSING_ACTION_CORRECTION_PROMPT,
@@ -46,7 +46,7 @@ from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQuer
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
-    AssistantMessage,
+    AssistantToolCallMessage,
     CachedTeamTaxonomyQueryResponse,
     HumanMessage,
     TeamTaxonomyQuery,
@@ -99,6 +99,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
                         "project_timezone": self.project_timezone,
+                        "project_name": self._team.name,
                     },
                     config,
                 ),
@@ -242,11 +243,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     conversation.append(LangchainHumanMessage(content=message.content))
             elif isinstance(message, VisualizationMessage):
                 conversation.append(LangchainAssistantMessage(content=message.plan or ""))
-            elif isinstance(message, AssistantMessage) and (
-                # Filter out summarizer messages (which always follow viz), but leave clarification questions in
-                idx < 1 or not isinstance(filtered_messages[idx - 1], VisualizationMessage)
-            ):
-                conversation.append(LangchainAssistantMessage(content=message.content))
 
         return conversation
 
@@ -284,21 +280,17 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
                 plan=input.arguments,
                 intermediate_steps=[],
             )
+
+        # The agent has requested help, so we return a message to the root node.
         if input.name == "ask_user_for_help":
-            # The agent has requested help, so we interrupt the graph.
-            if not state.resumed:
-                raise NodeInterrupt(input.arguments)
-
-            # Feedback was provided.
-            last_message = state.messages[-1]
-            response = ""
-            if isinstance(last_message, HumanMessage):
-                response = last_message.content
-
-            return PartialAssistantState(
-                resumed=False,
-                intermediate_steps=[*intermediate_steps[:-1], (action, response)],
-            )
+            reset_state = PartialAssistantState.get_reset_state()
+            reset_state.messages = [
+                AssistantToolCallMessage(
+                    tool_call_id=state.root_tool_call_id,
+                    content=REACT_HELP_REQUEST_PROMPT.format(request=input.arguments),
+                )
+            ]
+            return reset_state
 
         output = ""
         if input.name == "retrieve_event_properties":
@@ -317,6 +309,10 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         )
 
     def router(self, state: AssistantState):
+        # Human-in-the-loop. Get back to the root node.
+        if not state.root_tool_call_id:
+            return "root"
+        # The plan has been found. Move to the generation.
         if state.plan:
             return "plan_found"
         return "continue"

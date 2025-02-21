@@ -4,7 +4,7 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { ExperimentIdType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'

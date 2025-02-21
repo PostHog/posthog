@@ -9,8 +9,6 @@ on:
             - 'package.json'
             - '.github/workflows/storybook-chromatic.yml'
             - 'playwright.config.ts'
-            - 'playwright/e2e/**'
-            - 'playwright/utils/**'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -42,7 +40,9 @@ jobs:
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
-              run: pnpm i -w -D chromatic
+              run: |
+                  pnpm --filter=@posthog/storybook... install --frozen-lockfile
+                  pnpm install -w -D chromatic
 
             - name: Publish to Chromatic
               uses: chromaui/action@v11
@@ -51,6 +51,7 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+                  workingDir: ./common/storybook/
 
     visual-regression:
         name: Visual regression tests
@@ -119,19 +120,19 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
+              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Install CI utilities with pnpm
               run: pnpm install http-server wait-on -g
 
             - name: Build Storybook
-              run: pnpm build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam
+              run: pnpm --filter=@posthog/storybook build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam
 
             - name: Serve Storybook in the background
               run: |
                   retries=3
                   while [ $retries -gt 0 ]; do
-                      pnpm exec http-server storybook-static --port 6006 --silent &
+                      pnpm exec http-server common/storybook/dist --port 6006 --silent &
                       if pnpm wait-on http://127.0.0.1:6006 --timeout 15; then
                           break
                       fi
@@ -147,7 +148,7 @@ jobs:
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
-                  pnpm test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
+                  pnpm --filter=@posthog/storybook test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 
             - name: Archive failure screenshots
               if: ${{ failure() }}

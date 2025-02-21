@@ -2,14 +2,9 @@ from zoneinfo import ZoneInfo
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.trends_statistics import (
-    are_results_significant,
-    calculate_credible_intervals,
-    calculate_probabilities,
-)
 from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
     are_results_significant_v2_count,
     calculate_credible_intervals_v2_count,
@@ -27,10 +22,12 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.action.action import Action
 from posthog.models.experiment import Experiment
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     CachedExperimentQueryResponse,
+    ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
     ExperimentMetricType,
@@ -63,7 +60,7 @@ class ExperimentQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = self.experiment.get_stats_config("version") or 1
+        self.stats_version = 2
 
         self.date_range = self._get_date_range()
 
@@ -96,21 +93,23 @@ class ExperimentQueryRunner(QueryRunner):
         feature_flag_key = self.feature_flag.key
 
         is_data_warehouse_query = isinstance(self.metric.metric_config, ExperimentDataWarehouseMetricConfig)
+        is_binomial_metric = self.metric.metric_type == ExperimentMetricType.BINOMIAL
 
         # Pick the correct value for the aggregation chosen
         match self.metric.metric_type:
             case ExperimentMetricType.CONTINUOUS:
                 # If the metric type is continuous, we need to extract the value from the event property
                 metric_property = self.metric.metric_config.math_property
-                if is_data_warehouse_query:
-                    metric_value = parse_expr(
-                        "toFloat({property})", placeholders={"property": ast.Constant(value=metric_property)}
-                    )
+                if metric_property:
+                    if is_data_warehouse_query:
+                        metric_value = parse_expr(metric_property)
+                    else:
+                        metric_value = parse_expr(
+                            "toFloat(JSONExtractRaw(properties, {property}))",
+                            placeholders={"property": ast.Constant(value=metric_property)},
+                        )
                 else:
-                    metric_value = parse_expr(
-                        "toFloat(JSONExtractRaw(properties, {property}))",
-                        placeholders={"property": ast.Constant(value=metric_property)},
-                    )
+                    raise ValueError("Metric property is required for continuous metrics")
             case _:
                 # Else, we default to count
                 # We then just emit 1 so we can easily sum it up
@@ -139,15 +138,31 @@ class ExperimentQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
+        exposure_query_select = [
+            ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
+            parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
+            parse_expr("min(timestamp) as first_exposure_time"),
+        ]
+        exposure_query_group_by = [ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])]
+        if is_data_warehouse_query:
+            exposure_metric_config = cast(ExperimentDataWarehouseMetricConfig, self.metric.metric_config)
+            exposure_query_select = [
+                *exposure_query_select,
+                ast.Alias(
+                    alias="exposure_identifier",
+                    expr=ast.Field(chain=[*exposure_metric_config.events_join_key.split(".")]),
+                ),
+            ]
+            exposure_query_group_by = [
+                *exposure_query_group_by,
+                ast.Field(chain=[*exposure_metric_config.events_join_key.split(".")]),
+            ]
+
         # First exposure query: One row per user-variant combination
-        # Columns: distinct_id, variant, first_exposure_time
+        # Columns: entity_id, variant, first_exposure_time
         # Finds when each user was first exposed to each experiment variant
         exposure_query = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["distinct_id"]),
-                parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
-                parse_expr("min(timestamp) as first_exposure_time"),
-            ],
+            select=exposure_query_select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
@@ -162,6 +177,13 @@ class ExperimentQueryRunner(QueryRunner):
                                 op=ast.CompareOperationOp.Eq,
                                 left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"),
                                 right=ast.Constant(value=feature_flag_key),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.In,
+                                left=parse_expr(
+                                    "replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"
+                                ),
+                                right=ast.Constant(value=self.variants),
                             ),
                         ]
                     ),
@@ -179,13 +201,13 @@ class ExperimentQueryRunner(QueryRunner):
                     *test_accounts_filter,
                 ]
             ),
-            group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["distinct_id"])],
+            group_by=cast(list[ast.Expr], exposure_query_group_by),
         )
 
         match self.metric.metric_config:
             case ExperimentDataWarehouseMetricConfig() as metric_config:
                 # Events after exposure query: One row per event after exposure
-                # Columns: timestamp, distinct_id, variant, value
+                # Columns: timestamp, after_exposure_identifier, variant, value
                 # Joins data warehouse events with exposure data to get all relevant events
                 # that occurred after a user was exposed to a variant
                 events_after_exposure_query = ast.SelectQuery(
@@ -195,8 +217,13 @@ class ExperimentQueryRunner(QueryRunner):
                             expr=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
                         ),
                         ast.Alias(
-                            alias="distinct_id",
-                            expr=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
+                            alias="after_exposure_identifier",
+                            expr=ast.Field(
+                                chain=[
+                                    metric_config.table_name,
+                                    *metric_config.data_warehouse_join_key.split("."),
+                                ]
+                            ),
                         ),
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Alias(alias="value", expr=metric_value),
@@ -209,29 +236,63 @@ class ExperimentQueryRunner(QueryRunner):
                             alias="exposure_data",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
-                                    left=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
-                                    right=ast.Field(chain=["exposure_data", "distinct_id"]),
+                                    left=ast.Field(
+                                        chain=[
+                                            metric_config.table_name,
+                                            *metric_config.data_warehouse_join_key.split("."),
+                                        ]
+                                    ),
+                                    right=parse_expr("toString(exposure_data.exposure_identifier)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
                             ),
                         ),
                     ),
-                    where=ast.CompareOperation(
-                        left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
-                        right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
-                        op=ast.CompareOperationOp.GtEq,
+                    where=ast.And(
+                        exprs=[
+                            # Improve query performance by only fetching events after the experiment started
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.GtEq,
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                                right=ast.Constant(value=date_range_query.date_from()),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.LtEq,
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                                # NOTE: We have to append the conversion window here once we support it
+                                right=ast.Constant(value=date_range_query.date_to()),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
+                                right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
+                                op=ast.CompareOperationOp.GtEq,
+                            ),
+                        ],
                     ),
                 )
 
-            case ExperimentEventMetricConfig() as metric_config:
+            case (ExperimentEventMetricConfig() | ExperimentActionMetricConfig()) as metric_config:
+                if isinstance(metric_config, ExperimentActionMetricConfig):
+                    try:
+                        action = Action.objects.get(pk=int(metric_config.action), team__project_id=self.team.project_id)
+                        event_filter = action_to_expr(action)
+                    except Action.DoesNotExist:
+                        # If an action doesn't exist, we want to return no events
+                        event_filter = parse_expr("1 = 2")
+                else:
+                    event_filter = ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=metric_config.event),
+                        op=ast.CompareOperationOp.Eq,
+                    )
                 # Events after exposure query: One row per PostHog event after exposure
-                # Columns: timestamp, distinct_id, variant, event, value
+                # Columns: timestamp, entity_id, variant, event, value
                 # Finds all matching events that occurred after a user was exposed to a variant
                 events_after_exposure_query = ast.SelectQuery(
                     select=[
                         ast.Field(chain=["events", "timestamp"]),
-                        ast.Field(chain=["events", "distinct_id"]),
+                        ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", "person_id"])),
                         ast.Field(chain=["exposure_data", "variant"]),
                         ast.Field(chain=["events", "event"]),
                         ast.Alias(alias="value", expr=metric_value),
@@ -244,8 +305,8 @@ class ExperimentQueryRunner(QueryRunner):
                             alias="exposure_data",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
-                                    left=ast.Field(chain=["events", "distinct_id"]),
-                                    right=ast.Field(chain=["exposure_data", "distinct_id"]),
+                                    left=ast.Field(chain=["events", "person_id"]),
+                                    right=ast.Field(chain=["exposure_data", "entity_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -254,30 +315,41 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                     where=ast.And(
                         exprs=[
+                            # Improve query performance by only fetching events after the experiment started
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.GtEq,
+                                left=ast.Field(chain=["timestamp"]),
+                                right=ast.Constant(value=date_range_query.date_from()),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.LtEq,
+                                left=ast.Field(chain=["timestamp"]),
+                                # NOTE: We have to append the conversion window here once we support it
+                                right=ast.Constant(value=date_range_query.date_to()),
+                            ),
                             # Only include events after exposure
                             ast.CompareOperation(
                                 left=ast.Field(chain=["events", "timestamp"]),
                                 right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
                                 op=ast.CompareOperationOp.GtEq,
                             ),
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["event"]),
-                                right=ast.Constant(value=metric_config.event),
-                                op=ast.CompareOperationOp.Eq,
-                            ),
+                            event_filter,
+                            *test_accounts_filter,
                             *metric_property_filters,
                         ],
                     ),
                 )
 
         # User metrics aggregation: One row per user
-        # Columns: variant, distinct_id, value (sum of all event values)
+        # Columns: variant, entity_id, value (sum of all event values)
         # Aggregates all events per user to get their total contribution to the metric
         metrics_aggregated_per_user_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["exposure_data", "variant"]),
-                ast.Field(chain=["exposure_data", "distinct_id"]),
-                parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
+                ast.Field(chain=["exposure_data", "entity_id"]),
+                parse_expr("coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) as value")
+                if is_binomial_metric
+                else parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
             ],
             select_from=ast.JoinExpr(
                 table=exposure_query,
@@ -290,8 +362,14 @@ class ExperimentQueryRunner(QueryRunner):
                         expr=ast.And(
                             exprs=[
                                 ast.CompareOperation(
-                                    left=ast.Field(chain=["exposure_data", "distinct_id"]),
-                                    right=ast.Field(chain=["events_after_exposure", "distinct_id"]),
+                                    left=parse_expr("toString(exposure_data.exposure_identifier)"),
+                                    right=parse_expr("toString(events_after_exposure.after_exposure_identifier)"),
+                                    op=ast.CompareOperationOp.Eq,
+                                )
+                                if is_data_warehouse_query
+                                else ast.CompareOperation(
+                                    left=parse_expr("toString(exposure_data.entity_id)"),
+                                    right=parse_expr("toString(events_after_exposure.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 ast.CompareOperation(
@@ -307,7 +385,7 @@ class ExperimentQueryRunner(QueryRunner):
             ),
             group_by=[
                 ast.Field(chain=["exposure_data", "variant"]),
-                ast.Field(chain=["exposure_data", "distinct_id"]),
+                ast.Field(chain=["exposure_data", "entity_id"]),
             ],
         )
 
@@ -317,7 +395,7 @@ class ExperimentQueryRunner(QueryRunner):
         experiment_variant_results_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["metrics_per_user", "variant"]),
-                parse_expr("count(metrics_per_user.distinct_id) as num_users"),
+                parse_expr("count(metrics_per_user.entity_id) as num_users"),
                 parse_expr("sum(metrics_per_user.value) as total_sum"),
                 parse_expr("sum(power(metrics_per_user.value, 2)) as total_sum_of_squares"),
             ],
@@ -337,14 +415,16 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-        if self.metric.metric_type == ExperimentMetricType.FUNNEL:
+        sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
+
+        if self.metric.metric_type == ExperimentMetricType.BINOMIAL:
             return [
                 ExperimentVariantFunnelsBaseStats(
                     failure_count=result[1] - result[2],
                     key=result[0],
                     success_count=result[2],
                 )
-                for result in response.results
+                for result in sorted_results
             ]
 
         return [
@@ -354,7 +434,7 @@ class ExperimentQueryRunner(QueryRunner):
                 exposure=result[1],
                 key=result[0],
             )
-            for result in response.results
+            for result in sorted_results
         ]
 
     def calculate(self) -> ExperimentQueryResponse:
@@ -366,57 +446,47 @@ class ExperimentQueryRunner(QueryRunner):
         if not control_variant:
             raise ValueError("Control variant not found in experiment results")
 
-        # Statistical analysis
-        if self.stats_version == 2:
-            match self.metric.metric_type:
-                case ExperimentMetricType.CONTINUOUS:
-                    probabilities = calculate_probabilities_v2_continuous(
-                        control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                    )
-                    significance_code, p_value = are_results_significant_v2_continuous(
-                        control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                        probabilities=probabilities,
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
-                case ExperimentMetricType.COUNT:
-                    probabilities = calculate_probabilities_v2_count(
-                        cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                    )
-                    significance_code, p_value = are_results_significant_v2_count(
-                        cast(ExperimentVariantTrendsBaseStats, control_variant),
-                        cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                        probabilities,
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
-                case ExperimentMetricType.FUNNEL:
-                    probabilities = calculate_probabilities_v2_funnel(
-                        cast(ExperimentVariantFunnelsBaseStats, control_variant),
-                        cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
-                    )
-                    significance_code, p_value = are_results_significant_v2_funnel(
-                        cast(ExperimentVariantFunnelsBaseStats, control_variant),
-                        cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
-                        probabilities,
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_funnel(
-                        cast(list[ExperimentVariantFunnelsBaseStats], [control_variant, *test_variants])
-                    )
-                case _:
-                    raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
-        else:
-            probabilities = calculate_probabilities(
-                cast(ExperimentVariantTrendsBaseStats, control_variant),
-                cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-            )
-            significance_code, p_value = are_results_significant(
-                cast(ExperimentVariantTrendsBaseStats, control_variant),
-                cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                probabilities,
-            )
-            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+        if not test_variants:
+            raise ValueError("Test variants not found in experiment results")
+
+        match self.metric.metric_type:
+            case ExperimentMetricType.CONTINUOUS:
+                probabilities = calculate_probabilities_v2_continuous(
+                    control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                )
+                significance_code, p_value = are_results_significant_v2_continuous(
+                    control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                    probabilities=probabilities,
+                )
+                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+            case ExperimentMetricType.COUNT:
+                probabilities = calculate_probabilities_v2_count(
+                    cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                )
+                significance_code, p_value = are_results_significant_v2_count(
+                    cast(ExperimentVariantTrendsBaseStats, control_variant),
+                    cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                    probabilities,
+                )
+                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+            case ExperimentMetricType.BINOMIAL:
+                probabilities = calculate_probabilities_v2_funnel(
+                    cast(ExperimentVariantFunnelsBaseStats, control_variant),
+                    cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
+                )
+                significance_code, p_value = are_results_significant_v2_funnel(
+                    cast(ExperimentVariantFunnelsBaseStats, control_variant),
+                    cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
+                    probabilities,
+                )
+                credible_intervals = calculate_credible_intervals_v2_funnel(
+                    cast(list[ExperimentVariantFunnelsBaseStats], [control_variant, *test_variants])
+                )
+            case _:
+                raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
 
         return ExperimentQueryResponse(
             kind="ExperimentQuery",

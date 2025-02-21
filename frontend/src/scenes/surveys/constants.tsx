@@ -6,13 +6,14 @@ import {
     SurveyMatchType,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
 } from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
-export const SurveyQuestionLabel = {
+export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Open]: 'Freeform text',
     [SurveyQuestionType.Rating]: 'Rating',
     [SurveyQuestionType.Link]: 'Link',
@@ -151,6 +152,7 @@ export interface NewSurvey
         | 'response_sampling_interval_type'
         | 'response_sampling_interval'
         | 'response_sampling_limit'
+        | 'schedule'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -160,6 +162,7 @@ export const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
+    schedule: SurveySchedule.Once,
     questions: [
         {
             type: SurveyQuestionType.Open,

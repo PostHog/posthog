@@ -56,6 +56,7 @@ import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
+    logicKey?: string
     templateId?: string | null
     id?: string | null
 }
@@ -202,8 +203,9 @@ export function convertToHogFunctionInvocationGlobals(
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
-        return id ?? templateId ?? 'new'
+    key(({ id, templateId, logicKey }: HogFunctionConfigurationLogicProps) => {
+        const baseKey = id ?? templateId ?? 'new'
+        return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
     connect(({ id }: HogFunctionConfigurationLogicProps) => ({
         values: [
@@ -1039,7 +1041,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (!values.hogFunction) {
                 return
             }
-            const { id, name, type } = values.hogFunction
+            const { id, name, type, template } = values.hogFunction
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -1048,12 +1050,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
                 callback(undo) {
                     if (undo) {
-                        router.actions.replace(hogFunctionUrl(type, id))
+                        router.actions.replace(hogFunctionUrl(type, id, template?.id))
                     }
                 },
             })
 
-            router.actions.replace(hogFunctionUrl(type))
+            router.actions.replace(hogFunctionUrl(type, undefined, template?.id))
         },
 
         persistForUnload: () => {
@@ -1088,7 +1090,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id))
+                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template.id))
             }
         },
         sparklineQuery: async (sparklineQuery) => {
@@ -1099,11 +1101,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         personsCountQuery: async (personsCountQuery) => {
             if (personsCountQuery) {
                 actions.personsCountQueryChanged(personsCountQuery)
-            }
-        },
-        lastEventQuery: (lastEventQuery) => {
-            if (lastEventQuery) {
-                actions.loadSampleGlobals()
             }
         },
     })),

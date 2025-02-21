@@ -32,6 +32,9 @@ import {
     TrendsFilter,
     TrendsQuery,
     WebAnalyticsConversionGoal,
+    WebAnalyticsOrderBy,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
     WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
@@ -278,6 +281,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setDeviceTab: (tab: string) => ({ tab }),
         setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
+        clearTablesOrderBy: () => true,
+        setTablesOrderBy: (orderBy: WebAnalyticsOrderByFields, direction: WebAnalyticsOrderByDirection) => ({
+            orderBy,
+            direction,
+        }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
@@ -432,6 +440,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     tabId,
                 }),
                 closeModal: () => null,
+            },
+        ],
+        tablesOrderBy: [
+            null as WebAnalyticsOrderBy | null,
+            persistConfig,
+            {
+                setTablesOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
+                clearTablesOrderBy: () => null,
+
+                // Reset the order by when the conversion goal changes because most of the columns are different
+                setConversionGoal: () => null,
             },
         ],
         dateFilter: [
@@ -606,6 +625,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.compareFilter,
                 s.webVitalsTab,
                 s.webVitalsPercentile,
+                s.tablesOrderBy,
                 () => values.conversionGoal,
             ],
             (
@@ -615,6 +635,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 compareFilter,
                 webVitalsTab,
                 webVitalsPercentile,
+                tablesOrderBy,
                 conversionGoal
             ) => ({
                 webAnalyticsFilters,
@@ -623,6 +644,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 compareFilter,
                 webVitalsTab,
                 webVitalsPercentile,
+                tablesOrderBy,
                 conversionGoal,
             }),
         ],
@@ -648,6 +670,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     compareFilter,
                     webVitalsPercentile,
                     webVitalsTab,
+                    tablesOrderBy,
                 },
                 featureFlags,
                 isGreaterThanMd,
@@ -777,10 +800,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     source?: Partial<WebStatsTableQuery>,
                     tab?: Partial<TabsTileTab>
                 ): TabsTileTab => {
-                    const columns = ['breakdown_value', 'visitors', 'views', 'replay_url']
-                    if (source?.includeBounceRate) {
-                        columns.push('bounce_rate')
-                    }
+                    const columns = [
+                        'breakdown_value',
+                        'visitors',
+                        'views',
+                        source?.includeBounceRate ? 'bounce_rate' : null,
+                        'cross_sell',
+                    ].filter(isNotNil)
 
                     return {
                         id: tabId,
@@ -799,9 +825,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 limit: 10,
                                 filterTestAccounts,
                                 conversionGoal,
+                                orderBy: tablesOrderBy ?? undefined,
                                 ...(source || {}),
                             },
                             embedded: false,
+                            showActions: true,
                             columns,
                         },
                         insightProps: createInsightProps(tileId, tabId),
@@ -1126,10 +1154,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   limit: 10,
                                                   filterTestAccounts,
                                                   conversionGoal,
+                                                  orderBy: tablesOrderBy ?? undefined,
                                                   stripQueryParams: shouldStripQueryParams,
                                               },
                                               embedded: false,
-                                              columns: ['url', 'visitors', 'clicks', 'replay_url'],
+                                              showActions: true,
+                                              columns: ['url', 'visitors', 'clicks', 'cross_sell'],
                                           },
                                           insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
                                           canOpenModal: true,
@@ -1539,10 +1569,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       compareFilter,
                                       sampling,
                                       limit: 10,
+                                      orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,
                                   },
                                   embedded: true,
-                                  columns: ['breakdown_value', 'visitors', 'views', 'replay_url'],
+                                  showActions: true,
+                                  columns: ['breakdown_value', 'visitors', 'views', 'cross_sell'],
                               },
                               insightProps: createInsightProps(TileId.GOALS),
                               canOpenInsight: false,
@@ -1929,7 +1961,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         event_names: ['$pageview'],
                         properties: ['$geoip_country_code'],
                     }),
-                    api.hogFunctions.list({ type: 'transformation' }),
+                    api.hogFunctions.list({ types: ['transformation'] }),
                 ])
 
                 const hasNonStaleCountryCodeDefinition =
