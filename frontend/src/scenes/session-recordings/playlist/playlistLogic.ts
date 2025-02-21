@@ -3,7 +3,7 @@ import { actions, kea, path, reducers } from 'kea'
 import type { playlistLogicType } from './playlistLogicType'
 
 export const playlistLogic = kea<playlistLogicType>([
-    path(['lib', 'components', 'playlist', 'playlistLogicType']),
+    path(['scenes', 'session-recordings', 'playlist', 'playlistLogicType']),
     actions({
         setIsExpanded: (isExpanded: boolean) => ({ isExpanded }),
     }),

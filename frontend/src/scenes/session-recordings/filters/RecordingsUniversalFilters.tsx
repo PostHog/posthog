@@ -102,7 +102,7 @@ export const RecordingsUniversalFilters = ({
                         icon={<IconMaxFromHedgehogConfig />}
                         onClick={() => {
                             setIsExpanded(!isExpanded)
-                            posthog.capture('ai_filter_close')
+                            posthog.capture('ai_filter_open')
                             // If the AI filter is not expanded, we need to expand the filters
                             if (!isExpanded) {
                                 setIsFiltersExpanded(true)
