@@ -372,9 +372,9 @@ def get_hogql_autocomplete(
     if database_arg is not None:
         database = database_arg
     else:
-        database = create_hogql_database(team_id=team.pk, team_arg=team)
+        database = create_hogql_database(team_id=team.pk, team_arg=team, timings=timings)
 
-    context = HogQLContext(team_id=team.pk, team=team, database=database)
+    context = HogQLContext(team_id=team.pk, team=team, database=database, timings=timings)
     if query.sourceQuery:
         if query.sourceQuery.kind == "HogQLQuery" and (
             query.sourceQuery.query is None or query.sourceQuery.query == ""

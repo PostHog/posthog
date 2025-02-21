@@ -32,6 +32,10 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, variables_override_requested_by_client
+from posthog.clickhouse.client.async_task_chain import task_chain_context
+from contextlib import nullcontext
+import posthoganalytics
+
 
 logger = structlog.get_logger(__name__)
 
@@ -419,14 +423,36 @@ class DashboardSerializer(DashboardBasicSerializer):
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
-        for tile in tiles:
-            self.context.update({"dashboard_tile": tile})
+        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
+        sorted_tiles = sorted(
+            tiles,
+            key=lambda tile: (
+                tile.layouts.get("xs", {}).get("y", 0),
+                tile.layouts.get("xs", {}).get("x", 0),
+            ),
+        )
 
-            if isinstance(tile.layouts, str):
-                tile.layouts = json.loads(tile.layouts)
+        team = self.context["get_team"]()
+        chained_tile_refresh_enabled = posthoganalytics.feature_enabled(
+            "chained_dashboard_tile_refresh",
+            str(team.organization_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+        )
 
-            tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
-            serialized_tiles.append(tile_data)
+        # In case of a large number of tiles on a dashboard,
+        # ensure all tiles are computed one at a time to avoid overwhelming the database
+        large_dashboard = len(sorted_tiles) > 5
+
+        with task_chain_context() if chained_tile_refresh_enabled and large_dashboard else nullcontext():
+            for tile in sorted_tiles:
+                self.context.update({"dashboard_tile": tile})
+
+                if isinstance(tile.layouts, str):
+                    tile.layouts = json.loads(tile.layouts)
+
+                tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
+                serialized_tiles.append(tile_data)
 
         return serialized_tiles
 

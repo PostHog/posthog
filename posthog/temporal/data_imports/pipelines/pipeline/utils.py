@@ -364,6 +364,11 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
         max_precision = max(precision, max_precision)
         max_scale = max(scale, max_scale)
 
+    # Deltalake doesn't like writing decimals with scale of 0 - it auto appends `.0`
+    if max_scale == 0:
+        max_scale = 1
+        max_precision += 1
+
     return build_pyarrow_decimal_type(max_precision, max_scale)
 
 
@@ -500,7 +505,10 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             all_values = columnar_table_data[field_name].tolist()
             all_values_as_decimals_or_none = [_convert_to_decimal_or_none(x) for x in all_values]
 
-            new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
+            if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
+                new_field_type = arrow_schema.field(field_index).type
+            else:
+                new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
 
             try:
                 number_arr = pa.array(
@@ -510,10 +518,14 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             except pa.ArrowInvalid as e:
                 if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
                     number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+                else:
+                    raise
 
             columnar_table_data[field_name] = number_arr
             py_type = decimal.Decimal
             unique_types_in_column = {decimal.Decimal}
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(new_field_type))
 
         # If one type is a list, then make everything into a list
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:
