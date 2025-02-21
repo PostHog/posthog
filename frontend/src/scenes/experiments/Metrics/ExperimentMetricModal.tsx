@@ -125,6 +125,7 @@ export function ExperimentMetricModal({
                 handleSetMetric={({ newMetric }: { newMetric: ExperimentMetric }) => {
                     setMetric({ metricIdx, metric: newMetric, isSecondary })
                 }}
+                filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
             />
         </LemonModal>
     )
