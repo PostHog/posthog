@@ -85,13 +85,19 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
     )
 }
 
-function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element | null {
+function QueryIdDisplay({
+    queryId,
+    compact = false,
+}: {
+    queryId?: string | null
+    compact?: boolean
+}): JSX.Element | null {
     if (queryId == null) {
         return null
     }
 
     return (
-        <div className="text-muted text-xs">
+        <div className={clsx('text-muted text-xs', { 'mt-20': !compact })}>
             Query ID: <span className="font-mono">{queryId}</span>
         </div>
     )
@@ -153,14 +159,6 @@ function LoadingDetails({
         (pollResponse?.status?.query_progress?.time_elapsed || 1) /
         10000
 
-    const suggestions = suggestion ? (
-        suggestion
-    ) : (
-        <div className="flex gap-3">
-            <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
-        </div>
-    )
-
     return (
         <>
             <p className="mx-auto text-center text-xs">
@@ -212,7 +210,7 @@ export function StatelessInsightLoadingState({
     )
     const [isLoadingMessageVisible, setIsLoadingMessageVisible] = useState(true)
 
-    const showLoadingDetails = !delayLoadingAnimation || loadingTimeSeconds >= 5
+    const showLoadingDetails = !delayLoadingAnimation || loadingTimeSeconds >= 4
 
     useEffect(() => {
         if (showLoadingDetails) {
@@ -311,7 +309,7 @@ export function StatelessInsightLoadingState({
             </div>
 
             {showLoadingDetails && (
-                <div className="flex flex-col items-center justify-center mt-2">
+                <div className="flex flex-col items-center justify-center">
                     {!renderEmptyStateAsSkeleton && <LoadingBar className="w-16 mx-auto mb-2" />}
                     {showLoadingDetails && suggestions}
                     <LoadingDetails
