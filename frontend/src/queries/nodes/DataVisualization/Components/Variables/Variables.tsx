@@ -236,7 +236,7 @@ const VariableInput = ({
                         </code>
                         <LemonSwitch
                             size="xsmall"
-                            label="Null"
+                            label="Set to null"
                             checked={isNull}
                             onChange={(value) => {
                                 setIsNull(value)
@@ -344,7 +344,9 @@ const VariableComponent = ({
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
                         disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                     >
-                        {variable.isNull ? 'Null' : variable.value?.toString() ?? variable.default_value?.toString()}
+                        {variable.isNull
+                            ? 'Set to null'
+                            : variable.value?.toString() ?? variable.default_value?.toString()}
                     </LemonButton>
                 </LemonField.Pure>
             </div>
