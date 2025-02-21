@@ -55,6 +55,10 @@ class _SharedAssistantState(BaseModel):
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
 
+    root_conversation_start_id: Optional[str] = Field(default=None)
+    """
+    The ID of the message to start from to keep the message window short enough.
+    """
     root_tool_call_id: Optional[str] = Field(default=None)
     """
     The ID of the tool call from the root node.

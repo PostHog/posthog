@@ -6,6 +6,7 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.runnables import RunnableLambda
+from langchain_openai import ChatOpenAI
 from parameterized import parameterized
 
 from ee.hogai.root.nodes import RootNode, RootNodeTools
@@ -248,6 +249,102 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             # Verify the hard limit message was added to the conversation
             messages = node._construct_messages(state)
             self.assertIn("iterations", messages[-1].content)
+
+    @patch("ee.hogai.root.nodes.RootNode._get_model", return_value=ChatOpenAI(model="gpt-4o", api_key="no-key"))
+    def test_token_limit_is_respected(self, mock_model):
+        # Trims after 64k
+        node = RootNode(self.team)
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="Hi" * 64100, id="1"),
+                AssistantMessage(content="Bar", id="2"),
+                HumanMessage(content="Foo", id="3"),
+            ]
+        )
+        messages, window_id = node._construct_messages(state)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("Foo", messages[0].content)
+        self.assertEqual(window_id, "3")
+
+        # Trims for 32k limit after 64k is hit
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="Hi" * 48000, id="1"),
+                AssistantMessage(content="Hi" * 24000, id="2"),
+                HumanMessage(content="The" * 31000, id="3"),
+            ]
+        )
+        messages, window_id = node._construct_messages(state)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("The", messages[0].content)
+        self.assertEqual(window_id, "3")
+
+        # Beyond limit should still return messages.
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="Hi" * 48000, id="1"),
+                AssistantMessage(
+                    content="Hi" * 24000,
+                    id="2",
+                    tool_calls=[{"id": "xyz", "name": "create_and_query_insight", "args": {}}],
+                ),
+                AssistantToolCallMessage(content="The" * 48000, id="3", tool_call_id="xyz"),
+            ]
+        )
+        messages, window_id = node._construct_messages(state)
+        self.assertEqual(len(messages), 2)
+        self.assertIn("Hi", messages[0].content)
+        self.assertIn("The", messages[1].content)
+        self.assertEqual(window_id, "2")
+
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="Hi" * 48000, id="1"),
+                AssistantMessage(
+                    content="Hi" * 24000,
+                    id="2",
+                ),
+                HumanMessage(content="The" * 48000, id="3"),
+            ]
+        )
+        messages, window_id = node._construct_messages(state)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("The", messages[0].content)
+        self.assertEqual(window_id, "3")
+
+        # Tool responses are not removed
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="Foo", id="1"),
+                AssistantMessage(
+                    content="Bar",
+                    id="2",
+                    tool_calls=[{"id": "xyz", "name": "create_and_query_insight", "args": {}}],
+                ),
+                AssistantToolCallMessage(content="The" * 65000, id="3", tool_call_id="xyz"),
+            ]
+        )
+        messages, window_id = node._construct_messages(state)
+        self.assertEqual(len(messages), 2)
+        self.assertIn("Bar", messages[0].content)
+        self.assertIn("The", messages[1].content)
+        self.assertEqual(window_id, "2")
+
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="Foo", id="1"),
+                AssistantMessage(
+                    content="Bar",
+                    id="2",
+                    tool_calls=[{"id": "xyz", "name": "create_and_query_insight", "args": {}}],
+                ),
+                AssistantToolCallMessage(content="Result", id="3", tool_call_id="xyz"),
+                HumanMessage(content="Baz", id="4"),
+            ]
+        )
+        messages, window_id = node._construct_messages(state)
+        self.assertEqual(len(messages), 4)
+        self.assertIsNone(window_id)
 
 
 class TestRootNodeTools(BaseTest):

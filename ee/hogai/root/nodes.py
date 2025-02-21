@@ -1,5 +1,6 @@
 import datetime
-from typing import Literal, cast
+import math
+from typing import Literal, TypeVar, cast
 from uuid import uuid4
 
 from langchain_core.messages import (
@@ -7,6 +8,7 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
+    trim_messages,
 )
 from langchain_core.output_parsers import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -43,17 +45,32 @@ class create_and_query_insight(BaseModel):
 RootToolCall = create_and_query_insight
 root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight])
 
+RootMessageUnion = HumanMessage | AssistantMessage | AssistantToolCallMessage
+
+T = TypeVar("T", RootMessageUnion, BaseMessage)
+
 
 class RootNode(AssistantNode):
     MAX_TOOL_CALLS = 4
+    """
+    Determines the maximum number of tool calls allowed in a single generation.
+    """
+    CONVERSATION_WINDOW_SIZE = 64000
+    """
+    Determines the maximum number of tokens allowed in the conversation window.
+    """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", ROOT_SYSTEM_PROMPT),
-            ],
-            template_format="mustache",
-        ) + self._construct_messages(state)
+        history, new_window_id = self._construct_messages(state)
+        prompt = (
+            ChatPromptTemplate.from_messages(
+                [
+                    ("system", ROOT_SYSTEM_PROMPT),
+                ],
+                template_format="mustache",
+            )
+            + history
+        )
         chain = prompt | self._get_model(state)
 
         utc_now = datetime.datetime.now(datetime.UTC)
@@ -71,6 +88,7 @@ class RootNode(AssistantNode):
         message = cast(LangchainAIMessage, message)
 
         return PartialAssistantState(
+            root_conversation_start_id=new_window_id,
             messages=[
                 AssistantMessage(
                     content=str(message.content),
@@ -80,7 +98,7 @@ class RootNode(AssistantNode):
                     ],
                     id=str(uuid4()),
                 ),
-            ]
+            ],
         )
 
     def _get_model(self, state: AssistantState):
@@ -95,39 +113,93 @@ class RootNode(AssistantNode):
 
         return base_model.bind_tools([create_and_query_insight], strict=True, parallel_tool_calls=False)
 
-    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
+    def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
+        filtered_conversation = [message for message in state.messages if isinstance(message, RootMessageUnion)]
+        if state.root_conversation_start_id is not None:
+            filtered_conversation = self._get_conversation_window(
+                filtered_conversation, state.root_conversation_start_id
+            )
+        return filtered_conversation
+
+    def _construct_messages(self, state: AssistantState) -> tuple[list[BaseMessage], str | None]:
+        # Filter out messages that are not part of the conversation window.
+        conversation_window = self._get_assistant_messages_in_window(state)
+
         # `assistant` messages must be contiguous with the respective `tool` messages.
         tool_result_messages = {
-            message.tool_call_id: message for message in state.messages if isinstance(message, AssistantToolCallMessage)
+            message.tool_call_id: message
+            for message in conversation_window
+            if isinstance(message, AssistantToolCallMessage)
         }
 
         history: list[BaseMessage] = []
-        for message in state.messages:
+        for message in conversation_window:
             if isinstance(message, HumanMessage):
-                history.append(LangchainHumanMessage(content=message.content))
+                history.append(LangchainHumanMessage(content=message.content, id=message.id))
             elif isinstance(message, AssistantMessage):
                 # Filter out tool calls without a tool response, so the completion doesn't fail.
                 tool_calls = [
                     tool for tool in message.model_dump()["tool_calls"] or [] if tool["id"] in tool_result_messages
                 ]
 
-                history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls))
+                history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls, id=message.id))
 
                 # Append associated tool call messages.
                 for tool_call in tool_calls:
+                    tool_call_id = tool_call["id"]
+                    result_message = tool_result_messages[tool_call_id]
                     history.append(
                         LangchainToolMessage(
-                            content=tool_result_messages[tool_call["id"]].content, tool_call_id=tool_call["id"]
+                            content=result_message.content, tool_call_id=tool_call_id, id=result_message.id
                         )
                     )
+
+        # Find a new window id and trim the history to it.
+        new_window_id = self._find_new_window_id(state, history)
+        if new_window_id is not None:
+            history = self._get_conversation_window(history, new_window_id)
 
         if self._is_hard_limit_reached(state):
             history.append(LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT))
 
-        return history
+        return history, new_window_id
 
     def _is_hard_limit_reached(self, state: AssistantState) -> bool:
         return state.root_tool_calls_count is not None and state.root_tool_calls_count >= self.MAX_TOOL_CALLS
+
+    def _find_new_window_id(self, state: AssistantState, window: list[BaseMessage]) -> str | None:
+        """
+        If we simply trim the conversation on 64k tokens, the cache will be invalidated for every new message after that
+        limit leading to increased latency. Instead, when we hit the limit, we trim the conversation to 32k tokens, so
+        the cache invalidates only for the next generation.
+        """
+        model = self._get_model(state)
+
+        if model.get_num_tokens_from_messages(window) > self.CONVERSATION_WINDOW_SIZE:
+            trimmed_window: list[BaseMessage] = trim_messages(
+                window,
+                token_counter=model,
+                max_tokens=math.floor(self.CONVERSATION_WINDOW_SIZE / 2),
+                start_on="human",
+                end_on=("human", "tool"),
+                allow_partial=False,
+            )
+            if len(trimmed_window) != len(window):
+                if trimmed_window:
+                    new_start_id = trimmed_window[0].id
+                    return new_start_id
+                # We don't want the conversation to be empty. Return the last message id as a fallback.
+                if isinstance(window[-1], LangchainHumanMessage):
+                    return window[-1].id
+                if len(window) > 1 and isinstance(window[-2], LangchainAIMessage):
+                    return window[-2].id
+        return None
+
+    def _get_conversation_window(self, messages: list[T], start_id: str) -> list[T]:
+        for idx, message in enumerate(messages):
+            if message.id == start_id:
+                return messages[idx:]
+        return messages
 
 
 class RootNodeTools(AssistantNode):
