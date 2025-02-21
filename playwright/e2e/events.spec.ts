@@ -57,12 +57,9 @@ test.describe('Events', () => {
         await page.waitForURL('**/activity/explore')
     })
 
-    test('Events loaded', async ({ page }) => {
-        await expect(page.locator('.DataTable')).toBeVisible()
-    })
-
     test('Click on an event', async ({ page }) => {
-        await page.locator('.DataTable [data-row-key]:nth-child(2) td:first-child').click()
+        await expect(page.locator('.DataTable .DataTable__row').first()).toBeVisible()
+        await page.locator('.DataTable .DataTable__row .LemonTable__toggle').click()
         await expect(page.locator('[data-attr=event-details]')).toBeVisible()
     })
 
