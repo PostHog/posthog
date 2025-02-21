@@ -18,6 +18,9 @@ export const WebPropertyFilters = ({
 }): JSX.Element => {
     const [displayFilters, setDisplayFilters] = useState(false)
 
+    // Removing host because it's controlled by the domain filter and we don't want to display it here
+    const propertyFilters = webAnalyticsFilters.filter((filter) => filter.key !== '$host')
+
     return (
         <Popover
             visible={displayFilters}
@@ -35,9 +38,15 @@ export const WebPropertyFilters = ({
                             TaxonomicFilterGroupType.SessionProperties,
                         ]}
                         onChange={(filters) =>
-                            setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))
+                            // We want to ignore `$host` filters, they're controlled by the domain filter
+                            // If this gets confusing, we'll need to find a way to block these filters from being added
+                            setWebAnalyticsFilters(
+                                filters
+                                    .filter(isEventPersonOrSessionPropertyFilter)
+                                    .filter((event) => event.key !== '$host')
+                            )
                         }
-                        propertyFilters={webAnalyticsFilters}
+                        propertyFilters={propertyFilters}
                         pageKey="web-analytics"
                         eventNames={['$pageview']}
                     />
@@ -46,7 +55,7 @@ export const WebPropertyFilters = ({
         >
             <LemonButton
                 icon={
-                    <IconWithCount count={webAnalyticsFilters.length} showZero={false}>
+                    <IconWithCount count={propertyFilters.length} showZero={false}>
                         <IconFilter />
                     </IconWithCount>
                 }

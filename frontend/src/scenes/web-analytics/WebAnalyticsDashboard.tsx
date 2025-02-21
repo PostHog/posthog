@@ -1,4 +1,4 @@
-import { IconExpand45, IconFilter, IconGear, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
+import { IconExpand45, IconFilter, IconGear, IconGlobe, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -42,13 +42,14 @@ import { AvailableFeature, ProductKey, PropertyMathType } from '~/types'
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
-// TODO: Make the domain dropdown work
 const AllFilters = (): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
 
     const { authorizedUrls } = useValues(
         authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null })
     )
+    const { domainFilter } = useValues(webAnalyticsLogic)
+    const { setDomainFilter } = useActions(webAnalyticsLogic)
 
     return (
         <div className="flex flex-col md:flex-row md:justify-between gap-2">
@@ -59,9 +60,11 @@ const AllFilters = (): JSX.Element => {
                         <LemonSelect
                             className="grow md:grow-0"
                             size="small"
-                            value="all"
+                            value={domainFilter || 'all'}
+                            icon={<IconGlobe />}
+                            onChange={(value) => setDomainFilter(value)}
                             options={[
-                                { label: '🌐 All domains', value: 'all' },
+                                { label: 'All domains', value: 'all' },
                                 ...authorizedUrls.map((url) => ({ label: url, value: url })),
                             ]}
                         />
