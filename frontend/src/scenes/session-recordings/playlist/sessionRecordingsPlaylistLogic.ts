@@ -468,13 +468,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
                 setFilters: (state, { filters }) => {
-                    if (!isValidRecordingFilters(filters)) {
-                        console.error('Invalid filters provided:', filters)
-                        return state
-                    }
-                    return {
-                        ...state,
-                        ...filters,
+                    try {
+                        if (!isValidRecordingFilters(filters)) {
+                            console.error('Invalid filters provided:', filters)
+                            return getDefaultFilters(props.personUUID)
+                        }
+                        return {
+                            ...state,
+                            ...filters,
+                        }
+                    } catch (e) {
+                        console.error('Error setting filters:', e)
+                        return getDefaultFilters(props.personUUID)
                     }
                 },
                 resetFilters: () => getDefaultFilters(props.personUUID),
