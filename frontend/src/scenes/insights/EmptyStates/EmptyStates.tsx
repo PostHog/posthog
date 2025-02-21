@@ -186,6 +186,8 @@ function LoadingDetails({
     )
 }
 
+const LOADING_ANIMATION_DELAY_SECONDS = 4
+
 export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
@@ -212,7 +214,7 @@ export function StatelessInsightLoadingState({
     )
     const [isLoadingMessageVisible, setIsLoadingMessageVisible] = useState(true)
 
-    const showLoadingDetails = !delayLoadingAnimation || loadingTimeSeconds >= 4
+    const showLoadingDetails = !delayLoadingAnimation || loadingTimeSeconds >= LOADING_ANIMATION_DELAY_SECONDS
 
     useEffect(() => {
         if (showLoadingDetails) {
