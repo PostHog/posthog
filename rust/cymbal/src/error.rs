@@ -55,9 +55,6 @@ pub enum JsResolveErr {
     // We failed to parse a found source map
     #[error("Invalid source map: {0}")]
     InvalidSourceMap(String),
-    // We failed to parse a found source map cache
-    #[error("Invalid source map cache: {0}")]
-    InvalidSourceMapCache(String),
     // We found and parsed the source map, but couldn't find our frames token in it
     #[error("Token not found for frame: {0}:{1}:{2}")]
     TokenNotFound(String, u32, u32),
@@ -92,6 +89,8 @@ pub enum JsResolveErr {
     RedirectError(String),
     #[error("JSDataError: {0}")]
     JSDataError(#[from] JsDataError),
+    #[error("Invalid data url found at {0}. {0}")]
+    InvalidDataUrl(String, String),
 }
 
 #[derive(Debug, Error)]
@@ -114,11 +113,11 @@ impl From<JsResolveErr> for Error {
     }
 }
 
-impl From<sourcemap::Error> for JsResolveErr {
-    fn from(e: sourcemap::Error) -> Self {
-        JsResolveErr::InvalidSourceMap(e.to_string())
-    }
-}
+// impl From<sourcemap::Error> for JsResolveErr {
+//     fn from(e: sourcemap::Error) -> Self {
+//         JsResolveErr::InvalidSourceMap(e.to_string())
+//     }
+// }
 
 impl From<reqwest::Error> for JsResolveErr {
     fn from(e: reqwest::Error) -> Self {
