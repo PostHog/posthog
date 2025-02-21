@@ -105,10 +105,8 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         variants = validated_data.get("variants", None)
         if variants is not None and isinstance(variants, dict):
             feature_flag = instance.feature_flag
-            filters = {
-                "groups": feature_flag.filters.get("groups", None),
-                "multivariate": self.get_variants_for_feature_flag(validated_data),
-            }
+            filters = feature_flag.filters
+            filters.multivariate = self.get_variants_for_feature_flag(validated_data)
 
             existing_flag_serializer = FeatureFlagSerializer(
                 feature_flag,
