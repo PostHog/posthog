@@ -89,7 +89,7 @@ export function ExperimentMetricForm({
                 />
             </div>
             <div>
-                <LemonLabel className="mb-1">Measurement</LemonLabel>
+                <LemonLabel className="mb-1">Metric</LemonLabel>
                 <ActionFilter
                     bordered
                     filters={metricConfigToFilter(metric.metric_config)}
