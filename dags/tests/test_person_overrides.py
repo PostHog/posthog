@@ -120,9 +120,9 @@ def test_cleanup_job(cluster: ClickhouseCluster) -> None:
     partial_squash_run_result = squash_person_overrides.execute_in_process(
         run_config=dagster.RunConfig(
             {populate_snapshot_table.name: PopulateSnapshotTableConfig(timestamp=timestamp.isoformat())},
-            op_selection=f"*{wait_for_overrides_delete_mutations.name}",
         ),
         resources={"cluster": cluster},
+        op_selection=[f"*{wait_for_overrides_delete_mutations.name}"],
     )
 
     # ensure we left some resources dangling around due to the op selection
@@ -132,13 +132,13 @@ def test_cleanup_job(cluster: ClickhouseCluster) -> None:
     assert all(cluster.map_all_hosts(dictionary.exists).result().values())
 
     cleanup_orphaned_person_overrides_snapshot.execute_in_process(
-        run_config={
+        run_config=dagster.RunConfig(
             {
                 get_existing_dictionary_for_run_id.name: GetExistingDictionaryConfig(
                     id=partial_squash_run_result.dagster_run.run_id
                 )
             }
-        },
+        ),
         resources={"cluster": cluster},
     )
 
