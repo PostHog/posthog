@@ -2739,7 +2739,8 @@ class SessionRecordingType(BaseModel):
     start_url: Optional[str] = None
     storage: Optional[Storage] = Field(default=None, description="Where this recording information was loaded from")
     summary: Optional[str] = None
-    viewed: bool = Field(..., description="Whether this recording has been viewed already.")
+    viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
+    viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
 
 class SessionsTimelineQueryResponse(BaseModel):
