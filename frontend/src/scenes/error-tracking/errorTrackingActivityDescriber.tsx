@@ -1,4 +1,3 @@
-import { ProfilePicture } from '@posthog/lemon-ui'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -12,17 +11,27 @@ import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { objectsEqual } from 'lib/utils'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { ActivityScope, UserBasicType } from '~/types'
+import { ActivityScope } from '~/types'
+
+import { AssigneeDisplay } from './AssigneeDisplay'
 
 type ErrorTrackingIssueAssignee = Exclude<ErrorTrackingIssue['assignee'], null>
 
-function AssigneeDisplay({ assignee }: { assignee: ErrorTrackingIssueAssignee }): JSX.Element {
-    return assignee.type === 'user_group' ? (
-        <ProfilePicture user={assignee as UserBasicType} size="md" showName />
-    ) : null
+function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }): JSX.Element {
+    return (
+        <AssigneeDisplay assignee={assignee}>
+            {({ displayAssignee }) => (
+                <span className="space-x-0.5">
+                    {displayAssignee.icon}
+                    <span>{displayAssignee.displayName}</span>
+                </span>
+            )}
+        </AssigneeDisplay>
+    )
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
+    debugger
     return 'false'
     // return <Link to={urls.errorTrackingIssue()}>{logItem?.detail.name || 'an issue'}</Link>
 
@@ -55,9 +64,7 @@ const errorTrackingIssueActionsMapping: Record<
         if (objectsEqual(before, after)) {
             return null
         }
-        const beforeUser = isUserBasicType(before)
-        const afterUser = isUserBasicType(after)
-        if (!beforeUser && !afterUser) {
+        if (!before && !after) {
             return null
         }
 
@@ -69,17 +76,17 @@ const errorTrackingIssueActionsMapping: Record<
                 wasAssigned ? (
                     <>
                         assigned {nameAndLink(logItem)} to{' '}
-                        <AssigneeDisplay assignee={after as ErrorTrackingIssueAssignee} />
+                        <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} />
                     </>
                 ) : wasUnassigned ? (
                     <>
                         unassigned {nameAndLink(logItem)} from{' '}
-                        <AssigneeDisplay assignee={before as ErrorTrackingIssueAssignee} />.
+                        <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} />.
                     </>
                 ) : (
                     <>
-                        changed assignee from <AssigneeDisplay assignee={before as ErrorTrackingIssueAssignee} /> to{' '}
-                        <AssigneeDisplay assignee={after as ErrorTrackingIssueAssignee} />
+                        changed assignee from <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} /> to{' '}
+                        <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} />
                         on {nameAndLink(logItem)}.
                     </>
                 ),

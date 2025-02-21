@@ -129,7 +129,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         assignee = request.data.get("assignee", None)
         instance = self.get_object()
 
-        serialized_assignment_before = ErrorTrackingIssueAssignmentSerializer(instance.assignment).data
+        assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=instance.id).first()
+        serialized_assignment_before = ErrorTrackingIssueAssignmentSerializer(assignment_before).data
 
         if assignee:
             assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
@@ -139,9 +140,12 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     "user_group_id": None if assignee["type"] == "user" else assignee["id"],
                 },
             )
+
+            # serialized_assignment_before =
+
             serialized_assignment_after = ErrorTrackingIssueAssignmentSerializer(assignment_after).data
         else:
-            ErrorTrackingIssueAssignment.objects.filter(issue_id=instance.id).delete()
+            assignment.delete()
             serialized_assignment_after = None
 
         log_activity(
@@ -153,13 +157,16 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             scope="ErrorTrackingIssue",
             activity="assigned",
             detail=Detail(
-                changes=Change(
-                    type="ErrorTrackingIssue",
-                    field="assignee",
-                    before=serialized_assignment_before,
-                    after=serialized_assignment_after,
-                    action="changed",
-                ),
+                name=instance.name,
+                changes=[
+                    Change(
+                        type="ErrorTrackingIssue",
+                        field="assignee",
+                        before=serialized_assignment_before,
+                        after=serialized_assignment_after,
+                        action="changed",
+                    )
+                ],
             ),
         )
 

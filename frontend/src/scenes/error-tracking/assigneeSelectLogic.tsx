@@ -1,32 +1,16 @@
 import { IconPerson } from '@posthog/icons'
-import { Lettermark, ProfilePicture } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { fullName } from 'lib/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userGroupsLogic } from 'scenes/settings/environment/userGroupsLogic'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { OrganizationMemberType, UserGroup } from '~/types'
 
+import { AssigneeDisplayType, groupDisplay, userDisplay } from './AssigneeDisplay'
 import type { assigneeSelectLogicType } from './assigneeSelectLogicType'
-
-export type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
 
 export type ErrorTrackingAssigneeSelectProps = {
     assignee: ErrorTrackingIssue['assignee']
 }
-
-const groupDisplay = (group: UserGroup, index: number): AssigneeDisplayType => ({
-    id: group.id,
-    displayName: group.name,
-    icon: <Lettermark name={group.name} index={index} rounded />,
-})
-
-const userDisplay = (member: OrganizationMemberType): AssigneeDisplayType => ({
-    id: member.user.id,
-    displayName: fullName(member.user),
-    icon: <ProfilePicture size="md" user={member.user} />,
-})
 
 const unassignedUser = {
     id: 'unassigned',
