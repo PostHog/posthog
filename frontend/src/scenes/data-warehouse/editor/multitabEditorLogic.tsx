@@ -142,9 +142,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                                 activeModelStateKey: JSON.stringify(
                                     localStorage.getItem(activeModelStateKey(props.key))
                                 ),
-                                activeModelVariablesStateKey: JSON.stringify(
-                                    localStorage.getItem(activeModelVariablesStateKey(props.key))
-                                ),
                             },
                         })
                     }
@@ -373,12 +370,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             // TODO: replace with queryTabState
             const allModelQueries = localStorage.getItem(editorModelsStateKey(props.key))
             const activeModelUri = localStorage.getItem(activeModelStateKey(props.key))
-            const activeModelVariablesString = localStorage.getItem(activeModelVariablesStateKey(props.key))
-
-            const activeModelVariables =
-                activeModelVariablesString && activeModelVariablesString != 'undefined'
-                    ? JSON.parse(activeModelVariablesString)
-                    : {}
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -421,13 +412,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     activeModel && props.editor?.setModel(activeModel)
                     const val = activeModel?.getValue()
                     if (val) {
-                        actions.setSourceQuery({
-                            ...values.sourceQuery,
-                            source: {
-                                ...values.sourceQuery.source,
-                                variables: activeModelVariables,
-                            },
-                        })
                         actions.setQueryInput(val)
                         actions.runQuery()
                     }
@@ -470,12 +454,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
             })
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
-            actions.updateQueryTabState()
-        },
-        setSourceQuery: ({ sourceQuery }) => {
-            // NOTE: this is a hack to get the variables to persist.
-            // Variables should be handled first in this logic and then in the downstream variablesLogic
-            localStorage.setItem(activeModelVariablesStateKey(props.key), JSON.stringify(sourceQuery.source.variables))
             actions.updateQueryTabState()
         },
         runQuery: ({ queryOverride, switchTab }) => {
@@ -616,7 +594,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     state: {
                         editorModelsStateKey: localStorage.getItem(editorModelsStateKey(props.key)),
                         activeModelStateKey: localStorage.getItem(activeModelStateKey(props.key)),
-                        activeModelVariablesStateKey: localStorage.getItem(activeModelVariablesStateKey(props.key)),
+                        sourceQuery: JSON.stringify(values.sourceQuery),
                     },
                 })
             } catch (e) {
