@@ -173,7 +173,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                     new_column_data = pa.array([None] * table.num_rows, type=field.type)
                 else:
                     new_column_data = pa.array(
-                        [_get_default_value_from_pyarrow_type(field.type)] * table.num_rows, type=field.type
+                        [get_default_value_for_pyarrow_type(field.type)] * table.num_rows, type=field.type
                     )
                 table = table.append_column(field, new_column_data)
 
@@ -255,30 +255,6 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
 
     column = pa.array([debug_info] * table.num_rows, type=pa.string())
     return table.append_column("_ph_debug", column)
-
-
-def _get_default_value_from_pyarrow_type(pyarrow_type: pa.DataType):
-    """
-    Returns a default value for the given PyArrow type.
-    """
-    if pa.types.is_integer(pyarrow_type):
-        return 0
-    elif pa.types.is_floating(pyarrow_type):
-        return 0.0
-    elif pa.types.is_string(pyarrow_type):
-        return ""
-    elif pa.types.is_boolean(pyarrow_type):
-        return False
-    elif pa.types.is_binary(pyarrow_type):
-        return b""
-    elif pa.types.is_timestamp(pyarrow_type):
-        return pa.scalar(0, type=pyarrow_type).as_py()
-    elif pa.types.is_date(pyarrow_type):
-        return pa.scalar(0, type=pyarrow_type).as_py()
-    elif pa.types.is_time(pyarrow_type):
-        return pa.scalar(0, type=pyarrow_type).as_py()
-    else:
-        raise ValueError(f"No default value defined for type: {pyarrow_type}")
 
 
 def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table, logger: FilteringBoundLogger) -> None:

@@ -61,18 +61,11 @@ def _build_query(
 
 def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str] | None:
     query = """
-        SELECT
-            kcu.column_name
-        FROM
-            information_schema.table_constraints tc
-        JOIN
-            information_schema.key_column_usage kcu
-            ON tc.constraint_name = kcu.constraint_name
-            AND tc.table_schema = kcu.table_schema
-        WHERE
-            tc.table_schema = %(schema)s
-            AND tc.table_name = %(table_name)s
-            AND tc.constraint_type = 'PRIMARY KEY'"""
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = %(schema)s
+        AND TABLE_NAME = %(table_name)s
+        AND COLUMN_KEY = 'PRI'"""
 
     cursor.execute(
         query,
