@@ -14,7 +14,7 @@ from django.conf import settings
 from . import ch_examples, deletes, orm_examples
 from .common import ClickhouseClusterResource
 from .materialized_columns import materialize_column
-from .person_overrides import squash_person_overrides
+from .person_overrides import squash_person_overrides, cleanup_orphaned_person_overrides_snapshot
 
 all_assets = load_assets_from_modules([ch_examples, orm_examples])
 
@@ -60,7 +60,12 @@ def run_deletes_after_squash(context):
 
 defs = Definitions(
     assets=all_assets,
-    jobs=[squash_person_overrides, deletes.deletes_job, materialize_column],
+    jobs=[
+        cleanup_orphaned_person_overrides_snapshot,
+        squash_person_overrides,
+        deletes.deletes_job,
+        materialize_column,
+    ],
     schedules=[squash_schedule],
     sensors=[run_deletes_after_squash],
     resources=resources,
