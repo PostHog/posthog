@@ -4,7 +4,6 @@ import {
     LemonDialog,
     LemonDivider,
     LemonTable,
-    Spinner,
     SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -14,7 +13,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 
-import { AvailableFeature, LiveEvent } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { hogFunctionConfigurationLogic } from './hogfunctions/hogFunctionConfigurationLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -24,11 +23,8 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { IconCalendar } from '@posthog/icons'
 import { hogFunctionReplayLogic } from './hogFunctionReplayLogic'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
-import { DateRange } from '~/queries/nodes/DataNode/DateRange'
-import { queryAllByAltText } from '@testing-library/dom'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -214,7 +210,7 @@ function RunResult({ run }: { run: any }): JSX.Element {
     )
 }
 
-function RunRetryButton({ run, retryRun }: { run: any; retryRun: any }): JSX.Element {
+function RunRetryButton({ event, person, retryHogFunction }: { event: any; person: any; retryHogFunction: any }): JSX.Element {
     const handleRetry = () => {
         LemonDialog.open({
             title: 'Replay event?',
@@ -231,7 +227,7 @@ function RunRetryButton({ run, retryRun }: { run: any; retryRun: any }): JSX.Ele
             width: '20rem',
             primaryButton: {
                 children: 'Retry',
-                onClick: () => retryRun(run),
+                onClick: () => retryHogFunction({ event, person }),
             },
             secondaryButton: {
                 children: 'Cancel',
@@ -251,11 +247,11 @@ function RunRetryButton({ run, retryRun }: { run: any; retryRun: any }): JSX.Ele
     )
 }
 
-export function RunStatusIcon({
-    runs,
+export function RetryStatusIcon({
+    retries = [],
     showLabel = false,
 }: {
-    runs: any[]
+    retries: any[]
     showLabel?: boolean
 }): JSX.Element {
     const colorForStatus = (status: string): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
@@ -269,7 +265,7 @@ export function RunStatusIcon({
         }
     }
 
-    const status = runs.some(run => run.status === 'success') ? 'success' : 'error'
+    const status = retries.some(retry => retry.status === 'success') ? 'success' : 'error'
     const color = colorForStatus(status)
 
     return (
@@ -277,10 +273,10 @@ export function RunStatusIcon({
             title={
                 <>
                     Run status: {status}
-                    {runs.length > 1 && (
+                    {retries.length > 1 && (
                         <>
                             <br />
-                            Attempts: {runs.length}
+                            Attempts: {retries.length}
                         </>
                     )}
                 </>
@@ -288,13 +284,23 @@ export function RunStatusIcon({
         >
             <span
                 className={clsx(
-                    `RunStatusIcon h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs select-none`,
-                    color === 'primary' && 'RunStatusIcon--pulse',
+                    `RetryStatusIcon h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs select-none`,
+                    color === 'primary' && 'RetryStatusIcon--pulse',
                     showLabel ? '' : 'w-6',
-                    runs.length > 0 ? `border-${color} text-${color}-dark` : ''
+                    retries.length > 0 ? `border-${color} text-${color}-dark` : ''
                 )}
             >
-                {showLabel ? <span className="text-center">{status}</span> : runs.length}
+                {showLabel ? <span className="text-center">{status}</span> : retries.length}
+            </span>
+        </Tooltip>
+    )
+}
+
+function EmptyColumn(): JSX.Element {
+    return (
+        <Tooltip title="NULL" placement="right" delayMs={0}>
+            <span className="cursor-default" aria-hidden>
+                —
             </span>
         </Tooltip>
     )
@@ -321,14 +327,14 @@ function RunsFilters({ id }: { id?: string | null }): JSX.Element {
 
 export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.Element | null {
     const logic = hogFunctionReplayLogic({ id })
-    const { events, eventsLoading } = useValues(logic)
+    const { eventsLoading, events } = useValues(logic)
+    const { retryHogFunction } = useActions(logic)
 
     const loadOlderRuns = () => {}
-    const retryRun = () => {}
 
     return (
         <LemonTable
-            dataSource={events?.results ?? []}
+            dataSource={events}
             loading={eventsLoading}
             loadingSkeletonRows={5}
             footer={
@@ -342,10 +348,10 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
             }
             expandable={{
                 noIndent: true,
-                expandedRowRender: (event) => {
+                expandedRowRender: ({ retries }) => {
                     return (
                         <LemonTable
-                            dataSource={event.retries}
+                            dataSource={retries}
                             embedded={true}
                             columns={[
                                 {
@@ -357,7 +363,7 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
                                             <LemonBanner type={retry.status === 'success' ? 'success' : 'error'}>
                                                 {retry.status === 'success' ? 'Success' : 'Error'}
                                             </LemonBanner>
-                                        ) : <RunStatusIcon runs={[retry]} showLabel />
+                                        ) : <RetryStatusIcon retries={[retry]} showLabel />
                                     }
                                 },
                                 {
@@ -380,50 +386,50 @@ export function HogFunctionEventEstimates({ id }: { id?: string | null }): JSX.E
                     key: 'retries',
                     title: 'Retries',
                     width: 0,
-                    render: (_, event) => {
-                        return <RunStatusIcon runs={event.retries} />
+                    render: (_, { retries }) => {
+                        return <RetryStatusIcon retries={retries} />
                     },
                 },
                 {
                     title: 'Event',
                     key: 'event',
-                    render: (_, event) => {
-                        return <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
+                    render: (_, { event }) => {
+                        return event.event ? <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} /> : <EmptyColumn />
                     },
                 },
                 {
                     title: 'Person',
                     key: 'person',
-                    render: (_, event) => {
-                        return <PersonDisplay person={{ distinct_id: event.distinct_id }} />
+                    render: (_, { person }) => {
+                        return person ? <PersonDisplay person={person} withIcon /> : <EmptyColumn />
                     },
                 },
                 {
                     title: 'URL / Screen',
                     key: 'url',
-                    render: (_, event) => <span>{event.properties['$current_url'] || event.properties['$screen_name']}</span>
+                    render: (_, { event }) => event.properties['$current_url'] || event.properties['$screen_name'] ? <span>{event.properties['$current_url'] || event.properties['$screen_name']}</span> : <EmptyColumn />
                 },
                 {
                     title: 'Library',
                     key: 'library',
-                    render: (_, event) => {
-                        return <span>{event.properties['$lib']}</span>
+                    render: (_, { event }) => {
+                        return event.properties['$lib'] ? <span>{event.properties['$lib']}</span> : <EmptyColumn />
                     },
                 },
                 {
                     title: 'Time',
                     key: 'time',
-                    render: (_, event) => {
-                        return <TZLabel time={event.timestamp} />
+                    render: (_, { event }) => {
+                        return event.timestamp ? <TZLabel time={event.timestamp} /> : <EmptyColumn />
                     },
                 },
                 {
                     key: 'actions',
                     width: 0,
-                    render: function RenderActions(_, run) {
+                    render: function RenderActions(_, { event, person }) {
                         return (
                             <div className="flex gap-1">
-                                <RunRetryButton run={run} retryRun={retryRun} />
+                                <RunRetryButton event={event} person={person} retryHogFunction={retryHogFunction} />
                             </div>
                         )
                     },
