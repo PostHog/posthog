@@ -1,10 +1,6 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import { WithinPageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
-import { createPortal } from 'react-dom'
 import { DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 interface PageHeaderProps {
     caption?: string | JSX.Element | null | false
@@ -15,19 +11,27 @@ interface PageHeaderProps {
 }
 
 export function PageHeader({ caption, buttons, tabbedPage }: PageHeaderProps): JSX.Element | null {
-    const { actionsContainer } = useValues(breadcrumbsLogic)
+    if (!caption && !buttons) {
+        return null
+    }
 
     return (
-        <>
-            {buttons &&
-                actionsContainer &&
-                createPortal(
-                    <WithinPageHeaderContext.Provider value={true}>{buttons}</WithinPageHeaderContext.Provider>,
-                    actionsContainer
+        <div className="page-header">
+            <div
+                className={clsx(
+                    'page-header-content',
+                    'flex items-center gap-2',
+                    caption ? 'justify-between' : 'justify-end'
                 )}
-
-            {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
-        </>
+            >
+                {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
+                {buttons && (
+                    <div className="page-buttons flex items-center gap-2">
+                        <WithinPageHeaderContext.Provider value={true}>{buttons}</WithinPageHeaderContext.Provider>
+                    </div>
+                )}
+            </div>
+        </div>
     )
 }
 
