@@ -1,10 +1,7 @@
 use crate::{
     api::v1::constants::{
-        extract_aliases,
-        POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS,
-        EVENTS_HIDDEN_PROPERTY_DEFINITIONS,
-        SEARCH_SCREEN_WORD,
-        SEARCH_TRIGGER_WORD,
+        extract_aliases, EVENTS_HIDDEN_PROPERTY_DEFINITIONS,
+        POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS, SEARCH_SCREEN_WORD, SEARCH_TRIGGER_WORD,
     },
     //metrics_consts::{},
     config::Config,
@@ -191,33 +188,41 @@ impl Manager {
             // matches *every search term* in the incoming query, capture the
             // associated property name and add it to the search terms we'll
             // attempt to return from the prop defs query. This is expensive :(
-            let term_aliases: Vec<&str> = self.search_term_aliases
+            let term_aliases: Vec<&str> = self
+                .search_term_aliases
                 .iter()
-                .filter(|(_key, prop_long_slug)|
+                .filter(|(_key, prop_long_slug)| {
                     search_terms
                         .as_ref()
                         .unwrap()
                         .iter()
-                        .all(|term| prop_long_slug.contains(term)))
+                        .all(|term| prop_long_slug.contains(term))
+                })
                 .map(|(key, _matched_slug)| *key)
                 .collect();
 
             // build a query fragment if we found aliases. We can do this
             // outside of the builder because these aren't user inputs
             let search_extras = if !term_aliases.is_empty() {
-                format!(" OR name = ANY(ARRAY[{}])",
+                format!(
+                    " OR name = ANY(ARRAY[{}])",
                     term_aliases
                         .iter()
                         .map(|ta| format!("'{}'", ta))
                         .collect::<Vec<_>>()
-                        .join(", "))
-            } else { "".to_string() };
+                        .join(", ")
+                )
+            } else {
+                "".to_string()
+            };
 
             // step 3: filter "initial" prop defs if the user wants "latest"
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
             let screening_clause = if term_aliases.iter().any(|ta| *ta == SEARCH_TRIGGER_WORD) {
                 format!(" OR NOT name ILIKE '%{}%'", SEARCH_SCREEN_WORD)
-            } else { "".to_string() };
+            } else {
+                "".to_string()
+            };
 
             // step 3.5: join whatever we found in search_extras and trigger word result
             let search_extras = format!("{}{}", search_extras, screening_clause);
@@ -227,7 +232,7 @@ impl Manager {
             // search *terms* (event props.) Original Django monolith query construction step is here:
             // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
             if !search_fields.is_empty() || !search_terms.as_ref().is_some_and(|s| s.is_empty()) {
-                /* TODO: I don't think we need this cleansing step in the Rust service as Django does 
+                /* TODO: I don't think we need this cleansing step in the Rust service as Django does
                 let cleansed_terms: Vec<String> = search
                     .as_ref()
                     .unwrap()
@@ -241,12 +246,12 @@ impl Manager {
                 if let Some(terms) = search_terms {
                     for (tndx, term) in terms.iter().enumerate() {
                         if search_fields.is_empty() {
-                            continue
+                            continue;
                         }
                         if tndx == 0 {
                             qb.push(" AND ((");
                         }
-                        for (fndx, field ) in search_fields.iter().enumerate() {
+                        for (fndx, field) in search_fields.iter().enumerate() {
                             if fndx == 0 {
                                 qb.push("(");
                             }
@@ -365,8 +370,11 @@ impl Manager {
         } else {
             "NULL".to_string()
         };
-        qb.push(format!(", {} IS NOT NULL AS is_seen_on_filtered_events ", is_seen_resolved));
-       
+        qb.push(format!(
+            ", {} IS NOT NULL AS is_seen_on_filtered_events ",
+            is_seen_resolved
+        ));
+
         // TODO(eli): FROM clause (self.table?!)
 
         // conditionally join on event properties table
@@ -470,33 +478,41 @@ impl Manager {
             // matches *every search term* in the incoming query, capture the
             // associated property name and add it to the search terms we'll
             // attempt to return from the prop defs query. This is expensive :(
-            let term_aliases: Vec<&str> = self.search_term_aliases
+            let term_aliases: Vec<&str> = self
+                .search_term_aliases
                 .iter()
-                .filter(|(_key, prop_long_slug)|
+                .filter(|(_key, prop_long_slug)| {
                     search_terms
                         .as_ref()
                         .unwrap()
                         .iter()
-                        .all(|term| prop_long_slug.contains(term)))
+                        .all(|term| prop_long_slug.contains(term))
+                })
                 .map(|(key, _matched_slug)| *key)
                 .collect();
 
             // build a query fragment if we found aliases. We can do this
             // outside of the builder because these aren't user inputs
             let search_extras = if !term_aliases.is_empty() {
-                format!(" OR name = ANY(ARRAY[{}])",
+                format!(
+                    " OR name = ANY(ARRAY[{}])",
                     term_aliases
                         .iter()
                         .map(|ta| format!("'{}'", ta))
                         .collect::<Vec<_>>()
-                        .join(", "))
-            } else { "".to_string() };
+                        .join(", ")
+                )
+            } else {
+                "".to_string()
+            };
 
             // step 3: filter "initial" prop defs if the user wants "latest"
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
             let screening_clause = if term_aliases.iter().any(|ta| *ta == SEARCH_TRIGGER_WORD) {
                 format!(" OR NOT name ILIKE '%{}%'", SEARCH_SCREEN_WORD)
-            } else { "".to_string() };
+            } else {
+                "".to_string()
+            };
 
             // step 3.5: join whatever we found in search_extras and trigger word result
             let search_extras = format!("{}{}", search_extras, screening_clause);
@@ -506,7 +522,7 @@ impl Manager {
             // search *terms* (event props.) Original Django monolith query construction step is here:
             // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
             if !search_fields.is_empty() || !search_terms.as_ref().is_some_and(|s| s.is_empty()) {
-                /* TODO: I don't think we need this cleansing step in the Rust service as Django does 
+                /* TODO: I don't think we need this cleansing step in the Rust service as Django does
                 let cleansed_terms: Vec<String> = search
                     .as_ref()
                     .unwrap()
@@ -520,12 +536,12 @@ impl Manager {
                 if let Some(terms) = search_terms {
                     for (tndx, term) in terms.iter().enumerate() {
                         if search_fields.is_empty() {
-                            continue
+                            continue;
                         }
                         if tndx == 0 {
                             qb.push(" AND ((");
                         }
-                        for (fndx, field ) in search_fields.iter().enumerate() {
+                        for (fndx, field) in search_fields.iter().enumerate() {
                             if fndx == 0 {
                                 qb.push("(");
                             }
