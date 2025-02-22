@@ -8,7 +8,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
-
+from posthog.api.documentation import extend_schema
 from posthog.api.utils import action
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -264,6 +264,7 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
         raise NotImplementedError()
 
+    @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
     def playlist_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         playlist = self.get_object()
