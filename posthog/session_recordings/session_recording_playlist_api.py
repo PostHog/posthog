@@ -6,6 +6,8 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
+from rest_framework.exceptions import ValidationError
+
 from posthog.api.utils import action
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -29,6 +31,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.schema import RecordingsQuery
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
     list_recordings_response,
     query_as_params_to_dict,
@@ -259,3 +262,17 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             return response.Response({"success": True})
 
         raise NotImplementedError()
+
+    @action(methods=["POST"], detail=True)
+    def playlist_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        playlist = self.get_object()
+        user = request.user
+        team = self.team
+
+        if not playlist.filters:
+            raise ValidationError("Playlist filters are required to mark a playlist as viewed.")
+
+        # only create if it doesn't exist
+        SessionRecordingPlaylistViewed.objects.get_or_create(user=user, playlist=playlist, team=team)
+
+        return response.Response({"success": True})
