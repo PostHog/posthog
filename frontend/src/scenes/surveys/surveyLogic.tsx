@@ -1257,7 +1257,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     }
 
                     const data: number[] = questionResults.data
-
                     if (data.length === 11) {
                         const promoters = data.slice(9, 11).reduce((a, b) => a + b, 0)
                         const passives = data.slice(7, 9).reduce((a, b) => a + b, 0)
