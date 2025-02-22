@@ -720,14 +720,11 @@ export const surveyLogic = kea<surveyLogicType>([
                     activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
                 }
 
-                // Initialize date range based on survey dates when survey is loaded
-                if ('created_at' in values.survey) {
-                    const dateRange = {
-                        date_from: getSurveyStartDateForQuery(values.survey),
-                        date_to: getSurveyEndDateForQuery(values.survey),
-                    }
-                    actions.setDateRange(dateRange)
+                const dateRange = {
+                    date_from: getSurveyStartDateForQuery(values.survey as Survey),
+                    date_to: getSurveyEndDateForQuery(values.survey as Survey),
                 }
+                actions.setDateRange(dateRange)
             },
             resetSurveyResponseLimits: () => {
                 actions.setSurveyValue('responses_limit', null)
@@ -1424,17 +1421,11 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey: Survey): IntervalType => {
                 const start = getSurveyStartDateForQuery(survey)
                 const end = getSurveyEndDateForQuery(survey)
-                const diffInDays = dayjs(end).diff(dayjs(start), 'days')
+                const diffInWeeks = dayjs(end).diff(dayjs(start), 'weeks')
 
-                if (diffInDays < 2) {
-                    return 'hour'
-                }
-                // less than a month
-                if (diffInDays < 30) {
+                if (diffInWeeks <= 4) {
                     return 'day'
-                }
-                // more than a month, less than 3 months
-                if (diffInDays < 90) {
+                } else if (diffInWeeks <= 12) {
                     return 'week'
                 }
                 return 'month'
