@@ -155,7 +155,7 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     }
 }
 
-const DATE_FORMAT = 'YYYY-MM-DD HH:mm:ss'
+const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
 function getSurveyStartDateForQuery(survey: Survey): string {
     return survey.start_date
