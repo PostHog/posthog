@@ -10,16 +10,19 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isObject } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { PlayerMetaLinks } from 'scenes/session-recordings/player/PlayerMetaLinks'
-import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
+import { PlayerMetaBottomSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaBottomSettings'
+import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 
-import { PlayerBottomSettings } from './controller/PlayerController'
+import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
 function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
     if (isObject(lastUrl) && 'href' in lastUrl) {
@@ -188,7 +191,7 @@ export function PlayerMeta(): JSX.Element {
                     <ResolutionView size={size} />
                     <PlayerPersonMeta />
                 </div>
-                <PlayerBottomSettings size={size} />
+                <PlayerMetaBottomSettings size={size} />
             </div>
         </DraggableToNotebook>
     )

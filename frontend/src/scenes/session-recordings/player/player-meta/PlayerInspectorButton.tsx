@@ -7,8 +7,8 @@ import { SettingsToggle } from 'scenes/session-recordings/components/PanelSettin
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-import { playerSettingsLogic } from './playerSettingsLogic'
-import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
+import { playerSettingsLogic } from '../playerSettingsLogic'
+import { playerSidebarLogic } from '../sidebar/playerSidebarLogic'
 
 export function PlayerInspectorButton(): JSX.Element {
     const { setTab } = useActions(playerSidebarLogic)
@@ -22,7 +22,7 @@ export function PlayerInspectorButton(): JSX.Element {
             icon={<IconUnverifiedEvent />}
             active={sidebarOpen}
             onClick={(): void => {
-                setSidebarOpen(true)
+                setSidebarOpen(!sidebarOpen)
                 setTab(SessionRecordingSidebarTab.INSPECTOR)
             }}
         >

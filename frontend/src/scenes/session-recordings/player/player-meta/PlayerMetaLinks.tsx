@@ -8,6 +8,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMemo } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { PlaylistPopoverButton } from 'scenes/session-recordings/player/playlist-popover/PlaylistPopover'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
@@ -17,9 +19,7 @@ import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic
 
 import { NotebookNodeType } from '~/types'
 
-import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
 import { PlayerMetaBreakpoints } from './PlayerMeta'
-import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 
 function PinToPlaylistButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
