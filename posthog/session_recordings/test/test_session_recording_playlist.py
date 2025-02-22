@@ -47,6 +47,14 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
+    def _create_playlist(self, data: dict | None = None):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            data=data,
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return response
+
     def test_list_playlists(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
         assert response.status_code == status.HTTP_200_OK
@@ -58,11 +66,8 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         }
 
     def test_creates_playlist(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists",
-            data={"name": "test"},
-        )
-        assert response.status_code == status.HTTP_201_CREATED
+        response = self._create_playlist({"name": "test"})
+
         assert response.json() == {
             "id": response.json()["id"],
             "short_id": response.json()["short_id"],
@@ -80,15 +85,10 @@ class TestSessionRecordingPlaylist(APIBaseTest):
 
     def test_can_create_many_playlists(self):
         for i in range(100):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/session_recording_playlists",
-                data={"name": f"test-{i}"},
-            )
-            assert response.status_code == status.HTTP_201_CREATED
+            self._create_playlist({"name": f"test-{i}"})
 
     def test_gets_individual_playlist_by_shortid(self):
-        create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists")
-        assert create_response.status_code == status.HTTP_201_CREATED
+        create_response = self._create_playlist()
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists/{create_response.json()['short_id']}"
@@ -97,14 +97,11 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert response.json()["short_id"] == create_response.json()["short_id"]
 
     def test_marks_playlist_as_viewed(self):
-        create_response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists", {"filters": {"events": [{"id": "test"}]}}
-        )
-        assert create_response.status_code == status.HTTP_201_CREATED
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        short_id = create_response.json()["short_id"]
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
 
-        short_id = create_response.json()["short_id"]
         response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
         )
@@ -120,14 +117,10 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert viewed_record.viewed_at == mock.ANY
 
     def test_can_marks_playlist_as_viewed_more_than_once(self):
-        create_response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists", {"filters": {"events": [{"id": "test"}]}}
-        )
-        assert create_response.status_code == status.HTTP_201_CREATED
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        short_id = create_response.json()["short_id"]
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
-
-        short_id = create_response.json()["short_id"]
 
         response_one = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
@@ -140,14 +133,10 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert SessionRecordingPlaylistViewed.objects.count() == 2
 
     def test_cannot_mark_playlist_as_viewed_more_than_once_at_the_same_time(self):
-        create_response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists", {"filters": {"events": [{"id": "test"}]}}
-        )
-        assert create_response.status_code == status.HTTP_201_CREATED
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        short_id = create_response.json()["short_id"]
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
-
-        short_id = create_response.json()["short_id"]
 
         with freeze_time("2022-01-02"):
             response_one = self.client.post(
@@ -167,12 +156,11 @@ class TestSessionRecordingPlaylist(APIBaseTest):
 
     def test_cannot_mark_playlist_as_viewed_if_it_has_no_filters(self):
         """We're going to split playlists so that 'collections' have pinned recordings, let's validate a viewable playlist as one with filters"""
-        create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists")
-        assert create_response.status_code == status.HTTP_201_CREATED
+        create_response = self._create_playlist()
+        short_id = create_response.json()["short_id"]
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
 
-        short_id = create_response.json()["short_id"]
         response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
         )
@@ -181,12 +169,11 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert SessionRecordingPlaylistViewed.objects.count() == 0
 
     def test_cannot_mark_playlist_as_viewed_in_different_team(self):
-        create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists")
-        assert create_response.status_code == status.HTTP_201_CREATED
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        short_id = create_response.json()["short_id"]
 
         another_team = Team.objects.create(organization=self.organization)
 
-        short_id = create_response.json()["short_id"]
         response = self.client.post(
             f"/api/projects/{another_team.id}/session_recording_playlists/{short_id}/playlist_viewed"
         )
@@ -195,9 +182,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert SessionRecordingPlaylistViewed.objects.count() == 0
 
     def test_updates_playlist(self):
-        create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists/")
-        assert create_response.status_code == status.HTTP_201_CREATED
-
+        create_response = self._create_playlist()
         short_id = create_response.json()["short_id"]
 
         with freeze_time("2022-01-02"):
@@ -219,8 +204,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert response.json()["last_modified_at"] == "2022-01-02T00:00:00Z"
 
     def test_rejects_updates_to_readonly_playlist_properties(self):
-        create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists/")
-        assert create_response.status_code == status.HTTP_201_CREATED
+        create_response = self._create_playlist()
         short_id = create_response.json()["short_id"]
 
         response = self.client.patch(
