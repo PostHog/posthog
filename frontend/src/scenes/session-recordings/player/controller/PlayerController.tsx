@@ -1,6 +1,7 @@
 import { IconPause, IconPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
@@ -62,12 +63,17 @@ function FullScreen(): JSX.Element {
 export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
 
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        600: 'normal',
+    })
+
     return (
         <div className="bg-surface-primary flex flex-col select-none">
             <Seekbar />
-            <div className="w-full px-2 py-1 relative flex items-center justify-center">
+            <div className="w-full px-2 py-1 relative flex items-center justify-center" ref={ref}>
                 <div className="absolute left-2">
-                    <Timestamp />
+                    <Timestamp size={size} />
                 </div>
                 <div className="flex gap-0.5 items-center justify-center">
                     <SeekSkip direction="backward" />
