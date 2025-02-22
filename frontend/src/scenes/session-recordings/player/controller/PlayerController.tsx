@@ -1,7 +1,5 @@
 import {
     IconClock,
-    IconCollapse45,
-    IconExpand45,
     IconHourglass,
     IconMouse,
     IconPause,
@@ -12,7 +10,6 @@ import {
 } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -216,40 +213,6 @@ function FullScreen(): JSX.Element {
     )
 }
 
-function Maximise(): JSX.Element {
-    const { sidebarOpen, playlistOpen } = useValues(playerSettingsLogic)
-    const { setSidebarOpen, setPlaylistOpen } = useActions(playerSettingsLogic)
-
-    const isMaximised = !sidebarOpen && !playlistOpen
-
-    function onChangeMaximise(): void {
-        setPlaylistOpen(isMaximised)
-        setSidebarOpen(isMaximised)
-    }
-
-    useKeyboardHotkeys(
-        {
-            m: {
-                action: onChangeMaximise,
-            },
-        },
-        []
-    )
-
-    return (
-        <LemonButton
-            size="xsmall"
-            onClick={onChangeMaximise}
-            tooltip={
-                <>
-                    {isMaximised ? 'Open' : 'Close'} other panels <KeyboardShortcut m />
-                </>
-            }
-            icon={isMaximised ? <IconCollapse45 className="text-lg" /> : <IconExpand45 className="text-lg" />}
-        />
-    )
-}
-
 export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
 
@@ -267,7 +230,6 @@ export function PlayerController(): JSX.Element {
                 </div>
                 <div className="absolute right-2 flex justify-end items-center">
                     {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
-                    <Maximise />
                     <FullScreen />
                 </div>
             </div>
