@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 import structlog
+from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
@@ -271,8 +272,14 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
         if not playlist.filters:
             raise ValidationError("Playlist filters are required to mark a playlist as viewed.")
+        if user.is_anonymous:
+            raise ValidationError("Only authenticated users can mark a playlist as viewed.")
 
         # only create if it doesn't exist
-        SessionRecordingPlaylistViewed.objects.get_or_create(user=user, playlist=playlist, team=team)
+        try:
+            SessionRecordingPlaylistViewed.objects.create(user=user, playlist=playlist, team=team)
+        except IntegrityError:
+            # that's okay... if the viewed at clashes then we're ok skipping creation
+            pass
 
         return response.Response({"success": True})

@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from boto3 import resource
 from botocore.config import Config
+from django.db import transaction
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
@@ -118,9 +119,54 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert viewed_record.team_id == self.team.id
         assert viewed_record.viewed_at == mock.ANY
 
-    """We're going to split playlists so that 'collections' have pinned recordings, let's validate a viewable playlist as one with filters"""
+    def test_can_marks_playlist_as_viewed_more_than_once(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists", {"filters": {"events": [{"id": "test"}]}}
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+        short_id = create_response.json()["short_id"]
+
+        response_one = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+        )
+        assert response_one.status_code == status.HTTP_200_OK
+        response_two = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+        )
+        assert response_two.status_code == status.HTTP_200_OK
+        assert SessionRecordingPlaylistViewed.objects.count() == 2
+
+    def test_cannot_mark_playlist_as_viewed_more_than_once_at_the_same_time(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists", {"filters": {"events": [{"id": "test"}]}}
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+        short_id = create_response.json()["short_id"]
+
+        with freeze_time("2022-01-02"):
+            response_one = self.client.post(
+                f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+            )
+            assert response_one.status_code == status.HTTP_200_OK
+            assert SessionRecordingPlaylistViewed.objects.count() == 1
+
+            # Run the API call in a separate atomic block so it doesn't break the main test transaction
+            with transaction.atomic():
+                response_two = self.client.post(
+                    f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+                )
+                assert response_two.status_code == status.HTTP_200_OK
+
+        assert SessionRecordingPlaylistViewed.objects.count() == 1
 
     def test_cannot_mark_playlist_as_viewed_if_it_has_no_filters(self):
+        """We're going to split playlists so that 'collections' have pinned recordings, let's validate a viewable playlist as one with filters"""
         create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists")
         assert create_response.status_code == status.HTTP_201_CREATED
 
