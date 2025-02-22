@@ -5,12 +5,8 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 
 use futures::future::ready;
 use property_defs_rs::{
-    app_context::AppContext,
-    config::Config,
-    update_consumer_loop,
-    update_producer_loop,
-    api::v1::query::Manager,
-    api::v1::routing::apply_routes,
+    api::v1::query::Manager, api::v1::routing::apply_routes, app_context::AppContext,
+    config::Config, update_consumer_loop, update_producer_loop,
 };
 
 use quick_cache::sync::Cache;
@@ -49,7 +45,7 @@ fn start_server(config: &Config, context: Arc<AppContext>, qmgr: Arc<Manager>) -
     let router = apply_routes(router, qmgr);
 
     let bind = format!("{}:{}", config.host, config.port);
-    
+
     tokio::task::spawn(async move {
         serve(router, &bind)
             .await
@@ -75,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // owns Postgres client and biz logic that handles property defs API calls
     let query_manager = Arc::new(Manager::new(&config).await?);
-    
+
     start_server(&config, context.clone(), query_manager);
 
     let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);

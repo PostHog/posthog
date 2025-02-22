@@ -1,27 +1,18 @@
 use crate::{
-    api::v1::query::Manager,
     api::v1::constants::*,
     //metrics_consts::{},
+    api::v1::query::Manager,
 };
 
 use axum::{
-    extract::{
-        Path,
-        Query,
-        State,
-        OriginalUri
-    },
+    extract::{OriginalUri, Path, Query, State},
     http::Uri,
     routing::get,
-    Json,
-    Router
+    Json, Router,
 };
 use serde::Serialize;
+use sqlx::{Executor, Row};
 use url::form_urlencoded;
-use sqlx::{
-    Executor,
-    Row
-};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -37,14 +28,12 @@ pub fn apply_routes(parent: Router, qmgr: Arc<Manager>) -> Router {
     parent.nest("/api/v1", api_router)
 }
 
-
 async fn project_property_definitions_handler(
     State(qmgr): State<Arc<Manager>>,
     OriginalUri(uri): OriginalUri,
     Path(project_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Json<PropDefResponse> {
-
     // parse the request parameters; use Option<T> to track presence for query step
     let search: Option<Vec<String>> = match params.get("search") {
         Some(raw) => Some(
@@ -65,7 +54,11 @@ async fn project_property_definitions_handler(
         Some(s) => match s.parse::<i32>().ok() {
             Some(gti)
                 if property_type.as_ref().is_some_and(|pt| pt == "group")
-                    && gti >= 0 && gti < GROUP_TYPE_LIMIT => gti,
+                    && gti >= 0
+                    && gti < GROUP_TYPE_LIMIT =>
+            {
+                gti
+            }
             _ => -1,
         },
         _ => -1,
@@ -97,7 +90,7 @@ async fn project_property_definitions_handler(
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L504-L508
     let use_enterprise_taxonomy = match params.get("use_enterprise_taxonomy") {
         Some(s) => s.parse::<bool>().ok(),
-        _ => None
+        _ => None,
     };
 
     let filter_by_event_names: Option<bool> = match params.get("filter_by_event_names") {
@@ -117,72 +110,72 @@ async fn project_property_definitions_handler(
     let limit: i32 = match params.get("limit") {
         Some(s) => match s.parse::<i32>().ok() {
             Some(val) => val,
-            _ => DEFAULT_QUERY_LIMIT
-        }
-        _ => DEFAULT_QUERY_LIMIT
+            _ => DEFAULT_QUERY_LIMIT,
+        },
+        _ => DEFAULT_QUERY_LIMIT,
     };
 
     let offset: i32 = match params.get("offset") {
         Some(s) => match s.parse::<i32>().ok() {
             Some(val) => val,
-            _ => DEFAULT_QUERY_OFFSET
-        }
-        _ => DEFAULT_QUERY_OFFSET
+            _ => DEFAULT_QUERY_OFFSET,
+        },
+        _ => DEFAULT_QUERY_OFFSET,
     };
 
     let order_by_verified = true; // default behavior
 
     // construct the count query
-    let count_query = qmgr
-        .count_query(
-            project_id,
-            &search,
-            &property_type,
-            group_type_index,
-            &properties,
-            &excluded_properties,
-            &event_names,
-            &is_feature_flag,
-            &is_numerical,
-            &use_enterprise_taxonomy,
-            &filter_by_event_names,
-        );
+    let count_query = qmgr.count_query(
+        project_id,
+        &search,
+        &property_type,
+        group_type_index,
+        &properties,
+        &excluded_properties,
+        &event_names,
+        &is_feature_flag,
+        &is_numerical,
+        &use_enterprise_taxonomy,
+        &filter_by_event_names,
+    );
 
     // construct the property definitions query
-    let props_query = qmgr
-        .property_definitions_query(
-            project_id,
-            &search,
-            &property_type,
-            group_type_index,
-            &properties,
-            &excluded_properties,
-            &event_names,
-            &is_feature_flag,
-            &is_numerical,
-            &use_enterprise_taxonomy,
-            &filter_by_event_names,
-            order_by_verified,
-            limit,
-            offset,
-        );
+    let props_query = qmgr.property_definitions_query(
+        project_id,
+        &search,
+        &property_type,
+        group_type_index,
+        &properties,
+        &excluded_properties,
+        &event_names,
+        &is_feature_flag,
+        &is_numerical,
+        &use_enterprise_taxonomy,
+        &filter_by_event_names,
+        order_by_verified,
+        limit,
+        offset,
+    );
 
     let total_count: i32 = match qmgr.pool.fetch_one(count_query.as_str()).await {
         Ok(row) => row.get(0),
         Err(e) => unimplemented!("TODO: handle count query error!"),
     };
 
-   match qmgr.pool.fetch_all(props_query.as_str()).await {
-        Ok(result) => for row in result {
-            // TODO: populate PropDefResponse.results entries!!!
-        },
+    match qmgr.pool.fetch_all(props_query.as_str()).await {
+        Ok(result) => {
+            for row in result {
+                // TODO: populate PropDefResponse.results entries!!!
+            }
+        }
         Err(e) => unimplemented!("TODO: handle props query error!"),
     }
 
     let (prev_url, next_url) = gen_next_prev_urls(uri, total_count, limit, offset);
 
     // execute the queries, and populate the response
-    let mut out = PropDefResponse{
+    let mut out = PropDefResponse {
         count: total_count as u32,
         next: next_url,
         prev: prev_url,
@@ -192,24 +185,35 @@ async fn project_property_definitions_handler(
     Json(out)
 }
 
-fn gen_next_prev_urls(uri: Uri, total_count: i32, curr_limit: i32, curr_offset: i32) -> (Option<String>, Option<String>) {
+fn gen_next_prev_urls(
+    uri: Uri,
+    total_count: i32,
+    curr_limit: i32,
+    curr_offset: i32,
+) -> (Option<String>, Option<String>) {
     let next_offset = curr_limit + curr_offset;
     let prev_offset = curr_offset - curr_limit;
 
-    (gen_url(uri.clone(), total_count, prev_offset), gen_url(uri.clone(), total_count, next_offset))
+    (
+        gen_url(uri.clone(), total_count, prev_offset),
+        gen_url(uri.clone(), total_count, next_offset),
+    )
 }
 
 fn gen_url(uri: Uri, total_count: i32, new_offset: i32) -> Option<String> {
     if new_offset < 0 || new_offset >= total_count {
-        return None
+        return None;
     }
 
     // Parse the query parameters
-    let mut query_params = uri.query().map(|query| {
-        form_urlencoded::parse(query.as_bytes())
-            .into_owned()
-            .collect::<HashMap<String, String>>()
-    }).unwrap_or_default();
+    let mut query_params = uri
+        .query()
+        .map(|query| {
+            form_urlencoded::parse(query.as_bytes())
+                .into_owned()
+                .collect::<HashMap<String, String>>()
+        })
+        .unwrap_or_default();
 
     // Modify a single query parameter
     query_params.insert("offset".to_string(), "new_value".to_string());
@@ -220,7 +224,13 @@ fn gen_url(uri: Uri, total_count: i32, new_offset: i32) -> Option<String> {
         .finish();
 
     // Replace the original query with the modified query
-    let base_uri = uri.clone().into_parts().path_and_query.unwrap().path().to_string();
+    let base_uri = uri
+        .clone()
+        .into_parts()
+        .path_and_query
+        .unwrap()
+        .path()
+        .to_string();
     let uri = Uri::builder()
         .scheme(uri.scheme().clone().unwrap().as_str())
         .authority(uri.authority().cloned().unwrap().as_str())

@@ -9,7 +9,8 @@ pub const DEFAULT_QUERY_OFFSET: i32 = 100;
 pub const SEARCH_TRIGGER_WORD: &'static str = "latest";
 pub const SEARCH_SCREEN_WORD: &'static str = "initial";
 
-pub const POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS: &'static str = "check_for_matching_event_property";
+pub const POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS: &'static str =
+    "check_for_matching_event_property";
 
 pub const PARENT_PROPERTY_TYPES: [&str; 4] = ["event", "person", "group", "session"];
 
@@ -45,19 +46,34 @@ pub const EVENTS_HIDDEN_PROPERTY_DEFINITIONS: [&str; 14] = [
 // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
 // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/taxonomy.py#L1627-L1631
 pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
-    ("$last_posthog_reset", "timestamp of last call to `reset` in the web sdk"),
+    (
+        "$last_posthog_reset",
+        "timestamp of last call to `reset` in the web sdk",
+    ),
     ("$copy_type", "copy type"),
     ("$selected_content", "copied content"),
     ("$set", "set person properties"),
     ("$set_once", "set person properties once"),
     ("$pageview_id", "pageview id"),
-    ("$autocapture_disabled_server_side", "autocapture disabled server-side"),
-    ("$console_log_recording_enabled_server_side", "console log recording enabled server-side"),
-    ("$session_recording_recorder_version_server_side", "session recording recorder version server-side"),
+    (
+        "$autocapture_disabled_server_side",
+        "autocapture disabled server-side",
+    ),
+    (
+        "$console_log_recording_enabled_server_side",
+        "console log recording enabled server-side",
+    ),
+    (
+        "$session_recording_recorder_version_server_side",
+        "session recording recorder version server-side",
+    ),
     ("$session_is_sampled", "whether the session is sampled"),
     ("$feature_flag_payloads", "feature flag payloads"),
     ("$capture_failed_request", "capture failed request"),
-    ("$lib_rate_limit_remaining_tokens", "clientside rate limit remaining tokens"),
+    (
+        "$lib_rate_limit_remaining_tokens",
+        "clientside rate limit remaining tokens",
+    ),
     ("token", "token"),
     ("$sentry_exception", "sentry exception"),
     ("$sentry_exception_message", "sentry exception message"),
@@ -68,7 +84,10 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
     ("$exception_type", "exception type"),
     ("$exception_message", "exception message"),
     ("$exception_fingerprint", "exception fingerprint"),
-    ("$exception_proposed_fingerprint", "exception proposed fingerprint"),
+    (
+        "$exception_proposed_fingerprint",
+        "exception proposed fingerprint",
+    ),
     ("$exception_issue_id", "exception issue id"),
     ("$exception_source", "exception source"),
     ("$exception_lineno", "exception source line number"),
@@ -80,8 +99,14 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
     ("$exception_personURL", "exception person url"),
     ("$cymbal_errors", "exception processing errors"),
     ("$exception_capture_endpoint", "exception capture endpoint"),
-    ("$exception_capture_endpoint_suffix", "exception capture endpoint"),
-    ("$exception_capture_enabled_server_side", "exception capture enabled server side"),
+    (
+        "$exception_capture_endpoint_suffix",
+        "exception capture endpoint",
+    ),
+    (
+        "$exception_capture_enabled_server_side",
+        "exception capture enabled server side",
+    ),
     ("$ce_version", "$ce_version"),
     ("$anon_distinct_id", "anon distinct id"),
     ("$event_type", "event type"),
@@ -89,15 +114,36 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
     ("$time", "$time (deprecated)"),
     ("$browser_type", "browser type"),
     ("$device_id", "device id"),
-    ("$replay_minimum_duration", "replay config - minimum duration"),
+    (
+        "$replay_minimum_duration",
+        "replay config - minimum duration",
+    ),
     ("$replay_sample_rate", "replay config - sample rate"),
-    ("$session_recording_start_reason", "session recording start reason"),
-    ("$session_recording_canvas_recording", "session recording canvas recording"),
-    ("$session_recording_network_payload_capture", "session recording network payload capture"),
-    ("$configured_session_timeout_ms", "configured session timeout"),
+    (
+        "$session_recording_start_reason",
+        "session recording start reason",
+    ),
+    (
+        "$session_recording_canvas_recording",
+        "session recording canvas recording",
+    ),
+    (
+        "$session_recording_network_payload_capture",
+        "session recording network payload capture",
+    ),
+    (
+        "$configured_session_timeout_ms",
+        "configured session timeout",
+    ),
     ("$replay_script_config", "replay script config"),
-    ("$session_recording_url_trigger_activated_session", "session recording url trigger activated session"),
-    ("$session_recording_url_trigger_status", "session recording url trigger status"),
+    (
+        "$session_recording_url_trigger_activated_session",
+        "session recording url trigger activated session",
+    ),
+    (
+        "$session_recording_url_trigger_status",
+        "session recording url trigger status",
+    ),
     ("$recording_status", "session recording status"),
     ("$geoip_city_name", "city name"),
     ("$geoip_country_name", "country name"),
@@ -105,7 +151,10 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
     ("$geoip_continent_name", "continent name"),
     ("$geoip_continent_code", "continent code"),
     ("$geoip_postal_code", "postal code"),
-    ("$geoip_postal_code_confidence", "postal code identification confidence score"),
+    (
+        "$geoip_postal_code_confidence",
+        "postal code identification confidence score",
+    ),
     ("$geoip_latitude", "latitude"),
     ("$geoip_longitude", "longitude"),
     ("$geoip_time_zone", "timezone"),
@@ -113,7 +162,10 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
     ("$geoip_subdivision_1_code", "subdivision 1 code"),
     ("$geoip_subdivision_2_name", "subdivision 2 name"),
     ("$geoip_subdivision_2_code", "subdivision 2 code"),
-    ("$geoip_subdivision_2_confidence", "subdivision 2 identification confidence score"),
+    (
+        "$geoip_subdivision_2_confidence",
+        "subdivision 2 identification confidence score",
+    ),
     ("$geoip_subdivision_3_name", "subdivision 3 name"),
     ("$geoip_subdivision_3_code", "subdivision 3 code"),
     ("$geoip_disable", "geoip disabled"),
@@ -195,7 +247,10 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
     ("$survey_questions", "survey questions"),
     ("$survey_id", "survey id"),
     ("$survey_iteration", "survey iteration number"),
-    ("$survey_iteration_start_date", "survey iteration start date"),
+    (
+        "$survey_iteration_start_date",
+        "survey iteration start date",
+    ),
     ("$device", "device"),
     ("$sentry_url", "sentry url"),
     ("$device_type", "device type"),
@@ -207,7 +262,10 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
     ("$client_session_initial_referring_host", "referrer host"),
     ("$client_session_initial_pathname", "initial path"),
     ("$client_session_initial_utm_source", "initial utm source"),
-    ("$client_session_initial_utm_campaign", "initial utm campaign"),
+    (
+        "$client_session_initial_utm_campaign",
+        "initial utm campaign",
+    ),
     ("$client_session_initial_utm_medium", "initial utm medium"),
     ("$client_session_initial_utm_content", "initial utm source"),
     ("$client_session_initial_utm_term", "initial utm source"),
@@ -237,40 +295,103 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 242] = [
     ("ttclid", "ttclid"),
     ("$is_identified", "is identified"),
     ("$initial_person_info", "initial person info"),
-    ("$web_vitals_enabled_server_side", "web vitals enabled server side"),
-    ("$web_vitals_FCP_event", "web vitals fcp measure event details"),
+    (
+        "$web_vitals_enabled_server_side",
+        "web vitals enabled server side",
+    ),
+    (
+        "$web_vitals_FCP_event",
+        "web vitals fcp measure event details",
+    ),
     ("$web_vitals_FCP_value", "web vitals fcp value"),
-    ("$web_vitals_LCP_event", "web vitals lcp measure event details"),
+    (
+        "$web_vitals_LCP_event",
+        "web vitals lcp measure event details",
+    ),
     ("$web_vitals_LCP_value", "web vitals lcp value"),
-    ("$web_vitals_INP_event", "web vitals inp measure event details"),
+    (
+        "$web_vitals_INP_event",
+        "web vitals inp measure event details",
+    ),
     ("$web_vitals_INP_value", "web vitals inp value"),
-    ("$web_vitals_CLS_event", "web vitals cls measure event details"),
+    (
+        "$web_vitals_CLS_event",
+        "web vitals cls measure event details",
+    ),
     ("$web_vitals_CLS_value", "web vitals cls value"),
     ("$web_vitals_allowed_metrics", "web vitals allowed metrics"),
-    ("$prev_pageview_last_scroll", "previous pageview last scroll"),
+    (
+        "$prev_pageview_last_scroll",
+        "previous pageview last scroll",
+    ),
     ("$prev_pageview_id", "previous pageview id"),
-    ("$prev_pageview_last_scroll_percentage", "previous pageview last scroll percentage"),
+    (
+        "$prev_pageview_last_scroll_percentage",
+        "previous pageview last scroll percentage",
+    ),
     ("$prev_pageview_max_scroll", "previous pageview max scroll"),
-    ("$prev_pageview_max_scroll_percentage", "previous pageview max scroll percentage"),
-    ("$prev_pageview_last_content", "previous pageview last content"),
-    ("$prev_pageview_last_content_percentage", "previous pageview last content percentage"),
-    ("$prev_pageview_max_content", "previous pageview max content"),
-    ("$prev_pageview_max_content_percentage", "previous pageview max content percentage"),
+    (
+        "$prev_pageview_max_scroll_percentage",
+        "previous pageview max scroll percentage",
+    ),
+    (
+        "$prev_pageview_last_content",
+        "previous pageview last content",
+    ),
+    (
+        "$prev_pageview_last_content_percentage",
+        "previous pageview last content percentage",
+    ),
+    (
+        "$prev_pageview_max_content",
+        "previous pageview max content",
+    ),
+    (
+        "$prev_pageview_max_content_percentage",
+        "previous pageview max content percentage",
+    ),
     ("$prev_pageview_pathname", "previous pageview pathname"),
     ("$prev_pageview_duration", "previous pageview duration"),
     ("$surveys_activated", "surveys activated"),
     ("$process_person_profile", "person profile processing flag"),
-    ("$dead_clicks_enabled_server_side", "dead clicks enabled server side"),
-    ("$dead_click_scroll_delay_ms", "dead click scroll delay in milliseconds"),
-    ("$dead_click_mutation_delay_ms", "dead click mutation delay in milliseconds"),
-    ("$dead_click_absolute_delay_ms", "dead click absolute delay in milliseconds"),
-    ("$dead_click_selection_changed_delay_ms", "dead click selection changed delay in milliseconds"),
-    ("$dead_click_last_mutation_timestamp", "dead click last mutation timestamp"),
+    (
+        "$dead_clicks_enabled_server_side",
+        "dead clicks enabled server side",
+    ),
+    (
+        "$dead_click_scroll_delay_ms",
+        "dead click scroll delay in milliseconds",
+    ),
+    (
+        "$dead_click_mutation_delay_ms",
+        "dead click mutation delay in milliseconds",
+    ),
+    (
+        "$dead_click_absolute_delay_ms",
+        "dead click absolute delay in milliseconds",
+    ),
+    (
+        "$dead_click_selection_changed_delay_ms",
+        "dead click selection changed delay in milliseconds",
+    ),
+    (
+        "$dead_click_last_mutation_timestamp",
+        "dead click last mutation timestamp",
+    ),
     ("$dead_click_event_timestamp", "dead click event timestamp"),
     ("$dead_click_scroll_timeout", "dead click scroll timeout"),
-    ("$dead_click_mutation_timeout", "dead click mutation timeout"),
-    ("$dead_click_absolute_timeout", "dead click absolute timeout"),
-    ("$dead_click_selection_changed_timeout", "dead click selection changed timeout"),
+    (
+        "$dead_click_mutation_timeout",
+        "dead click mutation timeout",
+    ),
+    (
+        "$dead_click_absolute_timeout",
+        "dead click absolute timeout",
+    ),
+    (
+        "$dead_click_selection_changed_timeout",
+        "dead click selection changed timeout",
+    ),
     ("$ai_base_url", "ai base url (llm)"),
     ("$ai_http_status", "ai http status (llm)"),
     ("$ai_input", "ai input (llm)"),
