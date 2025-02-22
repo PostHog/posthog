@@ -18,7 +18,10 @@ use axum::{
 };
 use serde::Serialize;
 use url::form_urlencoded;
-use sqlx::{postgres::PgQueryResult, Executor};
+use sqlx::{
+    Executor,
+    Row
+};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -164,22 +167,23 @@ async fn project_property_definitions_handler(
             offset,
         );
 
-    match qmgr.pool.execute(count_query.as_str()).await {
-        Ok(result) => unimplemented!("TODO: populate out.count with query result"),
+    let total_count: i32 = match qmgr.pool.fetch_one(count_query.as_str()).await {
+        Ok(row) => row.get(0),
         Err(e) => unimplemented!("TODO: handle count query error!"),
-    }
+    };
 
-   match qmgr.pool.execute(props_query.as_str()).await {
-        Ok(result) => unimplemented!("TODO: populate out fields with query result"),
+   match qmgr.pool.fetch_all(props_query.as_str()).await {
+        Ok(result) => for row in result {
+            // TODO: populate PropDefResponse.results entries!!!
+        },
         Err(e) => unimplemented!("TODO: handle props query error!"),
     }
 
-    let total_count = 0; // TODO: pick up result of count query!
     let (prev_url, next_url) = gen_next_prev_urls(uri, total_count, limit, offset);
 
     // execute the queries, and populate the response
     let mut out = PropDefResponse{
-        count: 0,
+        count: total_count as u32,
         next: next_url,
         prev: prev_url,
         results: vec![],
