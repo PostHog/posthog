@@ -633,6 +633,7 @@ const config = {
                 'fill-primary': 'var(--bg-fill-primary)',
                 'fill-secondary': 'var(--bg-fill-secondary)',
                 'fill-tertiary': 'var(--bg-fill-tertiary)',
+                'fill-muted': 'var(--bg-fill-muted)',
                 'fill-primary-highlight': 'var(--bg-fill-primary-highlight)',
                 'fill-info-secondary': 'var(--bg-fill-info-secondary)',
                 'fill-info-tertiary': 'var(--bg-fill-info-tertiary)',
@@ -648,7 +649,7 @@ const config = {
                 'fill-success-highlight': 'var(--bg-fill-success-highlight)',
                 'fill-input': 'var(--bg-fill-input)',
                 'fill-switch': 'var(--bg-fill-switch)',
-                'fill-slider-rail': 'var(--bg-fill-slider-rail)',
+                'fill-checkbox': 'var(--bg-fill-checkbox)',
             },
             textColor: {
                 ...commonColors,

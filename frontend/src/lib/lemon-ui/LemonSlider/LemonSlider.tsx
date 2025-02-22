@@ -115,7 +115,7 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                     setDragging(true)
                 }}
             >
-                <div className="w-full bg-fill-slider-rail rounded-full h-[6px]" />
+                <div className="w-full bg-fill-muted rounded-full h-[6px]" />
             </div>
             <div
                 className="absolute h-[6px] bg-accent-primary rounded-full pointer-events-none"
