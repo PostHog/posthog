@@ -9,10 +9,11 @@ from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import SessionRecording, SessionRecordingPlaylistItem
+from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
+    SessionRecordingPlaylistViewed,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
@@ -93,6 +94,59 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         )
 
         assert response.json()["short_id"] == create_response.json()["short_id"]
+
+    def test_marks_playlist_as_viewed(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists", {"filters": {"events": [{"id": "test"}]}}
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+        short_id = create_response.json()["short_id"]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert SessionRecordingPlaylistViewed.objects.count() == 1
+        viewed_record = SessionRecordingPlaylistViewed.objects.first()
+        assert viewed_record is not None
+
+        assert viewed_record.playlist_id == create_response.json()["id"]
+        assert viewed_record.user_id == self.user.id
+        assert viewed_record.team_id == self.team.id
+        assert viewed_record.viewed_at == mock.ANY
+
+    """We're going to split playlists so that 'collections' have pinned recordings, let's validate a viewable playlist as one with filters"""
+
+    def test_cannot_mark_playlist_as_viewed_if_it_has_no_filters(self):
+        create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists")
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+        short_id = create_response.json()["short_id"]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+    def test_cannot_mark_playlist_as_viewed_in_different_team(self):
+        create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists")
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        another_team = Team.objects.create(organization=self.organization)
+
+        short_id = create_response.json()["short_id"]
+        response = self.client.post(
+            f"/api/projects/{another_team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
 
     def test_updates_playlist(self):
         create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists/")
