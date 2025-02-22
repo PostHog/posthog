@@ -359,16 +359,22 @@ impl Manager {
             qb.push("id, project, team, name, is_numerical, property_type, type, group_type_index, property_type_format ");
         }
 
-        // TODO: event_property_field AS is_seen_on_filtered_events CLAUSE
+        // append event_property_field clause to SELECT clause
+        let is_seen_resolved = if event_names.as_ref().is_some_and(|evs| !evs.is_empty()) {
+            format!("{}.property", POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS)
+        } else {
+            "NULL".to_string()
+        };
+        qb.push(format!(", {} IS NOT NULL AS is_seen_on_filtered_events ", is_seen_resolved));
        
-        // TODO: FROM clause (self.table?!)
+        // TODO(eli): FROM clause (self.table?!)
 
         // conditionally join on event properties table
         // this join is only applied if the query is scoped to type "event"
         if self.is_prop_type_event(property_type) {
             qb.push(self.event_property_join_type(filter_by_event_names));
             qb.push(" (SELECT DISTINCT property FROM ");
-            qb.push_bind(self.event_props_table.clone());
+            qb.push_bind(&self.event_props_table);
             qb.push(" WHERE COALESCE(project_id, team_id) = ");
             qb.push_bind(project_id);
 
