@@ -38,16 +38,19 @@ function HideRecordingsMenu(): JSX.Element {
                     label: hideRecordingsMenuLabelFor(false),
                     onClick: () => setHideViewedRecordings(false),
                     active: !hideViewedRecordings,
+                    'data-attr': 'hide-viewed-recordings-show-all',
                 },
                 {
                     label: hideRecordingsMenuLabelFor('current-user'),
                     onClick: () => setHideViewedRecordings('current-user'),
                     active: hideViewedRecordings === 'current-user',
+                    'data-attr': 'hide-viewed-recordings-hide-current-user',
                 },
                 {
                     label: hideRecordingsMenuLabelFor('any-user'),
                     onClick: () => setHideViewedRecordings('any-user'),
                     active: hideViewedRecordings === 'any-user',
+                    'data-attr': 'hide-viewed-recordings-hide-any-user',
                 },
             ]}
             icon={hideViewedRecordings ? <IconHide /> : <IconEye />}
