@@ -985,6 +985,7 @@ class HogQLVariable(BaseModel):
         extra="forbid",
     )
     code_name: str
+    isNull: Optional[bool] = None
     value: Optional[Any] = None
     variableId: str
 
@@ -1134,6 +1135,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
+    EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
     EXPERIMENT_ACTION_METRIC_CONFIG = "ExperimentActionMetricConfig"
     EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
@@ -2737,7 +2739,8 @@ class SessionRecordingType(BaseModel):
     start_url: Optional[str] = None
     storage: Optional[Storage] = Field(default=None, description="Where this recording information was loaded from")
     summary: Optional[str] = None
-    viewed: bool = Field(..., description="Whether this recording has been viewed already.")
+    viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
+    viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
 
 class SessionsTimelineQueryResponse(BaseModel):
@@ -4611,6 +4614,31 @@ class ExperimentActionMetricConfig(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
 
 
+class ExperimentEventExposureConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    properties: list[
+        Union[
+            EventPropertyFilter,
+            PersonPropertyFilter,
+            ElementPropertyFilter,
+            SessionPropertyFilter,
+            CohortPropertyFilter,
+            RecordingPropertyFilter,
+            LogEntryPropertyFilter,
+            GroupPropertyFilter,
+            FeaturePropertyFilter,
+            HogQLPropertyFilter,
+            EmptyPropertyFilter,
+            DataWarehousePropertyFilter,
+            DataWarehousePersonPropertyFilter,
+        ]
+    ]
+
+
 class ExperimentEventMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4642,6 +4670,14 @@ class ExperimentEventMetricConfig(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
 
 
+class ExperimentExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: Optional[ExperimentEventExposureConfig] = None
+    filterTestAccounts: Optional[bool] = None
+
+
 class ExperimentExposureQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4658,7 +4694,6 @@ class ExperimentMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    filterTestAccounts: Optional[bool] = None
     inverse: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]

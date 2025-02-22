@@ -102,6 +102,7 @@ export enum NodeKind {
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
+    ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
     ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
@@ -300,6 +301,7 @@ export interface HogQLVariable {
     variableId: string
     code_name: string
     value?: any
+    isNull?: boolean
 }
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
@@ -1842,6 +1844,17 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     exposure_query?: TrendsQuery
 }
 
+export interface ExperimentExposureCriteria {
+    filterTestAccounts?: boolean
+    exposure_config?: ExperimentEventExposureConfig
+}
+
+export interface ExperimentEventExposureConfig {
+    kind: NodeKind.ExperimentEventExposureConfig
+    event: string
+    properties: AnyPropertyFilter[]
+}
+
 export enum ExperimentMetricType {
     COUNT = 'count',
     CONTINUOUS = 'continuous',
@@ -1854,7 +1867,6 @@ export interface ExperimentMetric {
     kind: NodeKind.ExperimentMetric
     name?: string
     metric_type: ExperimentMetricType
-    filterTestAccounts?: boolean
     inverse?: boolean
     metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
 }

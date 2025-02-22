@@ -1,6 +1,7 @@
+from datetime import datetime, timedelta
 from typing import Optional
 from unittest.mock import patch
-from datetime import datetime, timedelta
+
 import celery
 import requests.exceptions
 from boto3 import resource
@@ -397,7 +398,7 @@ class TestExports(APIBaseTest):
 
                 def raise_for_status():
                     if 400 <= response.status_code < 600:
-                        raise requests.exceptions.HTTPError(response=response)
+                        raise requests.exceptions.HTTPError(response=response)  # type: ignore[arg-type]
 
                 response.raise_for_status = raise_for_status  # type: ignore[attr-defined]
                 return response
@@ -501,7 +502,7 @@ class TestExportMixin(APIBaseTest):
 
                     def raise_for_status():
                         if 400 <= response.status_code < 600:
-                            raise requests.exceptions.HTTPError(response=response)
+                            raise requests.exceptions.HTTPError(response=response)  # type: ignore[arg-type]
 
                     response.raise_for_status = raise_for_status  # type: ignore[attr-defined]
                     return response

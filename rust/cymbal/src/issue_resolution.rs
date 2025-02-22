@@ -117,7 +117,11 @@ impl Issue {
         Ok(did_insert)
     }
 
-    pub async fn maybe_reopen<'c, E>(&self, executor: E) -> Result<bool, UnhandledError>
+    pub async fn maybe_reopen<'c, E>(
+        &self,
+        executor: E,
+        context: &AppContext,
+    ) -> Result<bool, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
@@ -141,7 +145,8 @@ impl Issue {
         let reopened = !res.is_empty();
         if reopened {
             metrics::counter!(ISSUE_REOPENED).increment(1);
-            capture_issue_reopened(self.team_id, self.id)
+            capture_issue_reopened(self.team_id, self.id);
+            send_issue_reopened_alert(context, self).await?;
         }
 
         Ok(reopened)
@@ -216,7 +221,7 @@ pub async fn resolve_issue(
     if let Some(issue) = existing_issue {
         // TODO - we should use the bool here to determine if we need to notify a user
         // that the issue was reopened
-        issue.maybe_reopen(&mut *conn).await?;
+        issue.maybe_reopen(&mut *conn, context).await?;
         return Ok(issue.id);
     }
 
@@ -248,7 +253,7 @@ pub async fn resolve_issue(
     if !was_created {
         conn.rollback().await?;
     } else {
-        send_issue_created_alert(context, team_id, issue).await?;
+        send_issue_created_alert(context, &issue).await?;
         conn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
     }
@@ -261,7 +266,7 @@ pub async fn resolve_issue(
     if let Some(issue) = Issue::load(&mut *conn, team_id, issue_override.issue_id).await? {
         // TODO - we should use the bool here to determine if we need to notify a user
         // that the issue was reopened
-        issue.maybe_reopen(&mut *conn).await?;
+        issue.maybe_reopen(&mut *conn, context).await?;
     }
 
     Ok(issue_override.issue_id)
@@ -269,28 +274,39 @@ pub async fn resolve_issue(
 
 async fn send_issue_created_alert(
     context: &AppContext,
-    team_id: i32,
-    issue: Issue,
+    issue: &Issue,
 ) -> Result<(), UnhandledError> {
-    let mut event =
-        InternalEventEvent::new("$error_tracking_issue_created", issue.id, Utc::now(), None);
-    event
-        .insert_prop("name", issue.name)
-        .expect("Strings are serializable");
-    event
-        .insert_prop("description", issue.description)
-        .expect("Strings are serializable");
+    send_internal_event(context, "$error_tracking_issue_created", issue).await
+}
 
-    let message = InternalEvent {
-        team_id,
-        event,
-        person: None,
-    };
+async fn send_issue_reopened_alert(
+    context: &AppContext,
+    issue: &Issue,
+) -> Result<(), UnhandledError> {
+    send_internal_event(context, "$error_tracking_issue_reopened", issue).await
+}
+
+async fn send_internal_event(
+    context: &AppContext,
+    event: &str,
+    issue: &Issue,
+) -> Result<(), UnhandledError> {
+    let mut event = InternalEventEvent::new(event, issue.id, Utc::now(), None);
+    event
+        .insert_prop("name", issue.name.clone())
+        .expect("Strings are serializable");
+    event
+        .insert_prop("description", issue.description.clone())
+        .expect("Strings are serializable");
 
     send_iter_to_kafka(
         &context.immediate_producer,
         &context.config.internal_events_topic,
-        &[message],
+        &[InternalEvent {
+            team_id: issue.team_id,
+            event,
+            person: None,
+        }],
     )
     .await
     .into_iter()
