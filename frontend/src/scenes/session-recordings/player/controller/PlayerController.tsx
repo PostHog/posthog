@@ -34,7 +34,7 @@ import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
-import { PlayerInspector } from '../PlayerInspector'
+import { PlayerInspectorButton } from '../PlayerInspectorButton'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
@@ -45,9 +45,9 @@ function SetPlaybackSpeed(): JSX.Element {
         <SettingsMenu
             icon={
                 speed === 0.5 ? (
-                    <IconTortoise className="text-2xl" style={{ stroke: 'currentColor', strokeWidth: '0.5' }} />
+                    <IconTortoise className="text-lg" style={{ stroke: 'currentColor', strokeWidth: '0.5' }} />
                 ) : (
-                    <IconRabbit className="text-2xl" style={{ stroke: 'currentColor', strokeWidth: '0.5' }} />
+                    <IconRabbit className="text-lg" style={{ stroke: 'currentColor', strokeWidth: '0.5' }} />
                 )
             }
             data-attr="session-recording-speed-select"
@@ -251,7 +251,7 @@ export function PlayerBottomSettings(): JSX.Element {
                 </div>
                 <div className="flex flex-row gap-0.5">
                     {noInspector ? null : <InspectDOM />}
-                    <PlayerInspector />
+                    <PlayerInspectorButton />
                 </div>
             </div>
         </SettingsBar>
