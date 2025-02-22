@@ -54,7 +54,7 @@ export function SessionPlayerModal(): JSX.Element | null {
             <header>
                 {activeSessionRecording ? (
                     <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
-                        <PlayerMeta iconsOnly={false} />
+                        <PlayerMeta />
                     </BindLogic>
                 ) : null}
             </header>

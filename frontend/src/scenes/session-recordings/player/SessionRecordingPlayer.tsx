@@ -146,15 +146,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             ref: playerRef,
         }
     )
-    const { size: playerMainSize } = useResizeBreakpoints(
-        {
-            0: 'small',
-            750: 'medium',
-        },
-        {
-            ref: playerMainRef,
-        }
-    )
 
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
 
@@ -210,9 +201,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                         <div className="flex flex-col flex-1 w-full">
                                             {playbackMode === PlaybackMode.Recording ? (
                                                 <>
-                                                    {!noMeta || isFullScreen ? (
-                                                        <PlayerMeta iconsOnly={playerMainSize === 'small'} />
-                                                    ) : null}
+                                                    {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 
                                                     <div
                                                         className="SessionRecordingPlayer__body"

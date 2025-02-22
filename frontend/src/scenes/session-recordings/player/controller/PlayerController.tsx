@@ -9,20 +9,19 @@ import {
     IconSearch,
     IconTortoise,
 } from '@posthog/icons'
-import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { humanFriendlyDuration } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
 import {
     SettingsBar,
     SettingsButton,
     SettingsMenu,
     SettingsToggle,
 } from 'scenes/session-recordings/components/PanelSettings'
+import { PlayerMetaBreakpoints } from 'scenes/session-recordings/player/PlayerMeta'
 import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import {
@@ -161,29 +160,13 @@ function InspectDOM(): JSX.Element {
     )
 }
 
-export function PlayerBottomSettings(): JSX.Element {
+export function PlayerBottomSettings({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
     const {
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
     const { showMouseTail, skipInactivitySetting, timestampFormat } = useValues(playerSettingsLogic)
     const { setShowMouseTail, setSkipInactivitySetting, setTimestampFormat } = useActions(playerSettingsLogic)
-
-    const containerRef = useRef<HTMLDivElement | null>(null)
-    const [width] = useSize(containerRef)
-
-    const [isSmall, setIsSmall] = useState(false)
-    useEffect(() => {
-        if (!width) {
-            // probably a false alarm or 0 on boot up we should ignore it
-            return
-        }
-        const isSmallNow = width < 600
-        const breakpointChanged = isSmall !== isSmallNow
-
-        if (breakpointChanged) {
-            setIsSmall(width < 600)
-        }
-    }, [width])
+    const isSmall = size === 'small'
 
     const menuItems: LemonMenuItem[] = [
         isSmall
@@ -236,7 +219,7 @@ export function PlayerBottomSettings(): JSX.Element {
 
     return (
         <SettingsBar border="top">
-            <div className="no-flex sm:flex w-full justify-between items-center gap-0.5" ref={containerRef}>
+            <div className="no-flex sm:flex w-full justify-between items-center gap-0.5">
                 <div className="flex flex-row gap-0.5 h-full items-center">
                     <SetPlaybackSpeed />
                     {!isSmall && <SetTimeFormat />}
