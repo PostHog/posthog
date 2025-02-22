@@ -18,6 +18,8 @@ export enum PlaybackMode {
     Waterfall = 'waterfall',
 }
 
+export type HideViewedRecordingsOptions = 'current-user' | 'any-user' | false
+
 // This logic contains player settings that should persist across players
 // If key is not specified, it is global so it does not reset when recordings change in the main recordings page
 export const playerSettingsLogic = kea<playerSettingsLogicType>([
@@ -25,7 +27,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     actions({
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
-        setHideViewedRecordings: (hideViewedRecordings: 'current-user' | 'any-user' | false) => ({
+        setHideViewedRecordings: (hideViewedRecordings: HideViewedRecordingsOptions) => ({
             hideViewedRecordings,
         }),
         setAutoplayDirection: (autoplayDirection: AutoplayDirection) => ({ autoplayDirection }),
@@ -105,7 +107,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         hideViewedRecordings: [
-            false as 'current-user' | 'any-user' | false,
+            false as HideViewedRecordingsOptions,
             { persist: true },
             {
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
@@ -128,7 +130,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         hideRecordingsMenuLabelFor: [
             () => [],
             () => {
-                return (option: 'current-user' | 'any-user' | false) => {
+                return (option: HideViewedRecordingsOptions) => {
                     switch (option) {
                         case 'current-user':
                             return 'Hide my viewed recordings'
