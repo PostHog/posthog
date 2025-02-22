@@ -1,3 +1,5 @@
+import './PanelSettings.scss'
+
 import clsx from 'clsx'
 import {
     LemonButton,
@@ -116,5 +118,9 @@ export function SettingsToggle({ title, icon, label, active, rounded, ...props }
     )
 
     // otherwise the tooltip shows instead of the disabled reason
-    return props.disabledReason ? button : <Tooltip title={title}>{button}</Tooltip>
+    return (
+        <div className={clsx(rounded ? 'SettingsBar--button--rounded' : 'SettingsBar--button--square')}>
+            {props.disabledReason ? button : <Tooltip title={title}>{button}</Tooltip>}
+        </div>
+    )
 }
