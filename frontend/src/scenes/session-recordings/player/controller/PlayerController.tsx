@@ -1,5 +1,6 @@
 import {
     IconClock,
+    IconEllipsis,
     IconHourglass,
     IconMouse,
     IconPause,
@@ -8,11 +9,14 @@ import {
     IconSearch,
     IconTortoise,
 } from '@posthog/icons'
+import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { humanFriendlyDuration } from 'lib/utils'
+import { useEffect, useRef, useState } from 'react'
 import {
     SettingsBar,
     SettingsButton,
@@ -92,22 +96,6 @@ function PlayPauseButton(): JSX.Element {
     )
 }
 
-function ShowMouseTail(): JSX.Element {
-    const { showMouseTail } = useValues(playerSettingsLogic)
-    const { setShowMouseTail } = useActions(playerSettingsLogic)
-
-    return (
-        <SettingsToggle
-            title="Show a tail following the cursor to make it easier to see"
-            label="Show mouse tail"
-            active={showMouseTail}
-            data-attr="show-mouse-tail"
-            onClick={() => setShowMouseTail(!showMouseTail)}
-            icon={<IconMouse className="text-lg" />}
-        />
-    )
-}
-
 function SkipInactivity(): JSX.Element {
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
@@ -130,6 +118,7 @@ function SetTimeFormat(): JSX.Element {
 
     return (
         <SettingsMenu
+            matchWidth={true}
             highlightWhenActive={false}
             items={[
                 {
@@ -176,15 +165,89 @@ export function PlayerBottomSettings(): JSX.Element {
     const {
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
+    const { showMouseTail, skipInactivitySetting, timestampFormat } = useValues(playerSettingsLogic)
+    const { setShowMouseTail, setSkipInactivitySetting, setTimestampFormat } = useActions(playerSettingsLogic)
+
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const [width] = useSize(containerRef)
+
+    const [isSmall, setIsSmall] = useState(false)
+    useEffect(() => {
+        if (!width) {
+            // probably a false alarm or 0 on boot up we should ignore it
+            return
+        }
+        const isSmallNow = width < 600
+        const breakpointChanged = isSmall !== isSmallNow
+
+        if (breakpointChanged) {
+            setIsSmall(width < 600)
+        }
+    }, [width])
+
+    const menuItems: LemonMenuItem[] = [
+        isSmall
+            ? {
+                  label: TimestampFormatToLabel[timestampFormat],
+                  icon: <IconClock />,
+                  'data-attr': 'time-format-in-menu',
+                  matchWidth: true,
+
+                  items: [
+                      {
+                          label: 'UTC',
+                          onClick: () => setTimestampFormat(TimestampFormat.UTC),
+                          active: timestampFormat === TimestampFormat.UTC,
+                          size: 'xsmall',
+                      },
+                      {
+                          label: 'Device',
+                          onClick: () => setTimestampFormat(TimestampFormat.Device),
+                          active: timestampFormat === TimestampFormat.Device,
+                          size: 'xsmall',
+                      },
+                      {
+                          label: 'Relative',
+                          onClick: () => setTimestampFormat(TimestampFormat.Relative),
+                          active: timestampFormat === TimestampFormat.Relative,
+                          size: 'xsmall',
+                      },
+                  ],
+              }
+            : undefined,
+        isSmall
+            ? {
+                  label: 'Skip inactivity',
+                  active: skipInactivitySetting,
+                  'data-attr': 'skip-inactivity-in-menu',
+                  onClick: () => setSkipInactivitySetting(!skipInactivitySetting),
+                  icon: <IconHourglass />,
+              }
+            : undefined,
+        {
+            // title: "Show a tail following the cursor to make it easier to see",
+            label: 'Show mouse tail',
+            active: showMouseTail,
+            'data-attr': 'show-mouse-tail-in-menu',
+            onClick: () => setShowMouseTail(!showMouseTail),
+            icon: <IconMouse className="text-lg" />,
+        },
+    ].filter(Boolean) as LemonMenuItem[]
 
     return (
         <SettingsBar border="top">
-            <div className="no-flex sm:flex w-full justify-between items-center gap-0.5">
-                <div className="flex flex-row gap-0.5">
-                    <SkipInactivity />
-                    <ShowMouseTail />
+            <div className="no-flex sm:flex w-full justify-between items-center gap-0.5" ref={containerRef}>
+                <div className="flex flex-row gap-0.5 h-full items-center">
                     <SetPlaybackSpeed />
-                    <SetTimeFormat />
+                    {!isSmall && <SetTimeFormat />}
+                    {!isSmall && <SkipInactivity />}
+
+                    <SettingsMenu
+                        icon={<IconEllipsis />}
+                        items={menuItems}
+                        highlightWhenActive={false}
+                        closeOnClickInside={false}
+                    />
                 </div>
                 <div className="flex flex-row gap-0.5">
                     {noInspector ? null : <InspectDOM />}
