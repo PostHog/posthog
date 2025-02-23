@@ -297,29 +297,38 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             parse_select(
                 """
                 SELECT
-                    d.timestamp,
-                    COUNT(DISTINCT actor_id) AS counts
-                FROM {cross_join_select_query} e
-                CROSS JOIN (
+                    toTimeZone(t, {timezone}) AS timestamp,
+                    count() AS counts
+                FROM (
                     SELECT
-                        {date_to_start_of_interval} - {number_interval_period} AS timestamp
-                    FROM
-                        numbers(dateDiff({interval}, {date_from_start_of_interval} - {inclusive_lookback}, {date_to}))
-                ) d
-                WHERE
-                    e.timestamp <= d.timestamp + INTERVAL 1 DAY AND
-                    e.timestamp > d.timestamp - {exclusive_lookback}
-                GROUP BY d.timestamp
-                ORDER BY d.timestamp
+                        e.actor_id,
+                        groupUniqArray(d.timestamp) AS timestamps  -- note: timestamp info is lost here, type is Array(DateTime)
+                    FROM {cross_join_select_query} e
+                    CROSS JOIN (
+                        SELECT
+                            {date_to_start_of_interval} - {number_interval_period} AS timestamp
+                        FROM
+                            numbers(dateDiff({interval}, {date_from_start_of_interval} - {inclusive_lookback}, {date_to}))
+                    ) d
+                    WHERE
+                        e.timestamp <= d.timestamp + INTERVAL 1 DAY AND
+                        e.timestamp > d.timestamp - {exclusive_lookback}
+                    GROUP BY e.actor_id
+                ) et
+                ARRAY JOIN et.timestamps AS t
+                GROUP BY timestamp
+                ORDER BY timestamp
             """,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                     **self._interval_placeholders(),
                     "cross_join_select_query": cross_join_select_query,
+                    "timezone": ast.Constant(value=self.team.timezone),
                 },
             ),
         )
 
+        # TODO: will need to fix this
         if self.is_total_value:
             query.select = [ast.Field(chain=["d", "timestamp"]), ast.Field(chain=["actor_id"])]
             query.group_by.append(ast.Field(chain=["actor_id"]))
