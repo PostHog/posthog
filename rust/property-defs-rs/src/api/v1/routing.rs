@@ -14,7 +14,7 @@ use serde::Serialize;
 use sqlx::{Executor, Row};
 use url::form_urlencoded;
 
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::sync::Arc;
 
 pub fn apply_routes(parent: Router, qmgr: Arc<Manager>) -> Router {
@@ -35,11 +35,24 @@ async fn project_property_definitions_handler(
     Query(params): Query<HashMap<String, String>>,
 ) -> Json<PropDefResponse> {
     // parse the request parameters; use Option<T> to track presence for query step
-    let search: Option<Vec<String>> = params.get("search").map(|raw| {
+    let search_terms: Option<Vec<String>> = params.get("search").map(|raw| {
         raw.split(" ")
             .map(|s| s.trim().to_string().to_lowercase())
             .collect()
     });
+
+    // TODO: this can be parameterized in the orig Django query but
+    // I didn't see any evidence of that happening in the code yet
+    let search_fields: HashSet<String> = params
+        .get("search_fields")
+        .map(|raw| {
+            raw.split(',')
+                .map(|s| s.trim().to_string().to_lowercase())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut search_fields = search_fields;
+    search_fields.insert("name".to_string());
 
     let property_type = match params.get("type") {
         Some(s) if PARENT_PROPERTY_TYPES.iter().any(|pt| *pt == s) => Some(s.clone()),
@@ -121,7 +134,8 @@ async fn project_property_definitions_handler(
     // construct the count query
     let count_query = qmgr.count_query(
         project_id,
-        &search,
+        &search_terms,
+        &search_fields,
         &property_type,
         group_type_index,
         &properties,
@@ -136,7 +150,8 @@ async fn project_property_definitions_handler(
     // construct the property definitions query
     let props_query = qmgr.property_definitions_query(
         project_id,
-        &search,
+        &search_terms,
+        &search_fields,
         &property_type,
         group_type_index,
         &properties,
