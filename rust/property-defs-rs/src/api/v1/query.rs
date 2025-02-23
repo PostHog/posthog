@@ -137,18 +137,14 @@ impl Manager {
         // but may not matter when passed to this service. TBD. See below:
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L241
         if let Some(excludes) = excluded_properties {
-            if self.is_prop_type_event(property_type) || excludes.len() > 0 {
+            if self.is_prop_type_event(property_type) && !excludes.is_empty() {
                 qb.push(format!("AND NOT {0}.name = ANY(", self.prop_defs_table));
                 let mut buf: Vec<&str> = vec![];
-                if self.is_prop_type_event(property_type) {
-                    for entry in EVENTS_HIDDEN_PROPERTY_DEFINITIONS {
-                        buf.push(entry);
-                    }
+                for entry in EVENTS_HIDDEN_PROPERTY_DEFINITIONS {
+                    buf.push(entry);
                 }
-                if excludes.len() > 0 {
-                    for entry in excludes.iter() {
-                        buf.push(entry);
-                    }
+                for entry in excludes.iter() {
+                    buf.push(entry);
                 }
                 qb.push_bind(buf);
                 qb.push(") ");
@@ -375,7 +371,18 @@ impl Manager {
             is_seen_resolved
         ));
 
-        // TODO(eli): FROM clause (self.table?!)
+        let from_clause = if use_enterprise_taxonomy.is_some_and(|uet| uet == true) {
+            // TODO: ensure this all behaves as it does in Django (and that we need it!) later...
+            // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L505-L506
+            &format!(
+                "{0} FULL OUTER JOIN {1} ON {1}.id={0}.propertydefinition_ptr_id",
+                &self.enterprise_prop_defs_table, &self.prop_defs_table
+            )
+        } else {
+            // this is the default if enterprise taxonomy is not requested
+            &self.prop_defs_table
+        };
+        qb.push_bind(from_clause);
 
         // conditionally join on event properties table
         // this join is only applied if the query is scoped to type "event"
@@ -407,7 +414,7 @@ impl Manager {
         // begin the WHERE clause
         qb.push(format!(
             "WHERE COALESCE({0}.project_id, {0}.team_id) = ",
-            self.prop_defs_table
+            &self.prop_defs_table
         ));
         qb.push_bind(project_id);
 
@@ -427,18 +434,14 @@ impl Manager {
         // but may not matter when passed to this service. TBD. See below:
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L241
         if let Some(excludes) = excluded_properties {
-            if self.is_prop_type_event(property_type) || excludes.len() > 0 {
-                qb.push(format!("AND NOT {0}.name = ANY(", self.prop_defs_table));
+            if self.is_prop_type_event(property_type) && !excludes.is_empty() {
+                qb.push(format!("AND NOT {0}.name = ANY(", &self.prop_defs_table));
                 let mut buf: Vec<&str> = vec![];
-                if self.is_prop_type_event(property_type) {
-                    for entry in EVENTS_HIDDEN_PROPERTY_DEFINITIONS {
-                        buf.push(entry);
-                    }
+                for entry in EVENTS_HIDDEN_PROPERTY_DEFINITIONS {
+                    buf.push(entry);
                 }
-                if excludes.len() > 0 {
-                    for entry in excludes.iter() {
-                        buf.push(entry);
-                    }
+                for entry in excludes.iter() {
+                    buf.push(entry);
                 }
                 qb.push_bind(buf);
                 qb.push(") ");
@@ -608,9 +611,6 @@ impl Manager {
 
         qb.sql().into()
     }
-
-    // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L232-L237
-    // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L494-L499
 
     fn event_property_join_type(&self, filter_by_event_names: &Option<bool>) -> &str {
         if let Some(true) = filter_by_event_names {
