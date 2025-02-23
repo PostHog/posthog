@@ -8,10 +8,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { isObject } from 'lib/utils'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import { urls } from 'scenes/urls'
 
-import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
+import { PlaylistRecordingsCounts, ReplayTabs, SessionRecordingPlaylistType } from '~/types'
 
 import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 
@@ -36,6 +37,10 @@ function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
     }
 }
 
+function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsCounts {
+    return isObject(x) && ('query_count' in x || 'pinned_count' in x)
+}
+
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
     const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
@@ -56,32 +61,22 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             },
         },
         {
-            dataIndex: 'recordings_matching_filters_count',
+            dataIndex: 'recordings_counts',
             width: 0,
-            render: function Render(recordings_matching_filters_count) {
-                if (!recordings_matching_filters_count) {
+            render: function Render(recordings_counts) {
+                if (!isPlaylistRecordingsCounts(recordings_counts)) {
                     return null
                 }
 
-                const countAsANumber =
-                    typeof recordings_matching_filters_count === 'string'
-                        ? parseInt(recordings_matching_filters_count)
-                        : recordings_matching_filters_count
-
-                if (typeof countAsANumber !== 'number') {
-                    return null
-                }
-
-                if (isNaN(countAsANumber)) {
-                    return null
-                }
-
+                const count = (recordings_counts.pinned_count || 0) + (recordings_counts.query_count || 0)
                 return (
                     <div>
                         <LemonBadge.Number
-                            status={recordings_matching_filters_count ? 'primary' : 'muted'}
+                            status={count ? 'primary' : 'muted'}
                             className="text-xs"
-                            count={countAsANumber}
+                            count={count}
+                            maxDigits={3}
+                            showCountHasMore={recordings_counts.has_more}
                         />
                     </div>
                 )

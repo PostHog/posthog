@@ -44,7 +44,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     try:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
-            query = query = RecordingsQuery.model_validate(playlist.filters)
+            query = RecordingsQuery.model_validate(playlist.filters)
             (recordings, more_recordings_available, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )

@@ -1,6 +1,7 @@
 import json
 from typing import Any, Optional, cast
 
+import posthoganalytics
 import structlog
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
@@ -75,7 +76,7 @@ def log_playlist_activity(
 
 
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
-    recordings_matching_filters_count = serializers.SerializerMethodField()
+    recordings_counts = serializers.SerializerMethodField()
 
     class Meta:
         model = SessionRecordingPlaylist
@@ -92,7 +93,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "filters",
             "last_modified_at",
             "last_modified_by",
-            "recordings_matching_filters_count",
+            "recordings_counts",
         ]
         read_only_fields = [
             "id",
@@ -102,21 +103,33 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
-            "recordings_matching_filters_count",
+            "recordings_counts",
         ]
 
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
 
-    def get_recordings_matching_filters_count(self, playlist: SessionRecordingPlaylist) -> int | None:
-        redis_client = get_client()
-        counts = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
-        if counts:
-            count_data = json.loads(counts)
-            id_list = count_data.get("session_ids", None)
-            return len(id_list) if id_list else None
-        else:
-            return None
+    def get_recordings_counts(self, playlist: SessionRecordingPlaylist) -> dict:
+        recordings_counts = {
+            "query_count": None,
+            "pinned_count": None,
+            "has_more": None,
+        }
+
+        try:
+            redis_client = get_client()
+            counts = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+            if counts:
+                count_data = json.loads(counts)
+                id_list = count_data.get("session_ids", None)
+                recordings_counts["query_count"] = len(id_list) if id_list else 0
+                recordings_counts["has_more"] = count_data.get("has_more", False)
+
+            recordings_counts["pinned_count"] = playlist.playlist_items.count()
+        except Exception as e:
+            posthoganalytics.capture_exception(e)
+
+        return recordings_counts
 
     def create(self, validated_data: dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
