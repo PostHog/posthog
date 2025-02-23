@@ -56,7 +56,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             },
         },
         {
-            title: 'Recordings count',
             dataIndex: 'recordings_matching_filters_count',
             width: 0,
             render: function Render(recordings_matching_filters_count) {
