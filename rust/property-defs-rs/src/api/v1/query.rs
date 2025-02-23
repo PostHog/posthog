@@ -106,7 +106,7 @@ impl Manager {
         qb.sql().into()
     }
 
-    pub fn property_definitions_query<'a>(
+    pub fn property_definitions_query(
         &self,
         project_id: i32,
         search_terms: &Option<Vec<String>>,
@@ -115,7 +115,7 @@ impl Manager {
         group_type_index: i32,
         properties: &Option<Vec<String>>,
         excluded_properties: &Option<Vec<String>>,
-        event_names: &'a Option<Vec<String>>,
+        event_names: &Option<Vec<String>>,
         is_feature_flag: &Option<bool>,
         is_numerical: &Option<bool>,
         use_enterprise_taxonomy: &Option<bool>,
