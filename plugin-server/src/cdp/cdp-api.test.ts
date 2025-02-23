@@ -144,7 +144,7 @@ describe('CDP API', () => {
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/new/invocations`)
             .send({ globals })
 
-        expect(res.status).toEqual(200)
+        expect(res.status).toEqual(400)
     })
 
     it('can invoke a function via the API with mocks', async () => {
