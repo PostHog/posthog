@@ -106,8 +106,8 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml -f docker-compose.rust.yml down
+                  docker compose -f docker-compose.dev.yml -f docker-compose.rust.yml up -d
 
             - name: Add Kafka to /etc/hosts
               if: needs.changes.outputs.plugin-server == 'true'
