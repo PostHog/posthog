@@ -7,6 +7,7 @@ import {
     IconThumbsUpFilled,
 } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -23,7 +24,7 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
-import { getSurveyResponseKey } from 'scenes/surveys/utils'
+import { getSurveyResponseKey, NPSBreakdown } from 'scenes/surveys/utils'
 
 import { GraphType, InsightLogicProps, SurveyQuestionType } from '~/types'
 
@@ -53,6 +54,85 @@ const formatCount = (count: number, total: number): string => {
     return `${humanFriendlyNumber(count)}`
 }
 
+type StackedBarSegment = {
+    count: number
+    label: string
+    color: string
+}
+
+function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Element {
+    const total = segments.reduce((sum, segment) => sum + segment.count, 0)
+    let accumulatedPercentage = 0
+
+    return (
+        <>
+            {total > 0 && (
+                <div>
+                    <div className="relative w-full mx-auto h-10 mb-4">
+                        {segments.map(({ count, label, color }, index) => {
+                            const percentage = (count / total) * 100
+                            const left = accumulatedPercentage
+                            accumulatedPercentage += percentage
+
+                            const isFirst = index === 0
+                            const isLast = index === segments.length - 1
+                            const isOnly = segments.length === 1
+
+                            return (
+                                <Tooltip
+                                    key={`stacked-bar-${label}`}
+                                    title={`${label}: ${count} (${percentage.toFixed(1)}%)`}
+                                    delayMs={0}
+                                    placement="top"
+                                >
+                                    <div
+                                        className={clsx(
+                                            'h-10 text-white text-center absolute cursor-pointer',
+                                            isFirst || isOnly ? 'rounded-l' : '',
+                                            isLast || isOnly ? 'rounded-r' : ''
+                                        )}
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            backgroundColor: color,
+                                            width: `${percentage}%`,
+                                            left: `${left}%`,
+                                        }}
+                                    >
+                                        <span className="inline-flex font-semibold max-w-full px-1 truncate leading-10">
+                                            {formatCount(count, total)}
+                                        </span>
+                                    </div>
+                                </Tooltip>
+                            )
+                        })}
+                    </div>
+                    <div className="w-full flex justify-center">
+                        <div className="flex items-center">
+                            {segments.map(
+                                ({ count, label, color }) =>
+                                    count > 0 && (
+                                        <div key={`stacked-bar-legend-${label}`} className="flex items-center mr-6">
+                                            {}
+                                            <div
+                                                className="w-3 h-3 rounded-full mr-2"
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={{ backgroundColor: color }}
+                                            />
+                                            <span className="font-semibold text-secondary">{`${label} (${(
+                                                (count / total) *
+                                                100
+                                            ).toFixed(1)}%)`}</span>
+                                        </div>
+                                    )
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    )
+}
+
 export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
     const { seen, dismissed, sent } = surveyUserStats
     const total = seen + dismissed + sent
@@ -78,87 +158,23 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
 export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
     const { seen, dismissed, sent } = surveyUserStats
 
-    const total = seen + dismissed + sent
-    const seenPercentage = (seen / total) * 100
-    const dismissedPercentage = (dismissed / total) * 100
-    const sentPercentage = (sent / total) * 100
+    const segments: StackedBarSegment[] = [
+        { count: seen, label: 'Unanswered', color: '#1D4AFF' },
+        { count: dismissed, label: 'Dismissed', color: '#E3A506' },
+        { count: sent, label: 'Submitted', color: '#529B08' },
+    ]
 
-    return (
-        <>
-            {total > 0 && (
-                <div>
-                    <div className="relative w-full mx-auto h-10 mb-4">
-                        {[
-                            {
-                                count: seen,
-                                label: 'Unanswered',
-                                classes: `rounded-l ${dismissed === 0 && sent === 0 ? 'rounded-r' : ''}`,
-                                style: { backgroundColor: '#1D4AFF', width: `${seenPercentage}%` },
-                            },
-                            {
-                                count: dismissed,
-                                label: 'Dismissed',
-                                classes: `${seen === 0 ? 'rounded-l' : ''} ${sent === 0 ? 'rounded-r' : ''}`,
-                                style: {
-                                    backgroundColor: '#E3A506',
-                                    width: `${dismissedPercentage}%`,
-                                    left: `${seenPercentage}%`,
-                                },
-                            },
-                            {
-                                count: sent,
-                                label: 'Sent',
-                                classes: `rounded-r ${seen === 0 && dismissed === 0 ? 'rounded-l' : ''}`,
-                                style: {
-                                    backgroundColor: '#529B08',
-                                    width: `${sentPercentage}%`,
-                                    left: `${seenPercentage + dismissedPercentage}%`,
-                                },
-                            },
-                        ].map(({ count, label, classes, style }) => (
-                            <Tooltip
-                                key={`survey-summary-chart-${label}`}
-                                title={`${label} surveys: ${count}`}
-                                delayMs={0}
-                                placement="top"
-                            >
-                                <div
-                                    className={`h-10 text-white text-center absolute cursor-pointer ${classes}`}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={style}
-                                >
-                                    <span className="inline-flex font-semibold max-w-full px-1 truncate leading-10">
-                                        {formatCount(count, total)}
-                                    </span>
-                                </div>
-                            </Tooltip>
-                        ))}
-                    </div>
-                    <div className="w-full flex justify-center">
-                        <div className="flex items-center">
-                            {[
-                                { count: seen, label: 'Unanswered', style: { backgroundColor: '#1D4AFF' } },
-                                { count: dismissed, label: 'Dismissed', style: { backgroundColor: '#E3A506' } },
-                                { count: sent, label: 'Submitted', style: { backgroundColor: '#529B08' } },
-                            ].map(
-                                ({ count, label, style }) =>
-                                    count > 0 && (
-                                        <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
-                                            {/* eslint-disable-next-line react/forbid-dom-props */}
-                                            <div className="w-3 h-3 rounded-full mr-2" style={style} />
-                                            <span className="font-semibold text-secondary">{`${label} (${(
-                                                (count / total) *
-                                                100
-                                            ).toFixed(1)}%)`}</span>
-                                        </div>
-                                    )
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </>
-    )
+    return <StackedBar segments={segments} />
+}
+
+export function NPSStackedBar({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
+    const segments: StackedBarSegment[] = [
+        { count: npsBreakdown.detractors, label: 'Detractors', color: 'var(--danger)' },
+        { count: npsBreakdown.passives, label: 'Passives', color: 'var(--warning)' },
+        { count: npsBreakdown.promoters, label: 'Promoters', color: 'var(--success)' },
+    ]
+
+    return <StackedBar segments={segments} />
 }
 
 export function Summary({
