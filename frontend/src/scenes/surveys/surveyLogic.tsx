@@ -1273,7 +1273,7 @@ export const surveyLogic = kea<surveyLogicType>([
         npsBreakdown: [
             (s) => [s.surveyRatingResults],
             (surveyRatingResults) => {
-                if (!surveyRatingResults) {
+                if (!surveyRatingResults || Object.keys(surveyRatingResults).length === 0) {
                     return null
                 }
                 const questionIdx = Object.keys(surveyRatingResults)[0]
