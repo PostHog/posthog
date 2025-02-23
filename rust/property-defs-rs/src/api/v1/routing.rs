@@ -35,14 +35,11 @@ async fn project_property_definitions_handler(
     Query(params): Query<HashMap<String, String>>,
 ) -> Json<PropDefResponse> {
     // parse the request parameters; use Option<T> to track presence for query step
-    let search: Option<Vec<String>> = match params.get("search") {
-        Some(raw) => Some(
-            raw.split(" ")
-                .map(|s| s.trim().to_string().to_lowercase())
-                .collect(),
-        ),
-        _ => None,
-    };
+    let search: Option<Vec<String>> = params.get("search").map(|raw| {
+        raw.split(" ")
+            .map(|s| s.trim().to_string().to_lowercase())
+            .collect()
+    });
 
     let property_type = match params.get("type") {
         Some(s) if PARENT_PROPERTY_TYPES.iter().any(|pt| *pt == s) => Some(s.clone()),
@@ -54,8 +51,7 @@ async fn project_property_definitions_handler(
         Some(s) => match s.parse::<i32>().ok() {
             Some(gti)
                 if property_type.as_ref().is_some_and(|pt| pt == "group")
-                    && gti >= 0
-                    && gti < GROUP_TYPE_LIMIT =>
+                    && (0..GROUP_TYPE_LIMIT).contains(&gti) =>
             {
                 gti
             }
@@ -64,48 +60,45 @@ async fn project_property_definitions_handler(
         _ => -1,
     };
 
-    let properties = match params.get("properties") {
-        Some(raw) => Some(raw.split(",").map(|s| s.trim().to_string()).collect()),
-        _ => None,
-    };
+    let properties = params
+        .get("properties")
+        .map(|raw| raw.split(",").map(|s| s.trim().to_string()).collect());
 
-    let is_numerical = match params.get("is_numerical") {
-        Some(s) => s.parse::<bool>().ok(),
-        _ => None,
-    };
+    let is_numerical = params
+        .get("is_numerical")
+        .map(|s| s.parse::<bool>().ok())
+        .flatten();
 
-    let is_feature_flag: Option<bool> = match params.get("is_feature_flag") {
-        Some(s) => s.parse::<bool>().ok(),
-        _ => None,
-    };
+    let is_feature_flag = params
+        .get("is_feature_flag")
+        .map(|s| s.parse::<bool>().ok())
+        .flatten();
 
-    let excluded_properties = match params.get("excluded_properties") {
-        Some(raw) => Some(raw.split(",").map(|s| s.trim().to_string()).collect()),
-        _ => None,
-    };
+    let excluded_properties = params
+        .get("excluded_properties")
+        .map(|raw| raw.split(",").map(|s| s.trim().to_string()).collect());
 
     // this must be calculated on the Django (caller) side and passed to this API.
     // it allows us to decide the base table to select from in our property defs queries
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L463
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L504-L508
-    let use_enterprise_taxonomy = match params.get("use_enterprise_taxonomy") {
-        Some(s) => s.parse::<bool>().ok(),
-        _ => None,
-    };
+    let use_enterprise_taxonomy = params
+        .get("use_enterprise_taxonomy")
+        .map(|s| s.parse::<bool>().ok())
+        .flatten();
 
-    let filter_by_event_names: Option<bool> = match params.get("filter_by_event_names") {
-        Some(s) => s.parse::<bool>().ok(),
-        _ => None,
-    };
+    let filter_by_event_names: Option<bool> = params
+        .get("filter_by_event_names")
+        .map(|s| s.parse::<bool>().ok())
+        .flatten();
 
     // IMPORTANT: this is passed to the Django API as JSON but probably doesn't
     // matter how we pass it from Django to this service, so it's a CSV for now.
     // is this a mistake? TBD, revisit and see below:
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L214
-    let event_names = match params.get("event_names") {
-        Some(raw) => Some(raw.split(",").map(|s| s.trim().to_string()).collect()),
-        _ => None,
-    };
+    let event_names = params
+        .get("event_names")
+        .map(|raw| raw.split(",").map(|s| s.trim().to_string()).collect());
 
     let limit: i32 = match params.get("limit") {
         Some(s) => match s.parse::<i32>().ok() {
@@ -220,7 +213,7 @@ fn gen_url(uri: Uri, total_count: i32, new_offset: i32) -> Option<String> {
 
     // Rebuild the Uri with the modified query parameters
     let new_query = form_urlencoded::Serializer::new(String::new())
-        .extend_pairs(query_params.into_iter())
+        .extend_pairs(query_params)
         .finish();
 
     // Replace the original query with the modified query
@@ -232,8 +225,8 @@ fn gen_url(uri: Uri, total_count: i32, new_offset: i32) -> Option<String> {
         .path()
         .to_string();
     let uri = Uri::builder()
-        .scheme(uri.scheme().clone().unwrap().as_str())
-        .authority(uri.authority().cloned().unwrap().as_str())
+        .scheme(uri.scheme().unwrap().as_str())
+        .authority(uri.authority().unwrap().as_str())
         .path_and_query(base_uri + "?" + &new_query)
         .build()
         .unwrap();
