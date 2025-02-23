@@ -6,7 +6,7 @@ import { Team } from '../types'
 
 export const posthog = new PostHog('sTMFPsFhdP1Ssg', {
     host: 'https://us.i.posthog.com',
-    enableExceptionAutocapture: process.env.NODE_ENV === 'production',
+    enableExceptionAutocapture: false, // TODO - disabled while data volume is a problem, PS seems /extremely/ chatty exceptions wise
 })
 
 if (process.env.NODE_ENV === 'test') {
@@ -47,7 +47,8 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
         sentryId = captureSentryException(exception, hint)
     }
 
-    if (process.env.NODE_ENV === 'production') {
+    // TODO - this sampling is a hack while we work on our data consumption in error tracking
+    if (process.env.NODE_ENV === 'production' && Math.random() < 0.1) {
         let additionalProperties = {}
         if (hint) {
             additionalProperties = {

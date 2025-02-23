@@ -164,7 +164,7 @@ export class CdpApi {
                 },
             }
 
-            if (compoundConfiguration.type === 'destination') {
+            if (['destination', 'internal_destination'].includes(compoundConfiguration.type)) {
                 const {
                     invocations,
                     logs: filterLogs,
