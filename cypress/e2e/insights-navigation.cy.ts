@@ -43,7 +43,7 @@ describe('Insights', () => {
             cy.get('[data-attr="insight-save-button"]').click()
 
             cy.get('.RetentionContainer canvas').should('exist')
-            cy.get('.RetentionTable__Tab').should('have.length', 66)
+            cy.get('.RetentionTable__Tab').should('have.length', 77)
         })
 
         it('can open a new SQL insight and navigate to a different one, then back to SQL, and back again', () => {
