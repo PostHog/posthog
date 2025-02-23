@@ -961,6 +961,59 @@ class TestExperimentCRUD(APILicensedTest):
         updated_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertTrue(updated_ff.active)
 
+    def test_draft_experiment_update_doesnt_delete_ff_payloads(self):
+        # Draft experiment
+        ff_key = "a-b-tests-with-flag-payloads"
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {"events": []},
+            },
+        )
+        id = create_response.json()["id"]
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        # Update feature flag payloads
+        created_ff.filters["payloads"] = {"test": '"test-payload"', "control": '"control-payload"'}
+        created_ff.save()
+
+        # Update parameters on experiment
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Update parameters",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "special",
+                            "name": "Special Variant",
+                            "rollout_percentage": 34,
+                        },
+                    ]
+                },
+            },
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        updated_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(updated_ff.filters["payloads"], {"test": '"test-payload"', "control": '"control-payload"'})
+
     def test_create_multivariate_experiment_can_update_variants_in_draft(self):
         ff_key = "a-b-test"
         response = self.client.post(
