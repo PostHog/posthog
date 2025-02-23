@@ -6655,6 +6655,8 @@ class HogQLQuery(BaseModel):
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be substituted into the query"
     )
+    def toJSON(self):
+        return self.json()
 
 
 class InsightActorsQueryOptionsResponse(BaseModel):
