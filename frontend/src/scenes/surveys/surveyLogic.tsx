@@ -1422,16 +1422,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 const start = getSurveyStartDateForQuery(survey)
                 const end = getSurveyEndDateForQuery(survey)
                 const diffInDays = dayjs(end).diff(dayjs(start), 'days')
+                const diffInWeeks = dayjs(end).diff(dayjs(start), 'weeks')
 
                 if (diffInDays < 2) {
                     return 'hour'
                 }
-                // less than a month
-                if (diffInDays < 30) {
+                if (diffInWeeks <= 4) {
                     return 'day'
                 }
-                // more than a month, less than 3 months
-                if (diffInDays < 90) {
+                if (diffInWeeks <= 12) {
                     return 'week'
                 }
                 return 'month'
