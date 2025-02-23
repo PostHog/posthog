@@ -174,12 +174,10 @@ describe('survey utils', () => {
         })
 
         it('returns all zeros when data array has incorrect length', () => {
-            const surveyResults = [
-                {
-                    data: [1, 2, 3], // Less than 11 elements
-                    total: 6,
-                },
-            ]
+            const surveyResults = {
+                data: [1, 2, 3], // Less than 11 elements
+                total: 6,
+            }
 
             const result = calculateNpsBreakdown(surveyResults)
 
@@ -192,12 +190,10 @@ describe('survey utils', () => {
         })
 
         it('returns early with all zeros when total is 0', () => {
-            const surveyResults = [
-                {
-                    data: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], // despite having some counts in data
-                    total: 0, // total is explicitly 0
-                },
-            ]
+            const surveyResults = {
+                data: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], // despite having some counts in data
+                total: 0, // total is explicitly 0
+            }
 
             const result = calculateNpsBreakdown(surveyResults)
 
@@ -210,24 +206,22 @@ describe('survey utils', () => {
         })
 
         it('correctly calculates NPS breakdown with all categories present', () => {
-            const surveyResults = [
-                {
-                    data: [
-                        1,
-                        1,
-                        1,
-                        1,
-                        1,
-                        1,
-                        1, // 7 detractors (0-6)
-                        2,
-                        2, // 4 passives (7-8)
-                        3,
-                        3,
-                    ], // 6 promoters (9-10)
-                    total: 17,
-                },
-            ]
+            const surveyResults = {
+                data: [
+                    1,
+                    1,
+                    1,
+                    1,
+                    1,
+                    1,
+                    1, // 7 detractors (0-6)
+                    2,
+                    2, // 4 passives (7-8)
+                    3,
+                    3,
+                ], // 6 promoters (9-10)
+                total: 17,
+            }
 
             const result = calculateNpsBreakdown(surveyResults)
 
@@ -240,12 +234,10 @@ describe('survey utils', () => {
         })
 
         it('handles all zeros', () => {
-            const surveyResults = [
-                {
-                    data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    total: 0,
-                },
-            ]
+            const surveyResults = {
+                data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                total: 0,
+            }
 
             const result = calculateNpsBreakdown(surveyResults)
 
@@ -258,12 +250,10 @@ describe('survey utils', () => {
         })
 
         it('handles only promoters', () => {
-            const surveyResults = [
-                {
-                    data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5], // only 9s and 10s
-                    total: 10,
-                },
-            ]
+            const surveyResults = {
+                data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5], // only 9s and 10s
+                total: 10,
+            }
 
             const result = calculateNpsBreakdown(surveyResults)
 
@@ -276,12 +266,10 @@ describe('survey utils', () => {
         })
 
         it('handles only passives', () => {
-            const surveyResults = [
-                {
-                    data: [0, 0, 0, 0, 0, 0, 0, 5, 5, 0, 0], // only 7s and 8s
-                    total: 10,
-                },
-            ]
+            const surveyResults = {
+                data: [0, 0, 0, 0, 0, 0, 0, 5, 5, 0, 0], // only 7s and 8s
+                total: 10,
+            }
 
             const result = calculateNpsBreakdown(surveyResults)
 
@@ -294,12 +282,10 @@ describe('survey utils', () => {
         })
 
         it('handles only detractors', () => {
-            const surveyResults = [
-                {
-                    data: [2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0], // only 0-6
-                    total: 14,
-                },
-            ]
+            const surveyResults = {
+                data: [2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0], // only 0-6
+                total: 14,
+            }
 
             const result = calculateNpsBreakdown(surveyResults)
 
