@@ -901,6 +901,18 @@ def ee_persist_finished_recordings() -> None:
 
 
 @shared_task(ignore_result=True)
+def ee_count_items_in_playlists() -> None:
+    try:
+        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            enqueue_recordings_that_match_playlist_filters,
+        )
+    except ImportError:
+        pass
+    else:
+        enqueue_recordings_that_match_playlist_filters()
+
+
+@shared_task(ignore_result=True)
 def calculate_external_data_rows_synced() -> None:
     try:
         from posthog.tasks.warehouse import capture_external_data_rows_synced
