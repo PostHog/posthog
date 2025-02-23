@@ -1441,6 +1441,10 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: LegacyRecordingFilters
+    /**
+     * the count of recordings matching filters, calculated periodically
+     */
+    recordings_matching_filters_count?: number
 }
 
 export interface SessionRecordingSegmentType {

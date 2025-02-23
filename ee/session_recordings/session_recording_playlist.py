@@ -1,4 +1,5 @@
-from typing import Any, Optional
+import json
+from typing import Any, Optional, cast
 
 import structlog
 from django.db.models import Q, QuerySet
@@ -34,9 +35,12 @@ from posthog.session_recordings.session_recording_api import (
     query_as_params_to_dict,
     list_recordings_from_query,
 )
+from posthog.redis import get_client
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
+
+PLAYLIST_COUNT_REDIS_PREFIX = "@posthog/replay/playlist_filters_match_count/"
 
 
 def log_playlist_activity(
@@ -71,6 +75,8 @@ def log_playlist_activity(
 
 
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
+    recordings_matching_filters_count = serializers.SerializerMethodField()
+
     class Meta:
         model = SessionRecordingPlaylist
         fields = [
@@ -86,6 +92,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "filters",
             "last_modified_at",
             "last_modified_by",
+            "recordings_matching_filters_count",
         ]
         read_only_fields = [
             "id",
@@ -95,10 +102,21 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "recordings_matching_filters_count",
         ]
 
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+
+    def get_recordings_matching_filters_count(self, playlist: SessionRecordingPlaylist) -> int | None:
+        redis_client = get_client()
+        counts = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+        if counts:
+            count_data = json.loads(counts)
+            id_list = count_data.get("session_ids", None)
+            return len(id_list) if id_list else None
+        else:
+            return None
 
     def create(self, validated_data: dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
@@ -218,8 +236,10 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
         query.session_ids = playlist_items
+
         return list_recordings_response(
-            list_recordings_from_query(query, request, context=self.get_serializer_context())
+            list_recordings_from_query(query, cast(User, request.user), team=self.team),
+            context=self.get_serializer_context(),
         )
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist

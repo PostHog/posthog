@@ -1,5 +1,5 @@
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -52,6 +52,39 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                         onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
                     />
+                )
+            },
+        },
+        {
+            title: 'Recordings count',
+            dataIndex: 'recordings_matching_filters_count',
+            width: 0,
+            render: function Render(recordings_matching_filters_count) {
+                if (!recordings_matching_filters_count) {
+                    return null
+                }
+
+                const countAsANumber =
+                    typeof recordings_matching_filters_count === 'string'
+                        ? parseInt(recordings_matching_filters_count)
+                        : recordings_matching_filters_count
+
+                if (typeof countAsANumber !== 'number') {
+                    return null
+                }
+
+                if (isNaN(countAsANumber)) {
+                    return null
+                }
+
+                return (
+                    <div>
+                        <LemonBadge.Number
+                            status={recordings_matching_filters_count ? 'primary' : 'muted'}
+                            className="text-xs"
+                            count={countAsANumber}
+                        />
+                    </div>
                 )
             },
         },
