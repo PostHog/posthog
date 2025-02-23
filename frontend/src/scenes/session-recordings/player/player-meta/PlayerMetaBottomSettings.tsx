@@ -52,7 +52,7 @@ function SkipInactivity(): JSX.Element {
 
     return (
         <SettingsToggle
-            title="Skip inactivite parts of the recording"
+            title="Skip inactive parts of the recording"
             label="Skip inactivity"
             active={skipInactivitySetting}
             data-attr="skip-inactivity"
