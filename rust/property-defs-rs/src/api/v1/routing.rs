@@ -14,7 +14,7 @@ use serde::Serialize;
 use sqlx::{Executor, Row};
 use url::form_urlencoded;
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub fn apply_routes(parent: Router, qmgr: Arc<Manager>) -> Router {
@@ -79,13 +79,11 @@ async fn project_property_definitions_handler(
 
     let is_numerical = params
         .get("is_numerical")
-        .map(|s| s.parse::<bool>().ok())
-        .flatten();
+        .and_then(|s| s.parse::<bool>().ok());
 
     let is_feature_flag = params
         .get("is_feature_flag")
-        .map(|s| s.parse::<bool>().ok())
-        .flatten();
+        .and_then(|s| s.parse::<bool>().ok());
 
     let excluded_properties = params
         .get("excluded_properties")
@@ -97,13 +95,11 @@ async fn project_property_definitions_handler(
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L504-L508
     let use_enterprise_taxonomy = params
         .get("use_enterprise_taxonomy")
-        .map(|s| s.parse::<bool>().ok())
-        .flatten();
+        .and_then(|s| s.parse::<bool>().ok());
 
-    let filter_by_event_names: Option<bool> = params
+    let filter_by_event_names = params
         .get("filter_by_event_names")
-        .map(|s| s.parse::<bool>().ok())
-        .flatten();
+        .and_then(|s| s.parse::<bool>().ok());
 
     // IMPORTANT: this is passed to the Django API as JSON but probably doesn't
     // matter how we pass it from Django to this service, so it's a CSV for now.
@@ -168,22 +164,22 @@ async fn project_property_definitions_handler(
 
     let total_count: i32 = match qmgr.pool.fetch_one(count_query.as_str()).await {
         Ok(row) => row.get(0),
-        Err(e) => unimplemented!("TODO: handle count query error!"),
+        Err(_e) => unimplemented!("TODO: handle count query error!"),
     };
 
     match qmgr.pool.fetch_all(props_query.as_str()).await {
         Ok(result) => {
-            for row in result {
+            for _row in result {
                 // TODO: populate PropDefResponse.results entries!!!
             }
         }
-        Err(e) => unimplemented!("TODO: handle props query error!"),
+        Err(_e) => unimplemented!("TODO: handle props query error!"),
     }
 
     let (prev_url, next_url) = gen_next_prev_urls(uri, total_count, limit, offset);
 
     // execute the queries, and populate the response
-    let mut out = PropDefResponse {
+    let out = PropDefResponse {
         count: total_count as u32,
         next: next_url,
         prev: prev_url,

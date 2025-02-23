@@ -9,7 +9,7 @@ use crate::{
 
 use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, QueryBuilder};
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 
 // Wraps Postgres client and builds queries
 pub struct Manager {
@@ -76,7 +76,13 @@ impl Manager {
         let mut qb = QueryBuilder::<Postgres>::new("SELECT count(*) AS full_count FROM ");
 
         qb = self.gen_from_clause(qb, use_enterprise_taxonomy);
-        qb = self.gen_conditional_join_event_props(qb, project_id, property_type, filter_by_event_names, &event_names);
+        qb = self.gen_conditional_join_event_props(
+            qb,
+            project_id,
+            property_type,
+            filter_by_event_names,
+            &event_names,
+        );
 
         // begin the WHERE clause
         qb = self.init_where_clause(qb, project_id);
@@ -87,9 +93,9 @@ impl Manager {
         qb = self.conditionally_filter_excluded_properties(qb, property_type, excluded_properties);
         qb = self.conditionally_filter_properties(qb, properties);
         qb = self.conditionally_filter_numerical_properties(qb, is_numerical);
-        
+
         qb = self.conditionally_apply_search_clause(qb, search_terms, search_fields);
-        
+
         qb = self.conditionally_filter_event_names(qb, filter_by_event_names, event_names);
         qb = self.conditionally_filter_feature_flags(qb, is_feature_flag);
 
@@ -146,7 +152,7 @@ impl Manager {
                 */
 
         let mut qb = QueryBuilder::<Postgres>::new("SELECT ");
-        if use_enterprise_taxonomy.is_some_and(|uet| uet == true) {
+        if use_enterprise_taxonomy.is_some_and(|uet| uet) {
             // borrowed from EnterprisePropertyDefinition from Django monolith
             // via EnterprisePropertyDefinition._meta.get_fields()
             qb.push("id, project, team, name, is_numerical, property_type, type, group_type_index, property_type_format, description, updated_at, updated_by, verified_at, verified_by ");
@@ -167,7 +173,13 @@ impl Manager {
         ));
 
         qb = self.gen_from_clause(qb, use_enterprise_taxonomy);
-        qb = self.gen_conditional_join_event_props(qb, project_id, property_type, filter_by_event_names, &event_names);
+        qb = self.gen_conditional_join_event_props(
+            qb,
+            project_id,
+            property_type,
+            filter_by_event_names,
+            event_names,
+        );
 
         // begin the WHERE clause
         qb = self.init_where_clause(qb, project_id);
@@ -180,7 +192,7 @@ impl Manager {
         qb = self.conditionally_filter_numerical_properties(qb, is_numerical);
 
         qb = self.conditionally_apply_search_clause(qb, search_terms, search_fields);
-        
+
         qb = self.conditionally_filter_event_names(qb, filter_by_event_names, event_names);
         qb = self.conditionally_filter_feature_flags(qb, is_feature_flag);
 
@@ -200,8 +212,12 @@ impl Manager {
         qb.sql().into()
     }
 
-    fn gen_from_clause<'a>(&self, mut qb: QueryBuilder<'a, Postgres>, use_enterprise_taxonomy: &Option<bool>) -> QueryBuilder<'a, Postgres> {
-        let from_clause = if use_enterprise_taxonomy.is_some_and(|uet| uet == true) {
+    fn gen_from_clause<'a>(
+        &self,
+        mut qb: QueryBuilder<'a, Postgres>,
+        use_enterprise_taxonomy: &Option<bool>,
+    ) -> QueryBuilder<'a, Postgres> {
+        let from_clause = if use_enterprise_taxonomy.is_some_and(|uet| uet) {
             // TODO: ensure this all behaves as it does in Django (and that we need it!) later...
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L505-L506
             format!(
@@ -213,17 +229,19 @@ impl Manager {
             self.prop_defs_table.clone()
         };
         qb.push_bind(from_clause);
-        
+
         qb
     }
-    
-    fn gen_conditional_join_event_props<'a>(&self,
+
+    fn gen_conditional_join_event_props<'a>(
+        &self,
         mut qb: QueryBuilder<'a, Postgres>,
         project_id: i32,
         property_type: &Option<String>,
         filter_by_event_names: &Option<bool>,
-        event_names: &'a Option<Vec<String>>) -> QueryBuilder<'a, Postgres> {
-                // conditionally join on event properties table
+        event_names: &'a Option<Vec<String>>,
+    ) -> QueryBuilder<'a, Postgres> {
+        // conditionally join on event properties table
         // this join is only applied if the query is scoped to type "event"
         if self.is_prop_type_event(property_type) {
             qb.push(self.event_property_join_type(filter_by_event_names));
@@ -233,9 +251,9 @@ impl Manager {
             qb.push_bind(project_id);
 
             // conditionally apply event_names filter
-            if filter_by_event_names.is_some() && filter_by_event_names.unwrap() == true {
+            if filter_by_event_names.is_some_and(|fben| fben) {
                 if let Some(names) = event_names {
-                    if names.len() > 0 {
+                    if !names.is_empty() {
                         qb.push(" AND event = ANY(");
                         qb.push_bind(names);
                         qb.push(") ");
@@ -253,16 +271,25 @@ impl Manager {
         qb
     }
 
-    fn init_where_clause<'a>(&self, mut qb: QueryBuilder<'a, Postgres>, project_id: i32) -> QueryBuilder<'a, Postgres> {
+    fn init_where_clause<'a>(
+        &self,
+        mut qb: QueryBuilder<'a, Postgres>,
+        project_id: i32,
+    ) -> QueryBuilder<'a, Postgres> {
         qb.push(format!(
             "WHERE COALESCE({0}.project_id, {0}.team_id) = ",
-            self.prop_defs_table));
+            self.prop_defs_table
+        ));
         qb.push_bind(project_id);
 
         qb
     }
 
-    fn where_property_type<'a>(&self, mut qb: QueryBuilder<'a, Postgres>, property_type: &'a Option<String>) -> QueryBuilder<'a, Postgres> {
+    fn where_property_type<'a>(
+        &self,
+        mut qb: QueryBuilder<'a, Postgres>,
+        property_type: &'a Option<String>,
+    ) -> QueryBuilder<'a, Postgres> {
         // add condition on "type" (here, ProperyParentType)
         // TODO: throw error in input validation if this is missing!
         if let Some(prop_type) = property_type {
@@ -273,10 +300,12 @@ impl Manager {
         qb
     }
 
-    fn conditionally_filter_excluded_properties<'a>(&self,
+    fn conditionally_filter_excluded_properties<'a>(
+        &self,
         mut qb: QueryBuilder<'a, Postgres>,
         property_type: &Option<String>,
-        excluded_properties: &'a Option<Vec<String>>) -> QueryBuilder<'a, Postgres> {
+        excluded_properties: &'a Option<Vec<String>>,
+    ) -> QueryBuilder<'a, Postgres> {
         // conditionally filter on excluded_properties
         // NOTE: excluded_properties is also passed to the Django API as JSON,
         // but may not matter when passed to this service. TBD. See below:
@@ -299,10 +328,14 @@ impl Manager {
         qb
     }
 
-    fn conditionally_filter_properties<'a>(&self, mut qb: QueryBuilder<'a, Postgres>, properties: &'a Option<Vec<String>>) -> QueryBuilder<'a, Postgres> {
+    fn conditionally_filter_properties<'a>(
+        &self,
+        mut qb: QueryBuilder<'a, Postgres>,
+        properties: &'a Option<Vec<String>>,
+    ) -> QueryBuilder<'a, Postgres> {
         // conditionally filter on property names ("name" col)
         if let Some(props) = properties {
-            if props.len() > 0 {
+            if !props.is_empty() {
                 qb.push(" AND name = ANY(");
                 qb.push_bind(props);
                 qb.push(") ");
@@ -312,11 +345,15 @@ impl Manager {
         qb
     }
 
-    fn conditionally_filter_numerical_properties<'a>(&self, mut qb: QueryBuilder<'a, Postgres>, is_numerical: &Option<bool>) -> QueryBuilder<'a, Postgres> {
+    fn conditionally_filter_numerical_properties<'a>(
+        &self,
+        mut qb: QueryBuilder<'a, Postgres>,
+        is_numerical: &Option<bool>,
+    ) -> QueryBuilder<'a, Postgres> {
         // conditionally filter for numerical-valued properties:
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
         // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
-        if is_numerical.is_some_and(|is_num| is_num == true) {
+        if is_numerical.is_some_and(|is_num| is_num) {
             qb.push(
                 " AND is_numerical = true AND NOT name = ANY(ARRAY['distinct_id', 'timestamp']) ",
             );
@@ -325,10 +362,12 @@ impl Manager {
         qb
     }
 
-    fn conditionally_apply_search_clause<'a>(&self,
+    fn conditionally_apply_search_clause<'a>(
+        &self,
         mut qb: QueryBuilder<'a, Postgres>,
         search_terms: &'a Option<Vec<String>>,
-        search_fields: &'a HashSet<String>) -> QueryBuilder<'a, Postgres> {
+        search_fields: &'a HashSet<String>,
+    ) -> QueryBuilder<'a, Postgres> {
         // conditionally apply search term matching; skip this if possible, it's not cheap!
         // logic: https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
         if search_terms.as_ref().is_some_and(|terms| !terms.is_empty()) {
@@ -434,10 +473,12 @@ impl Manager {
         qb
     }
 
-    fn conditionally_filter_event_names<'a>(&self,
+    fn conditionally_filter_event_names<'a>(
+        &self,
         mut qb: QueryBuilder<'a, Postgres>,
         filter_by_event_names: &Option<bool>,
-        event_names: &'a Option<Vec<String>>) -> QueryBuilder<'a, Postgres> {
+        event_names: &'a Option<Vec<String>>,
+    ) -> QueryBuilder<'a, Postgres> {
         // conditionally apply event_names filter for outer query
         //
         // NOTE: the conditional join on event props table applied
@@ -445,7 +486,7 @@ impl Manager {
         // LEFT join, so this is still required.
         if filter_by_event_names.is_some() && filter_by_event_names.unwrap() {
             if let Some(names) = event_names {
-                if names.len() > 0 {
+                if !names.is_empty() {
                     qb.push(" AND event = ANY(");
                     qb.push_bind(names);
                     qb.push(") ");
@@ -456,9 +497,13 @@ impl Manager {
         qb
     }
 
-    fn conditionally_filter_feature_flags<'a>(&self, mut qb: QueryBuilder<'a, Postgres>, is_feature_flag: &Option<bool>) -> QueryBuilder<'a, Postgres> {
+    fn conditionally_filter_feature_flags<'a>(
+        &self,
+        mut qb: QueryBuilder<'a, Postgres>,
+        is_feature_flag: &Option<bool>,
+    ) -> QueryBuilder<'a, Postgres> {
         // conditionally apply feature flag property filters
-        if is_feature_flag.is_some_and( |iff| iff == true) {
+        if is_feature_flag.is_some_and(|iff| iff) {
             qb.push(" AND (name LIKE '$feature/%') ");
         } else {
             qb.push(" AND (name NOT LIKE '$feature/%') ");

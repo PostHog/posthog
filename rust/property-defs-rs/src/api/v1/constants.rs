@@ -6,11 +6,10 @@ pub const GROUP_TYPE_LIMIT: i32 = 5;
 pub const DEFAULT_QUERY_LIMIT: i32 = 0;
 pub const DEFAULT_QUERY_OFFSET: i32 = 100;
 
-pub const SEARCH_TRIGGER_WORD: &'static str = "latest";
-pub const SEARCH_SCREEN_WORD: &'static str = "initial";
+pub const SEARCH_TRIGGER_WORD: &str = "latest";
+pub const SEARCH_SCREEN_WORD: &str = "initial";
 
-pub const POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS: &'static str =
-    "check_for_matching_event_property";
+pub const POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS: &str = "check_for_matching_event_property";
 
 pub const PARENT_PROPERTY_TYPES: [&str; 4] = ["event", "person", "group", "session"];
 
