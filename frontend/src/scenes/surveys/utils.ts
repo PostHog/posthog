@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify'
+import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import { SurveyAppearance } from '~/types'
 
@@ -48,4 +49,39 @@ export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): S
         submitButtonColor: sanitizeColor(appearance.submitButtonColor),
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
     }
+}
+
+export type NPSBreakdown = {
+    total: number
+    promoters: number
+    passives: number
+    detractors: number
+}
+
+export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[number]): NPSBreakdown {
+    // Validate input structure
+    if (!surveyRatingResults.data) {
+        return { total: 0, promoters: 0, passives: 0, detractors: 0 }
+    }
+
+    // Validate data array length
+    if (surveyRatingResults.data.length !== 11) {
+        return { total: 0, promoters: 0, passives: 0, detractors: 0 }
+    }
+
+    if (surveyRatingResults.total === 0) {
+        return { total: 0, promoters: 0, passives: 0, detractors: 0 }
+    }
+
+    const promoters = surveyRatingResults.data.slice(9, 11).reduce((a, b) => a + b, 0)
+    const passives = surveyRatingResults.data.slice(7, 9).reduce((a, b) => a + b, 0)
+    const detractors = surveyRatingResults.data.slice(0, 7).reduce((a, b) => a + b, 0)
+    return { total: surveyRatingResults.total, promoters, passives, detractors }
+}
+
+export function calculateNpsScore(npsBreakdown: NPSBreakdown): number {
+    if (npsBreakdown.total === 0) {
+        return 0
+    }
+    return ((npsBreakdown.promoters - npsBreakdown.detractors) / npsBreakdown.total) * 100
 }

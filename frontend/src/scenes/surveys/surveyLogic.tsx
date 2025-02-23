@@ -37,7 +37,14 @@ import {
 import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
-import { getSurveyResponseKey, sanitizeHTML, sanitizeSurveyAppearance, validateColor } from './utils'
+import {
+    calculateNpsBreakdown,
+    calculateNpsScore,
+    getSurveyResponseKey,
+    sanitizeHTML,
+    sanitizeSurveyAppearance,
+    validateColor,
+} from './utils'
 
 const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: PropertyOperator }> = {
     [SurveyQuestionType.Open]: {
@@ -1258,13 +1265,21 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     const data: number[] = questionResults.data
                     if (data.length === 11) {
-                        const promoters = data.slice(9, 11).reduce((a, b) => a + b, 0)
-                        const passives = data.slice(7, 9).reduce((a, b) => a + b, 0)
-                        const detractors = data.slice(0, 7).reduce((a, b) => a + b, 0)
-                        const npsScore = ((promoters - detractors) / (promoters + passives + detractors)) * 100
-                        return npsScore.toFixed(1)
+                        return calculateNpsScore(calculateNpsBreakdown(questionResults)).toFixed(1)
                     }
                 }
+            },
+        ],
+        npsBreakdown: [
+            (s) => [s.surveyRatingResults],
+            (surveyRatingResults) => {
+                if (!surveyRatingResults) {
+                    return null
+                }
+                const questionIdx = Object.keys(surveyRatingResults)[0]
+                const questionResults = surveyRatingResults[questionIdx]
+
+                return calculateNpsBreakdown(questionResults)
             },
         ],
         getBranchingDropdownValue: [
