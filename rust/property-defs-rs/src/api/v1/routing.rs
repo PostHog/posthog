@@ -109,21 +109,13 @@ async fn project_property_definitions_handler(
         .get("event_names")
         .map(|raw| raw.split(",").map(|s| s.trim().to_string()).collect());
 
-    let limit: i32 = match params.get("limit") {
-        Some(s) => match s.parse::<i32>().ok() {
-            Some(val) => val,
-            _ => DEFAULT_QUERY_LIMIT,
-        },
-        _ => DEFAULT_QUERY_LIMIT,
-    };
+    let limit: i32 = params.get("limit").map_or(DEFAULT_QUERY_LIMIT, |s| {
+        s.parse::<i32>().unwrap_or(DEFAULT_QUERY_LIMIT)
+    });
 
-    let offset: i32 = match params.get("offset") {
-        Some(s) => match s.parse::<i32>().ok() {
-            Some(val) => val,
-            _ => DEFAULT_QUERY_OFFSET,
-        },
-        _ => DEFAULT_QUERY_OFFSET,
-    };
+    let offset: i32 = params.get("offset").map_or(DEFAULT_QUERY_OFFSET, |s| {
+        s.parse::<i32>().unwrap_or(DEFAULT_QUERY_OFFSET)
+    });
 
     let order_by_verified = true; // default behavior
 
