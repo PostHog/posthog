@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
-import { IconGraph } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
+import { IconGraph, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDivider, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -42,6 +42,7 @@ import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import {
     MultipleChoiceQuestionBarChart,
+    NPSStackedBar,
     NPSSurveyResultsBarChart,
     OpenTextViz,
     RatingQuestionBarChart,
@@ -623,13 +624,28 @@ function SurveyNPSResults({
     surveyNPSScore?: string
     questionIndex: number
 }): JSX.Element {
-    const { dateRange, interval, compareFilter, defaultInterval } = useValues(surveyLogic)
+    const { dateRange, interval, compareFilter, defaultInterval, npsBreakdown } = useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
     return (
         <div>
-            <div className="text-4xl font-bold">{surveyNPSScore}</div>
-            <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
+            <div className="flex items-center gap-2">
+                <div className="text-4xl font-bold">{surveyNPSScore}</div>
+            </div>
+            <div className="mb-2 font-semibold text-secondary">
+                <Tooltip
+                    placement="bottom"
+                    title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can range from -100 to 100."
+                >
+                    <IconInfo className="text-muted" />
+                </Tooltip>{' '}
+                Latest NPS Score
+            </div>
+            {npsBreakdown && (
+                <div className="space-y-2 mt-2 mb-4">
+                    <NPSStackedBar npsBreakdown={npsBreakdown} />
+                </div>
+            )}
             <div className="space-y-2 bg-surface-primary p-2 rounded">
                 <div className="flex items-center justify-between gap-2">
                     <h4 className="text-lg font-semibold">NPS Trend</h4>
