@@ -93,25 +93,11 @@ export class HogTransformerService {
     }
 
     public async start(): Promise<void> {
-        if (this.started) {
-            return
-        }
-        this.started = true // Prevent concurrent starts
-
-        try {
-            await this.hogFunctionManager.start(['transformation'])
-        } catch (error) {
-            this.started = false // Reset on failure
-        }
+        await this.hogFunctionManager.start(['transformation'])
     }
 
     public async stop(): Promise<void> {
-        if (!this.started) {
-            return
-        }
-
         await this.hogFunctionManager.stop()
-        this.started = false
     }
 
     public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
