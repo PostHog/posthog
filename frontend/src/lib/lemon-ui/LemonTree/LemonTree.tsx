@@ -59,6 +59,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
+    /** Pass true if you need to wait for async events to populate the tree. If present and true will trigger: scrolling to focused item */
+    isFinishedBuildingTreeData?: boolean
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -80,7 +82,7 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     /** The ID of the focused item. */
     focusedId?: string
     /** Handle a click on the item. */
-    handleClick: (item: TreeDataItem | undefined) => void
+    handleClick: (item: TreeDataItem | undefined, isKeyboardAction?: boolean) => void
     /** Whether the item is draggable. */
     isDraggable?: (item: TreeDataItem) => boolean
     /** Whether the item is droppable. */
@@ -159,9 +161,12 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         className={cn(
                                             'flex-1 flex items-center gap-2 cursor-pointer font-normal',
                                             focusedId === item.id &&
-                                                'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary'
+                                                'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
+                                            selectedId === item.id &&
+                                                'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
                                         )}
                                         onClick={() => handleClick(item)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
                                         type="tertiary"
                                         role="treeitem"
                                         tabIndex={-1}
@@ -273,6 +278,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             itemSideAction,
             expandedItemIds,
             onSetExpandedItemIds,
+            isFinishedBuildingTreeData,
             ...props
         },
         ref
@@ -285,6 +291,8 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         // Focused item (you press arrow keys to navigate)
         const [focusedId, setFocusedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+
+        const [hasFocusedContent, setHasFocusedContent] = useState(false)
         // Type-ahead buffer (you type while in focus of the tree)
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
         const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
@@ -372,6 +380,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             if (contentRef?.current) {
                 contentRef.current.focus()
                 setFocusedId(undefined) // Remove focus from tree when moving to content
+                setHasFocusedContent(true)
             }
         }, [contentRef])
 
@@ -456,8 +465,6 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         if (isKeyboardAction) {
                             // Focus content when keyboard action on a node
                             focusContent()
-                            //Hide focus when keyboard action on a node
-                            setFocusedId(undefined)
                         }
                     }
                 } else if (item?.type === 'folder') {
@@ -472,7 +479,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     item.onClick(willBeOpen)
                 }
             },
-            [expandedItemIdsState, onFolderClick, onNodeClick, focusContent]
+            [expandedItemIdsState, onFolderClick, onNodeClick, focusContent, focusedId]
         )
 
         // Update handleKeyDown to include type-ahead
@@ -702,29 +709,33 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             const elementBounds = element.getBoundingClientRect()
 
             // Calculate if element is outside visible area
-            const SCROLL_PADDING = 32 // Smaller padding at bottom of container
-            const isAbove = elementBounds.top < containerBounds.top
-            const isBelow = elementBounds.bottom > containerBounds.bottom - SCROLL_PADDING
+            const SCROLL_PADDING = 64
+            const isAboveFold = elementBounds.top - SCROLL_PADDING < containerBounds.top
+            const isBelowFold = elementBounds.bottom + SCROLL_PADDING > containerBounds.bottom
 
-            if (isAbove || isBelow) {
+            if (isAboveFold || isBelowFold) {
                 element.scrollIntoView({
-                    block: isBelow ? 'end' : 'start',
+                    block: 'nearest',
                     behavior: 'smooth',
                 })
             }
         }, [selectedId, focusedId])
 
-        // TODO: Add effect to scroll when focusedId changes
+        // Scroll to focused item when tree is finished building or prop is not provided
         useEffect(() => {
-            scrollFocusedIntoView()
-        }, [selectedId, focusedId, scrollFocusedIntoView])
+            if (isFinishedBuildingTreeData ?? true) {
+                scrollFocusedIntoView()
+            }
+        }, [scrollFocusedIntoView, isFinishedBuildingTreeData])
 
         useEffect(() => {
-            if (defaultSelectedFolderOrNodeId) {
+            // On prop change, set focusedId if it's not already focused
+            // if the content has been focused (via keyboard), don't focus the tree
+            if (defaultSelectedFolderOrNodeId && !hasFocusedContent) {
                 setFocusedId(defaultSelectedFolderOrNodeId)
                 setSelectedId(defaultSelectedFolderOrNodeId)
             }
-        }, [defaultSelectedFolderOrNodeId])
+        }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
 
         return (
             <DndContext
@@ -747,7 +758,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         setFocusedId(undefined)
                     }}
                     className="flex-1"
-                    innerClassName="p-2"
+                    innerClassName="p-2 pb-32"
                 >
                     <LemonTreeNode
                         data={data}

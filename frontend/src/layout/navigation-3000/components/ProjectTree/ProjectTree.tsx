@@ -86,6 +86,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                         className="px-0 py-1"
                         data={treeData}
                         expandedItemIds={expandedFolders}
+                        isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
                         defaultSelectedFolderOrNodeId={currentItemFromUrl?.id || undefined}
                         onNodeClick={(node) => {
                             if (node?.filePath) {
