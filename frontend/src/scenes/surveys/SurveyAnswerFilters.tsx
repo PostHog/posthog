@@ -100,9 +100,7 @@ export function SurveyAnswerFilters(): JSX.Element {
                             >
                                 <div className="col-span-3">
                                     <span className="font-medium">{question.question}</span>
-                                    <div className="text-muted text-xs">
-                                        {SurveyQuestionLabel[question.type]} - {question.stable_index}
-                                    </div>
+                                    <div className="text-muted text-xs">{SurveyQuestionLabel[question.type]}</div>
                                 </div>
                                 <div>
                                     <LemonSelect
