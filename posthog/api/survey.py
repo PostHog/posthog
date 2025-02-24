@@ -259,9 +259,20 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if not isinstance(raw_question, dict):
                 raise serializers.ValidationError("Questions must be a list of objects")
 
-            cleaned_question = {
-                **raw_question,
-            }
+            # Create a copy of the question without stable_index
+            # This ensures users can't manually set stable_index through the API
+            cleaned_question = {k: v for k, v in raw_question.items() if k != "stable_index"}
+
+            # If this is an update and the question already has a stable_index, preserve it
+            if "stable_index" in raw_question and self.instance:
+                # Find the matching question in the existing survey
+                existing_questions = self.instance.questions or []
+                for existing_question in existing_questions:
+                    if existing_question.get("stable_index") == raw_question["stable_index"]:
+                        # Only preserve the stable_index if it already exists in the survey
+                        cleaned_question["stable_index"] = raw_question["stable_index"]
+                        break
+
             question_text = raw_question.get("question")
 
             if not question_text:
@@ -311,6 +322,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
+        # Remove max_question_stable_index if it's present in the data
+        # This ensures users can't manually set it through the API
+        if "max_question_stable_index" in data:
+            data.pop("max_question_stable_index")
+
         linked_flag_id = data.get("linked_flag_id")
         if linked_flag_id:
             try:
