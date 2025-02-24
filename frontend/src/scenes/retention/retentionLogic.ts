@@ -1,5 +1,7 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { Dayjs } from 'lib/dayjs'
+import { formatDateRange } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTablePayload } from 'scenes/retention/types'
@@ -53,6 +55,17 @@ export const retentionLogic = kea<retentionLogicType>([
                     {
                         key: `Last 90 ${pluralPeriod}`,
                         values: [`-90${periodChar}`],
+                    },
+                    {
+                        key: 'Year to date',
+                        values: ['yStart'],
+                        getFormattedDate: (date: Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('d')),
+                        defaultInterval: 'month',
+                    },
+                    {
+                        key: 'All time',
+                        values: ['all'],
+                        defaultInterval: 'month',
                     },
                 ]
             },
