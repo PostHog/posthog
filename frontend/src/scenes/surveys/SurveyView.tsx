@@ -620,7 +620,7 @@ function SurveyNPSResults({
     questionIndex,
 }: {
     survey: Survey
-    surveyNPSScore?: string
+    surveyNPSScore?: string | null
     questionIndex: number
 }): JSX.Element {
     const { dateRange, interval, compareFilter, defaultInterval } = useValues(surveyLogic)
@@ -628,8 +628,12 @@ function SurveyNPSResults({
 
     return (
         <div>
-            <div className="text-4xl font-bold">{surveyNPSScore}</div>
-            <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
+            {surveyNPSScore && (
+                <>
+                    <div className="text-4xl font-bold">{surveyNPSScore}</div>
+                    <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
+                </>
+            )}
             <div className="space-y-2 bg-surface-primary p-2 rounded">
                 <div className="flex items-center justify-between gap-2">
                     <h4 className="text-lg font-semibold">NPS Trend</h4>
