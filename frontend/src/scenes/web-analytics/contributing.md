@@ -31,5 +31,5 @@ Note that web analytics and products analytics events are the same, the 2 produc
 
 ## Toolbar
 
-Some web analytics features are present in the [toolbar](https://posthog.com/docs/toolbar), for the toolbar will show you web vitals for the page you are on.
+Some web analytics features are present in the [toolbar](https://posthog.com/docs/toolbar), for example the toolbar will show you web vitals for the page you are on.
 
