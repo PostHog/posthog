@@ -70,7 +70,8 @@ class RootNode(AssistantNode):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        history, new_window_id = self._construct_messages(state)
+        history, new_window_id = self._construct_and_update_messages_window(state)
+
         prompt = (
             ChatPromptTemplate.from_messages(
                 [
@@ -134,7 +135,7 @@ class RootNode(AssistantNode):
             )
         return filtered_conversation
 
-    def _construct_messages(self, state: AssistantState) -> tuple[list[BaseMessage], str | None]:
+    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         # Filter out messages that are not part of the conversation window.
         conversation_window = self._get_assistant_messages_in_window(state)
 
@@ -167,11 +168,21 @@ class RootNode(AssistantNode):
                         )
                     )
 
+        return history
+
+    def _construct_and_update_messages_window(self, state: AssistantState) -> tuple[list[BaseMessage], str | None]:
+        """
+        Retrieves the current conversation window, finds a new window if necessary, and enforces the tool call limit.
+        """
+
+        history = self._construct_messages(state)
+
         # Find a new window id and trim the history to it.
         new_window_id = self._find_new_window_id(state, history)
         if new_window_id is not None:
             history = self._get_conversation_window(history, new_window_id)
 
+        # Force the agent to stop if the tool call limit is reached.
         if self._is_hard_limit_reached(state):
             history.append(LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT))
 

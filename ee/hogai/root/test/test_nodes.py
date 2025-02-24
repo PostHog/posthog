@@ -125,7 +125,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     def test_node_reconstructs_conversation(self, mock_model):
         node = RootNode(self.team)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
-        self.assertEqual(node._construct_messages(state_1)[0], [LangchainHumanMessage(content="Hello")])
+        self.assertEqual(
+            node._construct_and_update_messages_window(state_1)[0], [LangchainHumanMessage(content="Hello")]
+        )
 
         # We want full access to message history in root
         state_2 = AssistantState(
@@ -136,7 +138,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ]
         )
         self.assertEqual(
-            node._construct_messages(state_2)[0],
+            node._construct_and_update_messages_window(state_2)[0],
             [
                 LangchainHumanMessage(content="Hello"),
                 LangchainAIMessage(content="Welcome!"),
@@ -166,7 +168,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ]
         )
         self.assertEqual(
-            node._construct_messages(state)[0],
+            node._construct_and_update_messages_window(state)[0],
             [
                 LangchainHumanMessage(content="Hello"),
                 LangchainAIMessage(
@@ -211,7 +213,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantToolCallMessage(content="Answer for xyz1", tool_call_id="xyz1"),
             ]
         )
-        messages, _ = node._construct_messages(state)
+        messages, _ = node._construct_and_update_messages_window(state)
 
         # Verify we get exactly 3 messages
         self.assertEqual(len(messages), 3)
@@ -257,7 +259,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(message.tool_calls, [])
 
             # Verify the hard limit message was added to the conversation
-            messages, _ = node._construct_messages(state)
+            messages, _ = node._construct_and_update_messages_window(state)
             self.assertIn("iterations", messages[-1].content)
 
     @patch("ee.hogai.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
@@ -271,7 +273,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 HumanMessage(content="Foo", id="3"),
             ]
         )
-        messages, window_id = node._construct_messages(state)
+        messages, window_id = node._construct_and_update_messages_window(state)
         self.assertEqual(len(messages), 1)
         self.assertIn("Foo", messages[0].content)
         self.assertEqual(window_id, "3")
@@ -284,7 +286,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 HumanMessage(content="The" * 31000, id="3"),
             ]
         )
-        messages, window_id = node._construct_messages(state)
+        messages, window_id = node._construct_and_update_messages_window(state)
         self.assertEqual(len(messages), 1)
         self.assertIn("The", messages[0].content)
         self.assertEqual(window_id, "3")
@@ -301,7 +303,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantToolCallMessage(content="The" * 48000, id="3", tool_call_id="xyz"),
             ]
         )
-        messages, window_id = node._construct_messages(state)
+        messages, window_id = node._construct_and_update_messages_window(state)
         self.assertEqual(len(messages), 2)
         self.assertIn("Hi", messages[0].content)
         self.assertIn("The", messages[1].content)
@@ -317,7 +319,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 HumanMessage(content="The" * 48000, id="3"),
             ]
         )
-        messages, window_id = node._construct_messages(state)
+        messages, window_id = node._construct_and_update_messages_window(state)
         self.assertEqual(len(messages), 1)
         self.assertIn("The", messages[0].content)
         self.assertEqual(window_id, "3")
@@ -334,7 +336,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantToolCallMessage(content="The" * 65000, id="3", tool_call_id="xyz"),
             ]
         )
-        messages, window_id = node._construct_messages(state)
+        messages, window_id = node._construct_and_update_messages_window(state)
         self.assertEqual(len(messages), 2)
         self.assertIn("Bar", messages[0].content)
         self.assertIn("The", messages[1].content)
@@ -352,7 +354,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 HumanMessage(content="Baz", id="4"),
             ]
         )
-        messages, window_id = node._construct_messages(state)
+        messages, window_id = node._construct_and_update_messages_window(state)
         self.assertEqual(len(messages), 4)
         self.assertIsNone(window_id)
 
@@ -395,7 +397,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         )
 
         # Verify the full conversation flow by checking the messages that would be sent to the model
-        messages, _ = node._construct_messages(state_3)
+        messages, _ = node._construct_and_update_messages_window(state_3)
         self.assertEqual(len(messages), 4)  # Question + Response + Follow-up + New Response
         self.assertEqual(messages[0].content, "Question")  # Starts from the window ID message
 

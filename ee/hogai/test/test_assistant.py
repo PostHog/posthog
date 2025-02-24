@@ -4,8 +4,8 @@ from typing import Any, Literal, Optional, cast
 from unittest.mock import patch
 from uuid import uuid4
 
-from django.test import override_settings
 import pytest
+from django.test import override_settings
 from langchain_core import messages
 from langchain_core.agents import AgentAction
 from langchain_core.prompts.chat import ChatPromptValue
@@ -894,13 +894,15 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile()
         )
 
-        root_model_mock.return_value = RunnableLambda(
-            lambda _: messages.AIMessage(
-                content="", tool_calls=[{"name": search_documentation.__name__, "id": "1", "args": {}}]
-            )
+        root_model_mock.return_value = FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="", tool_calls=[{"name": search_documentation.__name__, "id": "1", "args": {}}]
+                )
+            ]
         )
-        inkeep_docs_model_mock.return_value = RunnableLambda(
-            lambda _: messages.AIMessage(content="Here's what I found in the docs...")
+        inkeep_docs_model_mock.return_value = FakeChatOpenAI(
+            responses=[messages.AIMessage(content="Here's what I found in the docs...")]
         )
         output = self._run_assistant_graph(graph, message="How do I use feature flags?")
 
