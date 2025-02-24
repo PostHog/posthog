@@ -218,7 +218,7 @@ fn gen_url(uri: Uri, total_count: i32, new_offset: i32) -> Option<String> {
         .unwrap_or_default();
 
     // Modify a single query parameter
-    query_params.insert("offset".to_string(), "new_value".to_string());
+    query_params.insert("offset".to_string(), new_offset.to_string());
 
     // Rebuild the Uri with the modified query parameters
     let new_query = form_urlencoded::Serializer::new(String::new())

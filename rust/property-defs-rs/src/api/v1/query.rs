@@ -510,7 +510,7 @@ impl Manager {
         }
     }
 
-    fn is_prop_type_event(&self, property_type: &String) -> bool {
-        property_type.as_str() == "event"
+    fn is_prop_type_event(&self, property_type: &str) -> bool {
+        property_type == "event"
     }
 }
