@@ -8,7 +8,7 @@ const isDev = process.env.NODE_ENV === 'development';
 export default defineConfig({
   entry: path.resolve(__dirname, 'src/index.tsx'),
   output: {
-    path: path.resolve(__dirname, 'dist'),
+    path: path.resolve(__dirname, 'dist-rspack'),
     filename: 'index_bundle.js',
   },
   devServer: {

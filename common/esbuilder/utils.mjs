@@ -14,14 +14,13 @@ import fse from 'fs-extra'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
-// import tailwindcss from 'tailwindcss'
+import tailwindcss from 'tailwindcss'
 import ts from 'typescript'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
 
 export const isDev = process.argv.includes('--dev')
-export const BUILD_DIST_FOLDER = 'dist2'
 
 export function copyPublicFolder(srcDir, destDir) {
     fse.copySync(srcDir, destDir, { overwrite: true }, function (err) {
@@ -40,7 +39,7 @@ async function touchFile(file) {
 export function copyIndexHtml(
     absWorkingDir = '.',
     from = 'src/index.html',
-    to = `${BUILD_DIST_FOLDER}/index.html`,
+    to = 'dist/index.html',
     entry = 'index',
     chunks = {},
     entrypoints = []
@@ -55,7 +54,7 @@ export function copyIndexHtml(
     // Docker image, but serve the js and it's dependencies from e.g. CloudFront
     const buildId = new Date().valueOf()
 
-    const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(absWorkingDir, BUILD_DIST_FOLDER), e))
+    const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(absWorkingDir, 'dist'), e))
     const jsFile = relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.js')) : `${entry}.js?t=${buildId}`
     const cssFile =
         relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
@@ -142,7 +141,7 @@ export const commonConfig = {
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 // Sync the plugins list with postcss.config.js
-                const plugins = [autoprefixer, postcssPresetEnv({ stage: 0 })]
+                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }
@@ -191,12 +190,12 @@ function getChunks(result) {
             continue
         }
         const importStatements = output.imports.filter(
-            (i) => i.kind === 'import-statement' && i.path.startsWith(`${BUILD_DIST_FOLDER}/chunk-`)
+            (i) => i.kind === 'import-statement' && i.path.startsWith('dist/chunk-')
         )
         const exports = output.exports.filter((e) => e !== 'default' && e !== 'scene')
         if (importStatements.length > 0 && (exports.length > 0 || output.entryPoint === 'src/index.tsx')) {
             chunks[exports[0] || 'index'] = importStatements.map((i) =>
-                i.path.replace(`${BUILD_DIST_FOLDER}/chunk-`, '').replace('.js', '')
+                i.path.replace('dist/chunk-', '').replace('.js', '')
             )
         }
     }
@@ -233,7 +232,7 @@ function getBuiltEntryPoints(config, result) {
         outfiles = config.entryPoints.map((file) =>
             path
                 .resolve(config.absWorkingDir, file)
-                .replace('/src/', `/${BUILD_DIST_FOLDER}/`)
+                .replace('/src/', '/dist/')
                 .replace(/\.[^.]+$/, '.js')
         )
     } else if (config.outfile) {
@@ -485,14 +484,14 @@ export function startServer(opts = {}) {
                 await ifPaused
             }
             const pathFromUrl = req.url.replace(/^\/static\//, '')
-            const filePath = path.resolve(absWorkingDir, BUILD_DIST_FOLDER, pathFromUrl)
+            const filePath = path.resolve(absWorkingDir, 'dist', pathFromUrl)
             // protect against "/../" urls
-            if (filePath.startsWith(path.resolve(absWorkingDir, BUILD_DIST_FOLDER))) {
+            if (filePath.startsWith(path.resolve(absWorkingDir, 'dist'))) {
                 res.sendFile(filePath.split('?')[0])
                 return
             }
         }
-        res.sendFile(path.resolve(absWorkingDir, BUILD_DIST_FOLDER, 'index.html'))
+        res.sendFile(path.resolve(absWorkingDir, 'dist', 'index.html'))
     })
     app.listen(port)
 
