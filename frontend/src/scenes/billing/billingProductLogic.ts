@@ -255,7 +255,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         billingLimitAsUsage: [
-            (s, p) => [p.product],
+            (_, p) => [p.product],
             (product) => {
                 return product.usage_limit || 0
             },
