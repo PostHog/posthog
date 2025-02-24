@@ -9,6 +9,7 @@ from posthog.models.feedback.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
+from ...session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
 
 """
@@ -111,11 +112,15 @@ class ProductIntent(UUIDModel):
 
         return total_groups >= 2
 
+    def has_activated_session_replay(self) -> bool:
+        return SessionRecordingViewed.objects.filter(team=self.team).count() >= 5
+
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         activation_checks = {
             "data_warehouse": self.has_activated_data_warehouse,
             "experiments": self.has_activated_experiments,
             "feature_flags": self.has_activated_feature_flags,
+            "session_replay": self.has_activated_session_replay,
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():
