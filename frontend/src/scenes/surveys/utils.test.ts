@@ -157,12 +157,7 @@ describe('survey utils', () => {
 
             const result = calculateNpsBreakdown(surveyResults)
 
-            expect(result).toEqual({
-                detractors: 0,
-                passives: 0,
-                promoters: 0,
-                total: 0,
-            })
+            expect(result).toBeNull()
         })
 
         it('returns all zeros when data array is missing', () => {
@@ -173,12 +168,7 @@ describe('survey utils', () => {
 
             const result = calculateNpsBreakdown(surveyResults)
 
-            expect(result).toEqual({
-                detractors: 0,
-                passives: 0,
-                promoters: 0,
-                total: 0,
-            })
+            expect(result).toBeNull()
         })
 
         it('returns all zeros when data array has incorrect length', () => {
@@ -189,12 +179,7 @@ describe('survey utils', () => {
 
             const result = calculateNpsBreakdown(surveyResults)
 
-            expect(result).toEqual({
-                detractors: 0,
-                passives: 0,
-                promoters: 0,
-                total: 0,
-            })
+            expect(result).toBeNull()
         })
 
         it('returns early with all zeros when total is 0', () => {

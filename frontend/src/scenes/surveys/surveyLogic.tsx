@@ -1263,10 +1263,12 @@ export const surveyLogic = kea<surveyLogicType>([
                         return 'No data available'
                     }
 
-                    const data: number[] = questionResults.data
-                    if (data.length === 11) {
-                        return calculateNpsScore(calculateNpsBreakdown(questionResults)).toFixed(1)
+                    const npsBreakdown = calculateNpsBreakdown(questionResults)
+                    if (!npsBreakdown) {
+                        return null
                     }
+
+                    return calculateNpsScore(npsBreakdown).toFixed(1)
                 }
             },
         ],

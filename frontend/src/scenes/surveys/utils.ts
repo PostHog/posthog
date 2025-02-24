@@ -58,15 +58,10 @@ export type NPSBreakdown = {
     detractors: number
 }
 
-export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[number]): NPSBreakdown {
+export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[number]): NPSBreakdown | null {
     // Validate input structure
-    if (!surveyRatingResults.data) {
-        return { total: 0, promoters: 0, passives: 0, detractors: 0 }
-    }
-
-    // Validate data array length
-    if (surveyRatingResults.data.length !== 11) {
-        return { total: 0, promoters: 0, passives: 0, detractors: 0 }
+    if (!surveyRatingResults.data || surveyRatingResults.data.length !== 11) {
+        return null
     }
 
     if (surveyRatingResults.total === 0) {
