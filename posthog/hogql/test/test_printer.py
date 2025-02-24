@@ -5,6 +5,7 @@ from typing import Any, Literal, Optional, cast
 import pytest
 from django.test import override_settings
 
+from posthog import settings
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings, HogQLGlobalSettings
@@ -519,6 +520,25 @@ class TestPrinter(BaseTest):
                 self._expr("properties['foo']", context),
                 "nullIf(nullIf(events.mat_foo, ''), 'null')",
             )
+
+    def test_property_groups_person_properties(self):
+        if not settings.USE_PERSON_PROPERTIES_MAP_CUSTOM:
+            pytest.xfail("person_properties_map_custom not enabled")
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                propertyGroupsMode=PropertyGroupsMode.ENABLED,
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ),
+        )
+
+        self.assertEqual(
+            self._expr("person.properties['foo']", context),
+            "has(events.person_properties_map_custom, %(hogql_val_0)s) ? events.person_properties_map_custom[%(hogql_val_0)s] : null",
+        )
+        self.assertEqual(context.values["hogql_val_0"], "foo")
 
     def _test_property_group_comparison(
         self,
