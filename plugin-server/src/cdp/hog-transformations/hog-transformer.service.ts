@@ -55,7 +55,6 @@ export class HogTransformerService {
     private hogFunctionManager: HogFunctionManagerService
     private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
-    private started: boolean = false
 
     constructor(hub: Hub) {
         this.hub = hub
@@ -91,25 +90,11 @@ export class HogTransformerService {
     }
 
     public async start(): Promise<void> {
-        if (this.started) {
-            return
-        }
-        this.started = true // Prevent concurrent starts
-
-        try {
-            await this.hogFunctionManager.start(['transformation'])
-        } catch (error) {
-            this.started = false // Reset on failure
-        }
+        await this.hogFunctionManager.start(['transformation'])
     }
 
     public async stop(): Promise<void> {
-        if (!this.started) {
-            return
-        }
-
         await this.hogFunctionManager.stop()
-        this.started = false
     }
 
     private produceAppMetric(metric: HogFunctionAppMetric): Promise<void> {
