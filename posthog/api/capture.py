@@ -23,7 +23,7 @@ from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
 
-from ee.billing.quota_limiting import QuotaLimitingCaches
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
@@ -359,9 +359,7 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
     if not settings.EE_AVAILABLE:
         return EventsOverQuotaResult(events, False, False)
 
-    from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
-
-    results = []
+    # Get lists of limited tokens from Redis
     limited_tokens_events = list_limited_team_attributes(
         QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
@@ -369,9 +367,12 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
         QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
+    results = []
     recordings_were_limited = False
     events_were_limited = False
+
     for event in events:
+        # Check if it's a recording event
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
             if token in limited_tokens_recordings:
@@ -379,10 +380,19 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
                 if settings.QUOTA_LIMITING_ENABLED:
                     recordings_were_limited = True
                     continue
-
         else:
+            # Regular events - check if they're free (i.e. non-quota limited) events first
+            event_name = event.get("event")
+            is_free_event = (
+                event_name in ("$exception", "survey sent", "survey shown", "survey dismissed", "$feature_flag_called")
+                or event_name.startswith("$ai_")  # AI events, right now we don't charge for these
+                or event_name.startswith(
+                    "$error_"
+                )  # Error tracking events, same with AI, but we're start charging once it's out of beta
+            )
+
             EVENTS_RECEIVED_COUNTER.labels(resource_type="events").inc()
-            if token in limited_tokens_events:
+            if token in limited_tokens_events and not is_free_event:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     events_were_limited = True
@@ -390,9 +400,7 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
 
         results.append(event)
 
-    return EventsOverQuotaResult(
-        results, events_were_limited=events_were_limited, recordings_were_limited=recordings_were_limited
-    )
+    return EventsOverQuotaResult(results, events_were_limited, recordings_were_limited)
 
 
 def lib_version_from_query_params(request) -> str:
