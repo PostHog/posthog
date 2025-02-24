@@ -89,7 +89,7 @@ jobs:
 
         env:
             REDIS_URL: 'redis://localhost'
-            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
 
@@ -198,7 +198,7 @@ jobs:
 
         env:
             REDIS_URL: 'redis://localhost'
-            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
