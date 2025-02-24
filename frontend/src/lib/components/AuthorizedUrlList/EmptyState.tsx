@@ -95,7 +95,7 @@ export function EmptyState({ experimentId, actionId, type }: EmptyStateProps): J
                         disabled={suggestionsLoading}
                         type="secondary"
                         icon={<IconRefresh />}
-                        data-attr="toolbar-add-url"
+                        data-attr="authorized-url-list-fetch-suggestions"
                     >
                         {suggestionsLoading ? 'Fetching...' : 'Fetch suggestions'}
                     </LemonButton>

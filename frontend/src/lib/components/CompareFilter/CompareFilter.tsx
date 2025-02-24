@@ -26,7 +26,7 @@ export function CompareFilter({
 
     useEffect(() => {
         const newCompareTo = compareFilter?.compare_to
-        if (!!newCompareTo && tentativeCompareTo != newCompareTo) {
+        if (!!newCompareTo && tentativeCompareTo !== newCompareTo) {
             setTentativeCompareTo(newCompareTo)
         }
     }, [compareFilter?.compare_to]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -76,7 +76,7 @@ export function CompareFilter({
         <LemonSelect
             icon={<IconClock />}
             onSelect={(newValue) => {
-                if (newValue == 'compareTo') {
+                if (newValue === 'compareTo') {
                     updateCompareFilter({ compare: true, compare_to: tentativeCompareTo })
                 }
             }}
@@ -86,7 +86,7 @@ export function CompareFilter({
                 }
 
                 const isHugeScreen = !isWindowLessThan('2xl')
-                if (leaf.value == 'compareTo') {
+                if (leaf.value === 'compareTo') {
                     return isHugeScreen
                         ? `Compare to ${dateFromToText(tentativeCompareTo)} earlier`
                         : `${dateFromToText(tentativeCompareTo)} earlier`
@@ -102,9 +102,9 @@ export function CompareFilter({
             value={value}
             dropdownMatchSelectWidth={false}
             onChange={(value) => {
-                if (value == 'none') {
+                if (value === 'none') {
                     updateCompareFilter({ compare: false, compare_to: undefined })
-                } else if (value == 'previous') {
+                } else if (value === 'previous') {
                     updateCompareFilter({ compare: true, compare_to: undefined })
                 }
             }}
