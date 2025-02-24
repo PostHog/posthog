@@ -27,8 +27,6 @@ template_reddit_conversions_api: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/reddit.png",
     category=["Advertisement"],
     hog="""
-// These are the event names which we are allowed to call rdt with. If we want to send a different event name, we will
-// need to use the 'Custom' event name, and pass original event name as 'customEventName' in event properties.
 let RDT_ALLOWED_EVENT_NAMES := [
     'PageVisit',
     'Search',
@@ -41,17 +39,15 @@ let RDT_ALLOWED_EVENT_NAMES := [
     'Custom',
 ];
 
-
 let eventProperties := {};
-for (let key, value in inputs.customData) {
+for (let key, value in inputs.eventProperties) {
     if (not empty(value)) {
         eventProperties[key] := value;
     }
 }
-eventProperties.conversion_id := inputs.eventId;
 
 let userProperties := {};
-for (let key, value in inputs.userData) {
+for (let key, value in inputs.userProperties) {
     if (not empty(value)) {
         userProperties[key] := value;
     }
@@ -63,36 +59,36 @@ if (not has(RDT_ALLOWED_EVENT_NAMES, inputs.eventType)) {
     eventType.custom_event_name := inputs.eventType;
 }
 
-let event := {
-    'event_at': toDateTime(inputs.eventTime),
+let eventData := {
+    'event_at': event.timestamp,
     'event_type': eventType,
     'user': userProperties,
     'event_metadata': eventProperties,
 };
 
-let events := [event];
+let events := [eventData];
 
 let body := {
-    'test_mode': true,
+    'test_mode': false,
     'events': events,
 };
 
 let url := f'https://ads-api.reddit.com/api/v2.0/conversions/events/{inputs.accountId}';
 let userAgent := 'hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)';
-
-let res := fetch(url, {
-    'method': 'POST',
-    'headers': {
+let headers := {
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {inputs.conversionsAccessToken}',
         'User-Agent': userAgent,
-    },
-    'body': body
+    };
+
+let res := fetch(url, {
+    'method': 'POST',
+    'headers': headers,
+    'body': body,
 });
 if (res.status >= 400) {
     throw Error(f'Error from https://ads-api.reddit.com (status {res.status}): {res.body}')
 }
-
 """.strip(),
     inputs_schema=[
         {
@@ -262,3 +258,45 @@ if (res.status >= 400) {
         ),
     ],
 )
+
+"""
+
+
+
+let eventType := {'tracking_type': inputs.eventType};
+if (not has(RDT_ALLOWED_EVENT_NAMES, inputs.eventType)) {
+    eventType.tracking_type := 'Custom';
+    eventType.custom_event_name := inputs.eventType;
+}
+
+let event := {
+    'event_at': toDateTime(inputs.eventTime),
+    'event_type': eventType,
+    'user': userProperties,
+    'event_metadata': eventProperties,
+};
+
+let events := [event];
+
+let body := {
+    'test_mode': true,
+    'events': events,
+};
+
+let url := f'https://ads-api.reddit.com/api/v2.0/conversions/events/{inputs.accountId}';
+let userAgent := 'hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)';
+
+let res := fetch(url, {
+    'method': 'POST',
+    'headers': {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {inputs.conversionsAccessToken}',
+        'User-Agent': userAgent,
+    },
+    'body': body
+});
+if (res.status >= 400) {
+    throw Error(f'Error from https://ads-api.reddit.com (status {res.status}): {res.body}')
+}
+
+"""
