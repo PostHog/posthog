@@ -703,7 +703,6 @@ describe('IngestionConsumer', () => {
 
                 hub = await createHub()
                 await resetTestDatabase()
-
                 team = await getFirstTeam(hub)
 
                 // Set up GeoIP database
@@ -711,7 +710,6 @@ describe('IngestionConsumer', () => {
                     join(__dirname, '../../tests/assets/GeoLite2-City-Test.mmdb.br')
                 )
                 hub.mmdb = Reader.openBuffer(Buffer.from(brotliDecompressSync(mmdbBrotliContents)))
-
                 hub.kafkaProducer = mockProducer
 
                 // Create and start ingester first
@@ -815,31 +813,37 @@ describe('IngestionConsumer', () => {
                     [timestampParserPlugin.template, {}],
                 ] as const
 
-                const transformations = await Promise.all(
-                    transformationTemplates.map(async ([template, inputs], index) => ({
-                        id: new UUIDT().toString(),
-                        team_id: team.id,
-                        type: 'transformation' as const,
-                        name: template.name,
-                        template_id: template.id,
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString(),
-                        enabled: true,
-                        deleted: false,
-                        execution_order: index + 1,
-                        bytecode: await compileHog(template.hog),
-                        hog: template.hog,
-                        inputs_schema: template.inputs_schema,
-                        inputs,
-                    }))
+                // Compile all transformations in parallel and create the full transformation objects
+                const compiledTransformations = await Promise.all(
+                    transformationTemplates.map(async ([template, inputs], index) => {
+                        const bytecode = await compileHog(template.hog)
+                        return {
+                            id: new UUIDT().toString(),
+                            team_id: team.id,
+                            type: 'transformation' as const,
+                            name: template.name,
+                            template_id: template.id,
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                            enabled: true,
+                            deleted: false,
+                            execution_order: index + 1,
+                            bytecode,
+                            hog: template.hog,
+                            inputs_schema: template.inputs_schema,
+                            inputs,
+                        }
+                    })
                 )
 
-                // Insert the transformations
-                for (const transformation of transformations) {
-                    await _insertHogFunction(hub.postgres, team.id, transformation)
-                }
+                // Insert all transformations in parallel
+                await Promise.all(
+                    compiledTransformations.map((transformation) =>
+                        _insertHogFunction(hub.postgres, team.id, transformation)
+                    )
+                )
 
-                // Now we can reload the functions since ingester is initialized
+                // Reload functions once at the end
                 await ingester.hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
             })
 
