@@ -82,7 +82,6 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     if (!values.baseEventsQuery) {
                         return { results: [], before: undefined }
                     }
-                    console.log({ query: values.baseEventsQuery })
                     const response = await api.query(values.baseEventsQuery)
                     return {
                         ...response,
@@ -90,11 +89,9 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     }
                 },
                 loadNextEventsPage: async () => {
-                    console.log('trying to fetch next page')
                     if (!values.nextQuery) {
                         return { ...values.events }
                     }
-                    console.log('we have been using the followign before value on the existing page before load', values.events)
                     actions.increaseCurrentPage(values.events.before)
                     const response = await api.query(values.nextQuery)
                     return {
@@ -103,12 +100,9 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     }
                 },
                 loadPreviousEventsPage: async () => {
-                    console.log('trying to fetch previous page', values.previousQuery)
                     if (!values.previousQuery) {
                         return { results: [...(values.events as any)] }
                     }
-                    console.log('using following query', values.previousQuery)
-                    console.log('asehf8fhusefihseaiufhuiasefuihse ==== using following before value', values.previousQuery.before)
                     const response = await api.query(values.previousQuery)
                     actions.decreaseCurrentPage()
                     return {
@@ -126,7 +120,6 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                         return 0
                     }
                     const response = await api.query(values.totalEventsQuery)
-                    console.log({ response, count: response.results[0] })
                     return response.results[0]?.aggregated_value ?? 0
                 },
             },
@@ -258,7 +251,6 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     .indexOf('timestamp')
                 if (sortColumnIndex !== -1) {
                     const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
-                    console.log('nextQuery', lastTimestamp)
                     if (lastTimestamp) {
                         const newQuery: EventsQuery = {
                             ...baseEventsQuery,
@@ -278,7 +270,6 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     return null
                 }
                 const lastTimestamp = values.pageTimestamps[values.pageTimestamps.length - 1]
-                console.log('previousQueryee', lastTimestamp)
                 const newQuery: EventsQuery = {
                     ...baseEventsQuery,
                     before: lastTimestamp,
