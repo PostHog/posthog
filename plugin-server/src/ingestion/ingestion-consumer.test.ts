@@ -15,6 +15,7 @@ import {
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
+import { languageUrlSplitterApp } from '../cdp/legacy-plugins/_transformations/language-url-splitter-app/template'
 import { posthogFilterOutPlugin } from '../cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { posthogPluginGeoip } from '../cdp/legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../cdp/legacy-plugins/_transformations/property-filter-plugin/template'
@@ -818,13 +819,36 @@ describe('IngestionConsumer', () => {
                     id: new UUIDT().toString(),
                     team_id: team.id,
                     type: 'transformation',
+                    name: languageUrlSplitterApp.template.name,
+                    template_id: languageUrlSplitterApp.template.id,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 6,
+                    bytecode: await compileHog(languageUrlSplitterApp.template.hog),
+                    hog: languageUrlSplitterApp.template.hog,
+                    inputs_schema: languageUrlSplitterApp.template.inputs_schema,
+                    inputs: {
+                        pattern: { value: '^/([a-z]{2})(?=/|#|\\?|$)' },
+                        matchGroup: { value: '1' },
+                        property: { value: 'detected_language' },
+                        replacePattern: { value: '^(/[a-z]{2})(/|(?=/|#|\\?|$))' },
+                        replaceKey: { value: 'clean_path' },
+                        replaceValue: { value: '/' },
+                    },
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
                     name: userAgentPlugin.template.name,
                     template_id: userAgentPlugin.template.id,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 6,
+                    execution_order: 7,
                     bytecode: await compileHog(userAgentPlugin.template.hog),
                     hog: userAgentPlugin.template.hog,
                     inputs_schema: userAgentPlugin.template.inputs_schema,
@@ -843,7 +867,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 7,
+                    execution_order: 8,
                     bytecode: await compileHog(piiHashingTemplate.hog),
                     inputs: {
                         propertiesToHash: { value: '$geoip_city_name,$geoip_country_name' },
@@ -860,7 +884,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 8,
+                    execution_order: 9,
                     bytecode: await compileHog(ipAnonymizationTemplate.hog),
                 },
                 {
@@ -873,7 +897,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 9,
+                    execution_order: 10,
                     bytecode: await compileHog(propertyFilterPlugin.template.hog),
                     hog: propertyFilterPlugin.template.hog,
                     inputs_schema: propertyFilterPlugin.template.inputs_schema,
@@ -893,7 +917,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 10,
+                    execution_order: 11,
                     bytecode: await compileHog(semverFlattenerPlugin.template.hog),
                     hog: semverFlattenerPlugin.template.hog,
                     inputs_schema: semverFlattenerPlugin.template.inputs_schema,
@@ -913,7 +937,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 11,
+                    execution_order: 12,
                     bytecode: await compileHog(taxonomyPlugin.template.hog),
                     hog: taxonomyPlugin.template.hog,
                     inputs_schema: taxonomyPlugin.template.inputs_schema,
@@ -933,7 +957,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 12,
+                    execution_order: 13,
                     bytecode: await compileHog(timestampParserPlugin.template.hog),
                     hog: timestampParserPlugin.template.hog,
                     inputs_schema: timestampParserPlugin.template.inputs_schema,
@@ -996,7 +1020,7 @@ describe('IngestionConsumer', () => {
                     $current_url:
                         'https://example.com/users/123/profile?email=test@test.com&password=secret&token=abc123&safe=value',
                     $referrer: 'https://other.com/orgs/456?email=old@test.com&token=xyz789',
-                    $pathname: '/users/123/profile',
+                    $pathname: '/en/dashboard/stats',
                     $initial_current_url: 'https://example.com/users/123/settings',
                     $initial_pathname: '/orgs/456/dashboard',
                     $initial_referrer: 'https://other.com/users/789/home',
@@ -1084,6 +1108,10 @@ describe('IngestionConsumer', () => {
             expect(properties.day).toEqual('01')
             expect(properties.hour).toEqual(13)
             expect(properties.minute).toEqual(30)
+
+            // Language URL Splitter
+            expect(properties.detected_language).toEqual('en')
+            expect(properties.clean_path).toEqual('/dashboard/stats')
 
             // Add assertions after bot detection checks
             expect(processedEvent.event).not.toEqual('filtered_event') // Filter Out Plugin dropped filtered events
