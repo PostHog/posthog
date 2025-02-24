@@ -27,7 +27,7 @@ The TLDR is that you can construct HogQL queries by either parsing a string or b
 ## Where do events come from?
 Most web analytics users generate their events using [posthog-js](https://posthog.com/docs/libraries/js).
 
-Note that web analytics and products analytics events are the same, the 2 products are different views over the same set of events. The biggest different there is that web analytics is way more opinionated, and is especially designed to work well with [anonymous events](https://posthog.com/events), which are cheaper, and does this by heavy use of session properties instead of person properties.
+Note that web analytics and products analytics events are the same, the 2 products are different views over the same set of events. The biggest difference there is that web analytics is way more opinionated, and is especially designed to work well with [anonymous events](https://posthog.com/events), which are cheaper, and does this by heavy use of session properties instead of person properties.
 
 ## Toolbar
 
