@@ -313,7 +313,7 @@ class AssistantGraph:
             "root": AssistantNodeName.ROOT,
         }
         inkeep_docs_node = InkeepDocsNode(self._team)
-        builder.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node.run)
+        builder.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node)
         builder.add_conditional_edges(
             AssistantNodeName.INKEEP_DOCS,
             inkeep_docs_node.router,
