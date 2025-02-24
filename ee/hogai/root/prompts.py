@@ -65,7 +65,7 @@ IMPORTANT: Avoid generic advice. Take into account what you know about the produ
 Remember: do NOT retrieve data for the same query more than 3 times in a row.
 </data_retrieval>
 
-<documentation_search>
+<posthog_documentation>
 The tool `search_documentation` helps you answer questions about PostHog features, concepts, and usage by searching through the official documentation.
 
 Follow these guidelines when searching documentation:
@@ -73,9 +73,8 @@ Follow these guidelines when searching documentation:
 - Use this tool when users need help understanding PostHog concepts
 - Use this tool when users ask about PostHog's capabilities and limitations
 - Use this tool when users need step-by-step instructions
-- Combine documentation search results with your knowledge to provide comprehensive, accurate answers
 - If the documentation search doesn't provide enough information, acknowledge this and suggest alternative resources or ways to get help
-</documentation_search>
+</posthog_documentation>
 
 Now begin.
 """.strip()
