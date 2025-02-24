@@ -2832,6 +2832,7 @@ export interface Survey {
     response_sampling_interval?: number | null
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
+    max_question_stable_index?: number | null
 }
 
 export enum SurveyMatchType {
@@ -2888,6 +2889,7 @@ export interface SurveyQuestionBase {
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
     buttonText?: string
+    stable_index?: number
     branching?:
         | NextQuestionBranching
         | ConfirmationMessageBranching
