@@ -1,10 +1,19 @@
 import { IconSearch } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonSnack, LemonTable, Link } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonSnack,
+    LemonTable,
+    LemonTag,
+    LemonTagProps,
+    Link,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
-import { LogLevelDisplay } from 'scenes/pipeline/utils'
 
 import { LogEntryLevel } from '~/types'
 
@@ -15,6 +24,23 @@ import {
     hogFunctionLogsLogic,
     HogFunctionLogsProps,
 } from './hogFunctionLogsLogic'
+
+const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
+    switch (level.toLowerCase()) {
+        case 'debug':
+            return 'muted'
+        case 'log':
+        case 'info':
+            return 'default'
+        case 'warning':
+        case 'warn':
+            return 'warning'
+        case 'error':
+            return 'danger'
+        default:
+            return 'default'
+    }
+}
 
 export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
     const hogFunctionId = id.startsWith('hog-') ? id.substring(4) : id
@@ -81,6 +107,7 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                 columns={[
                     {
                         key: 'count',
+                        width: 0,
                         render: (_, { entries, instanceId }) => {
                             return (
                                 <Link
@@ -98,10 +125,10 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                         title: 'Timestamp',
                         key: 'timestamp',
                         dataIndex: 'timestamp',
+                        width: 0,
                         sorter: (a: GroupedLogEntry, b: GroupedLogEntry) =>
                             dayjs(a.timestamp).unix() - dayjs(b.timestamp).unix(),
                         render: (timestamp: string) => <TZLabel time={timestamp} />,
-                        width: 0,
                     },
                     {
                         width: 0,
@@ -158,6 +185,11 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                                 dataSource={record.entries}
                                 columns={[
                                     {
+                                        key: 'spacer',
+                                        width: 0,
+                                        render: () => <div className="w-16" />,
+                                    },
+                                    {
                                         title: 'Timestamp',
                                         key: 'timestamp',
                                         dataIndex: 'timestamp',
@@ -167,7 +199,9 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                                         title: 'Level',
                                         key: 'level',
                                         dataIndex: 'level',
-                                        render: (level: LogEntryLevel) => LogLevelDisplay(level.toUpperCase()),
+                                        render: (level: LogEntryLevel) => (
+                                            <LemonTag type={tagTypeForLevel(level)}>{level.toUpperCase()}</LemonTag>
+                                        ),
                                     },
                                     {
                                         title: 'Message',

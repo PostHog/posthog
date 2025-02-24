@@ -79,7 +79,7 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
     })) as GroupedLogEntry[]
 }
 
-const dedupeGroupedLogs = (groups: GroupedLogEntry[], newGroups: GroupedLogEntry[]): GroupedLogEntry[] => {
+const dedupeGroupedLogs = (groups: GroupedLogEntry[], newGroups: GroupedLogEntry[] = []): GroupedLogEntry[] => {
     // NOTE: When we are loading new or older logs we might have some crossover of groups so we want to dedupe here
     // Any newLogs that are already in the existing logs should just be appended to the existing logs
 
@@ -134,7 +134,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                         hogFunctionId: props.id,
                     }
                     const results = await loadGroupedLogs(logParams)
-                    return results
+                    return dedupeGroupedLogs(results)
                 },
                 loadMoreLogs: async () => {
                     const logParams: GroupedLogEntryRequest = {
