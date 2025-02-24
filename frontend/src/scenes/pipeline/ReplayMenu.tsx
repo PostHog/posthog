@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -21,9 +22,9 @@ export interface HogFunctionConfigurationProps {
 }
 
 export function ReplayMenu({ id }: HogFunctionConfigurationProps): JSX.Element {
-    const logicProps = { id }
-    const logic = hogFunctionConfigurationLogic(logicProps)
-    const { loading, loaded, showPaygate } = useValues(logic)
+    const { eventsWithRetries, loadingRetries } = useValues(hogFunctionReplayLogic({ id }))
+    const { retryHogFunction } = useActions(hogFunctionReplayLogic({ id }))
+    const { loading, loaded, showPaygate } = useValues(hogFunctionConfigurationLogic({ id }))
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -39,6 +40,18 @@ export function ReplayMenu({ id }: HogFunctionConfigurationProps): JSX.Element {
 
     return (
         <div className="space-y-3">
+            <PageHeader
+                buttons={
+                    <>
+                        <RetryButton
+                            loadingRetries={loadingRetries}
+                            rows={eventsWithRetries}
+                            retryHogFunction={retryHogFunction}
+                            eventIds={eventsWithRetries.map((row) => row[0].uuid)}
+                        />
+                    </>
+                }
+            />
             <LemonBanner type="info">
                 <span>
                     This is a list of all events matching your filters. You can run the function using these historical
@@ -85,14 +98,16 @@ function RetryResults({ retry }: { retry: DestinationRetryType }): JSX.Element {
     )
 }
 
-function RunRetryButton({
+function RetryButton({
     loadingRetries,
-    row,
+    rows,
     retryHogFunction,
+    eventIds,
 }: {
     loadingRetries: string[]
-    row: any
+    rows: any[]
     retryHogFunction: (row: any) => void
+    eventIds: string[]
 }): JSX.Element {
     const handleRetry = (): void => {
         LemonDialog.open({
@@ -100,8 +115,8 @@ function RunRetryButton({
             description: (
                 <>
                     <p>
-                        This will execute the hog function using this event. Consider the impact of this function on
-                        your destination.
+                        This will execute the hog function using {rows.length > 1 ? 'all visible events' : 'this event'}
+                        . Consider the impact of this function on your destination.
                     </p>
                     <p>
                         <b>Note -</b> do not close this page until the replay is complete.
@@ -111,7 +126,9 @@ function RunRetryButton({
             width: '20rem',
             primaryButton: {
                 children: 'Retry',
-                onClick: () => void retryHogFunction(row),
+                onClick: () => {
+                    rows.map((row) => retryHogFunction(row))
+                },
             },
             secondaryButton: {
                 children: 'Cancel',
@@ -120,16 +137,16 @@ function RunRetryButton({
     }
 
     return (
-        <span className="flex items-center gap-1">
-            <LemonButton
-                size="small"
-                type="secondary"
-                icon={<IconRefresh />}
-                loading={loadingRetries.includes(row[0].uuid)}
-                disabledReason={loadingRetries.includes(row[0].uuid) ? 'Retrying...' : undefined}
-                onClick={handleRetry}
-            />
-        </span>
+        <LemonButton
+            size="small"
+            type={rows.length > 1 ? 'primary' : 'secondary'}
+            icon={rows.length > 1 ? null : <IconRefresh />}
+            loading={loadingRetries.some((retry) => eventIds.includes(retry))}
+            disabledReason={loadingRetries.some((retry) => eventIds.includes(retry)) ? 'Retrying...' : undefined}
+            onClick={handleRetry}
+        >
+            {rows.length > 1 ? <span>Replay all visible events</span> : null}
+        </LemonButton>
     )
 }
 
@@ -326,10 +343,11 @@ export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
                     render: function RenderActions(_, row) {
                         return (
                             <div className="flex gap-1">
-                                <RunRetryButton
+                                <RetryButton
                                     loadingRetries={loadingRetries}
-                                    row={row}
+                                    rows={[row]}
                                     retryHogFunction={retryHogFunction}
+                                    eventIds={[row[0].uuid]}
                                 />
                             </div>
                         )
