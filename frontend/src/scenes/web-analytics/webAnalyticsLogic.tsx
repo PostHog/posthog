@@ -385,7 +385,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             null as string | null,
             persistConfig,
             {
-                setDomainFilter: (state: string | null, payload: unknown) => {
+                setDomainFilter: (_: string | null, payload: unknown) => {
                     const { domain } = payload as { domain: string | null }
                     return domain
                 },

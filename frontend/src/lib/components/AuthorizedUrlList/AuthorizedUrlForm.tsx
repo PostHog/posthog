@@ -53,7 +53,7 @@ export function AuthorizedUrlForm({
                 <LemonButton type="secondary" onClick={cancelProposingUrl}>
                     Cancel
                 </LemonButton>
-                <LemonButton htmlType="submit" type="primary" disabled={isProposedUrlSubmitting} data-attr="url-save">
+                <LemonButton htmlType="submit" type="primary" loading={isProposedUrlSubmitting} data-attr="url-save">
                     Save
                 </LemonButton>
             </div>
