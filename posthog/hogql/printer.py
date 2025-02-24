@@ -117,7 +117,9 @@ def prepare_ast_for_printing(
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
-            context.database = create_hogql_database(context.team_id, context.modifiers, context.team)
+            context.database = create_hogql_database(
+                context.team_id, context.modifiers, context.team, timings=context.timings
+            )
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
@@ -1148,8 +1150,10 @@ class _Printer(Visitor):
                         and isinstance(node.args[0].type, StringType)
                     ):
                         try:
-                            _ = parser.isoparse(node.args[0].value)
-                            relevant_clickhouse_name = "toDateTime64"
+                            t = parser.isoparse(node.args[0].value)
+                            # if we have timezone info, toDateTime64 cannot handle
+                            if t.tzinfo is None:
+                                relevant_clickhouse_name = "toDateTime64"
                         except ValueError:
                             pass
 

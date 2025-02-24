@@ -228,22 +228,19 @@ describe('sessionRecordingDataLogic', () => {
                 {
                     client_query_id: undefined,
                     query: {
-                        after: '2023-05-01T14:45:20+00:00',
-                        before: '2023-05-01T14:47:32+00:00',
-                        kind: 'EventsQuery',
-                        limit: 1000000,
-                        orderBy: ['timestamp ASC'],
-                        personId: undefined,
-                        properties: [{ key: '$session_id', operator: 'exact', type: 'event', value: ['2'] }],
-                        select: [
-                            'uuid',
-                            'event',
-                            'timestamp',
-                            'elements_chain',
-                            'properties.$window_id',
-                            'properties.$current_url',
-                            'properties.$event_type',
-                        ],
+                        kind: 'HogQLQuery',
+                        query: `
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+                            FROM events
+                            WHERE timestamp > '2023-05-01 14:45:20'
+                              AND timestamp < '2023-05-01 14:47:32'
+                              AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
+                        
+                            AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
+                        
+                        ORDER BY timestamp ASC
+                        LIMIT 1000000
+                    `,
                     },
                 },
                 expect.anything()

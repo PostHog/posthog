@@ -26,6 +26,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
 
     return (
         <LemonTable
+            id="managed-sources"
             dataSource={dataWarehouseSources?.results ?? []}
             loading={dataWarehouseSourcesLoading}
             disableTableWhileLoading={false}

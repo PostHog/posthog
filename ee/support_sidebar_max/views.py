@@ -2,7 +2,7 @@
 ViewSet for Max Support Sidebar Chat Assistant.
 """
 
-from typing import Any
+from typing import Any, Optional
 import builtins
 from collections.abc import MutableMapping
 from django.conf import settings
@@ -20,7 +20,7 @@ from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
 
 from ee.support_sidebar_max.prompt import get_system_prompt
-from .sidebar_max_ai import ConversationHistory, max_search_tool_tool
+from .sidebar_max_ai import ConversationHistory, max_search_tool_tool, RateLimitType
 from .max_search_tool import max_search_tool
 
 
@@ -45,6 +45,7 @@ class MaxChatViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     CONVERSATION_TIMEOUT = 3600  # one hour
+    MAX_BACKOFF = 40  # Maximum backoff in seconds to prevent gateway timeouts
     basename = "max"
 
     def _convert_headers(self, headers: MutableMapping[str, str]) -> dict[str, str]:
@@ -71,6 +72,11 @@ class MaxChatViewSet(viewsets.ViewSet):
     async def async_create(self, request: Request, **kwargs: Any) -> Response:
         """Async version of create method"""
         try:
+            # Check if we're currently rate limited
+            is_rate_limited, retry_after, limit_type = ConversationHistory.check_rate_limits()
+            if is_rate_limited:
+                return self._handle_rate_limit(retry_after, limit_type)
+
             # Initialize Anthropic client (non-blocking)
             client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
@@ -175,16 +181,19 @@ class MaxChatViewSet(viewsets.ViewSet):
             ],
         }
 
-    def _handle_rate_limit(self, retry_after: int) -> Response:
+    def _handle_rate_limit(self, retry_after: Optional[int], limit_type: Optional[RateLimitType] = None) -> Response:
         """Handle rate limit with DRF response."""
+        capped_retry = min(retry_after if retry_after is not None else self.MAX_BACKOFF, self.MAX_BACKOFF)
+        limit_message = f" ({limit_type.replace('_', ' ')})" if limit_type else ""
         return Response(
             {
                 "error": "rate_limit_exceeded",
-                "message": "🫣 Uh-oh, I'm really popular today, we've been rate-limited. I just need to catch my breath. Hang on, I'll repeat your question for you and resume searching in less than a minute...",
-                "retry_after": retry_after,
+                "message": f"🫣 Uh-oh, I'm really popular today, we've been rate-limited{limit_message}. I just need to catch my breath. Hang on, I'll repeat your question for you and resume searching in less than a minute...",
+                "retry_after": capped_retry,
+                "limit_type": limit_type,
             },
             status=status.HTTP_429_TOO_MANY_REQUESTS,
-            headers={"Retry-After": str(retry_after)},
+            headers={"Retry-After": str(capped_retry)},
         )
 
     def _handle_tool_use(self, result: dict[str, Any], history: ConversationHistory) -> tuple[str, dict[str, Any]]:
@@ -236,6 +245,10 @@ class MaxChatViewSet(viewsets.ViewSet):
                 tools=tools,  # Include same tools as in create()
             )
 
+            # Pre-check if we have enough tokens
+            if not ConversationHistory.consume_tokens("input_tokens", count.input_tokens):
+                return self._handle_rate_limit(45, "input_tokens")
+
             if count.input_tokens > 190000:  # Safe buffer below 200k limit
                 messages = [messages[0], messages[-1]]  # Keep first and last messages
 
@@ -253,11 +266,10 @@ class MaxChatViewSet(viewsets.ViewSet):
             message = raw_response.parse()
             django_logger.debug(f"✨🦔 Response from Anthropic API: {message}")
 
-            # Log rate limit information if available
+            # Update rate limits from headers
             try:
-                # Convert headers to dict for type safety
                 response_headers = self._convert_headers(raw_response.headers)
-                # Log current capacity (for monitoring/debugging)
+                ConversationHistory.update_rate_limits(response_headers)
                 django_logger.info(
                     f"✨🦔 API Capacity - "
                     f"Requests: {response_headers.get('anthropic-ratelimit-requests-remaining', '?')}/{response_headers.get('anthropic-ratelimit-requests-limit', '?')}, "
@@ -274,6 +286,10 @@ class MaxChatViewSet(viewsets.ViewSet):
                 cache_created = getattr(message.usage, "cache_creation_input_tokens", 0)
                 cache_read = getattr(message.usage, "cache_read_input_tokens", 0)
                 fresh_input = getattr(message.usage, "input_tokens", 0)
+
+                # Consume output tokens
+                if not ConversationHistory.consume_tokens("output_tokens", output_tokens):
+                    return self._handle_rate_limit(45, "output_tokens")
 
                 django_logger.info(f"✨🦔 Request Usage - Input: {input_tokens}, Output: {output_tokens} tokens")
                 if cache_created or cache_read:
@@ -301,7 +317,7 @@ class MaxChatViewSet(viewsets.ViewSet):
 
                 # Try to get retry-after header first
                 if "retry-after" in headers:
-                    retry_seconds = int(headers["retry-after"])
+                    retry_seconds = min(int(headers["retry-after"]), self.MAX_BACKOFF)
                 else:
                     # Calculate from reset timestamp
                     now = datetime.now(UTC)
@@ -312,18 +328,28 @@ class MaxChatViewSet(viewsets.ViewSet):
                             try:
                                 reset_time = datetime.fromisoformat(headers[header].rstrip("Zs")).replace(tzinfo=UTC)
                                 wait_seconds = max(0, int((reset_time - now).total_seconds()))
-                                reset_times.append(wait_seconds)
+                                reset_times.append(min(wait_seconds, self.MAX_BACKOFF))
                             except (ValueError, TypeError):
                                 continue
 
-                    retry_seconds = max(reset_times) if reset_times else 180
+                    retry_seconds = min(max(reset_times) if reset_times else self.MAX_BACKOFF, self.MAX_BACKOFF)
+
+                # Determine which limit was hit from headers
+                limit_type: Optional[RateLimitType] = None
+                for key in headers:
+                    if key.endswith("-remaining"):
+                        if headers[key] == "0":
+                            extracted_type = key.replace("anthropic-ratelimit-", "").replace("-remaining", "")
+                            if extracted_type in ("requests", "input_tokens", "output_tokens"):
+                                limit_type = extracted_type  # type: ignore # mypy doesn't understand the literal check
+                            break
 
                 django_logger.warning(f"✨🦔 Rate limit hit - waiting {retry_seconds} seconds before retry")
-                return self._handle_rate_limit(retry_seconds)
+                return self._handle_rate_limit(retry_seconds, limit_type)
 
             except Exception as header_error:
                 django_logger.warning(f"✨🦔 Rate limit handling error: {str(header_error)}")
-                return self._handle_rate_limit(180)  # Default to 3 minutes
+                return self._handle_rate_limit(self.MAX_BACKOFF)  # Default to MAX_BACKOFF
         except Exception as e:
             django_logger.error(f"✨🦔 Request to Anthropic API failed: {str(e)}", exc_info=True)
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

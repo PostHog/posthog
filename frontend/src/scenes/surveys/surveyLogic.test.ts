@@ -12,6 +12,7 @@ import {
     Survey,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
 } from '~/types'
 
@@ -61,6 +62,7 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 const SINGLE_CHOICE_SURVEY: Survey = {
@@ -109,6 +111,7 @@ const SINGLE_CHOICE_SURVEY: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
@@ -158,6 +161,7 @@ const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
@@ -207,6 +211,7 @@ const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 describe('multiple choice survey logic', () => {
@@ -455,6 +460,7 @@ describe('set response-based survey branching', () => {
         archived: false,
         targeting_flag_filters: undefined,
         responses_limit: null,
+        schedule: SurveySchedule.Once,
     }
 
     describe('main', () => {
@@ -1623,6 +1629,13 @@ describe('surveyLogic filters for surveys responses', () => {
         })
 
         it('calculates default interval based on survey dates', async () => {
+            // Test for survey <= 2 days old
+            await expectLogic(logic, () => {
+                logic.actions.setSurveyValue('created_at', dayjs().subtract(1, 'day').format('YYYY-MM-DD'))
+            }).toMatchValues({
+                defaultInterval: 'hour',
+            })
+
             // Test for survey <= 4 weeks old
             await expectLogic(logic, () => {
                 logic.actions.setSurveyValue('created_at', dayjs().subtract(3, 'weeks').format('YYYY-MM-DD'))
