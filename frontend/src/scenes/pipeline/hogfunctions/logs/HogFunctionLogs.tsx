@@ -2,14 +2,19 @@ import { IconSearch } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonSnack, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 import { LogLevelDisplay } from 'scenes/pipeline/utils'
 
 import { LogEntryLevel } from '~/types'
 
-import { ALL_LOG_LEVELS, GroupedLogEntry, hogFunctionLogsLogic, HogFunctionLogsProps } from './hogFunctionLogsLogic'
+import {
+    ALL_LOG_LEVELS,
+    GroupedLogEntry,
+    HOG_FUNCTION_LOGS_LIMIT,
+    hogFunctionLogsLogic,
+    HogFunctionLogsProps,
+} from './hogFunctionLogsLogic'
 
 export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
     const hogFunctionId = id.startsWith('hog-') ? id.substring(4) : id
@@ -188,7 +193,7 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                     center
                     disabledReason={!isThereMoreToLoad ? "There's nothing more to load" : undefined}
                 >
-                    {isThereMoreToLoad ? `Load up to ${LOGS_PORTION_LIMIT} older entries` : 'No older entries'}
+                    {isThereMoreToLoad ? `Load up to ${HOG_FUNCTION_LOGS_LIMIT} older entries` : 'No older entries'}
                 </LemonButton>
             )}
         </div>
