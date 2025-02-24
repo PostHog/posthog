@@ -590,7 +590,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             lemonToast.success('View updated')
         },
         updateQueryTabState: async (_, breakpoint) => {
-            await breakpoint(300)
+            await breakpoint(1000)
             if (!values.queryTabState) {
                 return
             }
