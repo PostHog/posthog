@@ -1593,6 +1593,120 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Schedule must be one of: once, recurring, always"
 
+    def test_cannot_set_stable_index_on_questions(self):
+        """Test that users cannot set stable_index on questions through the API."""
+        # Create a survey with questions that have stable_index values
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with stable indices",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "Question 1",
+                        "stable_index": 99,  # This should be ignored
+                    },
+                    {
+                        "type": "open",
+                        "question": "Question 2",
+                        "stable_index": 100,  # This should be ignored
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        # Verify that the stable_index values were not set to what we provided
+        assert response_data["questions"][0].get("stable_index") != 99
+        assert response_data["questions"][1].get("stable_index") != 100
+
+        # Verify that the stable_index values were set sequentially starting from 0
+        assert response_data["questions"][0].get("stable_index") == 0
+        assert response_data["questions"][1].get("stable_index") == 1
+
+        # Verify that max_question_stable_index was set correctly
+        assert response_data["max_question_stable_index"] == 1
+
+        # Now try to update the survey with new stable_index values
+        survey_id = response_data["id"]
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "Question 1 Updated",
+                        "stable_index": 0,  # This should be preserved since it exists
+                    },
+                    {
+                        "type": "open",
+                        "question": "Question 2 Updated",
+                        "stable_index": 1,  # This should be preserved since it exists
+                    },
+                    {
+                        "type": "open",
+                        "question": "Question 3 New",
+                        "stable_index": 50,  # This should be ignored
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        update_data = update_response.json()
+        assert update_response.status_code == status.HTTP_200_OK, update_data
+
+        # Verify that existing stable_index values were preserved
+        assert update_data["questions"][0].get("stable_index") == 0
+        assert update_data["questions"][1].get("stable_index") == 1
+
+        # Verify that the new question got a sequential stable_index
+        assert update_data["questions"][2].get("stable_index") == 2
+        assert update_data["max_question_stable_index"] == 2
+
+    def test_cannot_modify_max_question_stable_index(self):
+        """Test that users cannot modify max_question_stable_index through the API."""
+        # Create a basic survey
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with max index",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Question 1"}, {"type": "open", "question": "Question 2"}],
+                "max_question_stable_index": 9999,  # This should be ignored
+            },
+            format="json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        # Verify that max_question_stable_index was not set to what we provided
+        assert response_data["max_question_stable_index"] != 9999
+
+        # Verify that max_question_stable_index was set correctly based on the questions
+        assert response_data["max_question_stable_index"] == 1
+
+        # Now try to update the max_question_stable_index directly
+        survey_id = response_data["id"]
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={
+                "max_question_stable_index": 5000  # This should be ignored
+            },
+            format="json",
+        )
+
+        update_data = update_response.json()
+        assert update_response.status_code == status.HTTP_200_OK, update_data
+
+        # Verify that max_question_stable_index was not changed
+        assert update_data["max_question_stable_index"] == 1
+
 
 class TestMultipleChoiceQuestions(APIBaseTest):
     def test_create_survey_has_open_choice(self):
