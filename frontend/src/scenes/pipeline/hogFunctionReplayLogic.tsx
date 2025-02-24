@@ -5,8 +5,10 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { groupsModel } from '~/models/groupsModel'
+import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
+import { BaseMathType, ChartDisplayType, HogFunctionTestInvocationResult } from '~/types'
 
 import type { hogFunctionReplayLogicType } from './hogFunctionReplayLogicType'
 import {
@@ -14,15 +16,18 @@ import {
     hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogfunctions/hogFunctionConfigurationLogic'
-import { BaseMathType, ChartDisplayType } from '~/types'
-import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 export interface HogFunctionReplayLogicProps {
     id: string
 }
 
-export interface EventsResultType extends EventsQueryResponse {
+export interface EventsResultType {
     before: string | undefined
+    results: EventsQueryResponse['results']
+}
+
+export interface RetryType extends HogFunctionTestInvocationResult {
+    eventId: string
 }
 
 const PAGE_ROWS = 20
@@ -66,10 +71,10 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
             },
         ],
         pageTimestamps: [
-            [] as string[] | undefined[],
+            [] as (string | undefined)[],
             {
                 increaseCurrentPage: (state, { timestamp }: { timestamp: string | undefined }) => [...state, timestamp],
-                decreaseCurrentPage: (state) => [...(state.filter( (_, i) => i !== state.length - 1))],
+                decreaseCurrentPage: (state) => [...state.filter((_, i) => i !== state.length - 1)],
                 resetCurrentPage: () => [],
             },
         ],
@@ -85,29 +90,29 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     const response = await api.query(values.baseEventsQuery)
                     return {
                         ...response,
-                        before: values.dateRange.before ?? undefined
+                        before: values.dateRange.before ?? undefined,
                     }
                 },
                 loadNextEventsPage: async () => {
                     if (!values.nextQuery) {
-                        return { ...values.events }
+                        return { ...values.events, before: undefined }
                     }
                     actions.increaseCurrentPage(values.events.before)
                     const response = await api.query(values.nextQuery)
                     return {
                         ...response,
-                        before: values.nextQuery.before
+                        before: values.nextQuery.before,
                     }
                 },
                 loadPreviousEventsPage: async () => {
                     if (!values.previousQuery) {
-                        return { results: [...(values.events as any)] }
+                        return { ...values.events, before: undefined }
                     }
                     const response = await api.query(values.previousQuery)
                     actions.decreaseCurrentPage()
                     return {
                         ...response,
-                        before: values.previousQuery.before
+                        before: values.previousQuery.before,
                     }
                 },
             },
@@ -125,7 +130,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
             },
         ],
         retries: [
-            [] as any[],
+            [] as RetryType[],
             {
                 retryHogFunction: async (row: any) => {
                     actions.addLoadingRetry(row[0].uuid)
@@ -232,7 +237,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
         ],
         eventsWithRetries: [
             (s) => [s.events, s.retries],
-            (events: { results: any[] }, retries: any[]) =>
+            (events: { results: any[] }, retries: RetryType[]) =>
                 events.results.map((row) => [
                     ...row.slice(0, 3),
                     retries.filter((r) => r.eventId === row[0].uuid),
@@ -245,7 +250,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                 if (!baseEventsQuery || !events) {
                     return null
                 }
-                const typedResults = (events as EventsResultType)?.results
+                const typedResults = events?.results
                 const sortColumnIndex = baseEventsQuery?.select
                     .map((hql: any) => removeExpressionComment(hql))
                     .indexOf('timestamp')
