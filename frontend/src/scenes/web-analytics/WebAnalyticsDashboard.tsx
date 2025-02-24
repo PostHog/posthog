@@ -63,9 +63,22 @@ const AllFilters = (): JSX.Element => {
                             value={domainFilter || 'all'}
                             icon={<IconGlobe />}
                             onChange={(value) => setDomainFilter(value)}
+                            disabled={authorizedUrls.length === 0}
                             options={[
-                                { label: 'All domains', value: 'all' },
-                                ...authorizedUrls.map((url) => ({ label: url, value: url })),
+                                {
+                                    options: [
+                                        { label: 'All domains', value: 'all' },
+                                        ...authorizedUrls.map((url) => ({ label: url, value: url })),
+                                    ],
+                                    footer: (
+                                        <span className="text-xs px-2">
+                                            Have more domains? Go to{' '}
+                                            <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>
+                                                settings
+                                            </Link>
+                                        </span>
+                                    ),
+                                },
                             ]}
                         />
                     </div>
