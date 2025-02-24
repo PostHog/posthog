@@ -112,10 +112,11 @@ RUN apt-get update && \
     "python3" \
     "libssl-dev" \
     "zlib1g-dev" \
-    "maturin" \
     "git" \
     && \
     rm -rf /var/lib/apt/lists/*
+
+RUN pip install maturin
 
 WORKDIR /code
 
