@@ -20,9 +20,9 @@ from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessi
 
 class EventsPersonSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
-        "id": StringDatabaseField(name="person_id"),
-        "created_at": DateTimeDatabaseField(name="person_created_at"),
-        "properties": StringJSONDatabaseField(name="person_properties"),
+        "id": StringDatabaseField(name="person_id", nullable=False),
+        "created_at": DateTimeDatabaseField(name="person_created_at", nullable=False),
+        "properties": StringJSONDatabaseField(name="person_properties", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):
@@ -36,9 +36,9 @@ class EventsGroupSubTable(VirtualTable):
     def __init__(self, group_index: int):
         super().__init__(
             fields={
-                "key": StringDatabaseField(name=f"$group_{group_index}"),
-                "created_at": DateTimeDatabaseField(name=f"group{group_index}_created_at"),
-                "properties": StringJSONDatabaseField(name=f"group{group_index}_properties"),
+                "key": StringDatabaseField(name=f"$group_{group_index}", nullable=False),
+                "created_at": DateTimeDatabaseField(name=f"group{group_index}_created_at", nullable=False),
+                "properties": StringJSONDatabaseField(name=f"group{group_index}_properties", nullable=False),
             }
         )
 
@@ -54,16 +54,16 @@ class EventsGroupSubTable(VirtualTable):
 
 class EventsTable(Table):
     fields: dict[str, FieldOrTable] = {
-        "uuid": StringDatabaseField(name="uuid"),
-        "event": StringDatabaseField(name="event"),
-        "properties": StringJSONDatabaseField(name="properties"),
-        "timestamp": DateTimeDatabaseField(name="timestamp"),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "distinct_id": StringDatabaseField(name="distinct_id"),
-        "elements_chain": StringDatabaseField(name="elements_chain"),
-        "created_at": DateTimeDatabaseField(name="created_at"),
-        "$session_id": StringDatabaseField(name="$session_id"),
-        "$window_id": StringDatabaseField(name="$window_id"),
+        "uuid": StringDatabaseField(name="uuid", nullable=False),
+        "event": StringDatabaseField(name="event", nullable=False),
+        "properties": StringJSONDatabaseField(name="properties", nullable=False),
+        "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
+        "elements_chain": StringDatabaseField(name="elements_chain", nullable=False),
+        "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+        "$session_id": StringDatabaseField(name="$session_id", nullable=False),
+        "$window_id": StringDatabaseField(name="$window_id", nullable=False),
         # Lazy table that adds a join to the persons table
         "pdi": LazyJoin(
             from_field=["distinct_id"],
@@ -80,31 +80,31 @@ class EventsTable(Table):
         # These are swapped out if the user has PoE enabled
         "person": FieldTraverser(chain=["pdi", "person"]),
         "person_id": FieldTraverser(chain=["pdi", "person_id"]),
-        "$group_0": StringDatabaseField(name="$group_0"),
+        "$group_0": StringDatabaseField(name="$group_0", nullable=False),
         "group_0": LazyJoin(
             from_field=["$group_0"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(0),
         ),
-        "$group_1": StringDatabaseField(name="$group_1"),
+        "$group_1": StringDatabaseField(name="$group_1", nullable=False),
         "group_1": LazyJoin(
             from_field=["$group_1"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(1),
         ),
-        "$group_2": StringDatabaseField(name="$group_2"),
+        "$group_2": StringDatabaseField(name="$group_2", nullable=False),
         "group_2": LazyJoin(
             from_field=["$group_2"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(2),
         ),
-        "$group_3": StringDatabaseField(name="$group_3"),
+        "$group_3": StringDatabaseField(name="$group_3", nullable=False),
         "group_3": LazyJoin(
             from_field=["$group_3"],
             join_table=GroupsTable(),
             join_function=join_with_group_n_table(3),
         ),
-        "$group_4": StringDatabaseField(name="$group_4"),
+        "$group_4": StringDatabaseField(name="$group_4", nullable=False),
         "group_4": LazyJoin(
             from_field=["$group_4"],
             join_table=GroupsTable(),
@@ -115,10 +115,10 @@ class EventsTable(Table):
             join_table=SessionsTableV1(),
             join_function=join_events_table_to_sessions_table,
         ),
-        "elements_chain_href": StringDatabaseField(name="elements_chain_href"),
-        "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts"),
-        "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids"),
-        "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements"),
+        "elements_chain_href": StringDatabaseField(name="elements_chain_href", nullable=False),
+        "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts", nullable=False),
+        "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids", nullable=False),
+        "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

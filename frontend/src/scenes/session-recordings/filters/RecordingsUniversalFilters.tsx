@@ -12,7 +12,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
-import { SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { playlistLogic } from 'scenes/session-recordings/playlist/playlistLogic'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -25,6 +25,40 @@ import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 import { DurationFilter } from './DurationFilter'
+
+function HideRecordingsMenu(): JSX.Element {
+    const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
+    const { setHideViewedRecordings } = useActions(playerSettingsLogic)
+
+    return (
+        <SettingsMenu
+            highlightWhenActive={false}
+            items={[
+                {
+                    label: hideRecordingsMenuLabelFor(false),
+                    onClick: () => setHideViewedRecordings(false),
+                    active: !hideViewedRecordings,
+                    'data-attr': 'hide-viewed-recordings-show-all',
+                },
+                {
+                    label: hideRecordingsMenuLabelFor('current-user'),
+                    onClick: () => setHideViewedRecordings('current-user'),
+                    active: hideViewedRecordings === 'current-user',
+                    'data-attr': 'hide-viewed-recordings-hide-current-user',
+                },
+                {
+                    label: hideRecordingsMenuLabelFor('any-user'),
+                    onClick: () => setHideViewedRecordings('any-user'),
+                    active: hideViewedRecordings === 'any-user',
+                    'data-attr': 'hide-viewed-recordings-hide-any-user',
+                },
+            ]}
+            icon={hideViewedRecordings ? <IconHide /> : <IconEye />}
+            rounded={true}
+            label={hideRecordingsMenuLabelFor(hideViewedRecordings)}
+        />
+    )
+}
 
 export const RecordingsUniversalFilters = ({
     filters,
@@ -52,8 +86,8 @@ export const RecordingsUniversalFilters = ({
 
     const { isExpanded } = useValues(playlistLogic)
     const { setIsExpanded } = useActions(playlistLogic)
-    const { hideViewedRecordings, playlistTimestampFormat } = useValues(playerSettingsLogic)
-    const { setHideViewedRecordings, setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const { playlistTimestampFormat } = useValues(playerSettingsLogic)
+    const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
@@ -212,14 +246,7 @@ export const RecordingsUniversalFilters = ({
                 </div>
             </div>
             <div className="flex gap-2 mt-2 justify-between">
-                <SettingsToggle
-                    icon={hideViewedRecordings ? <IconEye /> : <IconHide />}
-                    active={hideViewedRecordings}
-                    title="Hide viewed recordings"
-                    label="Hide viewed recordings"
-                    onClick={() => setHideViewedRecordings(!hideViewedRecordings)}
-                    rounded={true}
-                />
+                <HideRecordingsMenu />
                 <SettingsMenu
                     highlightWhenActive={false}
                     items={[
