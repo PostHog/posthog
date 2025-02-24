@@ -723,114 +723,39 @@ describe('IngestionConsumer', () => {
             await ingester.start()
 
             // Set up the transformations in order
-            const transformations: Partial<HogFunctionType>[] = [
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: 'Bot Detection',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 1,
-                    bytecode: await compileHog(botDetectionTemplate.hog),
-                    inputs: {
+            const transformationTemplates = [
+                [
+                    botDetectionTemplate,
+                    {
                         userAgent: { value: '$useragent' },
                         customBotPatterns: { value: 'custom-bot,test-crawler' },
                     },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: posthogFilterOutPlugin.template.name,
-                    template_id: posthogFilterOutPlugin.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 2,
-                    bytecode: await compileHog(posthogFilterOutPlugin.template.hog),
-                    hog: posthogFilterOutPlugin.template.hog,
-                    inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
-                    inputs: {
-                        filters: {
-                            value: '[]',
-                        },
-                        eventsToDrop: {
-                            value: 'filtered_event',
-                        },
-                        keepUndefinedProperties: {
-                            value: 'No',
-                        },
+                ],
+                [
+                    posthogFilterOutPlugin.template,
+                    {
+                        filters: { value: '[]' },
+                        eventsToDrop: { value: 'filtered_event' },
+                        keepUndefinedProperties: { value: 'No' },
                     },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: posthogPluginGeoip.template.name,
-                    template_id: posthogPluginGeoip.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 3,
-                    bytecode: await compileHog(posthogPluginGeoip.template.hog),
-                    hog: posthogPluginGeoip.template.hog,
-                    inputs_schema: posthogPluginGeoip.template.inputs_schema,
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: removeNullPropertiesTemplate.name,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 4,
-                    bytecode: await compileHog(removeNullPropertiesTemplate.hog),
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: urlMaskingTemplate.name,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 5,
-                    bytecode: await compileHog(urlMaskingTemplate.hog),
-                    inputs: {
+                ],
+                [posthogPluginGeoip.template, {}],
+                [removeNullPropertiesTemplate, {}],
+                [
+                    urlMaskingTemplate,
+                    {
                         urlProperties: {
                             value: {
                                 $current_url: 'email, password, token',
                                 $referrer: 'email, password, token',
                             },
                         },
-                        maskWith: {
-                            value: '[MASKED]',
-                        },
+                        maskWith: { value: '[MASKED]' },
                     },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: languageUrlSplitterApp.template.name,
-                    template_id: languageUrlSplitterApp.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 6,
-                    bytecode: await compileHog(languageUrlSplitterApp.template.hog),
-                    hog: languageUrlSplitterApp.template.hog,
-                    inputs_schema: languageUrlSplitterApp.template.inputs_schema,
-                    inputs: {
+                ],
+                [
+                    languageUrlSplitterApp.template,
+                    {
                         pattern: { value: '^/([a-z]{2})(?=/|#|\\?|$)' },
                         matchGroup: { value: '1' },
                         property: { value: 'detected_language' },
@@ -838,22 +763,10 @@ describe('IngestionConsumer', () => {
                         replaceKey: { value: 'clean_path' },
                         replaceValue: { value: '/' },
                     },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: posthogAppUrlParametersToEventProperties.template.name,
-                    template_id: posthogAppUrlParametersToEventProperties.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 7,
-                    bytecode: await compileHog(posthogAppUrlParametersToEventProperties.template.hog),
-                    hog: posthogAppUrlParametersToEventProperties.template.hog,
-                    inputs_schema: posthogAppUrlParametersToEventProperties.template.inputs_schema,
-                    inputs: {
+                ],
+                [
+                    posthogAppUrlParametersToEventProperties.template,
+                    {
                         parameters: { value: 'source,campaign,medium' },
                         prefix: { value: 'utm_' },
                         suffix: { value: '' },
@@ -862,132 +775,69 @@ describe('IngestionConsumer', () => {
                         setAsInitialUserProperties: { value: 'true' },
                         alwaysJson: { value: 'false' },
                     },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: userAgentPlugin.template.name,
-                    template_id: userAgentPlugin.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 8,
-                    bytecode: await compileHog(userAgentPlugin.template.hog),
-                    hog: userAgentPlugin.template.hog,
-                    inputs_schema: userAgentPlugin.template.inputs_schema,
-                    inputs: {
+                ],
+                [
+                    userAgentPlugin.template,
+                    {
                         overrideUserAgentDetails: { value: 'true' },
                         enableSegmentAnalyticsJs: { value: 'false' },
                         debugMode: { value: 'false' },
                     },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: 'PII Hashing Transformation',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 9,
-                    bytecode: await compileHog(piiHashingTemplate.hog),
-                    inputs: {
+                ],
+                [
+                    piiHashingTemplate,
+                    {
                         propertiesToHash: { value: '$geoip_city_name,$geoip_country_name' },
                         hashDistinctId: { value: true },
                         salt: { value: 'test-salt', secret: true },
                     },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: 'IP Anonymization Transformation',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 10,
-                    bytecode: await compileHog(ipAnonymizationTemplate.hog),
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: propertyFilterPlugin.template.name,
-                    template_id: propertyFilterPlugin.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 11,
-                    bytecode: await compileHog(propertyFilterPlugin.template.hog),
-                    hog: propertyFilterPlugin.template.hog,
-                    inputs_schema: propertyFilterPlugin.template.inputs_schema,
-                    inputs: {
+                ],
+                [ipAnonymizationTemplate, {}],
+                [
+                    propertyFilterPlugin.template,
+                    {
                         properties: {
                             value: '$geoip_latitude,$geoip_longitude,$geoip_postal_code,$geoip_subdivision_2_code,sensitive_info,nested.secretValue',
                         },
                     },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: semverFlattenerPlugin.template.name,
-                    template_id: semverFlattenerPlugin.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 12,
-                    bytecode: await compileHog(semverFlattenerPlugin.template.hog),
-                    hog: semverFlattenerPlugin.template.hog,
-                    inputs_schema: semverFlattenerPlugin.template.inputs_schema,
-                    inputs: {
+                ],
+                [
+                    semverFlattenerPlugin.template,
+                    {
                         properties: {
                             value: 'app_version,lib_version',
                         },
                     },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: taxonomyPlugin.template.name,
-                    template_id: taxonomyPlugin.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 13,
-                    bytecode: await compileHog(taxonomyPlugin.template.hog),
-                    hog: taxonomyPlugin.template.hog,
-                    inputs_schema: taxonomyPlugin.template.inputs_schema,
-                    inputs: {
+                ],
+                [
+                    taxonomyPlugin.template,
+                    {
                         defaultNamingConvention: {
                             value: 'snake_case',
                         },
                     },
-                },
-                {
+                ],
+                [timestampParserPlugin.template, {}],
+            ] as const
+
+            const transformations = await Promise.all(
+                transformationTemplates.map(async ([template, inputs], index) => ({
                     id: new UUIDT().toString(),
                     team_id: team.id,
-                    type: 'transformation',
-                    name: timestampParserPlugin.template.name,
-                    template_id: timestampParserPlugin.template.id,
+                    type: 'transformation' as const,
+                    name: template.name,
+                    template_id: template.id,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 14,
-                    bytecode: await compileHog(timestampParserPlugin.template.hog),
-                    hog: timestampParserPlugin.template.hog,
-                    inputs_schema: timestampParserPlugin.template.inputs_schema,
-                },
-            ]
+                    execution_order: index + 1,
+                    bytecode: await compileHog(template.hog),
+                    hog: template.hog,
+                    inputs_schema: template.inputs_schema,
+                    inputs,
+                }))
+            )
 
             // Insert the transformations
             for (const transformation of transformations) {
@@ -1020,6 +870,7 @@ describe('IngestionConsumer', () => {
                 },
             })
 
+            // Create a filtered event that should be dropped
             const filteredEvent = createEvent({
                 distinct_id: 'filtered-user-id',
                 ip: '89.160.20.129',
@@ -1032,6 +883,7 @@ describe('IngestionConsumer', () => {
                 },
             })
 
+            // Create a real user event that should be processed
             const realUserEvent = createEvent({
                 distinct_id: 'test-user-id',
                 ip: '89.160.20.129',
