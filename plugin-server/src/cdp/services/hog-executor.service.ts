@@ -348,6 +348,12 @@ export class HogExecutorService {
             logs: [],
         }
 
+        result.logs.push({
+            level: 'debug',
+            timestamp: DateTime.now(),
+            message: invocation.vmState ? 'Resuming function' : `Executing function`,
+        })
+
         try {
             // If the queueParameter is set then we have an expected format that we want to parse and add to the stack
             if (invocation.queueParameters) {

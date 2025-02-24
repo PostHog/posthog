@@ -107,6 +107,11 @@ describe('Hog Executor', () => {
                 {
                     timestamp: expect.any(DateTime),
                     level: 'debug',
+                    message: 'Executing function',
+                },
+                {
+                    timestamp: expect.any(DateTime),
+                    level: 'debug',
                     message: "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                 },
             ])
@@ -122,6 +127,7 @@ describe('Hog Executor', () => {
 
             expect(result.logs.map((x) => x.message)).toMatchInlineSnapshot(`
                 [
+                  "Executing function",
                   "test",
                   "{"nested":{"foo":"***REDACTED***","null":null,"bool":false}}",
                   "{"foo":"***REDACTED***","null":null,"bool":false}",
@@ -186,7 +192,9 @@ describe('Hog Executor', () => {
             expect(secondResult.error).toBeUndefined()
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
+                  "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
+                  "Resuming function",
                   "Fetch response:, {"status":200,"body":"success"}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
@@ -203,7 +211,9 @@ describe('Hog Executor', () => {
 
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
+                  "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
+                  "Resuming function",
                   "Fetch response:, {"status":200,"body":{"foo":"bar"}}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
@@ -232,9 +242,11 @@ describe('Hog Executor', () => {
 
             expect(logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
+                  "Executing function",
                   "Suspending function due to async function call 'fetch'. Payload: 1951 bytes. Event: uuid",
                   "Fetch failed after 1 attempts",
                   "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
+                  "Resuming function",
                   "Fetch response:, {"status":404,"body":{"foo":"bar"}}",
                   "Function completed in 100ms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
                 ]
@@ -677,6 +689,7 @@ describe('Hog Executor', () => {
             expect(result3.finished).toBe(true)
             expect(result3.error).toEqual('Exceeded maximum number of async steps: 5')
             expect(result3.logs.map((log) => log.message)).toEqual([
+                'Resuming function',
                 'Error executing function on event uuid: HogVMException: Exceeded maximum number of async steps: 5',
             ])
         })
@@ -735,6 +748,7 @@ describe('Hog Executor', () => {
             expect(result.error).toContain('Execution timed out after 0.1 seconds. Performed ')
 
             expect(result.logs.map((log) => log.message)).toEqual([
+                'Executing function',
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
@@ -760,8 +774,8 @@ describe('Hog Executor', () => {
                 'I AM FIBONACCI',
                 'I AM FIBONACCI',
                 'Function exceeded maximum log entries. No more logs will be collected. Event: uuid',
-                expect.stringContaining(
-                    'Error executing function on event uuid: HogVMException: Execution timed out after 0.1 seconds. Performed'
+                expect.stringMatching(
+                    /Error executing function on event uuid: HogVMException: Execution timed out after 0\.1 seconds\. Performed \d+ ops\./
                 ),
             ])
         })
@@ -807,7 +821,7 @@ describe('Hog Executor', () => {
             const result = executor.execute(createInvocation(fn, globals))
             expect(result?.capturedPostHogEvents).toEqual([])
             expect(result?.logs[1].message).toMatchInlineSnapshot(
-                `"Function completed in 0ms. Sync: 0ms. Mem: 104 bytes. Ops: 15. Event: 'http://localhost:8000/events/1'"`
+                `"postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured."`
             )
         })
     })

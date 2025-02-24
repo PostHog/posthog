@@ -572,6 +572,19 @@ describe('IngestionConsumer', () => {
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),
+                            level: 'debug',
+                            log_source: 'hog_function',
+                            log_source_id: transformationFunction.id,
+                            message: 'Executing function',
+                            team_id: team.id,
+                            timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
+                        },
+                    },
+                    {
+                        key: expect.any(String),
+                        topic: 'log_entries_test',
+                        value: {
+                            instance_id: expect.any(String),
                             level: 'info',
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
@@ -632,6 +645,19 @@ describe('IngestionConsumer', () => {
                 // Verify log entries were published
                 const logMessages = getProducedKafkaMessagesForTopic('log_entries_test')
                 expect(logMessages).toEqual([
+                    {
+                        key: expect.any(String),
+                        topic: 'log_entries_test',
+                        value: {
+                            instance_id: expect.any(String),
+                            level: 'debug',
+                            log_source: 'hog_function',
+                            log_source_id: transformationFunction.id,
+                            message: 'Executing function',
+                            team_id: team.id,
+                            timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
+                        },
+                    },
                     {
                         key: expect.any(String),
                         topic: 'log_entries_test',
