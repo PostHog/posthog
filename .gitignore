@@ -62,6 +62,7 @@ frontend/__snapshots__/__failures__/
 frontend/.cache/
 frontend/@posthog/apps-common/dist/
 frontend/dist/
+frontend/dist2/
 frontend/pnpm-error.log
 frontend/public/Matter*.woff* # Paid font
 frontend/tmp

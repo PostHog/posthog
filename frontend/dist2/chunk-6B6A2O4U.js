@@ -1,2 +1,0 @@
-import{a as r}from"/static/chunk-GINZUAUY.js";import{b as u,e as s,g as a,j as o}from"/static/chunk-SJXEOBQC.js";var F=u((j,t)=>{s();o();a();var p=r();t.exports=e;e.displayName="jsonp";e.aliases=[];function e(n){n.register(p),n.languages.jsonp=n.languages.extend("json",{punctuation:/[{}[\]();,.]/}),n.languages.insertBefore("jsonp","punctuation",{function:/(?!\s)[_$a-zA-Z\xA0-\uFFFF](?:(?!\s)[$\w\xA0-\uFFFF])*(?=\s*\()/})}});export{F as a};
-//# sourceMappingURL=/static/chunk-6B6A2O4U.js.map

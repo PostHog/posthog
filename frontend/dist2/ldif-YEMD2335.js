@@ -1,2 +1,0 @@
-import{b as s,e,g as n,j as t}from"/static/chunk-SJXEOBQC.js";var l=s((b,a)=>{e();t();n();function d(r){return{name:"LDIF",contains:[{className:"attribute",begin:"^dn",end:": ",excludeEnd:!0,starts:{end:"$",relevance:0},relevance:10},{className:"attribute",begin:"^\\w",end:": ",excludeEnd:!0,starts:{end:"$",relevance:0}},{className:"literal",begin:"^-",end:"$"},r.HASH_COMMENT_MODE]}}a.exports=d});export default l();
-//# sourceMappingURL=/static/ldif-YEMD2335.js.map

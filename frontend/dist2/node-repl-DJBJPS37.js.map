@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/node-repl.js"],
-  "sourcesContent": ["/*\nLanguage: Node REPL\nRequires: javascript.js\nAuthor: Marat Nagayev <nagaevmt@yandex.ru>\nCategory: scripting\n*/\n\n/** @type LanguageFn */\nfunction nodeRepl(hljs) {\n  return {\n    name: 'Node REPL',\n    contains: [\n      {\n        className: 'meta',\n        starts: {\n          // a space separates the REPL prefix from the actual code\n          // this is purely for cleaner HTML output\n          end: / |$/,\n          starts: {\n            end: '$',\n            subLanguage: 'javascript'\n          }\n        },\n        variants: [\n          {\n            begin: /^>(?=[ ]|$)/\n          },\n          {\n            begin: /^\\.\\.\\.(?=[ ]|$)/\n          }\n        ]\n      }\n    ]\n  };\n}\n\nmodule.exports = nodeRepl;\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAQA,SAASC,EAASC,EAAM,CACtB,MAAO,CACL,KAAM,YACN,SAAU,CACR,CACE,UAAW,OACX,OAAQ,CAGN,IAAK,MACL,OAAQ,CACN,IAAK,IACL,YAAa,YACf,CACF,EACA,SAAU,CACR,CACE,MAAO,aACT,EACA,CACE,MAAO,kBACT,CACF,CACF,CACF,CACF,CACF,CAEAL,EAAO,QAAUI",
-  "names": ["require_node_repl", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "nodeRepl", "hljs"]
-}

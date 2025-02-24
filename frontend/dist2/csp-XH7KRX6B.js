@@ -1,2 +1,0 @@
-import{b as n,e,g as s,j as r}from"/static/chunk-SJXEOBQC.js";var a=n((u,c)=>{e();r();s();function t(i){return{name:"CSP",case_insensitive:!1,keywords:{$pattern:"[a-zA-Z][a-zA-Z0-9_-]*",keyword:"base-uri child-src connect-src default-src font-src form-action frame-ancestors frame-src img-src media-src object-src plugin-types report-uri sandbox script-src style-src"},contains:[{className:"string",begin:"'",end:"'"},{className:"attribute",begin:"^Content",end:":",excludeEnd:!0}]}}c.exports=t});export default a();
-//# sourceMappingURL=/static/csp-XH7KRX6B.js.map

@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../src/lib/components/EmptyMessage/EmptyMessage.tsx"],
-  "sourcesContent": ["import './EmptyMessage.scss'\n\nimport { LemonButton } from 'lib/lemon-ui/LemonButton'\n\nexport interface EmptyMessageProps {\n    title: string\n    description: string\n    buttonText?: string\n    buttonTo?: string\n}\n\nexport function EmptyMessage({ title, description, buttonText, buttonTo }: EmptyMessageProps): JSX.Element {\n    return (\n        <div className=\"empty-message\">\n            <div className=\"flex flex-col h-full items-center justify-center m-5\">\n                <h3 className=\"title\">{title}</h3>\n\n                <p className=\"text-secondary description\">{description}</p>\n                {buttonText && (\n                    <LemonButton type=\"secondary\" to={buttonTo}>\n                        {buttonText}\n                    </LemonButton>\n                )}\n            </div>\n        </div>\n    )\n}\n"],
-  "mappings": "oHAAAA,IAAAC,IAAAC,IAcY,IAAAC,EAAA,OAHL,SAASC,EAAa,CAAE,MAAAC,EAAO,YAAAC,EAAa,WAAAC,EAAY,SAAAC,CAAS,EAAmC,CACvG,SACI,OAAC,OAAI,UAAU,gBACX,oBAAC,OAAI,UAAU,uDACX,oBAAC,MAAG,UAAU,QAAS,SAAAH,EAAM,KAE7B,OAAC,KAAE,UAAU,6BAA8B,SAAAC,EAAY,EACtDC,MACG,OAACE,EAAA,CAAY,KAAK,YAAY,GAAID,EAC7B,SAAAD,EACL,GAER,EACJ,CAER",
-  "names": ["init_dirname", "init_buffer", "init_process", "import_jsx_runtime", "EmptyMessage", "title", "description", "buttonText", "buttonTo", "LemonButton"]
-}

@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/php-extras.js"],
-  "sourcesContent": ["'use strict'\nvar refractorPhp = require('./php.js')\nmodule.exports = phpExtras\nphpExtras.displayName = 'phpExtras'\nphpExtras.aliases = []\nfunction phpExtras(Prism) {\n  Prism.register(refractorPhp)\n  Prism.languages.insertBefore('php', 'variable', {\n    this: {\n      pattern: /\\$this\\b/,\n      alias: 'keyword'\n    },\n    global:\n      /\\$(?:GLOBALS|HTTP_RAW_POST_DATA|_(?:COOKIE|ENV|FILES|GET|POST|REQUEST|SERVER|SESSION)|argc|argv|http_response_header|php_errormsg)\\b/,\n    scope: {\n      pattern: /\\b[\\w\\\\]+::/,\n      inside: {\n        keyword: /\\b(?:parent|self|static)\\b/,\n        punctuation: /::|\\\\/\n      }\n    }\n  })\n}\n"],
-  "mappings": "iHAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IACA,IAAIC,EAAe,IACnBJ,EAAO,QAAUK,EACjBA,EAAU,YAAc,YACxBA,EAAU,QAAU,CAAC,EACrB,SAASA,EAAUC,EAAO,CACxBA,EAAM,SAASF,CAAY,EAC3BE,EAAM,UAAU,aAAa,MAAO,WAAY,CAC9C,KAAM,CACJ,QAAS,WACT,MAAO,SACT,EACA,OACE,uIACF,MAAO,CACL,QAAS,cACT,OAAQ,CACN,QAAS,6BACT,YAAa,OACf,CACF,CACF,CAAC,CACH",
-  "names": ["require_php_extras", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "refractorPhp", "phpExtras", "Prism"]
-}

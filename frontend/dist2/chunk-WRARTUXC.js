@@ -1,2 +1,0 @@
-import{b as d,e as t,g as r,j as a}from"/static/chunk-SJXEOBQC.js";var s=d((g,n)=>{t();a();r();n.exports=e;e.displayName="gcode";e.aliases=[];function e(o){o.languages.gcode={comment:/;.*|\B\(.*?\)\B/,string:{pattern:/"(?:""|[^"])*"/,greedy:!0},keyword:/\b[GM]\d+(?:\.\d+)?\b/,property:/\b[A-Z]/,checksum:{pattern:/(\*)\d+/,lookbehind:!0,alias:"number"},punctuation:/[:*]/}}});export{s as a};
-//# sourceMappingURL=/static/chunk-WRARTUXC.js.map

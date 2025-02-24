@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/jexl.js"],
-  "sourcesContent": ["'use strict'\n\nmodule.exports = jexl\njexl.displayName = 'jexl'\njexl.aliases = []\nfunction jexl(Prism) {\n  Prism.languages.jexl = {\n    string: /([\"'])(?:\\\\[\\s\\S]|(?!\\1)[^\\\\])*\\1/,\n    transform: {\n      pattern:\n        /(\\|\\s*)[a-zA-Z\u0430-\u044F\u0410-\u042F_\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u00FF$][\\w\u0430-\u044F\u0410-\u042F\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u00FF$]*/,\n      alias: 'function',\n      lookbehind: true\n    },\n    function:\n      /[a-zA-Z\u0430-\u044F\u0410-\u042F_\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u00FF$][\\w\u0430-\u044F\u0410-\u042F\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u00FF$]*\\s*(?=\\()/,\n    number: /\\b\\d+(?:\\.\\d+)?\\b|\\B\\.\\d+\\b/,\n    operator: /[<>!]=?|-|\\+|&&|==|\\|\\|?|\\/\\/?|[?:*^%]/,\n    boolean: /\\b(?:false|true)\\b/,\n    keyword: /\\bin\\b/,\n    punctuation: /[{}[\\](),.]/\n  }\n}\n"],
-  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAK,YAAc,OACnBA,EAAK,QAAU,CAAC,EAChB,SAASA,EAAKC,EAAO,CACnBA,EAAM,UAAU,KAAO,CACrB,OAAQ,oCACR,UAAW,CACT,QACE,oHACF,MAAO,WACP,WAAY,EACd,EACA,SACE,sHACF,OAAQ,8BACR,SAAU,yCACV,QAAS,qBACT,QAAS,SACT,YAAa,aACf,CACF",
-  "names": ["require_jexl", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "jexl", "Prism"]
-}

@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/brainfuck.js"],
-  "sourcesContent": ["'use strict'\n\nmodule.exports = brainfuck\nbrainfuck.displayName = 'brainfuck'\nbrainfuck.aliases = []\nfunction brainfuck(Prism) {\n  Prism.languages.brainfuck = {\n    pointer: {\n      pattern: /<|>/,\n      alias: 'keyword'\n    },\n    increment: {\n      pattern: /\\+/,\n      alias: 'inserted'\n    },\n    decrement: {\n      pattern: /-/,\n      alias: 'deleted'\n    },\n    branching: {\n      pattern: /\\[|\\]/,\n      alias: 'important'\n    },\n    operator: /[.,]/,\n    comment: /\\S+/\n  }\n}\n"],
-  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAU,YAAc,YACxBA,EAAU,QAAU,CAAC,EACrB,SAASA,EAAUC,EAAO,CACxBA,EAAM,UAAU,UAAY,CAC1B,QAAS,CACP,QAAS,MACT,MAAO,SACT,EACA,UAAW,CACT,QAAS,KACT,MAAO,UACT,EACA,UAAW,CACT,QAAS,IACT,MAAO,SACT,EACA,UAAW,CACT,QAAS,QACT,MAAO,WACT,EACA,SAAU,OACV,QAAS,KACX,CACF",
-  "names": ["require_brainfuck", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "brainfuck", "Prism"]
-}

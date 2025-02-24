@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/plaintext.js"],
-  "sourcesContent": ["/*\nLanguage: Plain text\nAuthor: Egor Rogov (e.rogov@postgrespro.ru)\nDescription: Plain text without any highlighting.\nCategory: common\n*/\n\nfunction plaintext(hljs) {\n  return {\n    name: 'Plain text',\n    aliases: [\n      'text',\n      'txt'\n    ],\n    disableAutodetect: true\n  };\n}\n\nmodule.exports = plaintext;\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAOA,SAASC,EAAUC,EAAM,CACvB,MAAO,CACL,KAAM,aACN,QAAS,CACP,OACA,KACF,EACA,kBAAmB,EACrB,CACF,CAEAL,EAAO,QAAUI",
-  "names": ["require_plaintext", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "plaintext", "hljs"]
-}

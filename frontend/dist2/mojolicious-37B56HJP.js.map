@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/mojolicious.js"],
-  "sourcesContent": ["/*\nLanguage: Mojolicious\nRequires: xml.js, perl.js\nAuthor: Dotan Dimet <dotan@corky.net>\nDescription: Mojolicious .ep (Embedded Perl) templates\nWebsite: https://mojolicious.org\nCategory: template\n*/\nfunction mojolicious(hljs) {\n  return {\n    name: 'Mojolicious',\n    subLanguage: 'xml',\n    contains: [\n      {\n        className: 'meta',\n        begin: '^__(END|DATA)__$'\n      },\n      // mojolicious line\n      {\n        begin: \"^\\\\s*%{1,2}={0,2}\",\n        end: '$',\n        subLanguage: 'perl'\n      },\n      // mojolicious block\n      {\n        begin: \"<%{1,2}={0,2}\",\n        end: \"={0,1}%>\",\n        subLanguage: 'perl',\n        excludeBegin: true,\n        excludeEnd: true\n      }\n    ]\n  };\n}\n\nmodule.exports = mojolicious;\n"],
-  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAQA,SAASC,EAAYC,EAAM,CACzB,MAAO,CACL,KAAM,cACN,YAAa,MACb,SAAU,CACR,CACE,UAAW,OACX,MAAO,kBACT,EAEA,CACE,MAAO,oBACP,IAAK,IACL,YAAa,MACf,EAEA,CACE,MAAO,gBACP,IAAK,WACL,YAAa,OACb,aAAc,GACd,WAAY,EACd,CACF,CACF,CACF,CAEAL,EAAO,QAAUI",
-  "names": ["require_mojolicious", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "mojolicious", "hljs"]
-}

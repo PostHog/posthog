@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/bnf.js"],
-  "sourcesContent": ["'use strict'\n\nmodule.exports = bnf\nbnf.displayName = 'bnf'\nbnf.aliases = ['rbnf']\nfunction bnf(Prism) {\n  Prism.languages.bnf = {\n    string: {\n      pattern: /\"[^\\r\\n\"]*\"|'[^\\r\\n']*'/\n    },\n    definition: {\n      pattern: /<[^<>\\r\\n\\t]+>(?=\\s*::=)/,\n      alias: ['rule', 'keyword'],\n      inside: {\n        punctuation: /^<|>$/\n      }\n    },\n    rule: {\n      pattern: /<[^<>\\r\\n\\t]+>/,\n      inside: {\n        punctuation: /^<|>$/\n      }\n    },\n    operator: /::=|[|()[\\]{}*+?]|\\.{3}/\n  }\n  Prism.languages.rbnf = Prism.languages.bnf\n}\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAI,YAAc,MAClBA,EAAI,QAAU,CAAC,MAAM,EACrB,SAASA,EAAIC,EAAO,CAClBA,EAAM,UAAU,IAAM,CACpB,OAAQ,CACN,QAAS,yBACX,EACA,WAAY,CACV,QAAS,2BACT,MAAO,CAAC,OAAQ,SAAS,EACzB,OAAQ,CACN,YAAa,OACf,CACF,EACA,KAAM,CACJ,QAAS,iBACT,OAAQ,CACN,YAAa,OACf,CACF,EACA,SAAU,yBACZ,EACAA,EAAM,UAAU,KAAOA,EAAM,UAAU,GACzC",
-  "names": ["require_bnf", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "bnf", "Prism"]
-}

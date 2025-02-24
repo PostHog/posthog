@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/bnf.js"],
-  "sourcesContent": ["/*\nLanguage: Backus\u2013Naur Form\nWebsite: https://en.wikipedia.org/wiki/Backus\u2013Naur_form\nAuthor: Oleg Efimov <efimovov@gmail.com>\n*/\n\n/** @type LanguageFn */\nfunction bnf(hljs) {\n  return {\n    name: 'Backus\u2013Naur Form',\n    contains: [\n      // Attribute\n      {\n        className: 'attribute',\n        begin: /</,\n        end: />/\n      },\n      // Specific\n      {\n        begin: /::=/,\n        end: /$/,\n        contains: [\n          {\n            begin: /</,\n            end: />/\n          },\n          // Common\n          hljs.C_LINE_COMMENT_MODE,\n          hljs.C_BLOCK_COMMENT_MODE,\n          hljs.APOS_STRING_MODE,\n          hljs.QUOTE_STRING_MODE\n        ]\n      }\n    ]\n  };\n}\n\nmodule.exports = bnf;\n"],
-  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAOA,SAASC,EAAIC,EAAM,CACjB,MAAO,CACL,KAAM,wBACN,SAAU,CAER,CACE,UAAW,YACX,MAAO,IACP,IAAK,GACP,EAEA,CACE,MAAO,MACP,IAAK,IACL,SAAU,CACR,CACE,MAAO,IACP,IAAK,GACP,EAEAA,EAAK,oBACLA,EAAK,qBACLA,EAAK,iBACLA,EAAK,iBACP,CACF,CACF,CACF,CACF,CAEAL,EAAO,QAAUI",
-  "names": ["require_bnf", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "bnf", "hljs"]
-}

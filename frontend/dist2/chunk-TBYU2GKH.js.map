@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../src/scenes/pipeline/destinations/DestinationTag.tsx"],
-  "sourcesContent": ["import { LemonTag } from '@posthog/lemon-ui'\nimport { capitalizeFirstLetter } from 'lib/utils'\n\nimport { HogFunctionTemplateStatus } from '~/types'\n\ninterface DestinationTagProps {\n    status: HogFunctionTemplateStatus\n}\n\nexport function DestinationTag({ status }: DestinationTagProps): JSX.Element | null {\n    switch (status) {\n        case 'alpha':\n            return <LemonTag type=\"danger\">Experimental</LemonTag>\n        case 'beta':\n            return <LemonTag type=\"completion\">Beta</LemonTag>\n        case 'stable':\n            return null\n        default:\n            return status ? <LemonTag type=\"highlight\">{capitalizeFirstLetter(status)}</LemonTag> : null\n    }\n}\n"],
-  "mappings": "wKAAAA,IAAAC,IAAAC,IAYmB,IAAAC,EAAA,OAHZ,SAASC,EAAe,CAAE,OAAAC,CAAO,EAA4C,CAChF,OAAQA,EAAQ,CACZ,IAAK,QACD,SAAO,OAACC,EAAA,CAAS,KAAK,SAAS,wBAAY,EAC/C,IAAK,OACD,SAAO,OAACA,EAAA,CAAS,KAAK,aAAa,gBAAI,EAC3C,IAAK,SACD,OAAO,KACX,QACI,OAAOD,KAAS,OAACC,EAAA,CAAS,KAAK,YAAa,SAAAC,EAAsBF,CAAM,EAAE,EAAc,IAChG,CACJ",
-  "names": ["init_dirname", "init_buffer", "init_process", "import_jsx_runtime", "DestinationTag", "status", "LemonTag", "capitalizeFirstLetter"]
-}

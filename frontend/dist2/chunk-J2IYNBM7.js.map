@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/properties.js"],
-  "sourcesContent": ["'use strict'\n\nmodule.exports = properties\nproperties.displayName = 'properties'\nproperties.aliases = []\nfunction properties(Prism) {\n  Prism.languages.properties = {\n    comment: /^[ \\t]*[#!].*$/m,\n    'attr-value': {\n      pattern:\n        /(^[ \\t]*(?:\\\\(?:\\r\\n|[\\s\\S])|[^\\\\\\s:=])+(?: *[=:] *(?! )| ))(?:\\\\(?:\\r\\n|[\\s\\S])|[^\\\\\\r\\n])+/m,\n      lookbehind: true\n    },\n    'attr-name': /^[ \\t]*(?:\\\\(?:\\r\\n|[\\s\\S])|[^\\\\\\s:=])+(?= *[=:]| )/m,\n    punctuation: /[=:]/\n  }\n}\n"],
-  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAW,YAAc,aACzBA,EAAW,QAAU,CAAC,EACtB,SAASA,EAAWC,EAAO,CACzBA,EAAM,UAAU,WAAa,CAC3B,QAAS,kBACT,aAAc,CACZ,QACE,gGACF,WAAY,EACd,EACA,YAAa,uDACb,YAAa,MACf,CACF",
-  "names": ["require_properties", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "properties", "Prism"]
-}

@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/shell.js"],
-  "sourcesContent": ["/*\nLanguage: Shell Session\nRequires: bash.js\nAuthor: TSUYUSATO Kitsune <make.just.on@gmail.com>\nCategory: common\nAudit: 2020\n*/\n\n/** @type LanguageFn */\nfunction shell(hljs) {\n  return {\n    name: 'Shell Session',\n    aliases: [ 'console' ],\n    contains: [\n      {\n        className: 'meta',\n        // We cannot add \\s (spaces) in the regular expression otherwise it will be too broad and produce unexpected result.\n        // For instance, in the following example, it would match \"echo /path/to/home >\" as a prompt:\n        // echo /path/to/home > t.exe\n        begin: /^\\s{0,3}[/~\\w\\d[\\]()@-]*[>%$#]/,\n        starts: {\n          end: /[^\\\\](?=\\s*$)/,\n          subLanguage: 'bash'\n        }\n      }\n    ]\n  };\n}\n\nmodule.exports = shell;\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IASA,SAASC,EAAMC,EAAM,CACnB,MAAO,CACL,KAAM,gBACN,QAAS,CAAE,SAAU,EACrB,SAAU,CACR,CACE,UAAW,OAIX,MAAO,iCACP,OAAQ,CACN,IAAK,gBACL,YAAa,MACf,CACF,CACF,CACF,CACF,CAEAL,EAAO,QAAUI",
-  "names": ["require_shell", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "shell", "hljs"]
-}

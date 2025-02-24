@@ -1,2 +1,0 @@
-import{b as s,e,g as n,j as u}from"/static/chunk-SJXEOBQC.js";var i=s((t,a)=>{e();u();n();function g(l){return{name:"Mojolicious",subLanguage:"xml",contains:[{className:"meta",begin:"^__(END|DATA)__$"},{begin:"^\\s*%{1,2}={0,2}",end:"$",subLanguage:"perl"},{begin:"<%{1,2}={0,2}",end:"={0,1}%>",subLanguage:"perl",excludeBegin:!0,excludeEnd:!0}]}}a.exports=g});export default i();
-//# sourceMappingURL=/static/mojolicious-37B56HJP.js.map

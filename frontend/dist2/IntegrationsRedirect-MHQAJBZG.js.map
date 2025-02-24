@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../src/scenes/IntegrationsRedirect/IntegrationsRedirect.tsx"],
-  "sourcesContent": ["import { integrationsLogic } from 'lib/integrations/integrationsLogic'\nimport { Spinner } from 'lib/lemon-ui/Spinner/Spinner'\nimport { SceneExport } from 'scenes/sceneTypes'\n\nexport const scene: SceneExport = {\n    component: IntegrationsRedirect,\n    logic: integrationsLogic,\n}\n\nexport function IntegrationsRedirect(): JSX.Element {\n    return (\n        <div className=\"text-center gap-4 flex\">\n            <Spinner />\n        </div>\n    )\n}\n\nexport default IntegrationsRedirect\n"],
-  "mappings": "2hCAAAA,IAAAC,IAAAC,IAYY,IAAAC,EAAA,OARCC,EAAqB,CAC9B,UAAWC,EACX,MAAOC,CACX,EAEO,SAASD,GAAoC,CAChD,SACI,OAAC,OAAI,UAAU,yBACX,mBAACE,EAAA,EAAQ,EACb,CAER,CAEA,IAAOC,EAAQH",
-  "names": ["init_dirname", "init_buffer", "init_process", "import_jsx_runtime", "scene", "IntegrationsRedirect", "integrationsLogic", "Spinner", "IntegrationsRedirect_default"]
-}

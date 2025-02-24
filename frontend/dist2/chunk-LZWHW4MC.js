@@ -1,2 +1,0 @@
-import{Sd as l,Sf as A,r}from"/static/chunk-RFJTZKD6.js";import{d as s,e as c,g as t,j as n}from"/static/chunk-SJXEOBQC.js";c();n();t();var e=s(r()),R=({userAccessLevel:m,minAccessLevel:u,resourceType:i,children:p,...o})=>(0,e.jsx)(A,{userAccessLevel:m,minAccessLevel:u,resourceType:i,children:({disabledReason:L})=>(0,e.jsx)(l,{...o,disabledReason:L||o.disabledReason,children:p})});export{R as a};
-//# sourceMappingURL=/static/chunk-LZWHW4MC.js.map

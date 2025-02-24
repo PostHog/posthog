@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/gcode.js"],
-  "sourcesContent": ["'use strict'\n\nmodule.exports = gcode\ngcode.displayName = 'gcode'\ngcode.aliases = []\nfunction gcode(Prism) {\n  Prism.languages.gcode = {\n    comment: /;.*|\\B\\(.*?\\)\\B/,\n    string: {\n      pattern: /\"(?:\"\"|[^\"])*\"/,\n      greedy: true\n    },\n    keyword: /\\b[GM]\\d+(?:\\.\\d+)?\\b/,\n    property: /\\b[A-Z]/,\n    checksum: {\n      pattern: /(\\*)\\d+/,\n      lookbehind: true,\n      alias: 'number'\n    },\n    // T0:0:0\n    punctuation: /[:*]/\n  }\n}\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAM,YAAc,QACpBA,EAAM,QAAU,CAAC,EACjB,SAASA,EAAMC,EAAO,CACpBA,EAAM,UAAU,MAAQ,CACtB,QAAS,kBACT,OAAQ,CACN,QAAS,iBACT,OAAQ,EACV,EACA,QAAS,wBACT,SAAU,UACV,SAAU,CACR,QAAS,UACT,WAAY,GACZ,MAAO,QACT,EAEA,YAAa,MACf,CACF",
-  "names": ["require_gcode", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "gcode", "Prism"]
-}

@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/dockerfile.js"],
-  "sourcesContent": ["/*\nLanguage: Dockerfile\nRequires: bash.js\nAuthor: Alexis H\u00E9naut <alexis@henaut.net>\nDescription: language definition for Dockerfile files\nWebsite: https://docs.docker.com/engine/reference/builder/\nCategory: config\n*/\n\n/** @type LanguageFn */\nfunction dockerfile(hljs) {\n  return {\n    name: 'Dockerfile',\n    aliases: ['docker'],\n    case_insensitive: true,\n    keywords: 'from maintainer expose env arg user onbuild stopsignal',\n    contains: [\n      hljs.HASH_COMMENT_MODE,\n      hljs.APOS_STRING_MODE,\n      hljs.QUOTE_STRING_MODE,\n      hljs.NUMBER_MODE,\n      {\n        beginKeywords: 'run cmd entrypoint volume add copy workdir label healthcheck shell',\n        starts: {\n          end: /[^\\\\]$/,\n          subLanguage: 'bash'\n        }\n      }\n    ],\n    illegal: '</'\n  };\n}\n\nmodule.exports = dockerfile;\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAUA,SAASC,EAAWC,EAAM,CACxB,MAAO,CACL,KAAM,aACN,QAAS,CAAC,QAAQ,EAClB,iBAAkB,GAClB,SAAU,yDACV,SAAU,CACRA,EAAK,kBACLA,EAAK,iBACLA,EAAK,kBACLA,EAAK,YACL,CACE,cAAe,qEACf,OAAQ,CACN,IAAK,SACL,YAAa,MACf,CACF,CACF,EACA,QAAS,IACX,CACF,CAEAL,EAAO,QAAUI",
-  "names": ["require_dockerfile", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "dockerfile", "hljs"]
-}

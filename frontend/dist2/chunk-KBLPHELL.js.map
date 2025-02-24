@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/processing.js"],
-  "sourcesContent": ["'use strict'\n\nmodule.exports = processing\nprocessing.displayName = 'processing'\nprocessing.aliases = []\nfunction processing(Prism) {\n  Prism.languages.processing = Prism.languages.extend('clike', {\n    keyword:\n      /\\b(?:break|case|catch|class|continue|default|else|extends|final|for|if|implements|import|new|null|private|public|return|static|super|switch|this|try|void|while)\\b/,\n    // Spaces are allowed between function name and parenthesis\n    function: /\\b\\w+(?=\\s*\\()/,\n    operator: /<[<=]?|>[>=]?|&&?|\\|\\|?|[%?]|[!=+\\-*\\/]=?/\n  })\n  Prism.languages.insertBefore('processing', 'number', {\n    // Special case: XML is a type\n    constant: /\\b(?!XML\\b)[A-Z][A-Z\\d_]+\\b/,\n    type: {\n      pattern: /\\b(?:boolean|byte|char|color|double|float|int|[A-Z]\\w*)\\b/,\n      alias: 'class-name'\n    }\n  })\n}\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAW,YAAc,aACzBA,EAAW,QAAU,CAAC,EACtB,SAASA,EAAWC,EAAO,CACzBA,EAAM,UAAU,WAAaA,EAAM,UAAU,OAAO,QAAS,CAC3D,QACE,qKAEF,SAAU,iBACV,SAAU,2CACZ,CAAC,EACDA,EAAM,UAAU,aAAa,aAAc,SAAU,CAEnD,SAAU,8BACV,KAAM,CACJ,QAAS,4DACT,MAAO,YACT,CACF,CAAC,CACH",
-  "names": ["require_processing", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "processing", "Prism"]
-}

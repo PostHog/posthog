@@ -1,2 +1,0 @@
-import{e as o,g as l,j as c}from"/static/chunk-SJXEOBQC.js";o();c();l();function m(n){return new Promise((r,i)=>{let e=document.createElement("input");e.type="file",e.multiple=n.multiple,e.accept=n.contentType,e.onchange=()=>{if(!e.files)return r([]);let t=Array.from(e.files);r(t)},e.oncancel=()=>{r([])},e.onerror=()=>{i(new Error("Error selecting file"))},e.click()})}function f(n){return new Promise((r,i)=>{let e=new FileReader;e.onload=t=>{r(t.target?.result)},e.onerror=t=>{i(t)},e.readAsText(n)})}export{m as a,f as b};
-//# sourceMappingURL=/static/chunk-ZXSHFYOF.js.map

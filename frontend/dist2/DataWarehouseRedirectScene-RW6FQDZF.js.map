@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../src/scenes/data-warehouse/redirect/DataWarehouseRedirectScene.tsx"],
-  "sourcesContent": ["import { Spinner } from '@posthog/lemon-ui'\nimport { SceneExport } from 'scenes/sceneTypes'\n\nimport { sourceWizardLogic } from '../new/sourceWizardLogic'\n\nexport const scene: SceneExport = {\n    component: DataWarehouseRedirectScene,\n    logic: sourceWizardLogic,\n}\n\nexport function DataWarehouseRedirectScene(): JSX.Element {\n    return (\n        <div className=\"text-left flex flex-col\">\n            <Spinner />\n        </div>\n    )\n}\n\nexport default DataWarehouseRedirectScene\n"],
-  "mappings": "m9BAAAA,IAAAC,IAAAC,IAaY,IAAAC,EAAA,OARCC,EAAqB,CAC9B,UAAWC,EACX,MAAOC,CACX,EAEO,SAASD,GAA0C,CACtD,SACI,OAAC,OAAI,UAAU,0BACX,mBAACE,EAAA,EAAQ,EACb,CAER,CAEA,IAAOC,EAAQH",
-  "names": ["init_dirname", "init_buffer", "init_process", "import_jsx_runtime", "scene", "DataWarehouseRedirectScene", "sourceWizardLogic", "Spinner", "DataWarehouseRedirectScene_default"]
-}

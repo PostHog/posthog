@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/r.js"],
-  "sourcesContent": ["'use strict'\n\nmodule.exports = r\nr.displayName = 'r'\nr.aliases = []\nfunction r(Prism) {\n  Prism.languages.r = {\n    comment: /#.*/,\n    string: {\n      pattern: /(['\"])(?:\\\\.|(?!\\1)[^\\\\\\r\\n])*\\1/,\n      greedy: true\n    },\n    'percent-operator': {\n      // Includes user-defined operators\n      // and %%, %*%, %/%, %in%, %o%, %x%\n      pattern: /%[^%\\s]*%/,\n      alias: 'operator'\n    },\n    boolean: /\\b(?:FALSE|TRUE)\\b/,\n    ellipsis: /\\.\\.(?:\\.|\\d+)/,\n    number: [\n      /\\b(?:Inf|NaN)\\b/,\n      /(?:\\b0x[\\dA-Fa-f]+(?:\\.\\d*)?|\\b\\d+(?:\\.\\d*)?|\\B\\.\\d+)(?:[EePp][+-]?\\d+)?[iL]?/\n    ],\n    keyword:\n      /\\b(?:NA|NA_character_|NA_complex_|NA_integer_|NA_real_|NULL|break|else|for|function|if|in|next|repeat|while)\\b/,\n    operator: /->?>?|<(?:=|<?-)?|[>=!]=?|::?|&&?|\\|\\|?|[+*\\/^$@~]/,\n    punctuation: /[(){}\\[\\],;]/\n  }\n}\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAE,YAAc,IAChBA,EAAE,QAAU,CAAC,EACb,SAASA,EAAEC,EAAO,CAChBA,EAAM,UAAU,EAAI,CAClB,QAAS,MACT,OAAQ,CACN,QAAS,mCACT,OAAQ,EACV,EACA,mBAAoB,CAGlB,QAAS,YACT,MAAO,UACT,EACA,QAAS,qBACT,SAAU,iBACV,OAAQ,CACN,kBACA,+EACF,EACA,QACE,iHACF,SAAU,qDACV,YAAa,cACf,CACF",
-  "names": ["require_r", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "r", "Prism"]
-}

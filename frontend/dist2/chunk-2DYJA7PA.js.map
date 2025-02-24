@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/t4-cs.js"],
-  "sourcesContent": ["'use strict'\nvar refractorT4Templating = require('./t4-templating.js')\nvar refractorCsharp = require('./csharp.js')\nmodule.exports = t4Cs\nt4Cs.displayName = 't4Cs'\nt4Cs.aliases = []\nfunction t4Cs(Prism) {\n  Prism.register(refractorT4Templating)\n  Prism.register(refractorCsharp)\n  Prism.languages.t4 = Prism.languages['t4-cs'] =\n    Prism.languages['t4-templating'].createT4('csharp')\n}\n"],
-  "mappings": "+JAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IACA,IAAIC,EAAwB,IACxBC,EAAkB,IACtBL,EAAO,QAAUM,EACjBA,EAAK,YAAc,OACnBA,EAAK,QAAU,CAAC,EAChB,SAASA,EAAKC,EAAO,CACnBA,EAAM,SAASH,CAAqB,EACpCG,EAAM,SAASF,CAAe,EAC9BE,EAAM,UAAU,GAAKA,EAAM,UAAU,OAAO,EAC1CA,EAAM,UAAU,eAAe,EAAE,SAAS,QAAQ,CACtD",
-  "names": ["require_t4_cs", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "refractorT4Templating", "refractorCsharp", "t4Cs", "Prism"]
-}

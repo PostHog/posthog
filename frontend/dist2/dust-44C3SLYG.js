@@ -1,2 +1,0 @@
-import{b as l,e,g as a,j as t}from"/static/chunk-SJXEOBQC.js";var c=l((E,s)=>{e();t();a();function i(n){return{name:"Dust",aliases:["dst"],case_insensitive:!0,subLanguage:"xml",contains:[{className:"template-tag",begin:/\{[#\/]/,end:/\}/,illegal:/;/,contains:[{className:"name",begin:/[a-zA-Z\.-]+/,starts:{endsWithParent:!0,relevance:0,contains:[n.QUOTE_STRING_MODE]}}]},{className:"template-variable",begin:/\{/,end:/\}/,illegal:/;/,keywords:"if eq ne lt lte gt gte select default math sep"}]}}s.exports=i});export default c();
-//# sourceMappingURL=/static/dust-44C3SLYG.js.map

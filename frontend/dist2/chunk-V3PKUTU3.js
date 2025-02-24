@@ -1,2 +1,0 @@
-import{d as F}from"/static/chunk-EHZHZ2BZ.js";import{r as o}from"/static/chunk-TW5IU73S.js";import{d as a,e as t,g as r,j as l}from"/static/chunk-SJXEOBQC.js";t();l();r();var e=a(o());function n({featureFlag:m}){return(0,e.jsxs)("div",{children:[(0,e.jsx)("h3",{className:"l3",children:"How to implement"}),(0,e.jsx)(F,{featureFlag:m})]})}export{n as a};
-//# sourceMappingURL=/static/chunk-V3PKUTU3.js.map

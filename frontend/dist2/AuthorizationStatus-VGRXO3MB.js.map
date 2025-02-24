@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../src/scenes/billing/AuthorizationStatus.tsx"],
-  "sourcesContent": ["import { SpinnerOverlay } from '@posthog/lemon-ui'\nimport { useActions } from 'kea'\nimport { useEffect } from 'react'\n\nimport { paymentEntryLogic } from './paymentEntryLogic'\n\n// note(@zach): this page is only used when a payment method is entered into the payment entry modal\n// that requires the user to be redirect to another url, this is where they get redirected back to\nexport const AuthorizationStatus = (): JSX.Element => {\n    const { pollAuthorizationStatus } = useActions(paymentEntryLogic)\n\n    useEffect(() => {\n        pollAuthorizationStatus()\n    }, [])\n\n    return <SpinnerOverlay sceneLevel />\n}\n"],
-  "mappings": "i+BAAAA,IAAAC,IAAAC,IACA,IAAAC,EAA2B,OAC3BC,EAA0B,OAaf,IAAAC,EAAA,OAPEC,EAAsB,IAAmB,CAClD,GAAM,CAAE,wBAAAC,CAAwB,KAAI,cAAWC,CAAiB,EAEhE,sBAAU,IAAM,CACZD,EAAwB,CAC5B,EAAG,CAAC,CAAC,KAEE,OAACE,EAAA,CAAe,WAAU,GAAC,CACtC",
-  "names": ["init_dirname", "init_buffer", "init_process", "import_kea", "import_react", "import_jsx_runtime", "AuthorizationStatus", "pollAuthorizationStatus", "paymentEntryLogic", "SpinnerOverlay"]
-}

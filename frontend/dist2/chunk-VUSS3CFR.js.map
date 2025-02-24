@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/arff.js"],
-  "sourcesContent": ["'use strict'\n\nmodule.exports = arff\narff.displayName = 'arff'\narff.aliases = []\nfunction arff(Prism) {\n  Prism.languages.arff = {\n    comment: /%.*/,\n    string: {\n      pattern: /([\"'])(?:\\\\.|(?!\\1)[^\\\\\\r\\n])*\\1/,\n      greedy: true\n    },\n    keyword: /@(?:attribute|data|end|relation)\\b/i,\n    number: /\\b\\d+(?:\\.\\d+)?\\b/,\n    punctuation: /[{},]/\n  }\n}\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAK,YAAc,OACnBA,EAAK,QAAU,CAAC,EAChB,SAASA,EAAKC,EAAO,CACnBA,EAAM,UAAU,KAAO,CACrB,QAAS,MACT,OAAQ,CACN,QAAS,mCACT,OAAQ,EACV,EACA,QAAS,sCACT,OAAQ,oBACR,YAAa,OACf,CACF",
-  "names": ["require_arff", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "arff", "Prism"]
-}

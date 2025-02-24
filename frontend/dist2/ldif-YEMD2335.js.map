@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/ldif.js"],
-  "sourcesContent": ["/*\nLanguage: LDIF\nContributors: Jacob Childress <jacobc@gmail.com>\nCategory: enterprise, config\nWebsite: https://en.wikipedia.org/wiki/LDAP_Data_Interchange_Format\n*/\nfunction ldif(hljs) {\n  return {\n    name: 'LDIF',\n    contains: [\n      {\n        className: 'attribute',\n        begin: '^dn',\n        end: ': ',\n        excludeEnd: true,\n        starts: {\n          end: '$',\n          relevance: 0\n        },\n        relevance: 10\n      },\n      {\n        className: 'attribute',\n        begin: '^\\\\w',\n        end: ': ',\n        excludeEnd: true,\n        starts: {\n          end: '$',\n          relevance: 0\n        }\n      },\n      {\n        className: 'literal',\n        begin: '^-',\n        end: '$'\n      },\n      hljs.HASH_COMMENT_MODE\n    ]\n  };\n}\n\nmodule.exports = ldif;\n"],
-  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAMA,SAASC,EAAKC,EAAM,CAClB,MAAO,CACL,KAAM,OACN,SAAU,CACR,CACE,UAAW,YACX,MAAO,MACP,IAAK,KACL,WAAY,GACZ,OAAQ,CACN,IAAK,IACL,UAAW,CACb,EACA,UAAW,EACb,EACA,CACE,UAAW,YACX,MAAO,OACP,IAAK,KACL,WAAY,GACZ,OAAQ,CACN,IAAK,IACL,UAAW,CACb,CACF,EACA,CACE,UAAW,UACX,MAAO,KACP,IAAK,GACP,EACAA,EAAK,iBACP,CACF,CACF,CAEAL,EAAO,QAAUI",
-  "names": ["require_ldif", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "ldif", "hljs"]
-}

@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/erb.js"],
-  "sourcesContent": ["/*\nLanguage: ERB (Embedded Ruby)\nRequires: xml.js, ruby.js\nAuthor: Lucas Mazza <lucastmazza@gmail.com>\nContributors: Kassio Borges <kassioborgesm@gmail.com>\nDescription: \"Bridge\" language defining fragments of Ruby in HTML within <% .. %>\nWebsite: https://ruby-doc.org/stdlib-2.6.5/libdoc/erb/rdoc/ERB.html\nCategory: template\n*/\n\n/** @type LanguageFn */\nfunction erb(hljs) {\n  return {\n    name: 'ERB',\n    subLanguage: 'xml',\n    contains: [\n      hljs.COMMENT('<%#', '%>'),\n      {\n        begin: '<%[%=-]?',\n        end: '[%-]?%>',\n        subLanguage: 'ruby',\n        excludeBegin: true,\n        excludeEnd: true\n      }\n    ]\n  };\n}\n\nmodule.exports = erb;\n"],
-  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAWA,SAASC,EAAIC,EAAM,CACjB,MAAO,CACL,KAAM,MACN,YAAa,MACb,SAAU,CACRA,EAAK,QAAQ,MAAO,IAAI,EACxB,CACE,MAAO,WACP,IAAK,UACL,YAAa,OACb,aAAc,GACd,WAAY,EACd,CACF,CACF,CACF,CAEAL,EAAO,QAAUI",
-  "names": ["require_erb", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "erb", "hljs"]
-}

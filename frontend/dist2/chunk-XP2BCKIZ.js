@@ -1,2 +1,0 @@
-import{b as s,e as a,g as t,j as e}from"/static/chunk-SJXEOBQC.js";var o=s((l,r)=>{a();e();t();r.exports=p;p.displayName="hpkp";p.aliases=[];function p(i){i.languages.hpkp={directive:{pattern:/\b(?:includeSubDomains|max-age|pin-sha256|preload|report-to|report-uri|strict)(?=[\s;=]|$)/i,alias:"property"},operator:/=/,punctuation:/;/}}});export{o as a};
-//# sourceMappingURL=/static/chunk-XP2BCKIZ.js.map

@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/golo.js"],
-  "sourcesContent": ["/*\nLanguage: Golo\nAuthor: Philippe Charriere <ph.charriere@gmail.com>\nDescription: a lightweight dynamic language for the JVM\nWebsite: http://golo-lang.org/\n*/\n\nfunction golo(hljs) {\n  return {\n    name: 'Golo',\n    keywords: {\n      keyword:\n          'println readln print import module function local return let var ' +\n          'while for foreach times in case when match with break continue ' +\n          'augment augmentation each find filter reduce ' +\n          'if then else otherwise try catch finally raise throw orIfNull ' +\n          'DynamicObject|10 DynamicVariable struct Observable map set vector list array',\n      literal:\n          'true false null'\n    },\n    contains: [\n      hljs.HASH_COMMENT_MODE,\n      hljs.QUOTE_STRING_MODE,\n      hljs.C_NUMBER_MODE,\n      {\n        className: 'meta',\n        begin: '@[A-Za-z]+'\n      }\n    ]\n  };\n}\n\nmodule.exports = golo;\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAOA,SAASC,EAAKC,EAAM,CAClB,MAAO,CACL,KAAM,OACN,SAAU,CACR,QACI,0TAKJ,QACI,iBACN,EACA,SAAU,CACRA,EAAK,kBACLA,EAAK,kBACLA,EAAK,cACL,CACE,UAAW,OACX,MAAO,YACT,CACF,CACF,CACF,CAEAL,EAAO,QAAUI",
-  "names": ["require_golo", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "golo", "hljs"]
-}

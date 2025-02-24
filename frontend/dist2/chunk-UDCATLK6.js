@@ -1,2 +1,0 @@
-import{b as s,e,g as t,j as n}from"/static/chunk-SJXEOBQC.js";var c=s((d,r)=>{e();n();t();r.exports=a;a.displayName="brainfuck";a.aliases=[];function a(i){i.languages.brainfuck={pointer:{pattern:/<|>/,alias:"keyword"},increment:{pattern:/\+/,alias:"inserted"},decrement:{pattern:/-/,alias:"deleted"},branching:{pattern:/\[|\]/,alias:"important"},operator:/[.,]/,comment:/\S+/}}});export{c as a};
-//# sourceMappingURL=/static/chunk-UDCATLK6.js.map

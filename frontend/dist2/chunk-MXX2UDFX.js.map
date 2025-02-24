@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/t4-vb.js"],
-  "sourcesContent": ["'use strict'\nvar refractorT4Templating = require('./t4-templating.js')\nvar refractorVbnet = require('./vbnet.js')\nmodule.exports = t4Vb\nt4Vb.displayName = 't4Vb'\nt4Vb.aliases = []\nfunction t4Vb(Prism) {\n  Prism.register(refractorT4Templating)\n  Prism.register(refractorVbnet)\n  Prism.languages['t4-vb'] = Prism.languages['t4-templating'].createT4('vbnet')\n}\n"],
-  "mappings": "+JAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IACA,IAAIC,EAAwB,IACxBC,EAAiB,IACrBL,EAAO,QAAUM,EACjBA,EAAK,YAAc,OACnBA,EAAK,QAAU,CAAC,EAChB,SAASA,EAAKC,EAAO,CACnBA,EAAM,SAASH,CAAqB,EACpCG,EAAM,SAASF,CAAc,EAC7BE,EAAM,UAAU,OAAO,EAAIA,EAAM,UAAU,eAAe,EAAE,SAAS,OAAO,CAC9E",
-  "names": ["require_t4_vb", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "refractorT4Templating", "refractorVbnet", "t4Vb", "Prism"]
-}

@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/yang.js"],
-  "sourcesContent": ["'use strict'\n\nmodule.exports = yang\nyang.displayName = 'yang'\nyang.aliases = []\nfunction yang(Prism) {\n  Prism.languages.yang = {\n    // https://tools.ietf.org/html/rfc6020#page-34\n    // http://www.yang-central.org/twiki/bin/view/Main/YangExamples\n    comment: /\\/\\*[\\s\\S]*?\\*\\/|\\/\\/.*/,\n    string: {\n      pattern: /\"(?:[^\\\\\"]|\\\\.)*\"|'[^']*'/,\n      greedy: true\n    },\n    keyword: {\n      pattern: /(^|[{};\\r\\n][ \\t]*)[a-z_][\\w.-]*/i,\n      lookbehind: true\n    },\n    namespace: {\n      pattern: /(\\s)[a-z_][\\w.-]*(?=:)/i,\n      lookbehind: true\n    },\n    boolean: /\\b(?:false|true)\\b/,\n    operator: /\\+/,\n    punctuation: /[{};:]/\n  }\n}\n"],
-  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAK,YAAc,OACnBA,EAAK,QAAU,CAAC,EAChB,SAASA,EAAKC,EAAO,CACnBA,EAAM,UAAU,KAAO,CAGrB,QAAS,0BACT,OAAQ,CACN,QAAS,4BACT,OAAQ,EACV,EACA,QAAS,CACP,QAAS,oCACT,WAAY,EACd,EACA,UAAW,CACT,QAAS,0BACT,WAAY,EACd,EACA,QAAS,qBACT,SAAU,KACV,YAAa,QACf,CACF",
-  "names": ["require_yang", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "yang", "Prism"]
-}

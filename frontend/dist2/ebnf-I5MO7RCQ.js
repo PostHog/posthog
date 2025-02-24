@@ -1,2 +1,0 @@
-import{b as d,e as a,g as o,j as s}from"/static/chunk-SJXEOBQC.js";var m=d((b,t)=>{a();s();o();function r(e){let n=e.COMMENT(/\(\*/,/\*\)/),c={className:"attribute",begin:/^[ ]*[a-zA-Z]+([\s_-]+[a-zA-Z]+)*/},i={begin:/=/,end:/[.;]/,contains:[n,{className:"meta",begin:/\?.*\?/},{className:"string",variants:[e.APOS_STRING_MODE,e.QUOTE_STRING_MODE,{begin:"`",end:"`"}]}]};return{name:"Extended Backus-Naur Form",illegal:/\S/,contains:[n,c,i]}}t.exports=r});export default m();
-//# sourceMappingURL=/static/ebnf-I5MO7RCQ.js.map
