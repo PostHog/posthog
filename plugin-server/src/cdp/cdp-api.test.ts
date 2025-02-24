@@ -144,7 +144,7 @@ describe('CDP API', () => {
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/new/invocations`)
             .send({ globals })
 
-        expect(res.status).toEqual(200)
+        expect(res.status).toEqual(400)
     })
 
     it('can invoke a function via the API with mocks', async () => {
@@ -159,6 +159,10 @@ describe('CDP API', () => {
             logs: [
                 {
                     level: 'debug',
+                    message: 'Executing function',
+                },
+                {
+                    level: 'debug',
                     message:
                         "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                 },
@@ -169,6 +173,10 @@ describe('CDP API', () => {
                 {
                     level: 'info',
                     message: expect.stringContaining("fetch('"),
+                },
+                {
+                    level: 'debug',
+                    message: 'Resuming function',
                 },
                 {
                     level: 'info',
@@ -200,8 +208,16 @@ describe('CDP API', () => {
             logs: [
                 {
                     level: 'debug',
+                    message: 'Executing function',
+                },
+                {
+                    level: 'debug',
                     message:
                         "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                },
+                {
+                    level: 'debug',
+                    message: 'Resuming function',
                 },
                 {
                     level: 'info',
@@ -248,8 +264,16 @@ describe('CDP API', () => {
             logs: [
                 {
                     level: 'debug',
+                    message: 'Executing function',
+                },
+                {
+                    level: 'debug',
                     message:
                         "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                },
+                {
+                    level: 'debug',
+                    message: 'Resuming function',
                 },
                 {
                     level: 'info',
@@ -279,6 +303,10 @@ describe('CDP API', () => {
             logs: [
                 {
                     level: 'debug',
+                    message: 'Executing function',
+                },
+                {
+                    level: 'debug',
                     message:
                         "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                 },
@@ -289,6 +317,10 @@ describe('CDP API', () => {
                 {
                     level: 'info',
                     message: expect.not.stringContaining('developer-token'),
+                },
+                {
+                    level: 'debug',
+                    message: 'Resuming function',
                 },
                 {
                     level: 'info',
@@ -341,6 +373,7 @@ describe('CDP API', () => {
                 message:
                     'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
             },
+            { level: 'debug', message: 'Executing function' },
             {
                 level: 'debug',
                 message:
@@ -354,6 +387,7 @@ describe('CDP API', () => {
                 level: 'info',
                 message: expect.stringContaining("fetch('"),
             },
+            { level: 'debug', message: 'Resuming function' },
             {
                 level: 'info',
                 message: 'Fetch response:, {"status":200,"body":{}}',
@@ -381,6 +415,10 @@ describe('CDP API', () => {
             logs: [
                 {
                     level: 'debug',
+                    message: 'Executing function',
+                },
+                {
+                    level: 'debug',
                     message:
                         "Suspending function due to async function call 'fetch'. Payload: 2108 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
                 },
@@ -391,6 +429,10 @@ describe('CDP API', () => {
                 {
                     level: 'info',
                     message: expect.not.stringContaining('developer-token'),
+                },
+                {
+                    level: 'debug',
+                    message: 'Resuming function',
                 },
                 {
                     level: 'info',
@@ -430,6 +472,14 @@ describe('CDP API', () => {
                 .send({ globals, mock_async_functions: true, configuration })
 
             expect(res.status).toEqual(200)
+
+            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`
+                [
+                  "Executing plugin plugin-posthog-filter-out-plugin",
+                  "Execution successful",
+                ]
+            `)
+
             expect(forSnapshot(res.body.result)).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "123",
@@ -461,6 +511,14 @@ describe('CDP API', () => {
                 .send({ globals, mock_async_functions: true, configuration })
 
             expect(res.status).toEqual(200)
+
+            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`
+                [
+                  "Executing plugin plugin-posthog-filter-out-plugin",
+                  "Execution successful",
+                ]
+            `)
+
             expect(res.body.result).toMatchInlineSnapshot(`null`)
         })
     })
