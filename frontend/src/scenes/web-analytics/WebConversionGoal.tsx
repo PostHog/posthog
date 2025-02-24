@@ -4,19 +4,23 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useState } from 'react'
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 
 export const WebConversionGoal = (): JSX.Element | null => {
     const { isWindowLessThan } = useWindowSize()
 
-    const { conversionGoal } = useValues(webAnalyticsLogic)
+    const { conversionGoal, productTab } = useValues(webAnalyticsLogic)
     const { setConversionGoal } = useActions(webAnalyticsLogic)
     const { actions } = useValues(actionsModel)
     const [group, setGroup] = useState(TaxonomicFilterGroupType.CustomEvents)
     const value =
         conversionGoal && 'actionId' in conversionGoal ? conversionGoal.actionId : conversionGoal?.customEventName
+
+    if (productTab !== ProductTab.ANALYTICS) {
+        return null
+    }
 
     return (
         <TaxonomicPopover<number | string>

@@ -97,46 +97,19 @@ const FoldableFilters = (): JSX.Element => {
     const {
         webAnalyticsFilters,
         dateFilter: { dateTo, dateFrom },
-        compareFilter,
-        productTab,
-        webVitalsPercentile,
     } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters, setDates, setCompareFilter, setWebVitalsPercentile } = useActions(webAnalyticsLogic)
-
-    const { hasAvailableFeature } = useValues(userLogic)
-    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
+    const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
 
     return (
         <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
-            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} allowTimePrecision={true} />
+            <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+            <WebAnalyticsCompareFilter />
 
-            {productTab === ProductTab.ANALYTICS ? (
-                <>
-                    <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                    <WebConversionGoal />
-                    <TableSortingIndicator />
-                </>
-            ) : (
-                <LemonSegmentedSelect
-                    size="small"
-                    value={webVitalsPercentile}
-                    onChange={setWebVitalsPercentile}
-                    options={[
-                        { value: PropertyMathType.P75, label: 'P75' },
-                        {
-                            value: PropertyMathType.P90,
-                            label: (
-                                <Tooltip title="P90 is recommended by the standard as a good baseline" delayMs={0}>
-                                    P90
-                                </Tooltip>
-                            ),
-                        },
-                        { value: PropertyMathType.P99, label: 'P99' },
-                    ]}
-                />
-            )}
+            <WebConversionGoal />
+            <TableSortingIndicator />
 
-            {hasAdvancedPaths && <PathCleaningToggle />}
+            <WebVitalsPercentileToggle />
+            <PathCleaningToggle />
 
             <WebPropertyFilters
                 setWebAnalyticsFilters={setWebAnalyticsFilters}
@@ -146,9 +119,16 @@ const FoldableFilters = (): JSX.Element => {
     )
 }
 
-const PathCleaningToggle = (): JSX.Element => {
+const PathCleaningToggle = (): JSX.Element | null => {
     const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
     const { setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
+
+    if (!hasAdvancedPaths) {
+        return null
+    }
 
     return (
         <Tooltip
@@ -187,4 +167,44 @@ const PathCleaningToggle = (): JSX.Element => {
             </LemonButton>
         </Tooltip>
     )
+}
+
+const WebVitalsPercentileToggle = (): JSX.Element | null => {
+    const { webVitalsPercentile, productTab } = useValues(webAnalyticsLogic)
+    const { setWebVitalsPercentile } = useActions(webAnalyticsLogic)
+
+    if (productTab !== ProductTab.WEB_VITALS) {
+        return null
+    }
+
+    return (
+        <LemonSegmentedSelect
+            size="small"
+            value={webVitalsPercentile}
+            onChange={setWebVitalsPercentile}
+            options={[
+                { value: PropertyMathType.P75, label: 'P75' },
+                {
+                    value: PropertyMathType.P90,
+                    label: (
+                        <Tooltip title="P90 is recommended by the standard as a good baseline" delayMs={0}>
+                            P90
+                        </Tooltip>
+                    ),
+                },
+                { value: PropertyMathType.P99, label: 'P99' },
+            ]}
+        />
+    )
+}
+
+const WebAnalyticsCompareFilter = (): JSX.Element | null => {
+    const { compareFilter, productTab } = useValues(webAnalyticsLogic)
+    const { setCompareFilter } = useActions(webAnalyticsLogic)
+
+    if (productTab !== ProductTab.ANALYTICS) {
+        return null
+    }
+
+    return <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
 }
