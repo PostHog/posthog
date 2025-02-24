@@ -14,6 +14,7 @@ import { AiFilter } from 'scenes/session-recordings/components/AiFilter/AiFilter
 
 import { SessionRecordingType } from '~/types'
 
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistLogic } from './playlistLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
@@ -91,6 +92,7 @@ export function Playlist({
 
     const { isExpanded } = useValues(playlistLogic)
     const { setIsExpanded } = useActions(playlistLogic)
+    const { sidebarOpen } = useValues(playerSettingsLogic)
 
     const onChangeActiveItem = (item: SessionRecordingType): void => {
         setControlledActiveItemId(item.id)
@@ -161,10 +163,10 @@ export function Playlist({
 
             <div
                 className={clsx('flex flex-col w-full gap-2 h-full', {
-                    'xl:flex-row': true,
+                    'xl:flex-row': !sidebarOpen,
                 })}
             >
-                <div className="flex flex-col gap-2 xl:max-w-80">
+                <div className="flex flex-col gap-2">
                     <DraggableToNotebook href={notebooksHref}>{filterActions}</DraggableToNotebook>
                     <div
                         ref={playlistRef}
@@ -235,13 +237,12 @@ export function Playlist({
                     </div>
                 </div>
                 <div
-                    className={clsx(
-                        'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
-                        {
-                            'Playlist--wide': size !== 'small',
-                            'Playlist--embedded': embedded,
-                        }
-                    )}
+                    className={clsx('Playlist h-full min-h-full w-full min-w-96 lg:min-w-[560px]', {
+                        'Playlist--wide': size !== 'small',
+                        'Playlist--embedded': embedded,
+                        'order-first xl:order-none': !sidebarOpen,
+                        'order-first': sidebarOpen,
+                    })}
                 >
                     {content && (
                         <div className="Playlist__main h-full">
