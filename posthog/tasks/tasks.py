@@ -841,11 +841,11 @@ def update_quota_limiting() -> None:
         from ee.billing.quota_limiting import report_quota_limiting_event
         from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
-        report_quota_limiting_event("update_quota_limiting task started")
+        report_quota_limiting_event("update_quota_limiting task started", {})
 
         update_all_orgs_billing_quotas()
 
-        report_quota_limiting_event("update_quota_limiting task finished")
+        report_quota_limiting_event("update_quota_limiting task finished", {})
     except ImportError:
         report_quota_limiting_event("update_quota_limiting task failed", {"error": "ImportError"})
         pass
