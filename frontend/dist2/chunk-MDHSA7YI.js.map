@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/lib/components/SignupReferralSource.tsx"],
+  "sourcesContent": ["import { LemonInput } from '@posthog/lemon-ui'\nimport { LemonField } from 'lib/lemon-ui/LemonField'\n\nexport default function SignupReferralSource({ disabled }: { disabled: boolean }): JSX.Element {\n    return (\n        <LemonField name=\"referral_source\" label=\"Where did you hear about us?\" showOptional>\n            <LemonInput\n                className=\"ph-ignore-input\"\n                data-attr=\"signup-referral-source\"\n                placeholder=\"\"\n                disabled={disabled}\n            />\n        </LemonField>\n    )\n}\n"],
+  "mappings": "iIAAAA,IAAAC,IAAAC,IAMY,IAAAC,EAAA,OAHG,SAARC,EAAsC,CAAE,SAAAC,CAAS,EAAuC,CAC3F,SACI,OAACC,EAAA,CAAW,KAAK,kBAAkB,MAAM,+BAA+B,aAAY,GAChF,mBAACC,EAAA,CACG,UAAU,kBACV,YAAU,yBACV,YAAY,GACZ,SAAUF,EACd,EACJ,CAER",
+  "names": ["init_dirname", "init_buffer", "init_process", "import_jsx_runtime", "SignupReferralSource", "disabled", "LemonField", "LemonInput"]
+}

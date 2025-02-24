@@ -1,0 +1,2 @@
+import{ra as c,yb as h}from"/static/chunk-3UDJFOQH.js";import{e as _,g as m,j as i}from"/static/chunk-SJXEOBQC.js";_();i();m();var E={enabled:!0,type:"click",viewportAccuracy:.9,aggregation:"total_count"},P=(e,a)=>{let r=e.viewportAccuracy??.2,t=a-a*r,O=Math.max(0,a-t),A=a+t;return{min:Math.round(O),max:Math.round(A)}},n=["Last 180 days","This month","Previous month","Year to date","All time"],u=h.filter(e=>e.key!==c&&!n.includes(e.key));export{E as a,P as b,u as c};
+//# sourceMappingURL=/static/chunk-I3JBH3PJ.js.map

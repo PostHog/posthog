@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/json.js"],
+  "sourcesContent": ["'use strict'\n\nmodule.exports = json\njson.displayName = 'json'\njson.aliases = ['webmanifest']\nfunction json(Prism) {\n  // https://www.json.org/json-en.html\n  Prism.languages.json = {\n    property: {\n      pattern: /(^|[^\\\\])\"(?:\\\\.|[^\\\\\"\\r\\n])*\"(?=\\s*:)/,\n      lookbehind: true,\n      greedy: true\n    },\n    string: {\n      pattern: /(^|[^\\\\])\"(?:\\\\.|[^\\\\\"\\r\\n])*\"(?!\\s*:)/,\n      lookbehind: true,\n      greedy: true\n    },\n    comment: {\n      pattern: /\\/\\/.*|\\/\\*[\\s\\S]*?(?:\\*\\/|$)/,\n      greedy: true\n    },\n    number: /-?\\b\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?\\b/i,\n    punctuation: /[{}[\\],]/,\n    operator: /:/,\n    boolean: /\\b(?:false|true)\\b/,\n    null: {\n      pattern: /\\bnull\\b/,\n      alias: 'keyword'\n    }\n  }\n  Prism.languages.webmanifest = Prism.languages.json\n}\n"],
+  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAK,YAAc,OACnBA,EAAK,QAAU,CAAC,aAAa,EAC7B,SAASA,EAAKC,EAAO,CAEnBA,EAAM,UAAU,KAAO,CACrB,SAAU,CACR,QAAS,yCACT,WAAY,GACZ,OAAQ,EACV,EACA,OAAQ,CACN,QAAS,yCACT,WAAY,GACZ,OAAQ,EACV,EACA,QAAS,CACP,QAAS,gCACT,OAAQ,EACV,EACA,OAAQ,qCACR,YAAa,WACb,SAAU,IACV,QAAS,qBACT,KAAM,CACJ,QAAS,WACT,MAAO,SACT,CACF,EACAA,EAAM,UAAU,YAAcA,EAAM,UAAU,IAChD",
+  "names": ["require_json", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "json", "Prism"]
+}

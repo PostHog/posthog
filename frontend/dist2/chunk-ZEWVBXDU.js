@@ -1,0 +1,2 @@
+import{b as l,e,g as t,j as r}from"/static/chunk-SJXEOBQC.js";var o=l((u,n)=>{e();r();t();n.exports=a;a.displayName="$false";a.aliases=[];function a(s){(function(i){i.languages.false={comment:{pattern:/\{[^}]*\}/},string:{pattern:/"[^"]*"/,greedy:!0},"character-code":{pattern:/'(?:[^\r]|\r\n?)/,alias:"number"},"assembler-code":{pattern:/\d+`/,alias:"important"},number:/\d+/,operator:/[-!#$%&'*+,./:;=>?@\\^_`|~ßø]/,punctuation:/\[|\]/,variable:/[a-z]/,"non-standard":{pattern:/[()<BDO®]/,alias:"bold"}}})(s)}});export{o as a};
+//# sourceMappingURL=/static/chunk-ZEWVBXDU.js.map

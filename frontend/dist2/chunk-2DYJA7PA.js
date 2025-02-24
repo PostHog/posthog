@@ -1,0 +1,2 @@
+import{a as n}from"/static/chunk-JDLG2MGR.js";import{a as l}from"/static/chunk-HUCRWDLX.js";import{b as c,e as r,g as t,j as s}from"/static/chunk-SJXEOBQC.js";var p=c((T,g)=>{r();s();t();var u=n(),i=l();g.exports=a;a.displayName="t4Cs";a.aliases=[];function a(e){e.register(u),e.register(i),e.languages.t4=e.languages["t4-cs"]=e.languages["t4-templating"].createT4("csharp")}});export{p as a};
+//# sourceMappingURL=/static/chunk-2DYJA7PA.js.map

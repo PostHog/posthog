@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/jsonp.js"],
+  "sourcesContent": ["'use strict'\nvar refractorJson = require('./json.js')\nmodule.exports = jsonp\njsonp.displayName = 'jsonp'\njsonp.aliases = []\nfunction jsonp(Prism) {\n  Prism.register(refractorJson)\n  Prism.languages.jsonp = Prism.languages.extend('json', {\n    punctuation: /[{}[\\]();,.]/\n  })\n  Prism.languages.insertBefore('jsonp', 'punctuation', {\n    function: /(?!\\s)[_$a-zA-Z\\xA0-\\uFFFF](?:(?!\\s)[$\\w\\xA0-\\uFFFF])*(?=\\s*\\()/\n  })\n}\n"],
+  "mappings": "iHAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IACA,IAAIC,EAAgB,IACpBJ,EAAO,QAAUK,EACjBA,EAAM,YAAc,QACpBA,EAAM,QAAU,CAAC,EACjB,SAASA,EAAMC,EAAO,CACpBA,EAAM,SAASF,CAAa,EAC5BE,EAAM,UAAU,MAAQA,EAAM,UAAU,OAAO,OAAQ,CACrD,YAAa,cACf,CAAC,EACDA,EAAM,UAAU,aAAa,QAAS,cAAe,CACnD,SAAU,iEACZ,CAAC,CACH",
+  "names": ["require_jsonp", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "refractorJson", "jsonp", "Prism"]
+}

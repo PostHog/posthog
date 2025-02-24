@@ -2,6 +2,7 @@
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 import { buildInParallel } from '@posthog/esbuilder'
+import { BUILD_DIST_FOLDER } from '../esbuilder/utils.mjs'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -9,7 +10,7 @@ await buildInParallel([
     {
         entryPoints: ['src/index.ts'],
         bundle: true,
-        outdir: 'dist',
+        outdir: BUILD_DIST_FOLDER,
         absWorkingDir: __dirname,
     }
 ], {

@@ -1,0 +1,2 @@
+import{b as s,e as a,g as t,j as n}from"/static/chunk-SJXEOBQC.js";var i=s((l,r)=>{a();n();t();r.exports=e;e.displayName="yang";e.aliases=[];function e(o){o.languages.yang={comment:/\/\*[\s\S]*?\*\/|\/\/.*/,string:{pattern:/"(?:[^\\"]|\\.)*"|'[^']*'/,greedy:!0},keyword:{pattern:/(^|[{};\r\n][ \t]*)[a-z_][\w.-]*/i,lookbehind:!0},namespace:{pattern:/(\s)[a-z_][\w.-]*(?=:)/i,lookbehind:!0},boolean:/\b(?:false|true)\b/,operator:/\+/,punctuation:/[{};:]/}}});export{i as a};
+//# sourceMappingURL=/static/chunk-VIHKDVLF.js.map

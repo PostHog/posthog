@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/scenes/organization/Create/index.tsx"],
+  "sourcesContent": ["import { organizationLogic } from 'scenes/organizationLogic'\nimport { SceneExport } from 'scenes/sceneTypes'\n\nimport { CreateOrganizationModal } from '../CreateOrganizationModal'\n\nexport const scene: SceneExport = {\n    component: OrganizationCreate,\n    logic: organizationLogic,\n}\n\nexport function OrganizationCreate(): JSX.Element {\n    return <CreateOrganizationModal isVisible inline />\n}\n"],
+  "mappings": "88BAAAA,IAAAC,IAAAC,IAWW,IAAAC,EAAA,OANEC,EAAqB,CAC9B,UAAWC,EACX,MAAOC,CACX,EAEO,SAASD,GAAkC,CAC9C,SAAO,OAACE,EAAA,CAAwB,UAAS,GAAC,OAAM,GAAC,CACrD",
+  "names": ["init_dirname", "init_buffer", "init_process", "import_jsx_runtime", "scene", "OrganizationCreate", "organizationLogic", "CreateOrganizationModal"]
+}

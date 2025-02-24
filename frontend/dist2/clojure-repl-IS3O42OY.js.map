@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/clojure-repl.js"],
+  "sourcesContent": ["/*\nLanguage: Clojure REPL\nDescription: Clojure REPL sessions\nAuthor: Ivan Sagalaev <maniac@softwaremaniacs.org>\nRequires: clojure.js\nWebsite: https://clojure.org\nCategory: lisp\n*/\n\n/** @type LanguageFn */\nfunction clojureRepl(hljs) {\n  return {\n    name: 'Clojure REPL',\n    contains: [\n      {\n        className: 'meta',\n        begin: /^([\\w.-]+|\\s*#_)?=>/,\n        starts: {\n          end: /$/,\n          subLanguage: 'clojure'\n        }\n      }\n    ]\n  };\n}\n\nmodule.exports = clojureRepl;\n"],
+  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAUA,SAASC,EAAYC,EAAM,CACzB,MAAO,CACL,KAAM,eACN,SAAU,CACR,CACE,UAAW,OACX,MAAO,sBACP,OAAQ,CACN,IAAK,IACL,YAAa,SACf,CACF,CACF,CACF,CACF,CAEAL,EAAO,QAAUI",
+  "names": ["require_clojure_repl", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "clojureRepl", "hljs"]
+}

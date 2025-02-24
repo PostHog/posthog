@@ -1,0 +1,2 @@
+import{b as r,e as t,g as a,j as e}from"/static/chunk-SJXEOBQC.js";var b=r((u,s)=>{t();e();a();s.exports=n;n.displayName="nand2tetrisHdl";n.aliases=[];function n(o){o.languages["nand2tetris-hdl"]={comment:/\/\/.*|\/\*[\s\S]*?(?:\*\/|$)/,keyword:/\b(?:BUILTIN|CHIP|CLOCKED|IN|OUT|PARTS)\b/,boolean:/\b(?:false|true)\b/,function:/\b[A-Za-z][A-Za-z0-9]*(?=\()/,number:/\b\d+\b/,operator:/=|\.\./,punctuation:/[{}[\];(),:]/}}});export{b as a};
+//# sourceMappingURL=/static/chunk-OJD5K2US.js.map

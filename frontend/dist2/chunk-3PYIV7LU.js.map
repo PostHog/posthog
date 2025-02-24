@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/roboconf.js"],
+  "sourcesContent": ["'use strict'\n\nmodule.exports = roboconf\nroboconf.displayName = 'roboconf'\nroboconf.aliases = []\nfunction roboconf(Prism) {\n  Prism.languages.roboconf = {\n    comment: /#.*/,\n    keyword: {\n      pattern:\n        /(^|\\s)(?:(?:external|import)\\b|(?:facet|instance of)(?=[ \\t]+[\\w-]+[ \\t]*\\{))/,\n      lookbehind: true\n    },\n    component: {\n      pattern: /[\\w-]+(?=[ \\t]*\\{)/,\n      alias: 'variable'\n    },\n    property: /[\\w.-]+(?=[ \\t]*:)/,\n    value: {\n      pattern: /(=[ \\t]*(?![ \\t]))[^,;]+/,\n      lookbehind: true,\n      alias: 'attr-value'\n    },\n    optional: {\n      pattern: /\\(optional\\)/,\n      alias: 'builtin'\n    },\n    wildcard: {\n      pattern: /(\\.)\\*/,\n      lookbehind: true,\n      alias: 'operator'\n    },\n    punctuation: /[{},.;:=]/\n  }\n}\n"],
+  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAS,YAAc,WACvBA,EAAS,QAAU,CAAC,EACpB,SAASA,EAASC,EAAO,CACvBA,EAAM,UAAU,SAAW,CACzB,QAAS,MACT,QAAS,CACP,QACE,gFACF,WAAY,EACd,EACA,UAAW,CACT,QAAS,qBACT,MAAO,UACT,EACA,SAAU,qBACV,MAAO,CACL,QAAS,2BACT,WAAY,GACZ,MAAO,YACT,EACA,SAAU,CACR,QAAS,eACT,MAAO,SACT,EACA,SAAU,CACR,QAAS,SACT,WAAY,GACZ,MAAO,UACT,EACA,YAAa,WACf,CACF",
+  "names": ["require_roboconf", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "roboconf", "Prism"]
+}

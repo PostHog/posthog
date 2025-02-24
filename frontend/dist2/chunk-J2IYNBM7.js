@@ -1,0 +1,2 @@
+import{b as p,e,g as r,j as s}from"/static/chunk-SJXEOBQC.js";var i=p((l,n)=>{e();s();r();n.exports=t;t.displayName="properties";t.aliases=[];function t(a){a.languages.properties={comment:/^[ \t]*[#!].*$/m,"attr-value":{pattern:/(^[ \t]*(?:\\(?:\r\n|[\s\S])|[^\\\s:=])+(?: *[=:] *(?! )| ))(?:\\(?:\r\n|[\s\S])|[^\\\r\n])+/m,lookbehind:!0},"attr-name":/^[ \t]*(?:\\(?:\r\n|[\s\S])|[^\\\s:=])+(?= *[=:]| )/m,punctuation:/[=:]/}}});export{i as a};
+//# sourceMappingURL=/static/chunk-J2IYNBM7.js.map

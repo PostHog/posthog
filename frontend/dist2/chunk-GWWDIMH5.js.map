@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/prolog.js"],
+  "sourcesContent": ["'use strict'\n\nmodule.exports = prolog\nprolog.displayName = 'prolog'\nprolog.aliases = []\nfunction prolog(Prism) {\n  Prism.languages.prolog = {\n    // Syntax depends on the implementation\n    comment: {\n      pattern: /\\/\\*[\\s\\S]*?\\*\\/|%.*/,\n      greedy: true\n    },\n    // Depending on the implementation, strings may allow escaped newlines and quote-escape\n    string: {\n      pattern: /([\"'])(?:\\1\\1|\\\\(?:\\r\\n|[\\s\\S])|(?!\\1)[^\\\\\\r\\n])*\\1(?!\\1)/,\n      greedy: true\n    },\n    builtin: /\\b(?:fx|fy|xf[xy]?|yfx?)\\b/,\n    // FIXME: Should we list all null-ary predicates (not followed by a parenthesis) like halt, trace, etc.?\n    function: /\\b[a-z]\\w*(?:(?=\\()|\\/\\d+)/,\n    number: /\\b\\d+(?:\\.\\d*)?/,\n    // Custom operators are allowed\n    operator: /[:\\\\=><\\-?*@\\/;+^|!$.]+|\\b(?:is|mod|not|xor)\\b/,\n    punctuation: /[(){}\\[\\],]/\n  }\n}\n"],
+  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAO,YAAc,SACrBA,EAAO,QAAU,CAAC,EAClB,SAASA,EAAOC,EAAO,CACrBA,EAAM,UAAU,OAAS,CAEvB,QAAS,CACP,QAAS,uBACT,OAAQ,EACV,EAEA,OAAQ,CACN,QAAS,4DACT,OAAQ,EACV,EACA,QAAS,6BAET,SAAU,6BACV,OAAQ,kBAER,SAAU,iDACV,YAAa,aACf,CACF",
+  "names": ["require_prolog", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "prolog", "Prism"]
+}

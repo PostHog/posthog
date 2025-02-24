@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/vbscript-html.js"],
+  "sourcesContent": ["/*\nLanguage: VBScript in HTML\nRequires: xml.js, vbscript.js\nAuthor: Ivan Sagalaev <maniac@softwaremaniacs.org>\nDescription: \"Bridge\" language defining fragments of VBScript in HTML within <% .. %>\nWebsite: https://en.wikipedia.org/wiki/VBScript\nCategory: scripting\n*/\n\nfunction vbscriptHtml(hljs) {\n  return {\n    name: 'VBScript in HTML',\n    subLanguage: 'xml',\n    contains: [\n      {\n        begin: '<%',\n        end: '%>',\n        subLanguage: 'vbscript'\n      }\n    ]\n  };\n}\n\nmodule.exports = vbscriptHtml;\n"],
+  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IASA,SAASC,EAAaC,EAAM,CAC1B,MAAO,CACL,KAAM,mBACN,YAAa,MACb,SAAU,CACR,CACE,MAAO,KACP,IAAK,KACL,YAAa,UACf,CACF,CACF,CACF,CAEAL,EAAO,QAAUI",
+  "names": ["require_vbscript_html", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "vbscriptHtml", "hljs"]
+}

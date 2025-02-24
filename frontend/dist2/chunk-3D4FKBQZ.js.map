@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/ignore.js"],
+  "sourcesContent": ["'use strict'\n\nmodule.exports = ignore\nignore.displayName = 'ignore'\nignore.aliases = ['gitignore', 'hgignore', 'npmignore']\nfunction ignore(Prism) {\n  ;(function (Prism) {\n    Prism.languages.ignore = {\n      // https://git-scm.com/docs/gitignore\n      comment: /^#.*/m,\n      entry: {\n        pattern: /\\S(?:.*(?:(?:\\\\ )|\\S))?/,\n        alias: 'string',\n        inside: {\n          operator: /^!|\\*\\*?|\\?/,\n          regex: {\n            pattern: /(^|[^\\\\])\\[[^\\[\\]]*\\]/,\n            lookbehind: true\n          },\n          punctuation: /\\//\n        }\n      }\n    }\n    Prism.languages.gitignore = Prism.languages.ignore\n    Prism.languages.hgignore = Prism.languages.ignore\n    Prism.languages.npmignore = Prism.languages.ignore\n  })(Prism)\n}\n"],
+  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAO,YAAc,SACrBA,EAAO,QAAU,CAAC,YAAa,WAAY,WAAW,EACtD,SAASA,EAAOC,EAAO,EACnB,SAAUA,EAAO,CACjBA,EAAM,UAAU,OAAS,CAEvB,QAAS,QACT,MAAO,CACL,QAAS,0BACT,MAAO,SACP,OAAQ,CACN,SAAU,cACV,MAAO,CACL,QAAS,wBACT,WAAY,EACd,EACA,YAAa,IACf,CACF,CACF,EACAA,EAAM,UAAU,UAAYA,EAAM,UAAU,OAC5CA,EAAM,UAAU,SAAWA,EAAM,UAAU,OAC3CA,EAAM,UAAU,UAAYA,EAAM,UAAU,MAC9C,GAAGA,CAAK,CACV",
+  "names": ["require_ignore", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "ignore", "Prism"]
+}

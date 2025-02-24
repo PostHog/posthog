@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/csp.js"],
+  "sourcesContent": ["/*\nLanguage: CSP\nDescription: Content Security Policy definition highlighting\nAuthor: Taras <oxdef@oxdef.info>\nWebsite: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP\n\nvim: ts=2 sw=2 st=2\n*/\n\n/** @type LanguageFn */\nfunction csp(hljs) {\n  return {\n    name: 'CSP',\n    case_insensitive: false,\n    keywords: {\n      $pattern: '[a-zA-Z][a-zA-Z0-9_-]*',\n      keyword: 'base-uri child-src connect-src default-src font-src form-action ' +\n        'frame-ancestors frame-src img-src media-src object-src plugin-types ' +\n        'report-uri sandbox script-src style-src'\n    },\n    contains: [\n      {\n        className: 'string',\n        begin: \"'\",\n        end: \"'\"\n      },\n      {\n        className: 'attribute',\n        begin: '^Content',\n        end: ':',\n        excludeEnd: true\n      }\n    ]\n  };\n}\n\nmodule.exports = csp;\n"],
+  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAUA,SAASC,EAAIC,EAAM,CACjB,MAAO,CACL,KAAM,MACN,iBAAkB,GAClB,SAAU,CACR,SAAU,yBACV,QAAS,6KAGX,EACA,SAAU,CACR,CACE,UAAW,SACX,MAAO,IACP,IAAK,GACP,EACA,CACE,UAAW,YACX,MAAO,WACP,IAAK,IACL,WAAY,EACd,CACF,CACF,CACF,CAEAL,EAAO,QAAUI",
+  "names": ["require_csp", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "csp", "hljs"]
+}

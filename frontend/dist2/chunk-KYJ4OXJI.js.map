@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/scenes/experiments/constants.ts"],
+  "sourcesContent": ["import { BaseMathType, GroupMathType, HogQLMathType, PropertyMathType } from '~/types'\n\nexport enum MetricInsightId {\n    Trends = 'new-experiment-trends-metric',\n    TrendsExposure = 'new-experiment-trends-exposure',\n    Funnels = 'new-experiment-funnels-metric',\n    SecondaryTrends = 'new-experiment-secondary-trends',\n    SecondaryFunnels = 'new-experiment-secondary-funnels',\n}\n\nexport const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [\n    BaseMathType.TotalCount,\n    BaseMathType.UniqueUsers,\n    BaseMathType.UniqueSessions,\n    BaseMathType.WeeklyActiveUsers,\n    BaseMathType.MonthlyActiveUsers,\n    BaseMathType.FirstTimeForUser,\n    GroupMathType.UniqueGroup,\n    PropertyMathType.Sum,\n    HogQLMathType.HogQL,\n] as const\n"],
+  "mappings": "uDAAAA,IAAAC,IAAAC,IAUO,IAAMC,EAAuC,mHAUpD",
+  "names": ["init_dirname", "init_buffer", "init_process", "LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES"]
+}

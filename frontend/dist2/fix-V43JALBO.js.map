@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/highlight.js@10.7.3/node_modules/highlight.js/lib/languages/fix.js"],
+  "sourcesContent": ["/*\nLanguage: FIX\nAuthor: Brent Bradbury <brent@brentium.com>\n*/\n\n/** @type LanguageFn */\nfunction fix(hljs) {\n  return {\n    name: 'FIX',\n    contains: [{\n      begin: /[^\\u2401\\u0001]+/,\n      end: /[\\u2401\\u0001]/,\n      excludeEnd: true,\n      returnBegin: true,\n      returnEnd: false,\n      contains: [\n        {\n          begin: /([^\\u2401\\u0001=]+)/,\n          end: /=([^\\u2401\\u0001=]+)/,\n          returnEnd: true,\n          returnBegin: false,\n          className: 'attr'\n        },\n        {\n          begin: /=/,\n          end: /([\\u2401\\u0001])/,\n          excludeEnd: true,\n          excludeBegin: true,\n          className: 'string'\n        }\n      ]\n    }],\n    case_insensitive: true\n  };\n}\n\nmodule.exports = fix;\n"],
+  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAMA,SAASC,EAAIC,EAAM,CACjB,MAAO,CACL,KAAM,MACN,SAAU,CAAC,CACT,MAAO,mBACP,IAAK,iBACL,WAAY,GACZ,YAAa,GACb,UAAW,GACX,SAAU,CACR,CACE,MAAO,sBACP,IAAK,uBACL,UAAW,GACX,YAAa,GACb,UAAW,MACb,EACA,CACE,MAAO,IACP,IAAK,mBACL,WAAY,GACZ,aAAc,GACd,UAAW,QACb,CACF,CACF,CAAC,EACD,iBAAkB,EACpB,CACF,CAEAL,EAAO,QAAUI",
+  "names": ["require_fix", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "fix", "hljs"]
+}

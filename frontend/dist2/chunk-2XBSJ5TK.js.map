@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/ebnf.js"],
+  "sourcesContent": ["'use strict'\n\nmodule.exports = ebnf\nebnf.displayName = 'ebnf'\nebnf.aliases = []\nfunction ebnf(Prism) {\n  Prism.languages.ebnf = {\n    comment: /\\(\\*[\\s\\S]*?\\*\\)/,\n    string: {\n      pattern: /\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'/,\n      greedy: true\n    },\n    special: {\n      pattern: /\\?[^?\\r\\n]*\\?/,\n      greedy: true,\n      alias: 'class-name'\n    },\n    definition: {\n      pattern: /^([\\t ]*)[a-z]\\w*(?:[ \\t]+[a-z]\\w*)*(?=\\s*=)/im,\n      lookbehind: true,\n      alias: ['rule', 'keyword']\n    },\n    rule: /\\b[a-z]\\w*(?:[ \\t]+[a-z]\\w*)*\\b/i,\n    punctuation: /\\([:/]|[:/]\\)|[.,;()[\\]{}]/,\n    operator: /[-=|*/!]/\n  }\n}\n"],
+  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAK,YAAc,OACnBA,EAAK,QAAU,CAAC,EAChB,SAASA,EAAKC,EAAO,CACnBA,EAAM,UAAU,KAAO,CACrB,QAAS,mBACT,OAAQ,CACN,QAAS,0BACT,OAAQ,EACV,EACA,QAAS,CACP,QAAS,gBACT,OAAQ,GACR,MAAO,YACT,EACA,WAAY,CACV,QAAS,iDACT,WAAY,GACZ,MAAO,CAAC,OAAQ,SAAS,CAC3B,EACA,KAAM,mCACN,YAAa,6BACb,SAAU,UACZ,CACF",
+  "names": ["require_ebnf", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "ebnf", "Prism"]
+}

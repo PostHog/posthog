@@ -1,0 +1,2 @@
+import{b as n,e as m,g as e,j as i}from"/static/chunk-SJXEOBQC.js";var r=n((g,s)=>{m();i();e();s.exports=t;t.displayName="git";t.aliases=[];function t(a){a.languages.git={comment:/^#.*/m,deleted:/^[-–].*/m,inserted:/^\+.*/m,string:/("|')(?:\\.|(?!\1)[^\\\r\n])*\1/,command:{pattern:/^.*\$ git .*$/m,inside:{parameter:/\s--?\w+/}},coord:/^@@.*@@$/m,"commit-sha1":/^commit \w{40}$/m}}});export{r as a};
+//# sourceMappingURL=/static/chunk-C36F6U5Q.js.map

@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/hpkp.js"],
+  "sourcesContent": ["'use strict'\n\nmodule.exports = hpkp\nhpkp.displayName = 'hpkp'\nhpkp.aliases = []\nfunction hpkp(Prism) {\n  /**\n   * Original by Scott Helme.\n   *\n   * Reference: https://scotthelme.co.uk/hpkp-cheat-sheet/\n   */\n  Prism.languages.hpkp = {\n    directive: {\n      pattern:\n        /\\b(?:includeSubDomains|max-age|pin-sha256|preload|report-to|report-uri|strict)(?=[\\s;=]|$)/i,\n      alias: 'property'\n    },\n    operator: /=/,\n    punctuation: /;/\n  }\n}\n"],
+  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAK,YAAc,OACnBA,EAAK,QAAU,CAAC,EAChB,SAASA,EAAKC,EAAO,CAMnBA,EAAM,UAAU,KAAO,CACrB,UAAW,CACT,QACE,8FACF,MAAO,UACT,EACA,SAAU,IACV,YAAa,GACf,CACF",
+  "names": ["require_hpkp", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "hpkp", "Prism"]
+}

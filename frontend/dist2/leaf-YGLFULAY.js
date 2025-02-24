@@ -1,0 +1,2 @@
+import{b as i,e,g as a,j as n}from"/static/chunk-SJXEOBQC.js";var r=i((u,s)=>{e();n();a();function t(c){return{name:"Leaf",contains:[{className:"function",begin:"#+[A-Za-z_0-9]*\\(",end:/ \{/,returnBegin:!0,excludeEnd:!0,contains:[{className:"keyword",begin:"#+"},{className:"title",begin:"[A-Za-z_][A-Za-z_0-9]*"},{className:"params",begin:"\\(",end:"\\)",endsParent:!0,contains:[{className:"string",begin:'"',end:'"'},{className:"variable",begin:"[A-Za-z_][A-Za-z_0-9]*"}]}]}]}}s.exports=t});export default r();
+//# sourceMappingURL=/static/leaf-YGLFULAY.js.map

@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/scenes/feature-flags/FeatureFlagCodeExample.tsx"],
+  "sourcesContent": ["import { FeatureFlagType } from '~/types'\n\nimport { FeatureFlagInstructions } from './FeatureFlagInstructions'\n\nexport function FeatureFlagCodeExample({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {\n    return (\n        <div>\n            <h3 className=\"l3\">How to implement</h3>\n            <FeatureFlagInstructions featureFlag={featureFlag} />\n        </div>\n    )\n}\n"],
+  "mappings": "+JAAAA,IAAAC,IAAAC,IAMQ,IAAAC,EAAA,OAFD,SAASC,EAAuB,CAAE,YAAAC,CAAY,EAAkD,CACnG,SACI,QAAC,OACG,oBAAC,MAAG,UAAU,KAAK,4BAAgB,KACnC,OAACC,EAAA,CAAwB,YAAaD,EAAa,GACvD,CAER",
+  "names": ["init_dirname", "init_buffer", "init_process", "import_jsx_runtime", "FeatureFlagCodeExample", "featureFlag", "FeatureFlagInstructions"]
+}

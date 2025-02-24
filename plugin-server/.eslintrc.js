@@ -1,3 +1,5 @@
+import { BUILD_DIST_FOLDER } from '../common/esbuilder/utils.mjs'
+
 module.exports = {
     root: true,
     parser: '@typescript-eslint/parser',
@@ -8,7 +10,7 @@ module.exports = {
     },
     plugins: ['@typescript-eslint', 'simple-import-sort', 'no-only-tests'],
     extends: ['plugin:@typescript-eslint/recommended', 'plugin:eslint-comments/recommended', 'prettier'],
-    ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl'],
+    ignorePatterns: ['bin', 'dist', 'dist2', 'node_modules', 'src/config/idl'],
     rules: {
         'no-only-tests/no-only-tests': 'error',
         'simple-import-sort/imports': 'error',

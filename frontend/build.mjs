@@ -10,11 +10,12 @@ import {
 } from '@posthog/esbuilder'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+import { BUILD_DIST_FOLDER } from '@posthog/esbuilder'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 startDevServer(__dirname)
-copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, BUILD_DIST_FOLDER))
 writeIndexHtml()
 writeExporterHtml()
 gatherProductManifests(__dirname)
@@ -26,21 +27,21 @@ const common = {
 
 await buildInParallel(
     [
-        // {
-        //     name: 'PostHog App',
-        //     globalName: 'posthogApp',
-        //     entryPoints: ['src/index.tsx'],
-        //     splitting: true,
-        //     format: 'esm',
-        //     outdir: path.resolve(__dirname, 'dist'),
-        //     ...common,
-        // },
+        {
+            name: 'PostHog App',
+            globalName: 'posthogApp',
+            entryPoints: ['src/index.tsx'],
+            splitting: true,
+            format: 'esm',
+            outdir: path.resolve(__dirname, BUILD_DIST_FOLDER),
+            ...common,
+        },
         {
             name: 'Exporter',
             globalName: 'posthogExporter',
             entryPoints: ['src/exporter/index.tsx'],
             format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
+            outfile: path.resolve(__dirname, BUILD_DIST_FOLDER, 'exporter.js'),
             ...common,
         },
         {
@@ -48,7 +49,7 @@ await buildInParallel(
             globalName: 'posthogToolbar',
             entryPoints: ['src/toolbar/index.tsx'],
             format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
+            outfile: path.resolve(__dirname, BUILD_DIST_FOLDER, 'toolbar.js'),
             // make sure we don't link to a global window.define
             banner: { js: 'var posthogToolbar = (function () { var define = undefined;' },
             footer: { js: 'return posthogToolbar })();' },
@@ -122,10 +123,10 @@ await buildInParallel(
 )
 
 export function writeIndexHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
+    copyIndexHtml(__dirname, 'src/index.html', `${BUILD_DIST_FOLDER}/index.html`, 'index', chunks, entrypoints)
+    copyIndexHtml(__dirname, 'src/layout.html', `${BUILD_DIST_FOLDER}/layout.html`, 'index', chunks, entrypoints)
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+    copyIndexHtml(__dirname, 'src/exporter/index.html', `${BUILD_DIST_FOLDER}/exporter.html`, 'exporter', chunks, entrypoints)
 }

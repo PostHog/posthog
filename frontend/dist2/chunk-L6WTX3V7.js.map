@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/editorconfig.js"],
+  "sourcesContent": ["'use strict'\n\nmodule.exports = editorconfig\neditorconfig.displayName = 'editorconfig'\neditorconfig.aliases = []\nfunction editorconfig(Prism) {\n  Prism.languages.editorconfig = {\n    // https://editorconfig-specification.readthedocs.io\n    comment: /[;#].*/,\n    section: {\n      pattern: /(^[ \\t]*)\\[.+\\]/m,\n      lookbehind: true,\n      alias: 'selector',\n      inside: {\n        regex: /\\\\\\\\[\\[\\]{},!?.*]/,\n        // Escape special characters with '\\\\'\n        operator: /[!?]|\\.\\.|\\*{1,2}/,\n        punctuation: /[\\[\\]{},]/\n      }\n    },\n    key: {\n      pattern: /(^[ \\t]*)[^\\s=]+(?=[ \\t]*=)/m,\n      lookbehind: true,\n      alias: 'attr-name'\n    },\n    value: {\n      pattern: /=.*/,\n      alias: 'attr-value',\n      inside: {\n        punctuation: /^=/\n      }\n    }\n  }\n}\n"],
+  "mappings": "8DAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAa,YAAc,eAC3BA,EAAa,QAAU,CAAC,EACxB,SAASA,EAAaC,EAAO,CAC3BA,EAAM,UAAU,aAAe,CAE7B,QAAS,SACT,QAAS,CACP,QAAS,mBACT,WAAY,GACZ,MAAO,WACP,OAAQ,CACN,MAAO,oBAEP,SAAU,oBACV,YAAa,WACf,CACF,EACA,IAAK,CACH,QAAS,+BACT,WAAY,GACZ,MAAO,WACT,EACA,MAAO,CACL,QAAS,MACT,MAAO,aACP,OAAQ,CACN,YAAa,IACf,CACF,CACF,CACF",
+  "names": ["require_editorconfig", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "editorconfig", "Prism"]
+}

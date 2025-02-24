@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/n4js.js"],
+  "sourcesContent": ["'use strict'\n\nmodule.exports = n4js\nn4js.displayName = 'n4js'\nn4js.aliases = ['n4jsd']\nfunction n4js(Prism) {\n  Prism.languages.n4js = Prism.languages.extend('javascript', {\n    // Keywords from N4JS language spec: https://numberfour.github.io/n4js/spec/N4JSSpec.html\n    keyword:\n      /\\b(?:Array|any|boolean|break|case|catch|class|const|constructor|continue|debugger|declare|default|delete|do|else|enum|export|extends|false|finally|for|from|function|get|if|implements|import|in|instanceof|interface|let|module|new|null|number|package|private|protected|public|return|set|static|string|super|switch|this|throw|true|try|typeof|var|void|while|with|yield)\\b/\n  })\n  Prism.languages.insertBefore('n4js', 'constant', {\n    // Annotations in N4JS spec: https://numberfour.github.io/n4js/spec/N4JSSpec.html#_annotations\n    annotation: {\n      pattern: /@+\\w+/,\n      alias: 'operator'\n    }\n  })\n  Prism.languages.n4jsd = Prism.languages.n4js\n}\n"],
+  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAK,YAAc,OACnBA,EAAK,QAAU,CAAC,OAAO,EACvB,SAASA,EAAKC,EAAO,CACnBA,EAAM,UAAU,KAAOA,EAAM,UAAU,OAAO,aAAc,CAE1D,QACE,iXACJ,CAAC,EACDA,EAAM,UAAU,aAAa,OAAQ,WAAY,CAE/C,WAAY,CACV,QAAS,QACT,MAAO,UACT,CACF,CAAC,EACDA,EAAM,UAAU,MAAQA,EAAM,UAAU,IAC1C",
+  "names": ["require_n4js", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "n4js", "Prism"]
+}

@@ -1,0 +1,2 @@
+import{b as r,e,g as a,j as i}from"/static/chunk-SJXEOBQC.js";var s=r((d,n)=>{e();i();a();n.exports=t;t.displayName="editorconfig";t.aliases=[];function t(o){o.languages.editorconfig={comment:/[;#].*/,section:{pattern:/(^[ \t]*)\[.+\]/m,lookbehind:!0,alias:"selector",inside:{regex:/\\\\[\[\]{},!?.*]/,operator:/[!?]|\.\.|\*{1,2}/,punctuation:/[\[\]{},]/}},key:{pattern:/(^[ \t]*)[^\s=]+(?=[ \t]*=)/m,lookbehind:!0,alias:"attr-name"},value:{pattern:/=.*/,alias:"attr-value",inside:{punctuation:/^=/}}}}});export{s as a};
+//# sourceMappingURL=/static/chunk-L6WTX3V7.js.map

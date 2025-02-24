@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/refractor@3.6.0/node_modules/refractor/lang/matlab.js"],
+  "sourcesContent": ["'use strict'\n\nmodule.exports = matlab\nmatlab.displayName = 'matlab'\nmatlab.aliases = []\nfunction matlab(Prism) {\n  Prism.languages.matlab = {\n    comment: [/%\\{[\\s\\S]*?\\}%/, /%.+/],\n    string: {\n      pattern: /\\B'(?:''|[^'\\r\\n])*'/,\n      greedy: true\n    },\n    // FIXME We could handle imaginary numbers as a whole\n    number: /(?:\\b\\d+(?:\\.\\d*)?|\\B\\.\\d+)(?:[eE][+-]?\\d+)?(?:[ij])?|\\b[ij]\\b/,\n    keyword:\n      /\\b(?:NaN|break|case|catch|continue|else|elseif|end|for|function|if|inf|otherwise|parfor|pause|pi|return|switch|try|while)\\b/,\n    function: /\\b(?!\\d)\\w+(?=\\s*\\()/,\n    operator: /\\.?[*^\\/\\\\']|[+\\-:@]|[<>=~]=?|&&?|\\|\\|?/,\n    punctuation: /\\.{3}|[.,;\\[\\](){}!]/\n  }\n}\n"],
+  "mappings": "mEAAA,IAAAA,EAAAC,EAAA,CAAAC,EAAAC,IAAA,CAAAC,IAAAC,IAAAC,IAEAH,EAAO,QAAUI,EACjBA,EAAO,YAAc,SACrBA,EAAO,QAAU,CAAC,EAClB,SAASA,EAAOC,EAAO,CACrBA,EAAM,UAAU,OAAS,CACvB,QAAS,CAAC,iBAAkB,KAAK,EACjC,OAAQ,CACN,QAAS,uBACT,OAAQ,EACV,EAEA,OAAQ,iEACR,QACE,8HACF,SAAU,uBACV,SAAU,0CACV,YAAa,sBACf,CACF",
+  "names": ["require_matlab", "__commonJSMin", "exports", "module", "init_dirname", "init_buffer", "init_process", "matlab", "Prism"]
+}

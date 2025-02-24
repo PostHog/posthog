@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../src/scenes/project/Create/index.tsx"],
+  "sourcesContent": ["import { useValues } from 'kea'\nimport { LemonBanner } from 'lib/lemon-ui/LemonBanner'\nimport { organizationLogic } from 'scenes/organizationLogic'\nimport { SceneExport } from 'scenes/sceneTypes'\nimport { teamLogic } from 'scenes/teamLogic'\n\nimport { CreateProjectModal } from '../CreateProjectModal'\n\nexport const scene: SceneExport = {\n    component: ProjectCreate,\n    logic: teamLogic,\n}\n\nexport function ProjectCreate(): JSX.Element {\n    const { projectCreationForbiddenReason } = useValues(organizationLogic)\n\n    return projectCreationForbiddenReason ? (\n        <LemonBanner type=\"warning\" className=\"mt-5\">\n            {projectCreationForbiddenReason}\n        </LemonBanner>\n    ) : (\n        <CreateProjectModal isVisible inline />\n    )\n}\n"],
+  "mappings": "0+BAAAA,IAAAC,IAAAC,IAAA,IAAAC,EAA0B,OAiBlB,IAAAC,EAAA,OATKC,EAAqB,CAC9B,UAAWC,EACX,MAAOC,CACX,EAEO,SAASD,GAA6B,CACzC,GAAM,CAAE,+BAAAE,CAA+B,KAAI,aAAUC,CAAiB,EAEtE,OAAOD,KACH,OAACE,EAAA,CAAY,KAAK,UAAU,UAAU,OACjC,SAAAF,EACL,KAEA,OAACG,EAAA,CAAmB,UAAS,GAAC,OAAM,GAAC,CAE7C",
+  "names": ["init_dirname", "init_buffer", "init_process", "import_kea", "import_jsx_runtime", "scene", "ProjectCreate", "teamLogic", "projectCreationForbiddenReason", "organizationLogic", "LemonBanner", "CreateProjectModal"]
+}

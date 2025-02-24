@@ -1,0 +1,2 @@
+import{b as p,e as c,g as m,j as r}from"/static/chunk-SJXEOBQC.js";var d=p((h,i)=>{c();r();m();i.exports=a;a.displayName="xmlDoc";a.aliases=[];function a(g){(function(e){function t(s,l){e.languages[s]&&e.languages.insertBefore(s,"comment",{"doc-comment":l})}var n=e.languages.markup.tag,o={pattern:/\/\/\/.*/,greedy:!0,alias:"comment",inside:{tag:n}},u={pattern:/'''.*/,greedy:!0,alias:"comment",inside:{tag:n}};t("csharp",o),t("fsharp",o),t("vbnet",u)})(g)}});export{d as a};
+//# sourceMappingURL=/static/chunk-JXP7TWYF.js.map

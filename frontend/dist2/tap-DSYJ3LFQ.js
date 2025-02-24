@@ -1,0 +1,2 @@
+import{b as t,e,g as n,j as a}from"/static/chunk-SJXEOBQC.js";var r=t((m,s)=>{e();a();n();function o(i){return{name:"Test Anything Protocol",case_insensitive:!0,contains:[i.HASH_COMMENT_MODE,{className:"meta",variants:[{begin:"^TAP version (\\d+)$"},{begin:"^1\\.\\.(\\d+)$"}]},{begin:/---$/,end:"\\.\\.\\.$",subLanguage:"yaml",relevance:0},{className:"number",begin:" (\\d+) "},{className:"symbol",variants:[{begin:"^ok"},{begin:"^not ok"}]}]}}s.exports=o});export default r();
+//# sourceMappingURL=/static/tap-DSYJ3LFQ.js.map

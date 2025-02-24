@@ -1,0 +1,2 @@
+import{b as o,e as n,g as r,j as a}from"/static/chunk-SJXEOBQC.js";var t=o((u,i)=>{n();a();r();function s(e){return{name:"Dockerfile",aliases:["docker"],case_insensitive:!0,keywords:"from maintainer expose env arg user onbuild stopsignal",contains:[e.HASH_COMMENT_MODE,e.APOS_STRING_MODE,e.QUOTE_STRING_MODE,e.NUMBER_MODE,{beginKeywords:"run cmd entrypoint volume add copy workdir label healthcheck shell",starts:{end:/[^\\]$/,subLanguage:"bash"}}],illegal:"</"}}i.exports=s});export default t();
+//# sourceMappingURL=/static/dockerfile-7Q4J6GBC.js.map

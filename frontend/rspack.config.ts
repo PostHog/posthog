@@ -2,6 +2,7 @@ import { rspack } from '@rspack/core';
 import ReactRefreshPlugin from '@rspack/plugin-react-refresh';
 import { defineConfig } from "@rspack/cli";
 import path from 'path';
+import HtmlWebpackPlugin from 'html-webpack-plugin';
 const isDev = process.env.NODE_ENV === 'development';
 
 export default defineConfig({
@@ -17,6 +18,7 @@ export default defineConfig({
     css: true,
   },
   resolve: {
+    tsConfig: path.resolve(__dirname, 'tsconfig.json'),
     extensions: ['.js', '.jsx', '.ts', '.tsx'],
     alias: {
       '~': path.resolve(__dirname, 'src'),
@@ -38,27 +40,27 @@ export default defineConfig({
     fallback: { "crypto": "crypto-browserify", "stream": "stream-browserify" }
   },
   plugins: [
-    new rspack.CopyRspackPlugin({
-      // `./src/file.txt` -> `./dist/file.txt`
-      patterns: [{
-        from: path.resolve(__dirname, 'src/index.html'), 
-        to: path.resolve(__dirname, 'dist/index.html') 
-      }],
-    }),
-    // new HtmlWebpackPlugin({
-    //   title: 'PostHog',
-    //   template: path.resolve(__dirname, 'src/index.html'),
-    //   templateParameters: {
-    //     // Add any template parameters you need
-    //   },
-    //   inject: true,
-    //   minify: {
-    //     ignoreCustomFragments: [
-    //       /{%[\s\S]*?%}/,
-    //       /{{[\s\S]*?}}/
-    //     ]
-    //   }
+    // new rspack.CopyRspackPlugin({
+    //   // `./src/file.txt` -> `./dist/file.txt`
+    //   patterns: [{
+    //     from: path.resolve(__dirname, 'src/index.html'), 
+    //     to: path.resolve(__dirname, 'dist/index.html') 
+    //   }],
     // }),
+    new HtmlWebpackPlugin({
+      title: 'PostHog',
+      template: path.resolve(__dirname, 'src/index.ejs'),
+      templateParameters: {
+        // Add any template parameters you need
+      },
+      inject: true,
+      // minify: {
+      //   ignoreCustomFragments: [
+      //     /{%[\s\S]*?%}/,
+      //     /{{[\s\S]*?}}/
+      //   ]
+      // }
+    }),
     isDev && new ReactRefreshPlugin(),
     isDev && new rspack.HotModuleReplacementPlugin(),
     new rspack.ProgressPlugin({}),
