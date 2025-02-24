@@ -332,6 +332,13 @@ class ScopeBasePermission(BasePermission):
         if getattr(view, "required_scopes", None):
             return view.required_scopes
 
+        # If the view has a dangerously_get_required_scopes method then use that
+        # If it returns None then we will use the default behavior
+        if hasattr(view, "dangerously_get_required_scopes"):
+            required_scopes = view.dangerously_get_required_scopes(request, view)
+            if required_scopes:
+                return required_scopes
+
         scope_object = self._get_scope_object(request, view)
 
         if scope_object == "INTERNAL":

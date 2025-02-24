@@ -32,3 +32,17 @@ class SessionRecordingPlaylist(models.Model):
 
     class Meta:
         unique_together = ("team", "short_id")
+
+
+class SessionRecordingPlaylistViewed(models.Model):
+    viewed_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey("User", on_delete=models.CASCADE)
+    playlist = models.ForeignKey("SessionRecordingPlaylist", on_delete=models.CASCADE)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ("user", "playlist", "viewed_at")
+        indexes = [
+            models.Index(fields=["playlist"]),
+            models.Index(fields=["playlist", "viewed_at"]),
+        ]
