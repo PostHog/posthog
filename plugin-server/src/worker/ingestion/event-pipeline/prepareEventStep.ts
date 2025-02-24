@@ -1,13 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PreIngestionEvent } from '~/src/types'
-
+import { PreIngestionEvent } from '../../../types'
+import { processAiEvent } from '../../../utils/ai-costs/process-ai-event'
 import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
 import { invalidTimestampCounter } from './metrics'
-import { processAiEvent } from './processAiEvent'
 import { EventPipelineRunner } from './runner'
 
 export async function prepareEventStep(
