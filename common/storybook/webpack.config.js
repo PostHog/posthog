@@ -65,11 +65,7 @@ function createEntry(entry) {
                 process: 'process/browser',
                 products: path.resolve(__dirname, '..', '..', 'products'),
             },
-            fallback: {
-                "crypto": require.resolve("crypto-browserify"),
-                "stream": require.resolve("stream-browserify"),
-                "buffer": require.resolve("buffer/")
-            }
+            fallback: { "crypto": require.resolve("crypto-browserify"), "stream": require.resolve("stream-browserify") }
         },
         module: {
             rules: [

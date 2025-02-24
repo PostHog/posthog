@@ -30,7 +30,7 @@ importers:
         specifier: ~15.4.3
         version: 15.4.3
       turbo:
-        specifier: ^2.4.2
+        specifier: ^2.3.4
         version: 2.4.2
     optionalDependencies:
       fsevents:
@@ -313,9 +313,6 @@ importers:
       babel-preset-nano-react-app:
         specifier: ^0.1.0
         version: 0.1.0
-      buffer:
-        specifier: ^6.0.3
-        version: 6.0.3
       css-loader:
         specifier: ^3.4.2
         version: 3.6.0(webpack@5.88.2)
@@ -541,8 +538,8 @@ importers:
         specifier: workspace:*
         version: link:../common/esbuilder
       '@posthog/hogvm':
-        specifier: workspace:*
-        version: link:../common/hogvm/typescript
+        specifier: ^1.0.67
+        version: 1.0.67(luxon@3.5.0)
       '@posthog/icons':
         specifier: 0.11.1
         version: 0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -1188,11 +1185,11 @@ importers:
         specifier: ^1.7.0
         version: 1.7.0
       '@posthog/cyclotron':
-        specifier: workspace:*
+        specifier: file:../rust/cyclotron-node
         version: link:../rust/cyclotron-node
       '@posthog/hogvm':
-        specifier: workspace:*
-        version: link:../common/hogvm/typescript
+        specifier: ^1.0.67
+        version: 1.0.67(luxon@3.5.0)
       '@posthog/plugin-scaffold':
         specifier: 1.4.4
         version: 1.4.4
@@ -4156,6 +4153,11 @@ packages:
   '@posthog/clickhouse@1.7.0':
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
+
+  '@posthog/hogvm@1.0.67':
+    resolution: {integrity: sha512-kSAtW2rN8z16SOS7PvCfqOBFpg9E+aeuKlkLHaDbUSAG5Rf34n9Nq7t4d4iyfn9YHVTCzFvDGDPvKbbOXg5HBA==}
+    peerDependencies:
+      luxon: ^3.4.4
 
   '@posthog/icons@0.11.1':
     resolution: {integrity: sha512-usNM3nAk1EuWut577qu2enGedfhrQLcRR0nLPYt0U3wt3YV7fKR9VSFbX/J2mcbF+bqdY89lAi6OQnHj6ZJo1A==}
@@ -19044,6 +19046,10 @@ snapshots:
   '@popperjs/core@2.11.6': {}
 
   '@posthog/clickhouse@1.7.0': {}
+
+  '@posthog/hogvm@1.0.67(luxon@3.5.0)':
+    dependencies:
+      luxon: 3.5.0
 
   '@posthog/icons@0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:

@@ -9,4 +9,4 @@ set -e
 export DEBUG=0
 
 pnpm --filter=@posthog/frontend... install --frozen-lockfile
-bin/turbo --filter=@posthog/frontend start
+pnpm --filter=@posthog/frontend start
