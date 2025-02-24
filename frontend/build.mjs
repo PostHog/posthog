@@ -26,15 +26,15 @@ const common = {
 
 await buildInParallel(
     [
-        {
-            name: 'PostHog App',
-            globalName: 'posthogApp',
-            entryPoints: ['src/index.tsx'],
-            splitting: true,
-            format: 'esm',
-            outdir: path.resolve(__dirname, 'dist'),
-            ...common,
-        },
+        // {
+        //     name: 'PostHog App',
+        //     globalName: 'posthogApp',
+        //     entryPoints: ['src/index.tsx'],
+        //     splitting: true,
+        //     format: 'esm',
+        //     outdir: path.resolve(__dirname, 'dist'),
+        //     ...common,
+        // },
         {
             name: 'Exporter',
             globalName: 'posthogExporter',
