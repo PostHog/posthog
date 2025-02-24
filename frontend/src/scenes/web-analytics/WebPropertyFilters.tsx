@@ -36,6 +36,9 @@ export const WebPropertyFilters = ({
                             TaxonomicFilterGroupType.PersonProperties,
                             TaxonomicFilterGroupType.SessionProperties,
                         ]}
+                        excludedProperties={{
+                            [TaxonomicFilterGroupType.EventProperties]: ['$host'],
+                        }}
                         onChange={(filters) =>
                             // We want to ignore `$host` filters, they're controlled by the domain filter
                             // If this gets confusing, we'll need to find a way to block these filters from being added
