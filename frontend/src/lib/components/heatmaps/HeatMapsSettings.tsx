@@ -1,6 +1,6 @@
 import { IconInfo } from '@posthog/icons'
-import { useValues } from 'kea'
-import { HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { useActions, useValues } from 'kea'
+import { heatmapsSettingsLogic } from 'lib/components/heatmaps/heatmapsSettingsLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -65,25 +65,21 @@ const SectionSetting = ({
     )
 }
 
-interface HeatmapsSettingsProps {
-    heatmapFilters: HeatmapFilters
-    patchHeatmapFilters: (filter: Partial<HeatmapFilters>) => void
-    viewportRange: { min: number; max: number }
-    heatmapColorPalette: string | null
-    setHeatmapColorPalette: (palette: string | null) => void
-    heatmapFixedPositionMode: HeatmapFixedPositionMode
-    setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => void
-}
+// interface HeatmapsSettingsProps {
+//     heatmapFilters: HeatmapFilters
+//     patchHeatmapFilters: (filter: Partial<HeatmapFilters>) => void
+//     viewportRange: { min: number; max: number }
+//     heatmapColorPalette: string | null
+//     setHeatmapColorPalette: (palette: string | null) => void
+//     heatmapFixedPositionMode: HeatmapFixedPositionMode
+//     setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => void
+// }
 
-export const HeatmapsSettings = ({
-    heatmapFilters,
-    patchHeatmapFilters,
-    viewportRange,
-    heatmapColorPalette,
-    setHeatmapColorPalette,
-    heatmapFixedPositionMode,
-    setHeatmapFixedPositionMode,
-}: HeatmapsSettingsProps): JSX.Element => {
+export const HeatmapsSettings = (): JSX.Element => {
+    const { heatmapFilters, viewportRange, heatmapColorPalette, heatmapFixedPositionMode } =
+        useValues(heatmapsSettingsLogic)
+    const { patchHeatmapFilters, setHeatmapColorPalette, setHeatmapFixedPositionMode } =
+        useActions(heatmapsSettingsLogic)
     return (
         <>
             <SectionSetting
