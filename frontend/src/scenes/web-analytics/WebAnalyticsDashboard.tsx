@@ -1,22 +1,16 @@
-import { IconExpand45, IconFilter, IconGear, IconGlobe, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
-import { LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -30,186 +24,13 @@ import {
     webAnalyticsLogic,
 } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
-import { WebConversionGoal } from 'scenes/web-analytics/WebConversionGoal'
-import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema/schema-general'
-import { AvailableFeature, ProductKey, PropertyMathType } from '~/types'
+import { ProductKey } from '~/types'
 
-import { TableSortingIndicator } from './TableSortingIndicator'
-import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
-
-const AllFilters = (): JSX.Element => {
-    const [expanded, setExpanded] = useState(false)
-
-    const { authorizedUrls } = useValues(
-        authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null })
-    )
-    const { domainFilter } = useValues(webAnalyticsLogic)
-    const { setDomainFilter } = useActions(webAnalyticsLogic)
-
-    return (
-        <div className="flex flex-col md:flex-row md:justify-between gap-2">
-            <div className="flex items-start shrink-0">
-                <div className="flex flex-1 flex-row gap-2 items-center">
-                    <div className="flex flex-row gap-1 items-center flex-1 md:flex-none">
-                        <ReloadAll iconOnly />
-                        <LemonSelect
-                            className="grow md:grow-0"
-                            size="small"
-                            value={domainFilter || 'all'}
-                            icon={<IconGlobe />}
-                            onChange={(value) => setDomainFilter(value)}
-                            disabled={authorizedUrls.length === 0}
-                            options={[
-                                {
-                                    options: [
-                                        { label: 'All domains', value: 'all' },
-                                        ...authorizedUrls.map((url) => ({ label: url, value: url })),
-                                    ],
-                                    footer: (
-                                        <span className="text-xs px-2">
-                                            Have more domains? Go to{' '}
-                                            <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>
-                                                settings
-                                            </Link>
-                                        </span>
-                                    ),
-                                },
-                            ]}
-                        />
-                    </div>
-
-                    <div className="hidden md:flex items-center gap-2">
-                        <span className="text-muted-alt">|</span>
-                        <WebAnalyticsLiveUserCount />
-                    </div>
-
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        className="sm:hidden"
-                        onClick={() => setExpanded((expanded) => !expanded)}
-                        icon={<IconFilter />}
-                    />
-                </div>
-            </div>
-
-            {/* On more than mobile, just display Foldable Fields, on smaller delegate displaying it to the expanded state */}
-            <div className="hidden sm:flex gap-2">
-                <FoldableFields />
-            </div>
-
-            <div
-                className={clsx(
-                    'flex sm:hidden flex-col gap-2 overflow-hidden transition-all duration-200',
-                    expanded ? 'max-h-[500px]' : 'max-h-0'
-                )}
-            >
-                <FoldableFields />
-            </div>
-        </div>
-    )
-}
-
-const FoldableFields = (): JSX.Element => {
-    const {
-        webAnalyticsFilters,
-        dateFilter: { dateTo, dateFrom },
-        compareFilter,
-        productTab,
-        webVitalsPercentile,
-    } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters, setDates, setCompareFilter, setWebVitalsPercentile } = useActions(webAnalyticsLogic)
-
-    const { hasAvailableFeature } = useValues(userLogic)
-    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
-
-    return (
-        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
-            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} allowTimePrecision={true} />
-
-            {productTab === ProductTab.ANALYTICS ? (
-                <>
-                    <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                    <WebConversionGoal />
-                    <TableSortingIndicator />
-                </>
-            ) : (
-                <LemonSegmentedSelect
-                    size="small"
-                    value={webVitalsPercentile}
-                    onChange={setWebVitalsPercentile}
-                    options={[
-                        { value: PropertyMathType.P75, label: 'P75' },
-                        {
-                            value: PropertyMathType.P90,
-                            label: (
-                                <Tooltip title="P90 is recommended by the standard as a good baseline" delayMs={0}>
-                                    P90
-                                </Tooltip>
-                            ),
-                        },
-                        { value: PropertyMathType.P99, label: 'P99' },
-                    ]}
-                />
-            )}
-
-            {hasAdvancedPaths && <PathCleaningToggle />}
-
-            <WebPropertyFilters
-                setWebAnalyticsFilters={setWebAnalyticsFilters}
-                webAnalyticsFilters={webAnalyticsFilters}
-            />
-        </div>
-    )
-}
-
-const PathCleaningToggle = (): JSX.Element => {
-    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
-    const { setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
-
-    return (
-        <Tooltip
-            title={
-                <div className="p-2">
-                    <p className="mb-2">
-                        Path cleaning helps standardize URLs by removing unnecessary parameters and fragments.
-                    </p>
-                    <div className="mb-2">
-                        <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
-                            Learn more about path cleaning rules
-                        </Link>
-                    </div>
-                    <LemonButton
-                        icon={<IconGear />}
-                        type="primary"
-                        size="small"
-                        to={urls.settings('project-product-analytics', 'path-cleaning')}
-                        targetBlank
-                        className="w-full"
-                    >
-                        Edit path cleaning settings
-                    </LemonButton>
-                </div>
-            }
-            placement="top"
-            interactive={true}
-        >
-            <LemonButton
-                icon={<IconBranch />}
-                onClick={() => setIsPathCleaningEnabled(!isPathCleaningEnabled)}
-                type="secondary"
-                size="small"
-            >
-                Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" />
-            </LemonButton>
-        </Tooltip>
-    )
-}
+import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 
 const Tiles = (): JSX.Element => {
     const { tiles } = useValues(webAnalyticsLogic)
@@ -507,7 +328,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             ]}
                         />
 
-                        <AllFilters />
+                        <WebAnalyticsFilters />
                     </div>
 
                     <WebAnalyticsHealthCheck />
