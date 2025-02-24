@@ -1207,6 +1207,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             interval=2,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
             },
             search="test",
         )
