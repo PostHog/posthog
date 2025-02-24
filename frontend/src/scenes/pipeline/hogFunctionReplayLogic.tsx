@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
 
 import type { hogFunctionReplayLogicType } from './hogFunctionReplayLogicType'
@@ -14,6 +14,7 @@ import {
     hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogfunctions/hogFunctionConfigurationLogic'
+import { BaseMathType, ChartDisplayType } from '~/types'
 
 export interface HogFunctionReplayLogicProps {
     id: string
@@ -63,8 +64,29 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     if (!values.baseEventsQuery) {
                         return []
                     }
+                    console.log({ query: values.baseEventsQuery })
                     const response = await api.query(values.baseEventsQuery)
                     return response.results
+                },
+                loadNextEvents: async () => {
+                    if (!values.baseEventsQuery) {
+                        return []
+                    }
+                    const response = await api.query(values.baseEventsQuery)
+                    return [...response.results]
+                },
+            },
+        ],
+        totalEvents: [
+            0 as number,
+            {
+                loadTotalEvents: async () => {
+                    if (!values.totalEventsQuery) {
+                        return 0
+                    }
+                    const response = await api.query(values.totalEventsQuery)
+                    console.log({ response, count: response.results[0] })
+                    return response.results[0]?.aggregated_value ?? 0
                 },
             },
         ],
@@ -132,6 +154,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     kind: NodeKind.EventsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
                     fixedProperties: [matchingFilters],
+                    limit: 20,
                     select: ['*', 'person'],
                     after: dateRange?.after ?? undefined,
                     before: dateRange?.before ?? undefined,
@@ -144,6 +167,32 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     )
                 })
                 return query
+            },
+            { resultEqualityCheck: equal },
+        ],
+        totalEventsQuery: [
+            (s) => [s.configuration, s.matchingFilters, s.dateRange],
+            (configuration, matchingFilters, dateRange): TrendsQuery | null => {
+                return {
+                    kind: NodeKind.TrendsQuery,
+                    filterTestAccounts: configuration.filters?.filter_test_accounts,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: null,
+                            name: 'All Events',
+                            math: BaseMathType.TotalCount,
+                        } satisfies EventsNode,
+                    ],
+                    properties: matchingFilters,
+                    dateRange: {
+                        date_from: dateRange.after,
+                        date_to: dateRange.before,
+                    },
+                    trendsFilter: {
+                        display: ChartDisplayType.BoldNumber,
+                    },
+                }
             },
             { resultEqualityCheck: equal },
         ],
@@ -160,11 +209,13 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
     listeners(({ actions }) => ({
         changeDateRange: () => {
             actions.loadEvents()
+            actions.loadTotalEvents()
         },
     })),
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadEvents()
+            actions.loadTotalEvents()
         },
     })),
 ])

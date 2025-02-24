@@ -313,12 +313,17 @@ function EmptyColumn(): JSX.Element {
 function RunsFilters({ id }: { id: string }): JSX.Element {
     const logic = hogFunctionReplayLogic({ id })
     const { eventsLoading, baseEventsQuery } = useValues(logic)
-    const { loadEvents, changeDateRange } = useActions(logic)
+    const { loadEvents, changeDateRange, loadTotalEvents } = useActions(logic)
+
+    const handleRefresh = (): void => {
+        loadEvents()
+        loadTotalEvents()
+    }
 
     return (
         <div className="flex items-center gap-2">
             <LemonButton
-                onClick={loadEvents}
+                onClick={handleRefresh}
                 loading={eventsLoading}
                 type="secondary"
                 icon={<IconRefresh />}
@@ -337,7 +342,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
 
 export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionReplayLogic({ id })
-    const { eventsLoading, eventsWithRetries, loadingRetries } = useValues(logic)
+    const { eventsLoading, eventsWithRetries, loadingRetries, totalEvents } = useValues(logic)
     const { retryHogFunction } = useActions(logic)
 
     return (
@@ -346,9 +351,10 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
             loading={eventsLoading}
             loadingSkeletonRows={5}
             pagination={{
-                controlled: false,
-                pageSize: 20,
+                controlled: true,
+                pageSize: eventsWithRetries.length,
                 hideOnSinglePage: false,
+                entryCount: totalEvents,
             }}
             expandable={{
                 noIndent: true,

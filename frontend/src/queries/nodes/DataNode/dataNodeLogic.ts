@@ -303,6 +303,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
                     if (isEventsQuery(props.query) || isActorsQuery(props.query) || isErrorTrackingQuery(props.query)) {
+                        console.log('loading next data', { a: values.nextQuery, b: props?.modifiers })
                         const newResponse =
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
