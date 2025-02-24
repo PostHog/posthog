@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
 
 import type { hogFunctionReplayLogicType } from './hogFunctionReplayLogicType'
@@ -15,10 +15,17 @@ import {
     sanitizeConfiguration,
 } from './hogfunctions/hogFunctionConfigurationLogic'
 import { BaseMathType, ChartDisplayType } from '~/types'
+import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 export interface HogFunctionReplayLogicProps {
     id: string
 }
+
+export interface EventsResultType extends EventsQueryResponse {
+    before: string | undefined
+}
+
+const PAGE_ROWS = 20
 
 export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
     path((key) => ['scenes', 'pipeline', 'hogFunctionReplayLogic', key]),
@@ -36,6 +43,9 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
         changeDateRange: (after: string | null, before: string | null) => ({ after, before }),
         addLoadingRetry: (eventId: string) => ({ eventId }),
         removeLoadingRetry: (eventId: string) => ({ eventId }),
+        increaseCurrentPage: (timestamp: string | undefined) => ({ timestamp }),
+        decreaseCurrentPage: true,
+        resetCurrentPage: true,
     }),
     reducers({
         dateRange: [
@@ -55,25 +65,56 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     state.filter((id: string) => id !== eventId),
             },
         ],
+        pageTimestamps: [
+            [] as string[] | undefined[],
+            {
+                increaseCurrentPage: (state, { timestamp }: { timestamp: string | undefined }) => [...state, timestamp],
+                decreaseCurrentPage: (state) => [...(state.filter( (_, i) => i !== state.length - 1))],
+                resetCurrentPage: () => [],
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         events: [
-            [] as any[],
+            { results: [], before: undefined } as EventsResultType,
             {
                 loadEvents: async () => {
                     if (!values.baseEventsQuery) {
-                        return []
+                        return { results: [], before: undefined }
                     }
                     console.log({ query: values.baseEventsQuery })
                     const response = await api.query(values.baseEventsQuery)
-                    return response.results
-                },
-                loadNextEvents: async () => {
-                    if (!values.baseEventsQuery) {
-                        return []
+                    return {
+                        ...response,
+                        before: values.dateRange.before ?? undefined
                     }
-                    const response = await api.query(values.baseEventsQuery)
-                    return [...response.results]
+                },
+                loadNextEventsPage: async () => {
+                    console.log('trying to fetch next page')
+                    if (!values.nextQuery) {
+                        return { ...values.events }
+                    }
+                    console.log('we have been using the followign before value on the existing page before load', values.events)
+                    actions.increaseCurrentPage(values.events.before)
+                    const response = await api.query(values.nextQuery)
+                    return {
+                        ...response,
+                        before: values.nextQuery.before
+                    }
+                },
+                loadPreviousEventsPage: async () => {
+                    console.log('trying to fetch previous page', values.previousQuery)
+                    if (!values.previousQuery) {
+                        return { results: [...(values.events as any)] }
+                    }
+                    console.log('using following query', values.previousQuery)
+                    console.log('asehf8fhusefihseaiufhuiasefuihse ==== using following before value', values.previousQuery.before)
+                    const response = await api.query(values.previousQuery)
+                    actions.decreaseCurrentPage()
+                    return {
+                        ...response,
+                        before: values.previousQuery.before
+                    }
                 },
             },
         ],
@@ -98,7 +139,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     const globals = convertToHogFunctionInvocationGlobals(row[0], row[1])
                     globals.groups = {}
                     values.groupTypes.forEach((groupType, index) => {
-                        const tuple = row?.[3 + index]
+                        const tuple = row?.[4 + index]
                         if (tuple && Array.isArray(tuple) && tuple[2]) {
                             let properties = {}
                             try {
@@ -146,7 +187,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ values }) => ({
         baseEventsQuery: [
             (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.dateRange],
             (configuration, matchingFilters, groupTypes, dateRange): EventsQuery | null => {
@@ -154,8 +195,8 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     kind: NodeKind.EventsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
                     fixedProperties: [matchingFilters],
-                    limit: 20,
-                    select: ['*', 'person'],
+                    limit: PAGE_ROWS,
+                    select: ['*', 'person', 'timestamp'],
                     after: dateRange?.after ?? undefined,
                     before: dateRange?.before ?? undefined,
                     orderBy: ['timestamp DESC'],
@@ -198,18 +239,64 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
         ],
         eventsWithRetries: [
             (s) => [s.events, s.retries],
-            (events: any[], retries: any[]) =>
-                events.map((row) => [
-                    ...row.slice(0, 2),
+            (events: { results: any[] }, retries: any[]) =>
+                events.results.map((row) => [
+                    ...row.slice(0, 3),
                     retries.filter((r) => r.eventId === row[0].uuid),
-                    ...row.slice(2),
+                    ...row.slice(3),
                 ]),
+        ],
+        nextQuery: [
+            (s) => [s.baseEventsQuery, s.events],
+            (baseEventsQuery, events): EventsQuery | null => {
+                if (!baseEventsQuery || !events) {
+                    return null
+                }
+                const typedResults = (events as EventsResultType)?.results
+                const sortColumnIndex = baseEventsQuery?.select
+                    .map((hql: any) => removeExpressionComment(hql))
+                    .indexOf('timestamp')
+                if (sortColumnIndex !== -1) {
+                    const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
+                    console.log('nextQuery', lastTimestamp)
+                    if (lastTimestamp) {
+                        const newQuery: EventsQuery = {
+                            ...baseEventsQuery,
+                            before: lastTimestamp,
+                            limit: PAGE_ROWS,
+                        }
+                        return newQuery
+                    }
+                }
+                return null
+            },
+        ],
+        previousQuery: [
+            (s) => [s.baseEventsQuery, s.events],
+            (baseEventsQuery, events): EventsQuery | null => {
+                if (!baseEventsQuery || !events) {
+                    return null
+                }
+                const lastTimestamp = values.pageTimestamps[values.pageTimestamps.length - 1]
+                console.log('previousQueryee', lastTimestamp)
+                const newQuery: EventsQuery = {
+                    ...baseEventsQuery,
+                    before: lastTimestamp,
+                    limit: PAGE_ROWS,
+                }
+                return newQuery
+            },
         ],
     })),
     listeners(({ actions }) => ({
         changeDateRange: () => {
             actions.loadEvents()
             actions.loadTotalEvents()
+            actions.resetCurrentPage()
+        },
+        loadEvents: () => {
+            actions.loadTotalEvents()
+            actions.resetCurrentPage()
         },
     })),
     events(({ actions }) => ({

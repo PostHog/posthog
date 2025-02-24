@@ -142,6 +142,9 @@ export function ReplayMenu({ templateId, id, displayOptions = {} }: HogFunctionC
 
     return (
         <div className="space-y-3">
+            <LemonBanner type={'info'}>
+                <span>This is a list of all events matching your filters. You can run the function using these historical events.</span>
+            </LemonBanner>
             <RunsFilters id={id} />
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 {includeHeaderButtons && (
@@ -342,8 +345,8 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
 
 export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionReplayLogic({ id })
-    const { eventsLoading, eventsWithRetries, loadingRetries, totalEvents } = useValues(logic)
-    const { retryHogFunction } = useActions(logic)
+    const { eventsLoading, eventsWithRetries, loadingRetries, totalEvents, pageTimestamps } = useValues(logic)
+    const { retryHogFunction, loadNextEventsPage, loadPreviousEventsPage } = useActions(logic)
 
     return (
         <LemonTable
@@ -352,13 +355,16 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
             loadingSkeletonRows={5}
             pagination={{
                 controlled: true,
+                currentPage: pageTimestamps.length + 1,
+                onForward: loadNextEventsPage,
+                onBackward: loadPreviousEventsPage,
                 pageSize: eventsWithRetries.length,
                 hideOnSinglePage: false,
                 entryCount: totalEvents,
             }}
             expandable={{
                 noIndent: true,
-                expandedRowRender: ([, , retries]) => {
+                expandedRowRender: ([, , , retries]) => {
                     return (
                         <LemonTable
                             dataSource={retries}
@@ -393,7 +399,7 @@ export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element |
                     key: 'retries',
                     title: 'Retries',
                     width: 0,
-                    render: (_, [, , retries]) => {
+                    render: (_, [, , , retries]) => {
                         return <RetryStatusIcon retries={retries} />
                     },
                 },
