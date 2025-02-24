@@ -42,6 +42,7 @@ jobs:
             - name: Install dependencies and Chromatic
               run: |
                   pnpm --filter=@posthog/storybook... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/storybook prepare
                   pnpm install -w -D chromatic
 
             - name: Publish to Chromatic
@@ -51,6 +52,7 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+                  buildScriptName: build
                   workingDir: ./common/storybook/
 
     visual-regression:
@@ -126,7 +128,7 @@ jobs:
               run: pnpm install http-server wait-on -g
 
             - name: Build Storybook
-              run: pnpm --filter=@posthog/storybook build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam
+              run: bin/turbo --filter=@posthog/storybook build
 
             - name: Serve Storybook in the background
               run: |
