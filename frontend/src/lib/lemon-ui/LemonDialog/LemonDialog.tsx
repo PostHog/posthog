@@ -29,10 +29,7 @@ export type LemonDialogProps = Pick<
     onAfterClose?: () => void
     closeOnNavigate?: boolean
     shouldAwaitSubmit?: boolean
-    isOpen: boolean
-    setIsOpen: (isOpen: boolean) => void
-    isLoading: boolean
-    setIsLoading: (isLoading: boolean) => void
+    isLoadingCallback?: (isLoading: boolean) => void
 }
 
 export function LemonDialog({
@@ -46,14 +43,13 @@ export function LemonDialog({
     closeOnNavigate = true,
     shouldAwaitSubmit = false,
     footer,
-    isOpen,
-    setIsOpen,
-    isLoading,
-    setIsLoading,
+    isLoadingCallback,
     ...props
 }: LemonDialogProps): JSX.Element {
     const { currentLocation } = useValues(router)
     const lastLocation = useRef(currentLocation.pathname)
+    const [isOpen, setIsOpen] = useState(true)
+    const [isLoading, setIsLoading] = useState(false)
 
     primaryButton =
         primaryButton ||
@@ -79,11 +75,13 @@ export function LemonDialog({
                 onClick={async (e) => {
                     if (button === primaryButton && shouldAwaitSubmit) {
                         setIsLoading(true)
+                        isLoadingCallback?.(true)
                         try {
                             // eslint-disable-next-line @typescript-eslint/await-thenable
                             await button.onClick?.(e)
                         } finally {
                             setIsLoading(false)
+                            isLoadingCallback?.(false)
                         }
                     } else {
                         button.onClick?.(e)
@@ -135,7 +133,6 @@ export const LemonFormDialog = ({
     const { form, isFormValid, formValidationErrors } = useValues(logic)
     const { setFormValues } = useActions(logic)
     const [isLoading, setIsLoading] = useState(false)
-    const [isOpen, setIsOpen] = useState(true)
 
     const firstError = useMemo(() => Object.values(formValidationErrors)[0] as string, [formValidationErrors])
 
@@ -175,11 +172,7 @@ export const LemonFormDialog = ({
                 content={resolvedContent}
                 primaryButton={primaryButton}
                 secondaryButton={secondaryButton}
-                isOpen={isOpen}
-                setIsOpen={setIsOpen}
-                isLoading={isLoading}
-                setIsLoading={setIsLoading}
-                onClose={() => setIsOpen(false)}
+                isLoadingCallback={setIsLoading}
             />
         </Form>
     )
