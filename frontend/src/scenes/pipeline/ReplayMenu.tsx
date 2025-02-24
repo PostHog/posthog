@@ -92,7 +92,7 @@ function RunRetryButton({
 }: {
     loadingRetries: string[]
     row: any
-    retryHogFunction: (row: any) => Promise<void>
+    retryHogFunction: (row: any) => void
 }): JSX.Element {
     const handleRetry = (): void => {
         LemonDialog.open({
@@ -274,14 +274,6 @@ export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
                 },
             }}
             columns={[
-                {
-                    key: 'retries',
-                    title: 'Retries',
-                    width: 0,
-                    render: (_, [, , , retries]) => {
-                        return <RetryStatusIcon retries={retries} />
-                    },
-                },
                 {
                     title: 'Event',
                     key: 'event',
