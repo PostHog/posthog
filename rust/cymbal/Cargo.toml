@@ -31,6 +31,7 @@ chrono = { workspace = true }
 moka = { workspace = true }
 rdkafka = { workspace = true }
 posthog-rs = { workspace = true }
+base64 = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }

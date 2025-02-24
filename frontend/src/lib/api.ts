@@ -2055,7 +2055,7 @@ const api = {
 
         async updateIssue(
             id: ErrorTrackingIssue['id'],
-            data: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>
+            data: Partial<Pick<ErrorTrackingIssue, 'status'>>
         ): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
@@ -2200,6 +2200,9 @@ const api = {
         },
         async getPlaylist(playlistId: SessionRecordingPlaylistType['short_id']): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylist(playlistId).get()
+        },
+        async playlistViewed(playlistId: SessionRecordingPlaylistType['short_id']): Promise<void> {
+            return await new ApiRequest().recordingPlaylist(playlistId).withAction('playlist_viewed').create()
         },
         async createPlaylist(playlist: Partial<SessionRecordingPlaylistType>): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylists().create({ data: playlist })
