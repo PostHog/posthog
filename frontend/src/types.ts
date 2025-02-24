@@ -4143,6 +4143,11 @@ export interface DataWarehouseViewLink {
     }
 }
 
+export interface QueryTabState {
+    id: string
+    state: Record<string, any>
+}
+
 export enum DataWarehouseSettingsTab {
     Managed = 'managed',
     SelfManaged = 'self-managed',
