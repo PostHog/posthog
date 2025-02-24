@@ -6,10 +6,10 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.runnables import RunnableLambda
-from langchain_openai import ChatOpenAI
 from parameterized import parameterized
 
 from ee.hogai.root.nodes import RootNode, RootNodeTools
+from ee.hogai.utils.test import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -19,8 +19,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     def test_node_handles_plain_chat_response(self):
         with patch(
             "ee.hogai.root.nodes.RootNode._get_model",
-            return_value=RunnableLambda(
-                lambda _: LangchainAIMessage(content="Why did the chicken cross the road? To get to the other side!")
+            return_value=FakeChatOpenAI(
+                responses=[LangchainAIMessage(content="Why did the chicken cross the road? To get to the other side!")]
             ),
         ):
             node = RootNode(self.team)
@@ -43,17 +43,19 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     def test_node_handles_insight_tool_call(self, insight_type):
         with patch(
             "ee.hogai.root.nodes.RootNode._get_model",
-            return_value=RunnableLambda(
-                lambda _: LangchainAIMessage(
-                    content="Hang tight while I check this.",
-                    tool_calls=[
-                        {
-                            "id": "xyz",
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": insight_type},
-                        }
-                    ],
-                )
+            return_value=FakeChatOpenAI(
+                responses=[
+                    LangchainAIMessage(
+                        content="Hang tight while I check this.",
+                        tool_calls=[
+                            {
+                                "id": "xyz",
+                                "name": "create_and_query_insight",
+                                "args": {"query_description": "Foobar", "query_kind": insight_type},
+                            }
+                        ],
+                    )
+                ],
             ),
         ):
             node = RootNode(self.team)
@@ -85,17 +87,19 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     def test_node_handles_insight_tool_call_without_message(self, insight_type):
         with patch(
             "ee.hogai.root.nodes.RootNode._get_model",
-            return_value=RunnableLambda(
-                lambda _: LangchainAIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "xyz",
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": insight_type},
-                        }
-                    ],
-                )
+            return_value=FakeChatOpenAI(
+                responses=[
+                    LangchainAIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "id": "xyz",
+                                "name": "create_and_query_insight",
+                                "args": {"query_description": "Foobar", "query_kind": insight_type},
+                            }
+                        ],
+                    )
+                ],
             ),
         ):
             node = RootNode(self.team)
@@ -117,7 +121,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 ),
             )
 
-    def test_node_reconstructs_conversation(self):
+    @patch("ee.hogai.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    def test_node_reconstructs_conversation(self, mock_model):
         node = RootNode(self.team)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
         self.assertEqual(node._construct_messages(state_1)[0], [LangchainHumanMessage(content="Hello")])
@@ -139,7 +144,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    def test_node_reconstructs_conversation_with_tool_calls(self):
+    @patch("ee.hogai.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    def test_node_reconstructs_conversation_with_tool_calls(self, mock_model):
         node = RootNode(self.team)
         state = AssistantState(
             messages=[
@@ -179,7 +185,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    def test_node_filters_tool_calls_without_responses(self):
+    @patch("ee.hogai.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    def test_node_filters_tool_calls_without_responses(self, mock_model):
         node = RootNode(self.team)
         state = AssistantState(
             messages=[
@@ -253,7 +260,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             messages, _ = node._construct_messages(state)
             self.assertIn("iterations", messages[-1].content)
 
-    @patch("ee.hogai.root.nodes.RootNode._get_model", return_value=ChatOpenAI(model="gpt-4o", api_key="no-key"))
+    @patch("ee.hogai.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
     def test_token_limit_is_respected(self, mock_model):
         # Trims after 64k
         node = RootNode(self.team)
@@ -349,48 +356,48 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(messages), 4)
         self.assertIsNone(window_id)
 
-    def test_run_updates_conversation_window(self):
-        with (
-            patch("ee.hogai.root.nodes.RootNode._get_model") as mock_get_model,
-        ):
-            # Mock the model to return a simple response
-            mock_get_model.return_value = RunnableLambda(lambda _: LangchainAIMessage(content="Simple response"))
-            node = RootNode(self.team)
+    @patch(
+        "ee.hogai.root.nodes.RootNode._get_model",
+        return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Simple response")]),
+    )
+    def test_run_updates_conversation_window(self, mock_model):
+        # Mock the model to return a simple response
+        node = RootNode(self.team)
 
-            # Create initial state with a large conversation
-            initial_state = AssistantState(
-                messages=[
-                    HumanMessage(content="Foo", id="1"),
-                    AssistantMessage(content="Bar" * 65000, id="2"),  # Large message to exceed token limit
-                    HumanMessage(content="Question", id="3"),
-                ]
-            )
+        # Create initial state with a large conversation
+        initial_state = AssistantState(
+            messages=[
+                HumanMessage(content="Foo", id="1"),
+                AssistantMessage(content="Bar" * 65000, id="2"),  # Large message to exceed token limit
+                HumanMessage(content="Question", id="3"),
+            ]
+        )
 
-            # First run should set a new window ID
-            result_1 = node.run(initial_state, {})
-            self.assertIsNotNone(result_1.root_conversation_start_id)
-            self.assertEqual(result_1.root_conversation_start_id, "3")  # Should start from last human message
+        # First run should set a new window ID
+        result_1 = node.run(initial_state, {})
+        self.assertIsNotNone(result_1.root_conversation_start_id)
+        self.assertEqual(result_1.root_conversation_start_id, "3")  # Should start from last human message
 
-            # Create a new state using the window ID from previous run
-            state_2 = AssistantState(
-                messages=[*initial_state.messages, *result_1.messages, HumanMessage(content="Follow-up", id="4")],
-                root_conversation_start_id=result_1.root_conversation_start_id,
-            )
+        # Create a new state using the window ID from previous run
+        state_2 = AssistantState(
+            messages=[*initial_state.messages, *result_1.messages, HumanMessage(content="Follow-up", id="4")],
+            root_conversation_start_id=result_1.root_conversation_start_id,
+        )
 
-            # Second run should maintain the window
-            result_2 = node.run(state_2, {})
-            self.assertIsNone(result_2.root_conversation_start_id)  # No new window needed
-            self.assertEqual(len(result_2.messages), 1)
+        # Second run should maintain the window
+        result_2 = node.run(state_2, {})
+        self.assertIsNone(result_2.root_conversation_start_id)  # No new window needed
+        self.assertEqual(len(result_2.messages), 1)
 
-            state_3 = AssistantState(
-                messages=[*state_2.messages, *result_2.messages],
-                root_conversation_start_id=result_2.root_conversation_start_id,
-            )
+        state_3 = AssistantState(
+            messages=[*state_2.messages, *result_2.messages],
+            root_conversation_start_id=result_2.root_conversation_start_id,
+        )
 
-            # Verify the full conversation flow by checking the messages that would be sent to the model
-            messages, _ = node._construct_messages(state_3)
-            self.assertEqual(len(messages), 4)  # Question + Response + Follow-up + New Response
-            self.assertEqual(messages[0].content, "Question")  # Starts from the window ID message
+        # Verify the full conversation flow by checking the messages that would be sent to the model
+        messages, _ = node._construct_messages(state_3)
+        self.assertEqual(len(messages), 4)  # Question + Response + Follow-up + New Response
+        self.assertEqual(messages[0].content, "Question")  # Starts from the window ID message
 
 
 class TestRootNodeTools(BaseTest):

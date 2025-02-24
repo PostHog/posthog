@@ -24,7 +24,6 @@ from ee.hogai.root.prompts import (
 )
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog import settings
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
 RouteName = Literal["trends", "funnel", "retention", "root", "end"]
@@ -174,10 +173,7 @@ class RootNode(AssistantNode):
         limit leading to increased latency. Instead, when we hit the limit, we trim the conversation to N/2 tokens, so
         the cache invalidates only for the next generation.
         """
-        if settings.TEST:
-            model = ChatOpenAI(model="gpt-4o", api_key="token_counter")
-        else:
-            model = self._get_model(state)
+        model = self._get_model(state)
 
         if model.get_num_tokens_from_messages(window) > self.CONVERSATION_WINDOW_SIZE:
             trimmed_window: list[BaseMessage] = trim_messages(

@@ -18,6 +18,7 @@ from ee.hogai.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.memory import prompts as memory_prompts
 from ee.hogai.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.trends.nodes import TrendsSchemaGeneratorOutput
+from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.schema import (
@@ -255,7 +256,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ],
                 )
 
-            root_mock.return_value = RunnableLambda(root_side_effect)
+            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(root_side_effect)
 
             # Interrupt the graph
             message = """
@@ -403,23 +404,23 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @patch("ee.hogai.root.nodes.RootNode._get_model")
     @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_trends_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
-        root_mock.side_effect = cycle(
-            [
-                RunnableLambda(
-                    lambda _: messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "xyz",
-                                "name": "create_and_query_insight",
-                                "args": {"query_description": "Foobar", "query_kind": "trends"},
-                            }
-                        ],
-                    )
-                ),
-                RunnableLambda(lambda _: messages.AIMessage(content="The results indicate a great future for you.")),
-            ]
+        res1 = FakeRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "xyz",
+                        "name": "create_and_query_insight",
+                        "args": {"query_description": "Foobar", "query_kind": "trends"},
+                    }
+                ],
+            )
         )
+        res2 = FakeRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(content="The results indicate a great future for you.")
+        )
+        root_mock.side_effect = cycle([res1, res1, res2, res2])
+
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
                 content="""
@@ -466,23 +467,25 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @patch("ee.hogai.root.nodes.RootNode._get_model")
     @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_funnel_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
-        root_mock.side_effect = cycle(
-            [
-                RunnableLambda(
-                    lambda _: messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "xyz",
-                                "name": "create_and_query_insight",
-                                "args": {"query_description": "Foobar", "query_kind": "funnel"},
-                            }
-                        ],
-                    )
-                ),
-                RunnableLambda(lambda _: messages.AIMessage(content="The results indicate a great future for you.")),
+        res1 = FakeChatOpenAI(
+            responses=[
+                messages.AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "xyz",
+                            "name": "create_and_query_insight",
+                            "args": {"query_description": "Foobar", "query_kind": "funnel"},
+                        }
+                    ],
+                )
             ]
         )
+        res2 = FakeChatOpenAI(
+            responses=[messages.AIMessage(content="The results indicate a great future for you.")],
+        )
+        root_mock.side_effect = cycle([res1, res1, res2, res2])
+
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
                 content="""
@@ -534,23 +537,23 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @patch("ee.hogai.root.nodes.RootNode._get_model")
     @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_full_retention_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
-        root_mock.side_effect = cycle(
-            [
-                RunnableLambda(
-                    lambda _: messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "xyz",
-                                "name": "create_and_query_insight",
-                                "args": {"query_description": "Foobar", "query_kind": "retention"},
-                            }
-                        ],
-                    )
-                ),
-                RunnableLambda(lambda _: messages.AIMessage(content="The results indicate a great future for you.")),
-            ]
+        res1 = FakeRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "xyz",
+                        "name": "create_and_query_insight",
+                        "args": {"query_description": "Foobar", "query_kind": "retention"},
+                    }
+                ],
+            )
         )
+        res2 = FakeRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(content="The results indicate a great future for you.")
+        )
+        root_mock.side_effect = cycle([res1, res1, res2, res2])
+
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
                 content="""
@@ -764,7 +767,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 )
             return messages.AIMessage(content="No more tool calls after 4th attempt")
 
-        get_model_mock.return_value = RunnableLambda(make_tool_call)
+        get_model_mock.return_value = FakeRunnableLambdaWithTokenCounter(make_tool_call)
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
                 content="""
@@ -811,7 +814,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
                 return messages.AIMessage(content="")
 
-            root_mock.return_value = RunnableLambda(assert_lock_status)
+            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(assert_lock_status)
             self._run_assistant_graph(graph)
             self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
 
@@ -843,7 +846,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ],
                 )
 
-            root_mock.return_value = RunnableLambda(assert_lock_status)
+            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(assert_lock_status)
             self._run_assistant_graph(graph)
             snapshot = graph.get_state({"configurable": {"thread_id": str(self.conversation.id)}})
             self.assertEqual(snapshot.next, (AssistantNodeName.ROOT_TOOLS,))
@@ -852,7 +855,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.root.nodes.RootNode._get_model") as root_mock:
             # The graph must start from the root node despite being cancelled on the root tools node.
-            root_mock.return_value = RunnableLambda(lambda _: messages.AIMessage(content="Finished"))
+            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(
+                lambda _: messages.AIMessage(content="Finished")
+            )
             expected_output = [
                 ("message", HumanMessage(content="Hello")),
                 ("message", AssistantMessage(content="Finished")),
