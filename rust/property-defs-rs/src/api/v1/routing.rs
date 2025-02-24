@@ -103,24 +103,24 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     let mut search_fields = search_fields;
     search_fields.insert("name".to_string());
 
-    let property_type = match params.get("type") {
-        Some(s) if PARENT_PROPERTY_TYPES.iter().any(|pt| *pt == s) => Some(s.clone()),
-        _ => None,
-    };
+    let property_type = params.get("type").map_or("event".to_string(), |s| {
+        if PARENT_PROPERTY_TYPES.contains(&s.as_str()) {
+            s.to_string()
+        } else {
+            "event".to_string()
+        }
+    });
 
     // default to -1 if this is missing or present but invalid
-    let group_type_index: i32 = match params.get("group_type_index") {
-        Some(s) => match s.parse::<i32>().ok() {
-            Some(gti)
-                if property_type.as_ref().is_some_and(|pt| pt == "group")
-                    && (0..GROUP_TYPE_LIMIT).contains(&gti) =>
-            {
+    let group_type_index: i32 = params.get("group_type_index").map_or(-1, |s| {
+        s.parse::<i32>().ok().map_or(-1, |gti| {
+            if property_type == "group" && (0..GROUP_TYPE_LIMIT).contains(&gti) {
                 gti
+            } else {
+                -1
             }
-            _ => -1,
-        },
-        _ => -1,
-    };
+        })
+    });
 
     let properties = params
         .get("properties")
@@ -246,7 +246,7 @@ fn gen_url(uri: Uri, total_count: i32, new_offset: i32) -> Option<String> {
 pub struct Params {
     pub search_terms: Option<Vec<String>>,
     pub search_fields: HashSet<String>,
-    pub property_type: Option<String>,
+    pub property_type: String,
     pub group_type_index: i32,
     pub properties: Option<Vec<String>>,
     pub excluded_properties: Option<Vec<String>>,
@@ -263,22 +263,20 @@ pub struct Params {
 impl Params {
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L81-L96
     pub fn valid(&self) -> Result<(), InvalidParamError> {
-        if self.property_type.is_none()
-            || (self.property_type.as_ref().unwrap() == "group" && self.group_type_index <= 0)
-        {
+        if self.property_type.as_str() == "group" && self.group_type_index <= 0 {
             return Err(InvalidParamError(
                 "property_type 'group' requires 'group_type_index' parameter".to_string(),
             ));
         }
 
-        if self.property_type.as_ref().unwrap() != "group" && self.group_type_index != -1 {
+        if self.property_type.as_str() != "group" && self.group_type_index != -1 {
             return Err(InvalidParamError(
                 "parameter 'group_type_index' is only allowed with property_type 'group'"
                     .to_string(),
             ));
         }
 
-        if self.event_names.is_some() && self.property_type.as_ref().unwrap() != "event" {
+        if self.event_names.is_some() && self.property_type.as_str() != "event" {
             return Err(InvalidParamError(
                 "parameter 'event_names' is only allowed with property_type 'event'".to_string(),
             ));

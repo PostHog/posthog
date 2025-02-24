@@ -231,7 +231,7 @@ impl Manager {
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
         project_id: i32,
-        property_type: &Option<String>,
+        property_type: &String,
         filter_by_event_names: &Option<bool>,
         event_names: &'a Option<Vec<String>>,
     ) -> QueryBuilder<'a, Postgres> {
@@ -282,14 +282,10 @@ impl Manager {
     fn where_property_type<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        property_type: &'a Option<String>,
+        property_type: &'a String,
     ) -> QueryBuilder<'a, Postgres> {
-        // add condition on "type" (here, ProperyParentType)
-        // TODO: throw error in input validation if this is missing!
-        if let Some(prop_type) = property_type {
-            qb.push("AND type = ");
-            qb.push_bind(prop_type);
-        }
+        qb.push("AND type = ");
+        qb.push_bind(property_type);
 
         qb
     }
@@ -297,7 +293,7 @@ impl Manager {
     fn conditionally_filter_excluded_properties<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        property_type: &Option<String>,
+        property_type: &String,
         excluded_properties: &'a Option<Vec<String>>,
     ) -> QueryBuilder<'a, Postgres> {
         // conditionally filter on excluded_properties
@@ -514,7 +510,7 @@ impl Manager {
         }
     }
 
-    fn is_prop_type_event(&self, property_type: &Option<String>) -> bool {
-        property_type.is_some() && property_type.as_ref().unwrap() == "event"
+    fn is_prop_type_event(&self, property_type: &String) -> bool {
+        property_type.as_str() == "event"
     }
 }
