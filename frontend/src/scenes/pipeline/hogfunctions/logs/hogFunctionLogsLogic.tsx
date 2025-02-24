@@ -111,6 +111,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         setInstanceId: (instanceId: string | null) => ({ instanceId }),
         clearBackgroundLogs: true,
         markLogsEnd: true,
+        setRowExpanded: (instanceId: string, expanded: boolean) => ({ instanceId, expanded }),
     }),
     loaders(({ props, values, actions, cache }) => ({
         logs: [
@@ -196,6 +197,12 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             {
                 loadLogsSuccess: (_, { logs }) => logs.length >= HOG_FUNCTION_LOGS_LIMIT,
                 markLogsEnd: () => false,
+            },
+        ],
+        expandedRows: [
+            {} as Record<string, boolean>,
+            {
+                setRowExpanded: (_, { instanceId, expanded }) => ({ [instanceId]: expanded }),
             },
         ],
     }),

@@ -16,8 +16,10 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
 
     const logic = hogFunctionLogsLogic({ id: hogFunctionId })
 
-    const { logs, logsLoading, backgroundLogs, isThereMoreToLoad, selectedLogLevels, instanceId } = useValues(logic)
-    const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm, setInstanceId } = useActions(logic)
+    const { logs, logsLoading, backgroundLogs, isThereMoreToLoad, selectedLogLevels, instanceId, expandedRows } =
+        useValues(logic)
+    const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm, setInstanceId, setRowExpanded } =
+        useActions(logic)
 
     return (
         <div className="flex-1 space-y-2 ph-no-capture">
@@ -89,9 +91,10 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                         render: (instanceId: string) => (
                             <code className="whitespace-nowrap">
                                 <Link
+                                    className="font-semibold"
                                     subtle
                                     onClick={() => {
-                                        alert('TODO')
+                                        setRowExpanded(instanceId, !expandedRows[instanceId])
                                     }}
                                 >
                                     {instanceId}
@@ -101,22 +104,48 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                     },
                     {
                         key: 'logs',
-                        render: (_, { entries }) => {
-                            return <LemonBadge.Number count={entries.length} status="muted" />
+                        render: (_, { entries, instanceId }) => {
+                            return (
+                                <Link
+                                    subtle
+                                    onClick={() => {
+                                        setRowExpanded(instanceId, !expandedRows[instanceId])
+                                    }}
+                                >
+                                    <LemonBadge.Number count={entries.length} status="muted" />
+                                </Link>
+                            )
                         },
                     },
                     {
                         title: 'Last message',
                         key: 'entries',
                         dataIndex: 'entries',
-                        render: (entries: { message: string; level: LogEntryLevel; timestamp: string }[]) => {
+                        render: (
+                            entries: { message: string; level: LogEntryLevel; timestamp: string }[],
+                            { instanceId }
+                        ) => {
                             const lastEntry = entries[entries.length - 1]
-                            return <code className="whitespace-pre-wrap">{lastEntry.message}</code>
+                            return (
+                                <code className="whitespace-pre-wrap">
+                                    <Link
+                                        subtle
+                                        onClick={() => {
+                                            setRowExpanded(instanceId, !expandedRows[instanceId])
+                                        }}
+                                    >
+                                        {lastEntry.message}
+                                    </Link>
+                                </code>
+                            )
                         },
                     },
                 ]}
                 expandable={{
                     noIndent: true,
+                    isRowExpanded: (record) => expandedRows[record.instanceId] ?? false,
+                    onRowExpand: (record) => setRowExpanded(record.instanceId, true),
+                    onRowCollapse: (record) => setRowExpanded(record.instanceId, false),
                     expandedRowRender: (record) => {
                         return (
                             <LemonTable
