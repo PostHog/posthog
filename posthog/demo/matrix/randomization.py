@@ -22,13 +22,15 @@ class Industry(StrEnum):
 class PropertiesProvider(mimesis.BaseProvider):
     # Somewhat realistically segmented and weighted pools for random properties: device type/OS/browser
     DEVICE_TYPE_WEIGHTED_POOL: WeightedPool = (
-        ["Desktop", "Mobile", "Tablet"],
-        [8, 1, 1],
+        ["Desktop", "Mobile", "Tablet", "Console", "Wearable"],
+        [10, 2, 2, 1, 1],
     )
     OS_WEIGHTED_POOLS: dict[str, WeightedPool] = {
         "Desktop": (["Windows", "Mac OS X", "Linux", "Chrome OS"], [18, 16, 7, 1]),
         "Mobile": (["iOS", "Android"], [1, 1]),
         "Tablet": (["iOS", "Android"], [1, 1]),
+        "Console": (["Xbox"], [1]),
+        "Wearable": (["watchOS"], [1]),
     }
     BROWSER_WEIGHTED_POOLS: dict[str, WeightedPool] = {
         "Windows": (
@@ -43,6 +45,8 @@ class PropertiesProvider(mimesis.BaseProvider):
             ["Chrome", "Android Mobile", "Samsung Internet", "Firefox"],
             [5, 3, 3, 1],
         ),
+        "Xbox": (["Chrome"], [1]),
+        "watchOS": (["Safari"], [1]),
     }
 
     INDUSTRY_POOL = (

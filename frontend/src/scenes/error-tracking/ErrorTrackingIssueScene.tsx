@@ -10,7 +10,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from './AssigneeSelect'
-import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { Events } from './issue/Events'
@@ -88,7 +87,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         <LemonDivider className="my-4" />
                         <PanelLayout>
                             <PanelLayout.Container column primary>
-                                <ErrorTrackingFilters />
                                 <SparklinePanel />
                                 <PanelLayout.Panel primary>
                                     <Events />

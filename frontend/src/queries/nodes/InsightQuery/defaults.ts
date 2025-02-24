@@ -42,7 +42,7 @@ const retentionQueryDefault: RetentionQuery = {
     kind: NodeKind.RetentionQuery,
     retentionFilter: {
         period: RetentionPeriod.Day,
-        totalIntervals: 11,
+        totalIntervals: 8,
         targetEntity: {
             id: '$pageview',
             name: '$pageview',
