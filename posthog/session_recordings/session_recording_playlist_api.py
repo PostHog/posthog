@@ -3,11 +3,14 @@ from typing import Any, Optional, cast
 
 import posthoganalytics
 import structlog
+from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
+from rest_framework.exceptions import ValidationError
+from posthog.api.documentation import extend_schema
 from posthog.api.utils import action
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -31,6 +34,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.schema import RecordingsQuery
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
     list_recordings_response,
     query_as_params_to_dict,
@@ -292,3 +296,24 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             return response.Response({"success": True})
 
         raise NotImplementedError()
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=True)
+    def playlist_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        playlist = self.get_object()
+        user = request.user
+        team = self.team
+
+        if not playlist.filters:
+            raise ValidationError("Playlist filters are required to mark a playlist as viewed.")
+        if user.is_anonymous:
+            raise ValidationError("Only authenticated users can mark a playlist as viewed.")
+
+        # only create if it doesn't exist
+        try:
+            SessionRecordingPlaylistViewed.objects.create(user=user, playlist=playlist, team=team)
+        except IntegrityError:
+            # that's okay... if the viewed at clashes then we're ok skipping creation
+            pass
+
+        return response.Response({"success": True})

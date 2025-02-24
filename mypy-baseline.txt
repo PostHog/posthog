@@ -144,10 +144,6 @@ posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredent
 posthog/queries/util.py:0: error: Module has no attribute "utc"  [attr-defined]
 posthog/models/cohort/cohort.py:0: error: Need type annotation for "people"  [var-annotated]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "dict[str, int] | None" has no attribute "get"  [union-attr]
-posthog/hogql_queries/utils/query_date_range.py:0: error: Unsupported operand types for * ("object" and "int")  [operator]
-posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible return value type (got "int", expected "timedelta")  [return-value]
-posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "IntervalType | None" has no attribute "name"  [union-attr]
-posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "IntervalType | None" has no attribute "name"  [union-attr]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible default for argument "source" (default has type "None", argument has type "Expr")  [assignment]
 posthog/hogql_queries/utils/query_date_range.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql_queries/utils/query_date_range.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
@@ -346,8 +342,6 @@ posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Modu
 posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Argument 1 to "append" of "list" has incompatible type "EventPropertyFilter"; expected "Expr"  [arg-type]
 posthog/hogql_queries/insights/stickiness_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Item "None" of "JoinExpr | None" has no attribute "sample"  [union-attr]
-posthog/hogql_queries/insights/retention_query_runner.py:0: error: Unsupported operand types for - ("int" and "None")  [operator]
-posthog/hogql_queries/insights/retention_query_runner.py:0: note: Right operand is of type "int | None"
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Item "SelectSetQuery" of "SelectQuery | SelectSetQuery" has no attribute "select"  [union-attr]
 posthog/hogql_queries/insights/retention_query_runner.py:0: error: Incompatible return value type (got "SelectQuery | SelectSetQuery", expected "SelectQuery")  [return-value]
 posthog/hogql_queries/insights/lifecycle_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
