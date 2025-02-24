@@ -153,7 +153,7 @@ RUN apt-get update && \
 
 # Copy and install the delta-rs wheel built
 COPY --from=delta-rs-build /code/delta-rs/python/wheels/*.whl /delta-rs-wheels/
-RUN pip install /delta-rs-wheels/*.whl --force-reinstall --no-cache-dir --target=/python-runtime
+RUN pip install /delta-rs-wheels/*.whl --force-reinstall --upgrade --no-cache-dir --target=/python-runtime
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
