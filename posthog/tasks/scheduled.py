@@ -62,7 +62,6 @@ from posthog.utils import get_crontab
 
 from posthog.tasks.remote_config import sync_all_remote_configs
 
-ONE_MINUTE = 60
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
 
@@ -337,7 +336,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
         add_periodic_task_with_expiry(
             sender,
-            ONE_MINUTE if settings.DEBUG else TWENTY_FOUR_HOURS,
+            settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS or TWENTY_FOUR_HOURS,
             ee_count_items_in_playlists.s(),
             "ee_count_items_in_playlists",
         )
