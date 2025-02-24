@@ -47,7 +47,7 @@ procs:
             bin/start-rust-service property-defs-rs
 
     storybook:
-        shell: 'pnpm storybook'
+        shell: 'pnpm --filter=@posthog/storybook start'
         autostart: false
 
 mouse_scroll_speed: 1
