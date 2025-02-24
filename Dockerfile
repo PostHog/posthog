@@ -120,7 +120,7 @@ RUN cargo install --locked maturin
 WORKDIR /code
 
 # Clone the delta-rs repository
-RUN git clone https://github.com/delta-io/delta-rs.git
+RUN git clone --depth 1 --branch python-v0.25.1 https://github.com/delta-io/delta-rs.git
 WORKDIR /code/delta-rs/python
 
 # Build the delta-rs wheel
