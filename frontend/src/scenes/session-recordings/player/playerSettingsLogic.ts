@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,6 +18,8 @@ export enum PlaybackMode {
     Waterfall = 'waterfall',
 }
 
+export type HideViewedRecordingsOptions = 'current-user' | 'any-user' | false
+
 // This logic contains player settings that should persist across players
 // If key is not specified, it is global so it does not reset when recordings change in the main recordings page
 export const playerSettingsLogic = kea<playerSettingsLogicType>([
@@ -24,7 +27,9 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     actions({
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
-        setHideViewedRecordings: (hideViewedRecordings: boolean) => ({ hideViewedRecordings }),
+        setHideViewedRecordings: (hideViewedRecordings: HideViewedRecordingsOptions) => ({
+            hideViewedRecordings,
+        }),
         setAutoplayDirection: (autoplayDirection: AutoplayDirection) => ({ autoplayDirection }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
@@ -102,7 +107,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
         hideViewedRecordings: [
-            false,
+            false as HideViewedRecordingsOptions,
             { persist: true },
             {
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
@@ -122,6 +127,21 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             (s) => [s.preferredSidebarStacking],
             (preferredSidebarStacking) => preferredSidebarStacking === SessionRecordingSidebarStacking.Vertical,
         ],
+        hideRecordingsMenuLabelFor: [
+            () => [],
+            () => {
+                return (option: HideViewedRecordingsOptions) => {
+                    switch (option) {
+                        case 'current-user':
+                            return 'Hide my viewed recordings'
+                        case 'any-user':
+                            return 'Hide all viewed recordings'
+                        default:
+                            return 'Show all recordings'
+                    }
+                }
+            },
+        ],
     }),
 
     listeners({
@@ -132,4 +152,16 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivitySetting })
         },
     }),
+
+    subscriptions(({ actions }) => ({
+        hideViewedRecordings: ({ hideViewedRecordings }) => {
+            // hideViewRecordings used to be flat boolean
+            // if someone has it set to true, we should set it to 'current-user'
+            // to upgrade them to the new behavior
+            // this can be deleted after a few weeks
+            if (hideViewedRecordings === true) {
+                actions.setHideViewedRecordings('current-user')
+            }
+        },
+    })),
 ])

@@ -32,6 +32,7 @@ from ee.hogai.trends.nodes import (
     TrendsPlannerNode,
     TrendsPlannerToolsNode,
 )
+from ee.hogai.inkeep_docs.nodes import InkeepDocsNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 
@@ -71,6 +72,7 @@ class AssistantGraph:
             "trends": AssistantNodeName.TRENDS_PLANNER,
             "funnel": AssistantNodeName.FUNNEL_PLANNER,
             "retention": AssistantNodeName.RETENTION_PLANNER,
+            "docs": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
         }
@@ -303,12 +305,29 @@ class AssistantGraph:
         builder.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
 
+    def add_inkeep_docs(self, path_map: Optional[dict[Hashable, AssistantNodeName]] = None):
+        """Add the Inkeep docs search node to the graph."""
+        builder = self._graph
+        path_map = path_map or {
+            "end": AssistantNodeName.END,
+            "root": AssistantNodeName.ROOT,
+        }
+        inkeep_docs_node = InkeepDocsNode(self._team)
+        builder.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node)
+        builder.add_conditional_edges(
+            AssistantNodeName.INKEEP_DOCS,
+            inkeep_docs_node.router,
+            path_map=cast(dict[Hashable, str], path_map),
+        )
+        return self
+
     def compile_full_graph(self):
         return (
             self.add_memory_initializer()
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()
+            .add_inkeep_docs()
             .add_trends_planner()
             .add_trends_generator()
             .add_funnel_planner()
