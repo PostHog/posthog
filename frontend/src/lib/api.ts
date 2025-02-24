@@ -100,6 +100,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
+    QueryTabState,
     RawAnnotationType,
     RawBatchExportBackfill,
     RawBatchExportRun,
@@ -805,6 +806,17 @@ class ApiRequest {
     }
     public dataWarehouseViewLink(id: DataWarehouseViewLink['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseViewLinks(teamId).addPathComponent(id)
+    }
+
+    // # Query Tab State
+    public queryTabState(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('query_tab_state')
+    }
+    public queryTabStateDetail(id: QueryTabState['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.queryTabState(teamId).addPathComponent(id)
+    }
+    public queryTabStateUser(teamId?: TeamType['id']): ApiRequest {
+        return this.queryTabState(teamId).addPathComponent('user')
     }
 
     // # Subscriptions
@@ -2600,6 +2612,24 @@ const api = {
             >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
+        },
+    },
+
+    queryTabState: {
+        async create(data: Partial<QueryTabState>): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabState().create({ data })
+        },
+        async get(id: QueryTabState['id']): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabStateDetail(id).get()
+        },
+        async update(id: QueryTabState['id'], data: Partial<QueryTabState>): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabStateDetail(id).update({ data })
+        },
+        async delete(id: QueryTabState['id']): Promise<void> {
+            await new ApiRequest().queryTabStateDetail(id).delete()
+        },
+        async user(userId: UserType['uuid']): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
         },
     },
 

@@ -13288,7 +13288,7 @@
                 },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
-                    "default": 11
+                    "default": 8
                 }
             },
             "type": "object"
