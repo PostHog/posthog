@@ -123,7 +123,7 @@ class TestSurveyStableIndices(TestCase):
 
         update_question_stable_indices(None, survey)
 
-        self.assertEqual(survey.max_question_stable_index, 0)
+        self.assertEqual(survey.max_question_stable_index, -1)
 
     def test_mixed_questions_with_and_without_indices(self):
         """Test handling a mix of questions with and without stable indices"""

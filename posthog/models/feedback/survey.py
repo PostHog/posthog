@@ -287,7 +287,7 @@ def update_question_stable_indices(sender, instance: Survey):
     used to track survey responses in the backend.
     """
     if not instance.questions:
-        instance.max_question_stable_index = 0
+        instance.max_question_stable_index = -1
         return
 
     # If this is a new survey (no ID yet), start from 0
