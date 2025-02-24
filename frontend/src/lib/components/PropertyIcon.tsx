@@ -52,6 +52,7 @@ export const PROPERTIES_ICON_MAP = {
         ['mobile']: <IconPhone />,
         ['tablet']: <IconTablet />,
         ['console']: <IconHeadset />,
+        ['wearable']: <IconDevices />,
         ['other']: <IconDevices />,
     },
     $os: osIcons,
