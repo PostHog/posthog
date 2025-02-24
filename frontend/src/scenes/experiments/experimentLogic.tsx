@@ -401,6 +401,8 @@ export const experimentLogic = kea<experimentLogicType>([
         setValidExistingFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
         setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
+        openCalculateRunningTimeModal: true,
+        closeCalculateRunningTimeModal: true,
     }),
     reducers({
         experiment: [
@@ -777,6 +779,13 @@ export const experimentLogic = kea<experimentLogicType>([
             null as string | null,
             {
                 setFeatureFlagValidationError: (_, { error }) => error,
+            },
+        ],
+        isCalculateRunningTimeModalOpen: [
+            false,
+            {
+                openCalculateRunningTimeModal: () => true,
+                closeCalculateRunningTimeModal: () => false,
             },
         ],
     }),
