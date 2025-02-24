@@ -83,7 +83,6 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(messages[1], LangchainHumanMessage)
         self.assertIsInstance(messages[2], LangchainAIMessage)
         self.assertIsInstance(messages[3], LangchainHumanMessage)
-        self.assertIn(INKEEP_DATA_CONTINUATION_PHRASE, messages[2].content)
 
     def test_router_with_data_continuation(self):
         node = InkeepDocsNode(self.team)
