@@ -425,6 +425,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -898,6 +899,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -1242,6 +1244,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -1760,6 +1763,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -2069,7 +2073,7 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_team"."project_id" = 523)
+         AND "posthog_team"."project_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_cohorts_and_nested_cohorts.1
@@ -2115,7 +2119,7 @@
          "posthog_grouptypemapping"."name_singular",
          "posthog_grouptypemapping"."name_plural"
   FROM "posthog_grouptypemapping"
-  WHERE "posthog_grouptypemapping"."project_id" = 523
+  WHERE "posthog_grouptypemapping"."project_id" = 99999
   '''
 # ---
 # name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags.1
@@ -2517,6 +2521,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",

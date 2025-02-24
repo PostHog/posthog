@@ -14,7 +14,7 @@ python3 = { pkg-path = "python3", version = "3.11.9", pkg-group = "python" } # S
 uv = { pkg-path = "uv", pkg-group = "python" }
 libtool = { pkg-path = "libtool", pkg-group = "python" }
 # Node
-nodejs = { pkg-path = "nodejs_18", pkg-group = "nodejs", version = "nodejs-18.19.1" } # Same as in Dockerfile
+nodejs = { pkg-path = "nodejs_18", pkg-group = "nodejs", version = "18.19.1" } # Same as in Dockerfile
 corepack = { pkg-path = "corepack_18", pkg-group = "nodejs" }
 brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)

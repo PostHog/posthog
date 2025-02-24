@@ -99,6 +99,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
                         "project_timezone": self.project_timezone,
+                        "project_name": self._team.name,
                     },
                     config,
                 ),
@@ -282,20 +283,14 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
 
         # The agent has requested help, so we return a message to the root node.
         if input.name == "ask_user_for_help":
-            return PartialAssistantState(
-                resumed=False,
-                messages=[
-                    AssistantToolCallMessage(
-                        tool_call_id=state.root_tool_call_id,
-                        content=REACT_HELP_REQUEST_PROMPT.format(request=input.arguments),
-                    )
-                ],
-                root_tool_call_id="",
-                root_tool_insight_plan="",
-                root_tool_insight_type="",
-                intermediate_steps=[],
-                plan="",
-            )
+            reset_state = PartialAssistantState.get_reset_state()
+            reset_state.messages = [
+                AssistantToolCallMessage(
+                    tool_call_id=state.root_tool_call_id,
+                    content=REACT_HELP_REQUEST_PROMPT.format(request=input.arguments),
+                )
+            ]
+            return reset_state
 
         output = ""
         if input.name == "retrieve_event_properties":

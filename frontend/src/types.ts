@@ -34,6 +34,7 @@ import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
+    ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
@@ -512,7 +513,6 @@ export interface SessionRecordingAIConfig {
 }
 
 export interface ProjectType extends ProjectBasicType {
-    product_description: string | null
     created_at: string
 }
 
@@ -1452,8 +1452,10 @@ export interface SessionRecordingSegmentType {
 
 export interface SessionRecordingType {
     id: string
-    /** Whether this recording has been viewed already. */
+    /** Whether this recording has been viewed by you already. */
     viewed: boolean
+    /** user ids of other users who have viewed this recording */
+    viewers: string[]
     /** Length of recording in seconds. */
     recording_duration: number
     active_seconds?: number
@@ -2774,12 +2776,19 @@ export interface SetInsightOptions {
     fromPersistentApi?: boolean
 }
 
+export enum SurveySchedule {
+    Once = 'once',
+    Recurring = 'recurring',
+    Always = 'always',
+}
+
 export interface Survey {
     /** UUID */
     id: string
     name: string
     type: SurveyType
     description: string
+    schedule?: SurveySchedule | null
     linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
@@ -3350,6 +3359,7 @@ export interface Experiment {
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
+    exposure_criteria?: ExperimentExposureCriteria
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
@@ -4212,10 +4222,17 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
 }
 
+export enum ExternalDataJobStatus {
+    Running = 'Running',
+    Completed = 'Completed',
+    Failed = 'Failed',
+    BillingLimits = 'Billing limits',
+}
+
 export interface ExternalDataJob {
     id: string
     created_at: string
-    status: 'Running' | 'Failed' | 'Completed' | 'Billing limits'
+    status: ExternalDataJobStatus
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string
@@ -4545,6 +4562,7 @@ export enum AppMetricsTab {
 }
 
 export enum SidePanelTab {
+    Max = 'max',
     Notebooks = 'notebook',
     Support = 'support',
     Docs = 'docs',
@@ -4666,6 +4684,7 @@ export type HogFunctionInputSchemaType = {
     required?: boolean
     default?: any
     secret?: boolean
+    hidden?: boolean
     templating?: boolean
     description?: string
     integration?: string
@@ -4769,7 +4788,11 @@ export type HogFunctionType = {
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated'
-export type HogFunctionSubTemplateIdType = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
+export type HogFunctionSubTemplateIdType =
+    | 'early-access-feature-enrollment'
+    | 'survey-response'
+    | 'activity-log'
+    | 'error-tracking'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

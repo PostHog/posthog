@@ -164,7 +164,7 @@ export class CdpApi {
                 },
             }
 
-            if (compoundConfiguration.type === 'destination') {
+            if (['destination', 'internal_destination'].includes(compoundConfiguration.type)) {
                 const {
                     invocations,
                     logs: filterLogs,
@@ -263,6 +263,8 @@ export class CdpApi {
                         errors.push(invocationResult.error)
                     }
                 }
+            } else {
+                return res.status(400).json({ error: 'Invalid function type' })
             }
 
             res.json({

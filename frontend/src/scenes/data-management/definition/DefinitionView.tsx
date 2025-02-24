@@ -218,6 +218,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
 
                     <LinkedHogFunctions
+                        logicKey="event-definitions"
                         type="destination"
                         filters={{
                             events: [

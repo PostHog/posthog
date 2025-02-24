@@ -15,6 +15,7 @@ from concurrent.futures import (
 from copy import copy
 from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple, TypeVar
+from collections.abc import Iterable
 
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
@@ -31,6 +32,13 @@ def ON_CLUSTER_CLAUSE(on_cluster=True):
 
 K = TypeVar("K")
 V = TypeVar("V")
+
+
+def format_exception_summary(e: Exception, max_length: int = 256) -> str:
+    value = repr(e).splitlines()[0]
+    if len(value) > max_length:
+        value = value[:max_length] + "..."
+    return value
 
 
 class FuturesMap(dict[K, Future[V]]):
@@ -61,8 +69,11 @@ class FuturesMap(dict[K, Future[V]]):
                     errors[k] = e
 
         if errors:
-            # TODO: messaging could be improved here
-            raise ExceptionGroup("not all futures returned a result", [*errors.values()])
+            raise ExceptionGroup(
+                f"{len(errors)} future(s) did not return a result:\n\n"
+                + "\n".join([f"* {key}: {format_exception_summary(e)}" for key, e in errors.items()]),
+                [*errors.values()],
+            )
 
         return results
 
@@ -155,8 +166,8 @@ class ClickhouseCluster:
                 self.__logger.info("Executing %r on %r...", fn, host)
                 try:
                     result = fn(client)
-                except Exception:
-                    self.__logger.warn("Failed to execute %r on %r!", fn, host, exc_info=True)
+                except Exception as e:
+                    self.__logger.warn("Failed to execute %r on %r: %s", fn, host, e, exc_info=True)
                     raise
                 else:
                     self.__logger.info("Successfully executed %r on %r.", fn, host)
@@ -416,3 +427,26 @@ class MutationRunner:
             raise ValueError(f"Invalid DELETE command format: {self.command}")
         where_clause = self.command.strip()[match.end() :]
         return f"UPDATE _row_exists = 0 WHERE {where_clause}"
+
+    def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
+        """
+        Enqueue (or find) this mutation on one host in each shard, and then block until the mutation is complete on all
+        hosts within the affected shards.
+        """
+        if shards is not None:
+            shard_host_mutations = cluster.map_any_host_in_shards({shard: self.enqueue for shard in shards})
+        else:
+            shard_host_mutations = cluster.map_one_host_per_shard(self.enqueue)
+
+        # XXX: need to convert the `shard_num` of type `int | None` to `int` to appease the type checker -- but nothing
+        # should have actually been filtered out, since we're using the cluster shard functions for targeting
+        shard_mutations = {
+            host.shard_num: mutations
+            for host, mutations in shard_host_mutations.result().items()
+            if host.shard_num is not None
+        }
+        assert len(shard_mutations) == len(shard_host_mutations)
+
+        cluster.map_all_hosts_in_shards(
+            {shard_num: mutation.wait for shard_num, mutation in shard_mutations.items()}
+        ).result()

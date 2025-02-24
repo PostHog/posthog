@@ -13,7 +13,7 @@ import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
-import { TreeView } from './components/ProjectTree'
+import { ProjectTree } from './components/ProjectTree/ProjectTree'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
@@ -45,7 +45,7 @@ export function Navigation({
         // eslint-disable-next-line react/forbid-dom-props
         <div className={clsx('Navigation3000', mobileLayout && 'Navigation3000--mobile')} style={theme?.mainStyle}>
             <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>
-                <TreeView />
+                <ProjectTree />
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
@@ -60,10 +60,13 @@ export function Navigation({
                         sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header'
                     )}
                 >
-                    <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
-                        {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
-                        {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
-                    </div>
+                    {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                        <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
+                            {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
+                            {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
+                        </div>
+                    )}
+
                     {children}
                 </div>
             </main>
