@@ -70,8 +70,7 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                 dataSource={logs}
                 loading={logsLoading}
                 className="ph-no-capture"
-                rowKey={(record) => `${record.instanceId}:${record.timestamp}`}
-                pagination={{ pageSize: 200, hideOnSinglePage: true }}
+                rowKey={(record) => record.instanceId}
                 columns={[
                     {
                         title: 'Timestamp',
@@ -103,7 +102,7 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                     {
                         key: 'logs',
                         render: (_, { entries }) => {
-                            return <LemonBadge.Number count={entries.length} />
+                            return <LemonBadge.Number count={entries.length} status="muted" />
                         },
                     },
                     {
@@ -119,7 +118,6 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                 expandable={{
                     noIndent: true,
                     expandedRowRender: (record) => {
-                        console.log(record)
                         return (
                             <LemonTable
                                 embedded
