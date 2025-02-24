@@ -142,8 +142,11 @@ export function ReplayMenu({ templateId, id, displayOptions = {} }: HogFunctionC
 
     return (
         <div className="space-y-3">
-            <LemonBanner type={'info'}>
-                <span>This is a list of all events matching your filters. You can run the function using these historical events.</span>
+            <LemonBanner type="info">
+                <span>
+                    This is a list of all events matching your filters. You can run the function using these historical
+                    events.
+                </span>
             </LemonBanner>
             <RunsFilters id={id} />
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
