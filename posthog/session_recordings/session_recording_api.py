@@ -20,7 +20,7 @@ from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
 from prometheus_client import Counter, Histogram
 from pydantic import ValidationError, BaseModel
-from rest_framework import exceptions, request, serializers, viewsets, status
+from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
@@ -93,6 +93,18 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
 )
+
+
+def filter_from_params_to_query(params: dict) -> RecordingsQuery:
+    data_dict = query_as_params_to_dict(params)
+    # we used to send `version` and it's not part of query, so we pop to make sure
+    data_dict.pop("version", None)
+    # we used to send `hogql_filtering` and it's not part of query, so we pop to make sure
+    data_dict.pop("hogql_filtering", None)
+    try:
+        return RecordingsQuery.model_validate(data_dict)
+    except ValidationError as pydantic_validation_error:
+        raise exceptions.ValidationError(pydantic_validation_error.errors())
 
 
 class ChatMessage(BaseModel):
@@ -402,18 +414,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        data_dict = query_as_params_to_dict(request.GET.dict())
-        # we used to send `version` and it's not part of query, so we pop to make sure
-        data_dict.pop("version", None)
-        # we used to send `hogql_filtering` and it's not part of query, so we pop to make sure
-        data_dict.pop("hogql_filtering", None)
-
-        try:
-            query = RecordingsQuery.model_validate(data_dict)
-        except ValidationError as pydantic_validation_error:
-            return Response(
-                {"validation_errors": json.loads(pydantic_validation_error.json())}, status=status.HTTP_400_BAD_REQUEST
-            )
+        query = filter_from_params_to_query(request.GET.dict())
 
         self._maybe_report_recording_list_filters_changed(request, team=self.team)
         return list_recordings_response(
