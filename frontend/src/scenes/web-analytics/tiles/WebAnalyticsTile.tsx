@@ -266,7 +266,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.DeviceType:
             if (typeof value === 'string') {
                 return (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-2">
                         <PropertyIcon property="$device_type" value={value} />
                         <span>{value}</span>
                     </div>
