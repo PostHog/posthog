@@ -8,7 +8,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, HogFunctionTestInvocationResult } from '~/types'
+import { BaseMathType, ChartDisplayType, DestinationRetryType, HogFunctionTestInvocationResult } from '~/types'
 
 import type { hogFunctionReplayLogicType } from './hogFunctionReplayLogicType'
 import {
@@ -24,10 +24,6 @@ export interface HogFunctionReplayLogicProps {
 export interface EventsResultType {
     before: string | undefined
     results: EventsQueryResponse['results']
-}
-
-export interface RetryType extends HogFunctionTestInvocationResult {
-    eventId: string
 }
 
 const PAGE_ROWS = 20
@@ -130,7 +126,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
             },
         ],
         retries: [
-            [] as RetryType[],
+            [] as DestinationRetryType[],
             {
                 retryHogFunction: async (row: any) => {
                     actions.addLoadingRetry(row[0].uuid)
@@ -162,25 +158,27 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                     const configuration = sanitizeConfiguration(values.configuration) as Record<string, any>
                     configuration.template_id = values.templateId
 
-                    let res: any
+                    let res: HogFunctionTestInvocationResult
                     try {
                         res = await api.hogFunctions.createTestInvocation(props.id ?? 'new', {
                             globals,
                             mock_async_functions: false,
                             configuration,
                         })
+
+                        actions.removeLoadingRetry(row[0].uuid)
+                        const retry: DestinationRetryType = {
+                            eventId: row[0].uuid,
+                            ...res,
+                        }
+
+                        return [...(retry ? [retry] : []), ...values.retries]
                     } catch (e) {
                         lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
                     }
 
                     actions.removeLoadingRetry(row[0].uuid)
-                    return [
-                        {
-                            eventId: row[0].uuid,
-                            ...res,
-                        },
-                        ...values.retries,
-                    ]
+                    return [...values.retries]
                 },
             },
         ],
@@ -237,7 +235,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
         ],
         eventsWithRetries: [
             (s) => [s.events, s.retries],
-            (events: { results: any[] }, retries: RetryType[]) =>
+            (events: { results: any[] }, retries: DestinationRetryType[]) =>
                 events.results.map((row) => [
                     ...row.slice(0, 3),
                     retries.filter((r) => r.eventId === row[0].uuid),

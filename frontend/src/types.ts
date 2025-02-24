@@ -4860,6 +4860,10 @@ export type HogFunctionTestInvocationResult = {
     errors?: string[]
 }
 
+export interface DestinationRetryType extends HogFunctionTestInvocationResult {
+    eventId: string
+}
+
 export type AppMetricsV2Response = {
     labels: string[]
     series: {

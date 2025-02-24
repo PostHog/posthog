@@ -1,66 +1,29 @@
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDialog,
-    LemonDivider,
-    LemonTable,
-    SpinnerOverlay,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonTable, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, DestinationRetryType } from '~/types'
 
 import { hogFunctionReplayLogic } from './hogFunctionReplayLogic'
 import { hogFunctionConfigurationLogic } from './hogfunctions/hogFunctionConfigurationLogic'
 
 export interface HogFunctionConfigurationProps {
-    templateId?: string | null
-    id?: string | null
-
-    displayOptions?: {
-        embedded?: boolean
-        hidePageHeader?: boolean
-        hideOverview?: boolean
-        showFilters?: boolean
-        showExpectedVolume?: boolean
-        showStatus?: boolean
-        showEnabled?: boolean
-        showTesting?: boolean
-        canEditSource?: boolean
-        showPersonsCount?: boolean
-    }
+    id: string
 }
 
-export function ReplayMenu({ templateId, id, displayOptions = {} }: HogFunctionConfigurationProps): JSX.Element {
-    const logicProps = { templateId, id }
+export function ReplayMenu({ id }: HogFunctionConfigurationProps): JSX.Element {
+    const logicProps = { id }
     const logic = hogFunctionConfigurationLogic(logicProps)
-    const {
-        isConfigurationSubmitting,
-        configurationChanged,
-        configuration,
-        loading,
-        loaded,
-        hogFunction,
-        willReEnableOnSave,
-        willChangeEnabledOnSave,
-        showPaygate,
-        template,
-        type,
-    } = useValues(logic)
-    const { submitConfiguration, resetForm, duplicate, deleteHogFunction } = useActions(logic)
+    const { loading, loaded, showPaygate } = useValues(logic)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -70,75 +33,9 @@ export function ReplayMenu({ templateId, id, displayOptions = {} }: HogFunctionC
         return <NotFound object="Hog function" />
     }
 
-    const isLegacyPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
-
-    const headerButtons = (
-        <>
-            {!templateId && (
-                <>
-                    <More
-                        overlay={
-                            <>
-                                {!isLegacyPlugin && (
-                                    <LemonButton fullWidth onClick={() => duplicate()}>
-                                        Duplicate
-                                    </LemonButton>
-                                )}
-                                <LemonDivider />
-                                <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
-                                    Delete
-                                </LemonButton>
-                            </>
-                        }
-                    />
-                    <LemonDivider vertical />
-                </>
-            )}
-        </>
-    )
-
-    const saveButtons = (
-        <>
-            {configurationChanged ? (
-                <LemonButton
-                    type="secondary"
-                    htmlType="reset"
-                    onClick={() => resetForm()}
-                    disabledReason={
-                        !configurationChanged
-                            ? 'No changes'
-                            : isConfigurationSubmitting
-                            ? 'Saving in progress…'
-                            : undefined
-                    }
-                >
-                    Clear changes
-                </LemonButton>
-            ) : null}
-            <LemonButton
-                type="primary"
-                htmlType="submit"
-                onClick={submitConfiguration}
-                loading={isConfigurationSubmitting}
-            >
-                <span>{templateId ? 'Create' : 'Save'}</span>
-                <span>
-                    {willReEnableOnSave
-                        ? ' & re-enable'
-                        : willChangeEnabledOnSave
-                        ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                        : ''}
-                </span>
-            </LemonButton>
-        </>
-    )
-
     if (showPaygate) {
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
-
-    const includeHeaderButtons = !(displayOptions.hidePageHeader ?? false)
-    const showExpectedVolume = displayOptions.showExpectedVolume ?? ['destination', 'site_destination'].includes(type)
 
     return (
         <div className="space-y-3">
@@ -149,33 +46,12 @@ export function ReplayMenu({ templateId, id, displayOptions = {} }: HogFunctionC
                 </span>
             </LemonBanner>
             <RunsFilters id={id} />
-            <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
-                {includeHeaderButtons && (
-                    <PageHeader
-                        buttons={
-                            <>
-                                {headerButtons}
-                                {saveButtons}
-                            </>
-                        }
-                    />
-                )}
-
-                {hogFunction?.filters?.bytecode_error ? (
-                    <div>
-                        <LemonBanner type="error">
-                            <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
-                        </LemonBanner>
-                    </div>
-                ) : null}
-
-                {showExpectedVolume ? <HogFunctionEventEstimates id={id} /> : null}
-            </BindLogic>
+            <ReplayEventsList id={id} />
         </div>
     )
 }
 
-function RetryResults({ retry }: { retry: any }): JSX.Element {
+function RetryResults({ retry }: { retry: DestinationRetryType }): JSX.Element {
     return (
         <div className="space-y-2" data-attr="test-results">
             <LemonTable
@@ -261,7 +137,7 @@ export function RetryStatusIcon({
     retries = [],
     showLabel = false,
 }: {
-    retries: any[]
+    retries: DestinationRetryType[]
     showLabel?: boolean
 }): JSX.Element {
     const colorForStatus = (status: string): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
@@ -346,7 +222,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
     )
 }
 
-export function HogFunctionEventEstimates({ id }: { id: string }): JSX.Element | null {
+export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionReplayLogic({ id })
     const { eventsLoading, eventsWithRetries, loadingRetries, totalEvents, pageTimestamps } = useValues(logic)
     const { retryHogFunction, loadNextEventsPage, loadPreviousEventsPage } = useActions(logic)
