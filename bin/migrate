@@ -14,6 +14,8 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
 fi
 
 # Create a temporary file for background process status
+# Ensure cleanup of temp file on script exit
+trap 'rm -f "$CLICKHOUSE_STATUS" 2>/dev/null' EXIT
 CLICKHOUSE_STATUS=$(mktemp)
 echo "0" > $CLICKHOUSE_STATUS
 
