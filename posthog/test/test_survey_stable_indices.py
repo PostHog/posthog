@@ -3,6 +3,7 @@ from posthog.models.feedback.survey import Survey, update_question_stable_indice
 from posthog.models.team import Team
 from posthog.models.organization import Organization
 import uuid
+from contextlib import contextmanager
 
 
 class TestSurveyStableIndices(TestCase):
@@ -175,17 +176,9 @@ class TestSurveyStableIndices(TestCase):
             max_question_stable_index=0,
         )
 
-        # Patch the get method to return our mocked survey
-        original_get = Survey.objects.get
-
-        def mocked_get(*args, **kwargs):
-            return original_survey
-
-        try:
-            Survey.objects.get = mocked_get
+        # Use the helper method to patch Survey.objects.get
+        with self.patch_get_object(Survey, original_survey):
             update_question_stable_indices(None, survey)
-        finally:
-            Survey.objects.get = original_get
 
         # Our function should fix the duplicate by assigning a new index
         self.assertEqual(survey.questions[0]["stable_index"], 0)
@@ -221,17 +214,9 @@ class TestSurveyStableIndices(TestCase):
             max_question_stable_index=None,
         )
 
-        # Patch the get method
-        original_get = Survey.objects.get
-
-        def mocked_get(*args, **kwargs):
-            return original_survey
-
-        try:
-            Survey.objects.get = mocked_get
+        # Use the helper method to patch Survey.objects.get
+        with self.patch_get_object(Survey, original_survey):
             update_question_stable_indices(None, survey)
-        finally:
-            Survey.objects.get = original_get
 
         # Should assign sequential indices
         self.assertEqual(survey.questions[0]["stable_index"], 0)
@@ -282,17 +267,9 @@ class TestSurveyStableIndices(TestCase):
             {"type": "open", "question": "Question 3", "stable_index": 2},
         ]
 
-        # Patch the get method
-        original_get = Survey.objects.get
-
-        def mocked_get(*args, **kwargs):
-            return original_survey
-
-        try:
-            Survey.objects.get = mocked_get
+        # Use the helper method to patch Survey.objects.get
+        with self.patch_get_object(Survey, original_survey):
             update_question_stable_indices(None, survey)
-        finally:
-            Survey.objects.get = original_get
 
         # Existing indices should be preserved
         self.assertEqual(survey.questions[0]["stable_index"], 3)  # Question 4
@@ -306,6 +283,7 @@ class TestSurveyStableIndices(TestCase):
         # max_question_stable_index should be updated
         self.assertEqual(survey.max_question_stable_index, 5)
 
+    @contextmanager
     def patch_get_object(self, model_class, return_value):
         """Helper method to patch the objects.get method"""
         original_get = model_class.objects.get

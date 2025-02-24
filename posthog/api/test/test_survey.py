@@ -1707,6 +1707,157 @@ class TestSurvey(APIBaseTest):
         # Verify that max_question_stable_index was not changed
         assert update_data["max_question_stable_index"] == 1
 
+    def test_stable_index_preserved_when_reordering_questions(self):
+        """Test that stable_index values are preserved when questions are reordered through the API."""
+        # Create a survey with questions
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey for reordering",
+                "type": "popover",
+                "questions": [
+                    {"type": "open", "question": "Question 1"},
+                    {"type": "open", "question": "Question 2"},
+                    {"type": "open", "question": "Question 3"},
+                ],
+            },
+            format="json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        # Verify initial stable_index values
+        assert response_data["questions"][0].get("stable_index") == 0
+        assert response_data["questions"][1].get("stable_index") == 1
+        assert response_data["questions"][2].get("stable_index") == 2
+
+        # Now reorder the questions
+        survey_id = response_data["id"]
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={
+                "questions": [
+                    # Reordered: Question 3, Question 1, Question 2
+                    {
+                        "type": "open",
+                        "question": "Question 3",
+                        "stable_index": 2,  # Original index
+                    },
+                    {
+                        "type": "open",
+                        "question": "Question 1",
+                        "stable_index": 0,  # Original index
+                    },
+                    {
+                        "type": "open",
+                        "question": "Question 2",
+                        "stable_index": 1,  # Original index
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        update_data = update_response.json()
+        assert update_response.status_code == status.HTTP_200_OK, update_data
+
+        # Verify that stable_index values were preserved despite reordering
+        assert update_data["questions"][0].get("stable_index") == 2  # Question 3
+        assert update_data["questions"][1].get("stable_index") == 0  # Question 1
+        assert update_data["questions"][2].get("stable_index") == 1  # Question 2
+
+        # max_question_stable_index should still be 2
+        assert update_data["max_question_stable_index"] == 2
+
+    def test_max_question_stable_index_preserved_when_removing_questions(self):
+        """Test that max_question_stable_index is preserved when questions are removed through the API."""
+        # Create a survey with questions
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey for removing questions",
+                "type": "popover",
+                "questions": [
+                    {"type": "open", "question": "Question 1"},
+                    {"type": "open", "question": "Question 2"},
+                    {"type": "open", "question": "Question 3"},
+                ],
+            },
+            format="json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        # Verify initial stable_index values and max_question_stable_index
+        assert response_data["questions"][0].get("stable_index") == 0
+        assert response_data["questions"][1].get("stable_index") == 1
+        assert response_data["questions"][2].get("stable_index") == 2
+        assert response_data["max_question_stable_index"] == 2
+
+        # Now remove the middle question
+        survey_id = response_data["id"]
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "Question 1",
+                        "stable_index": 0,
+                    },
+                    {
+                        "type": "open",
+                        "question": "Question 3",
+                        "stable_index": 2,
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        update_data = update_response.json()
+        assert update_response.status_code == status.HTTP_200_OK, update_data
+
+        # Verify that stable_index values were preserved
+        assert update_data["questions"][0].get("stable_index") == 0  # Question 1
+        assert update_data["questions"][1].get("stable_index") == 2  # Question 3
+
+        # max_question_stable_index should still be 2 even though question with index 1 was removed
+        assert update_data["max_question_stable_index"] == 2
+
+        # Now add a new question
+        update_response2 = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "Question 1",
+                        "stable_index": 0,
+                    },
+                    {
+                        "type": "open",
+                        "question": "Question 3",
+                        "stable_index": 2,
+                    },
+                    {
+                        "type": "open",
+                        "question": "New Question",
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        update_data2 = update_response2.json()
+        assert update_response2.status_code == status.HTTP_200_OK, update_data2
+
+        # New question should get index 3 (max+1), not reuse the gap at index 1
+        assert update_data2["questions"][2].get("stable_index") == 3
+        assert update_data2["max_question_stable_index"] == 3
+
 
 class TestMultipleChoiceQuestions(APIBaseTest):
     def test_create_survey_has_open_choice(self):
