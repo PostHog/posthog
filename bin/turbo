@@ -1,0 +1,11 @@
+#!/bin/bash
+
+TURBO_PATH=./node_modules/.bin/turbo
+
+# if turbo is not installed, install it from npm globally
+if [ ! -f $TURBO_PATH ]; then
+  pnpm -w --filter=@posthog/root install
+fi
+
+# run turbo with the cli arguments
+$TURBO_PATH "$@"

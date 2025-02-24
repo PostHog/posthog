@@ -84,9 +84,9 @@ def persons_pdi_join(
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
 class PersonsPDITable(LazyTable):
     fields: dict[str, FieldOrTable] = {
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "distinct_id": StringDatabaseField(name="distinct_id"),
-        "person_id": StringDatabaseField(name="person_id"),
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
+        "person_id": StringDatabaseField(name="person_id", nullable=False),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

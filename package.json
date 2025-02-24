@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/build",
+    "name": "@posthog/root",
     "description": "",
     "version": "0.0.0",
     "repository": {
@@ -33,7 +33,7 @@
     "dependencies": {
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "turbo": "^2.3.4"
+        "turbo": "^2.4.2"
     },
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",

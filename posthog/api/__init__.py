@@ -18,6 +18,7 @@ from posthog.warehouse.api import (
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
+from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
     activity_log,
@@ -434,6 +435,15 @@ environment_sessions_recordings_router, legacy_project_session_recordings_router
         ["team_id"],
     )
 )
+
+register_grandfathered_environment_nested_viewset(
+    r"session_recording_playlists",
+    SessionRecordingPlaylistViewSet,
+    "environment_session_recording_playlist",
+    ["team_id"],
+)
+
+
 register_grandfathered_environment_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 

@@ -5,15 +5,16 @@ from uuid import uuid4
 
 from boto3 import resource
 from botocore.config import Config
+from django.db import transaction
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
-from posthog.models import SessionRecording, SessionRecordingPlaylistItem
+from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
+    SessionRecordingPlaylistViewed,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
@@ -24,6 +25,7 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.test.base import APIBaseTest
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
@@ -32,7 +34,7 @@ TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
     OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET,
     OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER=f"{TEST_BUCKET}_lts",
 )
-class TestSessionRecordingPlaylist(APILicensedTest):
+class TestSessionRecordingPlaylist(APIBaseTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
             "s3",
@@ -45,6 +47,14 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
+    def _create_playlist(self, data: dict | None = None):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            data=data,
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return response
+
     def test_list_playlists(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
         assert response.status_code == status.HTTP_200_OK
@@ -56,11 +66,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         }
 
     def test_creates_playlist(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists",
-            data={"name": "test"},
-        )
-        assert response.status_code == status.HTTP_201_CREATED
+        response = self._create_playlist({"name": "test"})
+
         assert response.json() == {
             "id": response.json()["id"],
             "short_id": response.json()["short_id"],
@@ -78,22 +85,105 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
     def test_can_create_many_playlists(self):
         for i in range(100):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/session_recording_playlists",
-                data={"name": f"test-{i}"},
-            )
-            assert response.status_code == status.HTTP_201_CREATED
+            self._create_playlist({"name": f"test-{i}"})
 
     def test_gets_individual_playlist_by_shortid(self):
-        create_response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists")
+        create_response = self._create_playlist()
+
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists/{create_response.json()['short_id']}"
         )
 
         assert response.json()["short_id"] == create_response.json()["short_id"]
 
+    def test_marks_playlist_as_viewed(self):
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        short_id = create_response.json()["short_id"]
+
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert SessionRecordingPlaylistViewed.objects.count() == 1
+        viewed_record = SessionRecordingPlaylistViewed.objects.first()
+        assert viewed_record is not None
+
+        assert viewed_record.playlist_id == create_response.json()["id"]
+        assert viewed_record.user_id == self.user.id
+        assert viewed_record.team_id == self.team.id
+        assert viewed_record.viewed_at == mock.ANY
+
+    def test_can_marks_playlist_as_viewed_more_than_once(self):
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        short_id = create_response.json()["short_id"]
+
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+        response_one = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+        )
+        assert response_one.status_code == status.HTTP_200_OK
+        response_two = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+        )
+        assert response_two.status_code == status.HTTP_200_OK
+        assert SessionRecordingPlaylistViewed.objects.count() == 2
+
+    def test_cannot_mark_playlist_as_viewed_more_than_once_at_the_same_time(self):
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        short_id = create_response.json()["short_id"]
+
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+        with freeze_time("2022-01-02"):
+            response_one = self.client.post(
+                f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+            )
+            assert response_one.status_code == status.HTTP_200_OK
+            assert SessionRecordingPlaylistViewed.objects.count() == 1
+
+            # Run the API call in a separate atomic block so it doesn't break the main test transaction
+            with transaction.atomic():
+                response_two = self.client.post(
+                    f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+                )
+                assert response_two.status_code == status.HTTP_200_OK
+
+        assert SessionRecordingPlaylistViewed.objects.count() == 1
+
+    def test_cannot_mark_playlist_as_viewed_if_it_has_no_filters(self):
+        """We're going to split playlists so that 'collections' have pinned recordings, let's validate a viewable playlist as one with filters"""
+        create_response = self._create_playlist()
+        short_id = create_response.json()["short_id"]
+
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+    def test_cannot_mark_playlist_as_viewed_in_different_team(self):
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        short_id = create_response.json()["short_id"]
+
+        another_team = Team.objects.create(organization=self.organization)
+
+        response = self.client.post(
+            f"/api/projects/{another_team.id}/session_recording_playlists/{short_id}/playlist_viewed"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert SessionRecordingPlaylistViewed.objects.count() == 0
+
     def test_updates_playlist(self):
-        short_id = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists/").json()["short_id"]
+        create_response = self._create_playlist()
+        short_id = create_response.json()["short_id"]
 
         with freeze_time("2022-01-02"):
             response = self.client.patch(
@@ -114,7 +204,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         assert response.json()["last_modified_at"] == "2022-01-02T00:00:00Z"
 
     def test_rejects_updates_to_readonly_playlist_properties(self):
-        short_id = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists/").json()["short_id"]
+        create_response = self._create_playlist()
+        short_id = create_response.json()["short_id"]
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
@@ -130,9 +221,11 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         playlist2 = SessionRecordingPlaylist.objects.create(team=self.team, pinned=True, created_by=self.user)
         playlist3 = SessionRecordingPlaylist.objects.create(team=self.team, name="my playlist", created_by=other_user)
 
-        results = self.client.get(
+        response = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists?search=my",
-        ).json()["results"]
+        )
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
 
         assert len(results) == 1
         assert results[0]["short_id"] == playlist3.short_id
@@ -205,9 +298,12 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         )
 
         # Test get recordings
-        result = self.client.get(
+        response = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
-        ).json()
+        )
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+
         assert len(result["results"]) == 2
         assert {x["id"] for x in result["results"]} == {session_one, session_two}
 
@@ -251,9 +347,11 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{session_one}",
         )
 
-        result = self.client.get(
+        response = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings",
-        ).json()
+        )
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
 
         assert len(result["results"]) == 2
         assert result["results"][0]["id"] == session_one
@@ -283,9 +381,11 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         recording2_session_id = "2"
 
         # Add recording 1 to playlist 1
-        result = self.client.post(
+        response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording1_session_id}",
-        ).json()
+        )
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
         assert result["success"]
         playlist_item = SessionRecordingPlaylistItem.objects.filter(
             playlist_id=playlist1.id, session_id=recording1_session_id
