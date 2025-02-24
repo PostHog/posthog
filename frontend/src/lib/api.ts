@@ -2189,6 +2189,9 @@ const api = {
         async getPlaylist(playlistId: SessionRecordingPlaylistType['short_id']): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylist(playlistId).get()
         },
+        async playlistViewed(playlistId: SessionRecordingPlaylistType['short_id']): Promise<void> {
+            return await new ApiRequest().recordingPlaylist(playlistId).withAction('playlist_viewed').create()
+        },
         async createPlaylist(playlist: Partial<SessionRecordingPlaylistType>): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylists().create({ data: playlist })
         },
