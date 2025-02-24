@@ -15,6 +15,7 @@ import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTime
 import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { ExposureCriteria } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Info } from './Info'
 import { Overview } from './Overview'
@@ -114,6 +115,9 @@ export function ExperimentView(): JSX.Element {
                                     >
                                         Calculate running time
                                     </LemonButton>
+                                    <div className="mt-4">
+                                        <ExposureCriteria />
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="w-1/2 mt-8 xl:mt-0">

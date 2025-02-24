@@ -60,10 +60,13 @@ export function Navigation({
                         sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header'
                     )}
                 >
-                    <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
-                        {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
-                        {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
-                    </div>
+                    {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                        <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
+                            {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
+                            {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
+                        </div>
+                    )}
+
                     {children}
                 </div>
             </main>
