@@ -1,4 +1,4 @@
-import { IconGearFilled } from '@posthog/icons'
+import { IconGearFilled, IconHeadset } from '@posthog/icons'
 import clsx from 'clsx'
 import {
     IconAndroidOS,
@@ -51,6 +51,7 @@ export const PROPERTIES_ICON_MAP = {
         ['desktop']: <IconMonitor />,
         ['mobile']: <IconPhone />,
         ['tablet']: <IconTablet />,
+        ['console']: <IconHeadset />,
         ['other']: <IconDevices />,
     },
     $os: osIcons,

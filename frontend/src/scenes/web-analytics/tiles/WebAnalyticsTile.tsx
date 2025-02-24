@@ -6,6 +6,7 @@ import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -259,6 +260,16 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                         {countryCodeToFlag(parsedCountryCode) ?? languageCodeToFlag(languageCode)}&nbsp;
                         {languageCodeToName[languageCode] || languageCode}
                     </>
+                )
+            }
+            break
+        case WebStatsBreakdown.DeviceType:
+            if (typeof value === 'string') {
+                return (
+                    <div className="flex items-center gap-1">
+                        <PropertyIcon property="$device_type" value={value} />
+                        <span>{value}</span>
+                    </div>
                 )
             }
             break
