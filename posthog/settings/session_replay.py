@@ -1,5 +1,6 @@
 from posthog.settings import get_from_env, get_list
 from posthog.utils import str_to_bool
+from django.conf import settings
 
 # TRICKY: we saw unusual memory usage behavior in EU clickhouse cluster
 # when allowing use of denormalized properties in some session replay event queries
@@ -44,4 +45,6 @@ SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLA
 SESSION_REPLAY_AI_DEFAULT_MODEL = get_from_env("SESSION_REPLAY_AI_DEFAULT_MODEL", "gpt-4o")
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4o-mini")
 
-PLAYLIST_COUNTER_PROCESSING_ALLOWED_TEAMS = get_list(get_from_env("TEAMS_WITH_PLAYLIST_COUNTER_PROCESSING", "1,2"))
+PLAYLIST_COUNTER_PROCESSING_ALLOWED_TEAMS = get_list(
+    get_from_env("TEAMS_WITH_PLAYLIST_COUNTER_PROCESSING", "1,2" if settings.DEBUG else "")
+)
