@@ -71,6 +71,7 @@ interface VariableBase {
     code_name: string
     type: VariableType
     value?: any
+    isNull?: boolean
 }
 
 export interface StringVariable extends VariableBase {

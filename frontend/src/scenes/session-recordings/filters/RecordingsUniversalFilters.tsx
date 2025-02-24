@@ -1,4 +1,4 @@
-import { IconChevronDown, IconFilter, IconRevert } from '@posthog/icons'
+import { IconChevronDown, IconClock, IconEye, IconFilter, IconHide, IconRevert } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonButtonProps, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -12,7 +12,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { playlistLogic } from 'scenes/session-recordings/playlist/playlistLogic'
+import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -21,7 +23,42 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { NodeKind } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
+import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLogic'
 import { DurationFilter } from './DurationFilter'
+
+function HideRecordingsMenu(): JSX.Element {
+    const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
+    const { setHideViewedRecordings } = useActions(playerSettingsLogic)
+
+    return (
+        <SettingsMenu
+            highlightWhenActive={false}
+            items={[
+                {
+                    label: hideRecordingsMenuLabelFor(false),
+                    onClick: () => setHideViewedRecordings(false),
+                    active: !hideViewedRecordings,
+                    'data-attr': 'hide-viewed-recordings-show-all',
+                },
+                {
+                    label: hideRecordingsMenuLabelFor('current-user'),
+                    onClick: () => setHideViewedRecordings('current-user'),
+                    active: hideViewedRecordings === 'current-user',
+                    'data-attr': 'hide-viewed-recordings-hide-current-user',
+                },
+                {
+                    label: hideRecordingsMenuLabelFor('any-user'),
+                    onClick: () => setHideViewedRecordings('any-user'),
+                    active: hideViewedRecordings === 'any-user',
+                    'data-attr': 'hide-viewed-recordings-hide-any-user',
+                },
+            ]}
+            icon={hideViewedRecordings ? <IconHide /> : <IconEye />}
+            rounded={true}
+            label={hideRecordingsMenuLabelFor(hideViewedRecordings)}
+        />
+    )
+}
 
 export const RecordingsUniversalFilters = ({
     filters,
@@ -49,6 +86,8 @@ export const RecordingsUniversalFilters = ({
 
     const { isExpanded } = useValues(playlistLogic)
     const { setIsExpanded } = useActions(playlistLogic)
+    const { playlistTimestampFormat } = useValues(playerSettingsLogic)
+    const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
@@ -205,6 +244,32 @@ export const RecordingsUniversalFilters = ({
                         )}
                     </div>
                 </div>
+            </div>
+            <div className="flex gap-2 mt-2 justify-between">
+                <HideRecordingsMenu />
+                <SettingsMenu
+                    highlightWhenActive={false}
+                    items={[
+                        {
+                            label: 'UTC',
+                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
+                            active: playlistTimestampFormat === TimestampFormat.UTC,
+                        },
+                        {
+                            label: 'Device',
+                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
+                            active: playlistTimestampFormat === TimestampFormat.Device,
+                        },
+                        {
+                            label: 'Relative',
+                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
+                            active: playlistTimestampFormat === TimestampFormat.Relative,
+                        },
+                    ]}
+                    icon={<IconClock />}
+                    label={TimestampFormatToLabel[playlistTimestampFormat]}
+                    rounded={true}
+                />
             </div>
         </>
     )
