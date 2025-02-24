@@ -16,6 +16,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { languageUrlSplitterApp } from '../cdp/legacy-plugins/_transformations/language-url-splitter-app/template'
+import { posthogAppUrlParametersToEventProperties } from '../cdp/legacy-plugins/_transformations/posthog-app-url-parameters-to-event-properties/template'
 import { posthogFilterOutPlugin } from '../cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { posthogPluginGeoip } from '../cdp/legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../cdp/legacy-plugins/_transformations/property-filter-plugin/template'
@@ -842,13 +843,37 @@ describe('IngestionConsumer', () => {
                     id: new UUIDT().toString(),
                     team_id: team.id,
                     type: 'transformation',
+                    name: posthogAppUrlParametersToEventProperties.template.name,
+                    template_id: posthogAppUrlParametersToEventProperties.template.id,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    enabled: true,
+                    deleted: false,
+                    execution_order: 7,
+                    bytecode: await compileHog(posthogAppUrlParametersToEventProperties.template.hog),
+                    hog: posthogAppUrlParametersToEventProperties.template.hog,
+                    inputs_schema: posthogAppUrlParametersToEventProperties.template.inputs_schema,
+                    inputs: {
+                        parameters: { value: 'source,campaign,medium' },
+                        prefix: { value: 'utm_' },
+                        suffix: { value: '' },
+                        ignoreCase: { value: 'true' },
+                        setAsUserProperties: { value: 'true' },
+                        setAsInitialUserProperties: { value: 'true' },
+                        alwaysJson: { value: 'false' },
+                    },
+                },
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    type: 'transformation',
                     name: userAgentPlugin.template.name,
                     template_id: userAgentPlugin.template.id,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 7,
+                    execution_order: 8,
                     bytecode: await compileHog(userAgentPlugin.template.hog),
                     hog: userAgentPlugin.template.hog,
                     inputs_schema: userAgentPlugin.template.inputs_schema,
@@ -867,7 +892,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 8,
+                    execution_order: 9,
                     bytecode: await compileHog(piiHashingTemplate.hog),
                     inputs: {
                         propertiesToHash: { value: '$geoip_city_name,$geoip_country_name' },
@@ -884,7 +909,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 9,
+                    execution_order: 10,
                     bytecode: await compileHog(ipAnonymizationTemplate.hog),
                 },
                 {
@@ -897,7 +922,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 10,
+                    execution_order: 11,
                     bytecode: await compileHog(propertyFilterPlugin.template.hog),
                     hog: propertyFilterPlugin.template.hog,
                     inputs_schema: propertyFilterPlugin.template.inputs_schema,
@@ -917,7 +942,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 11,
+                    execution_order: 12,
                     bytecode: await compileHog(semverFlattenerPlugin.template.hog),
                     hog: semverFlattenerPlugin.template.hog,
                     inputs_schema: semverFlattenerPlugin.template.inputs_schema,
@@ -937,7 +962,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 12,
+                    execution_order: 13,
                     bytecode: await compileHog(taxonomyPlugin.template.hog),
                     hog: taxonomyPlugin.template.hog,
                     inputs_schema: taxonomyPlugin.template.inputs_schema,
@@ -957,7 +982,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 13,
+                    execution_order: 14,
                     bytecode: await compileHog(timestampParserPlugin.template.hog),
                     hog: timestampParserPlugin.template.hog,
                     inputs_schema: timestampParserPlugin.template.inputs_schema,
@@ -1017,8 +1042,6 @@ describe('IngestionConsumer', () => {
                     $useragent:
                         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     sensitive_info: 'secret-data',
-                    $current_url:
-                        'https://example.com/users/123/profile?email=test@test.com&password=secret&token=abc123&safe=value',
                     $referrer: 'https://other.com/orgs/456?email=old@test.com&token=xyz789',
                     $pathname: '/en/dashboard/stats',
                     $initial_current_url: 'https://example.com/users/123/settings',
@@ -1032,6 +1055,7 @@ describe('IngestionConsumer', () => {
                     },
                     app_version: '1.2.3-beta+exp.sha.5114f85',
                     lib_version: '2.0.0-alpha+001',
+                    $current_url: 'https://example.com/welcome?source=google&campaign=spring2024&medium=cpc',
                 },
             })
 
@@ -1112,6 +1136,17 @@ describe('IngestionConsumer', () => {
             // Language URL Splitter
             expect(properties.detected_language).toEqual('en')
             expect(properties.clean_path).toEqual('/dashboard/stats')
+
+            // URL Parameters to Event Properties
+            expect(properties.utm_source).toEqual('google')
+            expect(properties.utm_campaign).toEqual('spring2024')
+            expect(properties.utm_medium).toEqual('cpc')
+            expect(properties.$set.utm_source).toEqual('google')
+            expect(properties.$set.utm_campaign).toEqual('spring2024')
+            expect(properties.$set.utm_medium).toEqual('cpc')
+            expect(properties.$set_once['initial_utm_source']).toEqual('google')
+            expect(properties.$set_once['initial_utm_campaign']).toEqual('spring2024')
+            expect(properties.$set_once['initial_utm_medium']).toEqual('cpc')
 
             // Add assertions after bot detection checks
             expect(processedEvent.event).not.toEqual('filtered_event') // Filter Out Plugin dropped filtered events
