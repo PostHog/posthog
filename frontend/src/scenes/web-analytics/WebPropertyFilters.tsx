@@ -1,5 +1,6 @@
 import { IconFilter } from '@posthog/icons'
 import { Popover } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isEventPersonOrSessionPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -7,19 +8,16 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
 
-import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
 
-export const WebPropertyFilters = ({
-    webAnalyticsFilters,
-    setWebAnalyticsFilters,
-}: {
-    webAnalyticsFilters: WebAnalyticsPropertyFilters
-    setWebAnalyticsFilters: (filters: WebAnalyticsPropertyFilters) => void
-}): JSX.Element => {
+export const WebPropertyFilters = (): JSX.Element => {
+    const { rawWebAnalyticsFilters } = useValues(webAnalyticsLogic)
+    const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
+
     const [displayFilters, setDisplayFilters] = useState(false)
 
     // Removing host because it's controlled by the domain filter and we don't want to display it here
-    const propertyFilters = webAnalyticsFilters.filter((filter) => filter.key !== '$host')
+    const propertyFilters = rawWebAnalyticsFilters.filter((filter) => filter.key !== '$host')
 
     return (
         <Popover
@@ -36,17 +34,8 @@ export const WebPropertyFilters = ({
                             TaxonomicFilterGroupType.PersonProperties,
                             TaxonomicFilterGroupType.SessionProperties,
                         ]}
-                        excludedProperties={{
-                            [TaxonomicFilterGroupType.EventProperties]: ['$host'],
-                        }}
                         onChange={(filters) =>
-                            // We want to ignore `$host` filters, they're controlled by the domain filter
-                            // If this gets confusing, we'll need to find a way to block these filters from being added
-                            setWebAnalyticsFilters(
-                                filters
-                                    .filter(isEventPersonOrSessionPropertyFilter)
-                                    .filter((event) => event.key !== '$host')
-                            )
+                            setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))
                         }
                         propertyFilters={propertyFilters}
                         pageKey="web-analytics"

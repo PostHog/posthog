@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { IconBranch } from 'lib/lemon-ui/icons/icons'
+import { IconBranch, IconMonitor, IconPhone } from 'lib/lemon-ui/icons/icons'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -59,6 +59,7 @@ export const WebAnalyticsFilters = (): JSX.Element => {
                                 },
                             ]}
                         />
+                        <WebAnalyticsDeviceToggle />
                     </div>
 
                     <div className="hidden md:flex items-center gap-2">
@@ -95,10 +96,9 @@ export const WebAnalyticsFilters = (): JSX.Element => {
 
 const FoldableFilters = (): JSX.Element => {
     const {
-        webAnalyticsFilters,
         dateFilter: { dateTo, dateFrom },
     } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
+    const { setDates } = useActions(webAnalyticsLogic)
 
     return (
         <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
@@ -111,10 +111,7 @@ const FoldableFilters = (): JSX.Element => {
             <WebVitalsPercentileToggle />
             <PathCleaningToggle />
 
-            <WebPropertyFilters
-                setWebAnalyticsFilters={setWebAnalyticsFilters}
-                webAnalyticsFilters={webAnalyticsFilters}
-            />
+            <WebPropertyFilters />
         </div>
     )
 }
@@ -169,6 +166,31 @@ const PathCleaningToggle = (): JSX.Element | null => {
     )
 }
 
+const WebAnalyticsDeviceToggle = (): JSX.Element => {
+    const { deviceTypeFilter } = useValues(webAnalyticsLogic)
+    const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
+
+    return (
+        <LemonSegmentedSelect
+            size="small"
+            value={deviceTypeFilter ?? undefined}
+            onChange={(value) => setDeviceTypeFilter(value !== deviceTypeFilter ? value : null)}
+            options={[
+                {
+                    value: 'Desktop',
+                    label: <IconMonitor className="mx-1" />,
+                    tooltip: 'Desktop devices include laptops and desktops.',
+                },
+                {
+                    value: 'Mobile',
+                    label: <IconPhone className="mx-1" />,
+                    tooltip: 'Mobile devices include smartphones and tablets.',
+                },
+            ]}
+        />
+    )
+}
+
 const WebVitalsPercentileToggle = (): JSX.Element | null => {
     const { webVitalsPercentile, productTab } = useValues(webAnalyticsLogic)
     const { setWebVitalsPercentile } = useActions(webAnalyticsLogic)
@@ -179,7 +201,6 @@ const WebVitalsPercentileToggle = (): JSX.Element | null => {
 
     return (
         <LemonSegmentedSelect
-            size="small"
             value={webVitalsPercentile}
             onChange={setWebVitalsPercentile}
             options={[
