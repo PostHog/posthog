@@ -90,7 +90,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  turbo --filter=@posthog/frontend prepare
+                  bin/turbo --filter=@posthog/frontend prepare
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
@@ -167,7 +167,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              run: turbo run test --filter=@posthog/frontend
+              run: bin/turbo run test --filter=@posthog/frontend
               if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=6144

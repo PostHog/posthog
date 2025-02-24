@@ -170,7 +170,7 @@ jobs:
             - name: Prepare cypress
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: turbo --filter=@posthog/cypress prepare
+              run: bin/turbo --filter=@posthog/cypress prepare
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
