@@ -319,6 +319,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
+            playerSettingsLogic,
+            ['setHideViewedRecordings'],
         ],
         values: [
             featureFlagLogic,
@@ -597,6 +599,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
         },
+
+        setHideViewedRecordings: () => {
+            actions.maybeLoadSessionRecordings('older')
+        },
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
@@ -706,7 +712,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         return false
                     }
 
-                    if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
+                    if (hideViewedRecordings === 'current-user' && rec.viewed && rec.id !== selectedRecordingId) {
+                        return false
+                    }
+
+                    if (
+                        hideViewedRecordings === 'any-user' &&
+                        (rec.viewed || !!rec.viewers.length) &&
+                        rec.id !== selectedRecordingId
+                    ) {
                         return false
                     }
 
