@@ -13,6 +13,7 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
         initialValues: Record<string, any>
         onSubmit: (values: Record<string, any>) => void | Promise<void>
         shouldAwaitSubmit?: boolean
+        content?: ((isLoading: boolean) => ReactNode) | ReactNode
     }
 
 export type LemonDialogProps = Pick<
@@ -28,6 +29,10 @@ export type LemonDialogProps = Pick<
     onAfterClose?: () => void
     closeOnNavigate?: boolean
     shouldAwaitSubmit?: boolean
+    isOpen: boolean
+    setIsOpen: (isOpen: boolean) => void
+    isLoading: boolean
+    setIsLoading: (isLoading: boolean) => void
 }
 
 export function LemonDialog({
@@ -41,12 +46,14 @@ export function LemonDialog({
     closeOnNavigate = true,
     shouldAwaitSubmit = false,
     footer,
+    isOpen,
+    setIsOpen,
+    isLoading,
+    setIsLoading,
     ...props
 }: LemonDialogProps): JSX.Element {
-    const [isOpen, setIsOpen] = useState(true)
     const { currentLocation } = useValues(router)
     const lastLocation = useRef(currentLocation.pathname)
-    const [isLoading, setIsLoading] = useState(false)
 
     primaryButton =
         primaryButton ||
@@ -121,11 +128,14 @@ export const LemonFormDialog = ({
     initialValues = {},
     onSubmit,
     errors,
+    content,
     ...props
 }: LemonFormDialogProps): JSX.Element => {
     const logic = lemonDialogLogic({ errors })
     const { form, isFormValid, formValidationErrors } = useValues(logic)
     const { setFormValues } = useActions(logic)
+    const [isLoading, setIsLoading] = useState(false)
+    const [isOpen, setIsOpen] = useState(true)
 
     const firstError = useMemo(() => Object.values(formValidationErrors)[0] as string, [formValidationErrors])
 
@@ -143,6 +153,9 @@ export const LemonFormDialog = ({
         children: 'Cancel',
     }
 
+    // Resolve content, supporting both function and static content
+    const resolvedContent = typeof content === 'function' ? content(isLoading) : content
+
     useEffect(() => {
         setFormValues(initialValues)
     }, [])
@@ -157,7 +170,17 @@ export const LemonFormDialog = ({
                 }
             }}
         >
-            <LemonDialog {...props} primaryButton={primaryButton} secondaryButton={secondaryButton} />
+            <LemonDialog
+                {...props}
+                content={resolvedContent}
+                primaryButton={primaryButton}
+                secondaryButton={secondaryButton}
+                isOpen={isOpen}
+                setIsOpen={setIsOpen}
+                isLoading={isLoading}
+                setIsLoading={setIsLoading}
+                onClose={() => setIsOpen(false)}
+            />
         </Form>
     )
 }
