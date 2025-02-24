@@ -38,7 +38,7 @@ impl Manager {
         })
     }
 
-    pub fn count_query<'a>(&self, project_id: i32, params: &Params) -> String {
+    pub fn count_query(&self, project_id: i32, params: &Params) -> String {
         /* The original Django query formulation we're duplicating
                  * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L279-L289
 
@@ -77,7 +77,7 @@ impl Manager {
         qb = self.init_where_clause(qb, project_id);
         qb = self.where_property_type(qb, &params.property_type);
         qb.push("AND COALESCE(group_type_index, -1) = ");
-        qb.push_bind(&params.group_type_index);
+        qb.push_bind(params.group_type_index);
 
         qb = self.conditionally_filter_excluded_properties(
             qb,
@@ -199,9 +199,9 @@ impl Manager {
 
         // LIMIT and OFFSET clauses
         qb.push("LIMIT ");
-        qb.push_bind(&params.limit);
+        qb.push_bind(params.limit);
         qb.push("OFFSET ");
-        qb.push_bind(&params.offset);
+        qb.push_bind(params.offset);
 
         qb.sql().into()
     }

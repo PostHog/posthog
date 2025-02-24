@@ -6,7 +6,7 @@ use crate::{
 
 use axum::{
     extract::{OriginalUri, Path, Query, State},
-    http::Uri,
+    http::{StatusCode, Uri},
     routing::get,
     Json, Router,
 };
@@ -15,6 +15,8 @@ use sqlx::{Executor, Row};
 use url::form_urlencoded;
 
 use std::collections::{HashMap, HashSet};
+use std::error;
+use std::fmt;
 use std::sync::Arc;
 
 pub fn apply_routes(parent: Router, qmgr: Arc<Manager>) -> Router {
@@ -33,8 +35,13 @@ async fn project_property_definitions_handler(
     OriginalUri(uri): OriginalUri,
     Path(project_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,
-) -> Json<PropDefResponse> {
+) -> Result<Json<PropDefResponse>, axum::http::StatusCode> {
+    // parse and validate request's query params
     let params = parse_request(params);
+    if let Err(e) = params.valid() {
+        eprintln!("ERROR: invalid request parameter: {:?}", e);
+        return Err(StatusCode::BAD_REQUEST);
+    }
 
     // construct the count query
     let count_query = qmgr.count_query(project_id, &params);
@@ -44,7 +51,10 @@ async fn project_property_definitions_handler(
 
     let total_count: i32 = match qmgr.pool.fetch_one(count_query.as_str()).await {
         Ok(row) => row.get(0),
-        Err(_e) => unimplemented!("TODO: handle count query error!"),
+        Err(e) => {
+            eprintln!("count query failed with: {:?}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     };
 
     match qmgr.pool.fetch_all(props_query.as_str()).await {
@@ -53,7 +63,10 @@ async fn project_property_definitions_handler(
                 // TODO: populate PropDefResponse.results entries!!!
             }
         }
-        Err(_e) => unimplemented!("TODO: handle props query error!"),
+        Err(e) => {
+            eprintln!("count query failed with: {:?}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     }
 
     let (prev_url, next_url) = gen_next_prev_urls(uri, total_count, params.limit, params.offset);
@@ -66,7 +79,7 @@ async fn project_property_definitions_handler(
         results: vec![],
     };
 
-    Json(out)
+    Ok(Json(out))
 }
 
 fn parse_request(params: HashMap<String, String>) -> Params {
@@ -157,20 +170,20 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     let order_by_verified = true;
 
     Params {
-        search_terms: search_terms,
-        search_fields: search_fields,
-        property_type: property_type,
-        group_type_index: group_type_index,
-        properties: properties,
-        excluded_properties: excluded_properties,
-        event_names: event_names,
-        is_feature_flag: is_feature_flag,
-        is_numerical: is_numerical,
-        use_enterprise_taxonomy: use_enterprise_taxonomy,
-        filter_by_event_names: filter_by_event_names,
-        order_by_verified: order_by_verified,
-        limit: limit,
-        offset: offset,
+        search_terms,
+        search_fields,
+        property_type,
+        group_type_index,
+        properties,
+        excluded_properties,
+        event_names,
+        is_feature_flag,
+        is_numerical,
+        use_enterprise_taxonomy,
+        filter_by_event_names,
+        order_by_verified,
+        limit,
+        offset,
     }
 }
 
@@ -245,6 +258,44 @@ pub struct Params {
     pub order_by_verified: bool,
     pub limit: i32,
     pub offset: i32,
+}
+
+impl Params {
+    // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L81-L96
+    pub fn valid(&self) -> Result<(), InvalidParamError> {
+        if self.property_type.is_none()
+            || (self.property_type.as_ref().unwrap() == "group" && self.group_type_index <= 0)
+        {
+            return Err(InvalidParamError(
+                "property_type 'group' requires 'group_type_index' parameter".to_string(),
+            ));
+        }
+
+        if self.property_type.as_ref().unwrap() != "group" && self.group_type_index != -1 {
+            return Err(InvalidParamError(
+                "parameter 'group_type_index' is only allowed with property_type 'group'"
+                    .to_string(),
+            ));
+        }
+
+        if self.event_names.is_some() && self.property_type.as_ref().unwrap() != "event" {
+            return Err(InvalidParamError(
+                "parameter 'event_names' is only allowed with property_type 'event'".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct InvalidParamError(String);
+impl error::Error for InvalidParamError {}
+
+impl fmt::Display for InvalidParamError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "invalid request parameter: {}", self.0)
+    }
 }
 
 #[derive(Serialize)]
