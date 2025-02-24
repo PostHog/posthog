@@ -848,7 +848,6 @@ def update_quota_limiting() -> None:
         report_quota_limiting_event("update_quota_limiting task finished", {})
     except ImportError:
         report_quota_limiting_event("update_quota_limiting task failed", {"error": "ImportError"})
-        pass
     except Exception as e:
         capture_exception(e)
         report_quota_limiting_event("update_quota_limiting task failed", {"error": str(e)})
