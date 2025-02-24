@@ -2,7 +2,7 @@ import { LemonModal } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
-import { PlayerMeta } from '../PlayerMeta'
+import { PlayerMeta } from '../player-meta/PlayerMeta'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 
@@ -54,7 +54,7 @@ export function SessionPlayerModal(): JSX.Element | null {
             <header>
                 {activeSessionRecording ? (
                     <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
-                        <PlayerMeta iconsOnly={false} />
+                        <PlayerMeta />
                     </BindLogic>
                 ) : null}
             </header>
