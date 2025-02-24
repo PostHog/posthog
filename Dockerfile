@@ -116,7 +116,7 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install maturin
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 WORKDIR /code
 
@@ -125,7 +125,7 @@ RUN git clone https://github.com/delta-io/delta-rs.git
 WORKDIR /code/delta-rs/python
 
 # Build the delta-rs wheel with S3 support explicitly enabled
-RUN RUSTFLAGS="-C target-cpu=native" maturin build --release --out wheels
+RUN RUSTFLAGS="-C target-cpu=native" uvx maturin build --release --out wheels
 
 #
 # ---------------------------------------------------------
