@@ -46,7 +46,7 @@ export function SettingsBar({
             <div
                 ref={containerRef}
                 className={clsx(
-                    'container flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
+                    'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
                     className,
                     {
                         'border-b': ['bottom', 'all'].includes(border),
