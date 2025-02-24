@@ -1,4 +1,5 @@
 import decimal
+from ipaddress import IPv4Address, IPv6Address
 import json
 from collections.abc import Sequence
 import math
@@ -181,13 +182,14 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             # pyarrow schema to use the larger values so that we're not trying to downscale
             if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
                 py_arrow_table_column = table.column(field.name)
-                assert isinstance(py_arrow_table_column.type, pa.Decimal128Type) or isinstance(
-                    py_arrow_table_column.type, pa.Decimal256Type
-                )
 
                 if (
-                    field.type.precision > py_arrow_table_column.type.precision
-                    or field.type.scale > py_arrow_table_column.type.scale
+                    isinstance(py_arrow_table_column.type, pa.Decimal128Type)
+                    or isinstance(py_arrow_table_column.type, pa.Decimal256Type)
+                    and (
+                        field.type.precision > py_arrow_table_column.type.precision
+                        or field.type.scale > py_arrow_table_column.type.scale
+                    )
                 ):
                     field_index = table.schema.get_field_index(field.name)
 
@@ -494,6 +496,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             except pa.ArrowInvalid as e:
                 if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
                     number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+                    new_field_type = number_arr.type
                 else:
                     raise
 
@@ -543,6 +546,14 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 [None if s is None else _json_dumps(s) for s in columnar_table_data[field_name].tolist()]
             )
             columnar_table_data[field_name] = json_str_array
+            py_type = str
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
+
+        # Convert IP types to string
+        if issubclass(py_type, IPv4Address | IPv6Address):
+            str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
+            columnar_table_data[field_name] = str_array
             py_type = str
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))

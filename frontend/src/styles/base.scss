@@ -1338,7 +1338,7 @@ html {
 input::placeholder,
 textarea::placeholder {
     // Overrides Tailwind's default
-    color: var(--text-secondary);
+    color: var(--text-tertiary);
 }
 
 a {
