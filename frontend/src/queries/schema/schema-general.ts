@@ -102,7 +102,6 @@ export enum NodeKind {
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
-    ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
     ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
@@ -301,7 +300,6 @@ export interface HogQLVariable {
     variableId: string
     code_name: string
     value?: any
-    isNull?: boolean
 }
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
@@ -388,10 +386,18 @@ export interface HogQLNotice {
     fix?: string
 }
 
+export enum QueryIndexUsage {
+    Undecisive = 'undecisive',
+    No = 'no',
+    Partial = 'partial',
+    Yes = 'yes',
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isValidView?: boolean
+    isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -1852,17 +1858,6 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     exposure_query?: TrendsQuery
 }
 
-export interface ExperimentExposureCriteria {
-    filterTestAccounts?: boolean
-    exposure_config?: ExperimentEventExposureConfig
-}
-
-export interface ExperimentEventExposureConfig {
-    kind: NodeKind.ExperimentEventExposureConfig
-    event: string
-    properties: AnyPropertyFilter[]
-}
-
 export enum ExperimentMetricType {
     COUNT = 'count',
     CONTINUOUS = 'continuous',
@@ -1875,6 +1870,7 @@ export interface ExperimentMetric {
     kind: NodeKind.ExperimentMetric
     name?: string
     metric_type: ExperimentMetricType
+    filterTestAccounts?: boolean
     inverse?: boolean
     metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
 }
@@ -1903,11 +1899,10 @@ export interface ExperimentActionMetricConfig {
 
 export interface ExperimentDataWarehouseMetricConfig {
     kind: NodeKind.ExperimentDataWarehouseMetricConfig
-    name?: string
     table_name: string
     timestamp_field: string
-    events_join_key: string
-    data_warehouse_join_key: string
+    exposure_identifier_field: string
+    after_exposure_identifier_field: string
     math?: ExperimentMetricMath
     math_hogql?: string
     math_property?: string
