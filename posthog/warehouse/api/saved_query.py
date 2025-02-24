@@ -109,7 +109,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 }
                 view.columns = columns
 
-            view.external_tables = view.s3_tables
         except Exception as err:
             raise serializers.ValidationError(str(err))
 
@@ -123,7 +122,17 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 # closer together.
                 logger.exception("Failed to create model path when creating view %s", view.name)
 
+        # Update external tables asynchronously
+        transaction.on_commit(lambda: self.async_update_external_tables(view))
+
         return view
+
+    def async_update_external_tables(self, view):
+        try:
+            view.external_tables = view.s3_tables
+            view.save(update_fields=["external_tables"])
+        except Exception:
+            logger.exception("Failed to set external_tables when creating view %s", view.name)
 
     def update(self, instance: Any, validated_data: Any) -> Any:
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
