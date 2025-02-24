@@ -116,8 +116,7 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-RUN . $HOME/.local/bin/env
+RUN cargo install --locked maturin
 
 WORKDIR /code
 
