@@ -1,7 +1,10 @@
 use crate::{
-    api::v1::constants::{
-        extract_aliases, EVENTS_HIDDEN_PROPERTY_DEFINITIONS,
-        POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS, SEARCH_SCREEN_WORD, SEARCH_TRIGGER_WORD,
+    api::v1::{
+        constants::{
+            extract_aliases, EVENTS_HIDDEN_PROPERTY_DEFINITIONS,
+            POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS, SEARCH_SCREEN_WORD, SEARCH_TRIGGER_WORD,
+        },
+        routing::Params,
     },
     //metrics_consts::{},
     config::Config,
@@ -35,21 +38,7 @@ impl Manager {
         })
     }
 
-    pub fn count_query<'a>(
-        &self,
-        project_id: i32,
-        search_terms: &Option<Vec<String>>,
-        search_fields: &HashSet<String>,
-        property_type: &Option<String>,
-        group_type_index: i32,
-        properties: &'a Option<Vec<String>>,
-        excluded_properties: &'a Option<Vec<String>>,
-        event_names: &'a Option<Vec<String>>,
-        is_feature_flag: &Option<bool>,
-        is_numerical: &Option<bool>,
-        use_enterprise_taxonomy: &Option<bool>,
-        filter_by_event_names: &Option<bool>,
-    ) -> String {
+    pub fn count_query<'a>(&self, project_id: i32, params: &Params) -> String {
         /* The original Django query formulation we're duplicating
                  * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L279-L289
 
@@ -75,29 +64,38 @@ impl Manager {
         // build & render the query
         let mut qb = QueryBuilder::<Postgres>::new("SELECT count(*) AS full_count FROM ");
 
-        qb = self.gen_from_clause(qb, use_enterprise_taxonomy);
+        qb = self.gen_from_clause(qb, &params.use_enterprise_taxonomy);
         qb = self.gen_conditional_join_event_props(
             qb,
             project_id,
-            property_type,
-            filter_by_event_names,
-            &event_names,
+            &params.property_type,
+            &params.filter_by_event_names,
+            &params.event_names,
         );
 
         // begin the WHERE clause
         qb = self.init_where_clause(qb, project_id);
-        qb = self.where_property_type(qb, property_type);
+        qb = self.where_property_type(qb, &params.property_type);
         qb.push("AND COALESCE(group_type_index, -1) = ");
-        qb.push_bind(group_type_index);
+        qb.push_bind(&params.group_type_index);
 
-        qb = self.conditionally_filter_excluded_properties(qb, property_type, excluded_properties);
-        qb = self.conditionally_filter_properties(qb, properties);
-        qb = self.conditionally_filter_numerical_properties(qb, is_numerical);
+        qb = self.conditionally_filter_excluded_properties(
+            qb,
+            &params.property_type,
+            &params.excluded_properties,
+        );
+        qb = self.conditionally_filter_properties(qb, &params.properties);
+        qb = self.conditionally_filter_numerical_properties(qb, &params.is_numerical);
 
-        qb = self.conditionally_apply_search_clause(qb, search_terms, search_fields);
+        qb =
+            self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
 
-        qb = self.conditionally_filter_event_names(qb, filter_by_event_names, event_names);
-        qb = self.conditionally_filter_feature_flags(qb, is_feature_flag);
+        qb = self.conditionally_filter_event_names(
+            qb,
+            &params.filter_by_event_names,
+            &params.event_names,
+        );
+        qb = self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
         // NOTE: event_name_filter from orig Django query doesn't appear to be applied anywhere atm
 
@@ -106,24 +104,7 @@ impl Manager {
         qb.sql().into()
     }
 
-    pub fn property_definitions_query(
-        &self,
-        project_id: i32,
-        search_terms: &Option<Vec<String>>,
-        search_fields: &HashSet<String>,
-        property_type: &Option<String>,
-        group_type_index: i32,
-        properties: &Option<Vec<String>>,
-        excluded_properties: &Option<Vec<String>>,
-        event_names: &Option<Vec<String>>,
-        is_feature_flag: &Option<bool>,
-        is_numerical: &Option<bool>,
-        use_enterprise_taxonomy: &Option<bool>,
-        filter_by_event_names: &Option<bool>,
-        order_by_verified: bool, // TODO: where is this coming from?
-        limit: i32,
-        offset: i32,
-    ) -> String {
+    pub fn property_definitions_query(&self, project_id: i32, params: &Params) -> String {
         /* The original Django query we're duplicating
                  * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L262-L275
 
@@ -152,7 +133,7 @@ impl Manager {
                 */
 
         let mut qb = QueryBuilder::<Postgres>::new("SELECT ");
-        if use_enterprise_taxonomy.is_some_and(|uet| uet) {
+        if params.use_enterprise_taxonomy.is_some_and(|uet| uet) {
             // borrowed from EnterprisePropertyDefinition from Django monolith
             // via EnterprisePropertyDefinition._meta.get_fields()
             qb.push("id, project, team, name, is_numerical, property_type, type, group_type_index, property_type_format, description, updated_at, updated_by, verified_at, verified_by ");
@@ -162,7 +143,11 @@ impl Manager {
         }
 
         // append event_property_field clause to SELECT clause
-        let is_seen_resolved = if event_names.as_ref().is_some_and(|evs| !evs.is_empty()) {
+        let is_seen_resolved = if params
+            .event_names
+            .as_ref()
+            .is_some_and(|evs| !evs.is_empty())
+        {
             format!("{}.property", POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS)
         } else {
             "NULL".to_string()
@@ -172,42 +157,51 @@ impl Manager {
             is_seen_resolved
         ));
 
-        qb = self.gen_from_clause(qb, use_enterprise_taxonomy);
+        qb = self.gen_from_clause(qb, &params.use_enterprise_taxonomy);
         qb = self.gen_conditional_join_event_props(
             qb,
             project_id,
-            property_type,
-            filter_by_event_names,
-            event_names,
+            &params.property_type,
+            &params.filter_by_event_names,
+            &params.event_names,
         );
 
         // begin the WHERE clause
         qb = self.init_where_clause(qb, project_id);
-        qb = self.where_property_type(qb, property_type);
+        qb = self.where_property_type(qb, &params.property_type);
         qb.push("AND COALESCE(group_type_index, -1) = ");
-        qb.push_bind(group_type_index);
+        qb.push_bind(params.group_type_index);
 
-        qb = self.conditionally_filter_excluded_properties(qb, property_type, excluded_properties);
-        qb = self.conditionally_filter_properties(qb, properties);
-        qb = self.conditionally_filter_numerical_properties(qb, is_numerical);
+        qb = self.conditionally_filter_excluded_properties(
+            qb,
+            &params.property_type,
+            &params.excluded_properties,
+        );
+        qb = self.conditionally_filter_properties(qb, &params.properties);
+        qb = self.conditionally_filter_numerical_properties(qb, &params.is_numerical);
 
-        qb = self.conditionally_apply_search_clause(qb, search_terms, search_fields);
+        qb =
+            self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
 
-        qb = self.conditionally_filter_event_names(qb, filter_by_event_names, event_names);
-        qb = self.conditionally_filter_feature_flags(qb, is_feature_flag);
+        qb = self.conditionally_filter_event_names(
+            qb,
+            &params.filter_by_event_names,
+            &params.event_names,
+        );
+        qb = self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
         // ORDER BY clauses
         qb.push("ORDER BY is_seen_on_filtered_events DESC, ");
-        if order_by_verified {
+        if params.order_by_verified {
             qb.push("verified DESC NULLS LAST, ");
         }
         qb.push(format!("{}.name ASC ", &self.prop_defs_table));
 
         // LIMIT and OFFSET clauses
         qb.push("LIMIT ");
-        qb.push_bind(limit);
+        qb.push_bind(&params.limit);
         qb.push("OFFSET ");
-        qb.push_bind(offset);
+        qb.push_bind(&params.offset);
 
         qb.sql().into()
     }
