@@ -20,7 +20,9 @@ export type HogFunctionLogsProps = {
 
 export type GroupedLogEntry = {
     instanceId: string
-    timestamp: string
+    maxTimestamp: string
+    minTimestamp: string
+    logLevel: LogEntryLevel
     entries: {
         message: string
         level: LogEntryLevel
@@ -44,6 +46,7 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
         query: `SELECT
             instance_id,
             max(timestamp) AS latest_timestamp,
+            min(timestamp) AS earliest_timestamp,
             arraySort(
                 groupArray((timestamp, level, message))
             ) AS messages
@@ -51,12 +54,12 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
         WHERE timestamp >= now() - INTERVAL 1 DAY
         AND log_source = 'hog_function'
         AND log_source_id = '${request.hogFunctionId}'
-        ${request.before ? `AND timestamp < ${hogql`${request.before}`}` : ''}
-        ${request.after ? `AND timestamp > ${hogql`${request.after}`}` : ''}
         GROUP BY instance_id
         HAVING countIf(
             lower(level) IN (${request.levels.map((level) => `'${level.toLowerCase()}'`).join(',')})
             AND message ILIKE '%${request.searchTerm}%'
+            ${request.before ? `AND timestamp < ${hogql`${request.before}`}` : ''}
+            ${request.after ? `AND timestamp > ${hogql`${request.after}`}` : ''}
         ) > 0
         ORDER BY latest_timestamp DESC
         LIMIT ${HOG_FUNCTION_LOGS_LIMIT}`,
@@ -66,8 +69,9 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
 
     return response.results.map((result) => ({
         instanceId: result[0],
-        timestamp: result[1],
-        entries: result[2].map((entry: any) => ({
+        maxTimestamp: result[1],
+        minTimestamp: result[2],
+        entries: result[3].map((entry: any) => ({
             timestamp: entry[0],
             level: entry[1],
             message: entry[2],
@@ -92,11 +96,12 @@ const dedupeGroupedLogs = (groups: GroupedLogEntry[], newGroups: GroupedLogEntry
         } else {
             // Otherwise add the messages to the existing log group
             existingLogsById[group.instanceId].entries = group.entries
-            existingLogsById[group.instanceId].timestamp = group.timestamp
+            existingLogsById[group.instanceId].maxTimestamp = group.maxTimestamp
+            existingLogsById[group.instanceId].minTimestamp = group.minTimestamp
         }
     }
 
-    return Object.values(existingLogsById).sort((a, b) => dayjs(b.timestamp).unix() - dayjs(a.timestamp).unix())
+    return Object.values(existingLogsById).sort((a, b) => dayjs(b.maxTimestamp).unix() - dayjs(a.maxTimestamp).unix())
 }
 
 export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
@@ -202,7 +207,10 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         expandedRows: [
             {} as Record<string, boolean>,
             {
-                setRowExpanded: (_, { instanceId, expanded }) => ({ [instanceId]: expanded }),
+                setRowExpanded: (state, { instanceId, expanded }) => ({
+                    ...state,
+                    [instanceId]: expanded,
+                }),
             },
         ],
     }),
@@ -211,10 +219,10 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             (s) => [s.logs, s.backgroundLogs],
             (logs: GroupedLogEntry[], backgroundLogs: GroupedLogEntry[]): Dayjs | null => {
                 if (backgroundLogs.length) {
-                    return dayjs(backgroundLogs[0].timestamp)
+                    return dayjs(backgroundLogs[0].minTimestamp)
                 }
                 if (logs.length) {
-                    return dayjs(logs[0].timestamp)
+                    return dayjs(logs[0].minTimestamp)
                 }
                 return null
             },
@@ -223,10 +231,10 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             (s) => [s.logs, s.backgroundLogs],
             (logs: GroupedLogEntry[], backgroundLogs: GroupedLogEntry[]): Dayjs | null => {
                 if (logs.length) {
-                    return dayjs(logs[logs.length - 1].timestamp)
+                    return dayjs(logs[logs.length - 1].maxTimestamp)
                 }
                 if (backgroundLogs.length) {
-                    return dayjs(backgroundLogs[backgroundLogs.length - 1].timestamp)
+                    return dayjs(backgroundLogs[backgroundLogs.length - 1].maxTimestamp)
                 }
                 return null
             },

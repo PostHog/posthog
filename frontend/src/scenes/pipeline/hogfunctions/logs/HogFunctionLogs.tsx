@@ -75,6 +75,21 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                 rowKey={(record) => record.instanceId}
                 columns={[
                     {
+                        key: 'count',
+                        render: (_, { entries, instanceId }) => {
+                            return (
+                                <Link
+                                    subtle
+                                    onClick={() => {
+                                        setRowExpanded(instanceId, !expandedRows[instanceId])
+                                    }}
+                                >
+                                    <LemonBadge.Number count={entries.length} status="muted" />
+                                </Link>
+                            )
+                        },
+                    },
+                    {
                         title: 'Timestamp',
                         key: 'timestamp',
                         dataIndex: 'timestamp',
@@ -101,21 +116,6 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                                 </Link>
                             </code>
                         ),
-                    },
-                    {
-                        key: 'logs',
-                        render: (_, { entries, instanceId }) => {
-                            return (
-                                <Link
-                                    subtle
-                                    onClick={() => {
-                                        setRowExpanded(instanceId, !expandedRows[instanceId])
-                                    }}
-                                >
-                                    <LemonBadge.Number count={entries.length} status="muted" />
-                                </Link>
-                            )
-                        },
                     },
                     {
                         title: 'Last message',
