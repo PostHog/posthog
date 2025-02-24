@@ -88,6 +88,8 @@ class Survey(UUIDModel):
         help_text="""
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
+        Each question object can contain:
+        - `stable_index`: A permanent index that doesn't change when questions are reordered
         Basic (open-ended question)
         - `type`: `open`
         - `question`: The text of the question.
@@ -167,6 +169,7 @@ class Survey(UUIDModel):
         ```
         """,
     )
+    max_question_stable_index = models.IntegerField(null=True, blank=True)
     appearance = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
@@ -267,10 +270,78 @@ def update_response_sampling_limits(sender, instance, **kwargs):
     instance.response_sampling_daily_limits = json.dumps(schedule)
 
 
+def update_question_stable_indices(sender, instance: Survey):
+    """
+    Ensures all questions have a stable_index and maintains max_question_stable_index.
+    This runs before saving a survey, ensuring indices are always computed server-side.
+    Key behaviors:
+    - New surveys: Assigns sequential indices starting from 0
+    - Existing surveys:
+        - Preserves stable_index for existing questions
+        - Assigns new indices only to questions without them
+        - Maintains max_question_stable_index as the highest index ever used
+    - Editing surveys:
+        - Keeps existing stable_index values even when questions are reordered
+        - When adding new questions, uses max_question_stable_index + 1
+    IMPORTANT: stable_index values must be unique across all questions as they're
+    used to track survey responses in the backend.
+    """
+    if not instance.questions:
+        instance.max_question_stable_index = 0
+        return
+
+    # If this is a new survey (no ID yet), start from 0
+    if not instance.id:
+        for i, question in enumerate(instance.questions):
+            question["stable_index"] = i
+        instance.max_question_stable_index = len(instance.questions) - 1
+        return
+
+    # For existing surveys, load the current state from DB
+    try:
+        current_survey = Survey.objects.get(id=instance.id)
+        current_max_index = current_survey.max_question_stable_index or -1
+    except Survey.DoesNotExist:
+        current_max_index = -1
+
+    # Initialize max_question_stable_index from DB or current value
+    max_index = max(instance.max_question_stable_index or -1, current_max_index)
+
+    # Track used indices to avoid duplicates
+    used_indices = set()
+
+    # First pass: preserve existing stable indices, but fix duplicates
+    for _i, question in enumerate(instance.questions):
+        if question.get("stable_index") is not None:
+            # If this index is already used, we need to assign a new one
+            if question["stable_index"] in used_indices:
+                # Assign a new index
+                max_index += 1
+                question["stable_index"] = max_index
+
+            # Add to used indices to avoid duplicates
+            used_indices.add(question["stable_index"])
+
+            # Update max_index if we find a higher index
+            max_index = max(max_index, question["stable_index"])
+
+    # Second pass: assign new indices to questions without them
+    for _i, question in enumerate(instance.questions):
+        if question.get("stable_index") is None:
+            # Assign a new index
+            max_index += 1
+            question["stable_index"] = max_index
+            used_indices.add(question["stable_index"])
+
+    # Update the max_question_stable_index
+    instance.max_question_stable_index = max_index
+
+
 @receiver(pre_save, sender=Survey)
 def pre_save_survey(sender, instance, *args, **kwargs):
     update_survey_iterations(sender, instance)
     update_response_sampling_limits(sender, instance)
+    update_question_stable_indices(sender, instance)
 
 
 def update_survey_iterations(sender, instance, *args, **kwargs):

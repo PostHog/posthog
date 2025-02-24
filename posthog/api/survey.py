@@ -65,6 +65,7 @@ class SurveySerializer(serializers.ModelSerializer):
         required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
     )
     schedule = serializers.CharField(required=False, allow_null=True)
+    max_question_stable_index = serializers.IntegerField(read_only=True, allow_null=True)
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
@@ -112,6 +113,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "response_sampling_interval",
             "response_sampling_limit",
             "response_sampling_daily_limits",
+            "max_question_stable_index",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -139,6 +141,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
     )
     schedule = serializers.CharField(required=False, allow_null=True)
+    max_question_stable_index = serializers.IntegerField(read_only=True, allow_null=True)
 
     class Meta:
         model = Survey
@@ -174,6 +177,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_interval",
             "response_sampling_limit",
             "response_sampling_daily_limits",
+            "max_question_stable_index",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -871,6 +875,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "current_iteration",
             "current_iteration_start_date",
             "schedule",
+            "max_question_stable_index",
         ]
         read_only_fields = fields
 
