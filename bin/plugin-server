@@ -38,7 +38,7 @@ cd plugin-server
 
 if [[ -n $DEBUG ]]; then
   echo "🧐 Verifying installed packages..."
-  pnpm --filter=@posthog/plugin-server install --frozen-lockfile
+  pnpm --filter=@posthog/plugin-server i --frozen-lockfile
 fi
 
 if [ $? -ne 0 ]; then
