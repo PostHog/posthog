@@ -1452,8 +1452,10 @@ export interface SessionRecordingSegmentType {
 
 export interface SessionRecordingType {
     id: string
-    /** Whether this recording has been viewed already. */
+    /** Whether this recording has been viewed by you already. */
     viewed: boolean
+    /** user ids of other users who have viewed this recording */
+    viewers: string[]
     /** Length of recording in seconds. */
     recording_duration: number
     active_seconds?: number
@@ -4220,10 +4222,17 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
 }
 
+export enum ExternalDataJobStatus {
+    Running = 'Running',
+    Completed = 'Completed',
+    Failed = 'Failed',
+    BillingLimits = 'Billing limits',
+}
+
 export interface ExternalDataJob {
     id: string
     created_at: string
-    status: 'Running' | 'Failed' | 'Completed' | 'Billing limits'
+    status: ExternalDataJobStatus
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string
