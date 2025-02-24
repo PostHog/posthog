@@ -1,4 +1,3 @@
-import Fuse from 'fuse.js'
 import {
     actions,
     afterMount,
@@ -229,7 +228,6 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         removeUrl: (index: number) => ({ index }),
         updateUrl: (index: number, url: string) => ({ index, url }),
         launchAtUrl: (url: string) => ({ url }),
-        setSearchTerm: (term: string) => ({ term }),
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
         cancelProposingUrl: true,
         copyLaunchCode: (url: string) => ({ url }),
@@ -349,12 +347,6 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 addUrl: (state, { url }) => [...state].filter((sd) => url !== sd.url),
             },
         ],
-        searchTerm: [
-            '',
-            {
-                setSearchTerm: (_, { term }) => term,
-            },
-        ],
         editUrlIndex: [
             null as number | null,
             {
@@ -435,8 +427,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
         urlsKeyed: [
-            (s) => [s.authorizedUrls, s.suggestions, s.searchTerm],
-            (authorizedUrls, suggestions, searchTerm): KeyedAppUrl[] => {
+            (s) => [s.authorizedUrls, s.suggestions],
+            (authorizedUrls, suggestions): KeyedAppUrl[] => {
                 const keyedUrls = authorizedUrls
                     .map((url, index) => ({
                         url,
@@ -452,16 +444,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                         }))
                     ) as KeyedAppUrl[]
 
-                if (!searchTerm) {
-                    return keyedUrls
-                }
-
-                return new Fuse(keyedUrls, {
-                    keys: ['url'],
-                    threshold: 0.3,
-                })
-                    .search(searchTerm)
-                    .map((result) => result.item)
+                return keyedUrls
             },
         ],
         launchUrl: [

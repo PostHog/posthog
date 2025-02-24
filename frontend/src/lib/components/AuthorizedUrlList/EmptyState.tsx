@@ -16,7 +16,7 @@ type EmptyStateProps = {
 
 export function EmptyState({ experimentId, actionId, type }: EmptyStateProps): JSX.Element | null {
     const logic = authorizedUrlListLogic({ experimentId: experimentId ?? null, actionId: actionId ?? null, type })
-    const { urlsKeyed, searchTerm, suggestionsLoading, isAddUrlFormVisible } = useValues(logic)
+    const { urlsKeyed, suggestionsLoading, isAddUrlFormVisible } = useValues(logic)
     const { loadSuggestions } = useActions(logic)
 
     const domainOrUrl = type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domain' : 'URL'
@@ -43,11 +43,6 @@ export function EmptyState({ experimentId, actionId, type }: EmptyStateProps): J
         // If the add URL form is visible, don't show the empty state either
         if (isAddUrlFormVisible) {
             return null
-        }
-
-        // This means no suggested URLs and no search term
-        if (searchTerm.length > 0 && suggestionURLs.length === 0) {
-            return <>There are no authorized {domainOrUrl}s that match your search.</>
         }
 
         if (suggestionURLs.length > 0) {
@@ -106,7 +101,6 @@ export function EmptyState({ experimentId, actionId, type }: EmptyStateProps): J
     }, [
         authorizedURLs.length,
         isAddUrlFormVisible,
-        searchTerm.length,
         suggestionURLs.length,
         suggestionsLoading,
         type,
