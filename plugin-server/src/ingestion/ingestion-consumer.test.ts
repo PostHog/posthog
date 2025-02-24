@@ -17,14 +17,10 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 
 import { posthogFilterOutPlugin } from '../cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { posthogPluginGeoip } from '../cdp/legacy-plugins/_transformations/posthog-plugin-geoip/template'
-import { posthogPluginSnowplowRefererParser } from '../cdp/legacy-plugins/_transformations/posthog-plugin-snowplow-referer-parser/template'
-import { posthogRouteCensorPlugin } from '../cdp/legacy-plugins/_transformations/posthog-route-censor-plugin/template'
-import { posthogUrlNormalizerPlugin } from '../cdp/legacy-plugins/_transformations/posthog-url-normalizer-plugin/template'
 import { propertyFilterPlugin } from '../cdp/legacy-plugins/_transformations/property-filter-plugin/template'
 import { semverFlattenerPlugin } from '../cdp/legacy-plugins/_transformations/semver-flattener-plugin/template'
 import { taxonomyPlugin } from '../cdp/legacy-plugins/_transformations/taxonomy-plugin/template'
 import { timestampParserPlugin } from '../cdp/legacy-plugins/_transformations/timestamp-parser-plugin/template'
-import { urlParserPlugin } from '../cdp/legacy-plugins/_transformations/url-parser/template'
 import { userAgentPlugin } from '../cdp/legacy-plugins/_transformations/user-agent-plugin/template'
 import { template as botDetectionTemplate } from '../cdp/templates/_transformations/bot-detection/bot-detection.template'
 import { template as removeNullPropertiesTemplate } from '../cdp/templates/_transformations/remove-null-properties/remove-null-properties.template'
@@ -822,101 +818,13 @@ describe('IngestionConsumer', () => {
                     id: new UUIDT().toString(),
                     team_id: team.id,
                     type: 'transformation',
-                    name: urlParserPlugin.template.name,
-                    template_id: urlParserPlugin.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 6,
-                    bytecode: await compileHog(urlParserPlugin.template.hog),
-                    hog: urlParserPlugin.template.hog,
-                    inputs_schema: urlParserPlugin.template.inputs_schema,
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: posthogUrlNormalizerPlugin.template.name,
-                    template_id: posthogUrlNormalizerPlugin.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 7,
-                    bytecode: await compileHog(posthogUrlNormalizerPlugin.template.hog),
-                    hog: posthogUrlNormalizerPlugin.template.hog,
-                    inputs_schema: posthogUrlNormalizerPlugin.template.inputs_schema,
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: posthogPluginSnowplowRefererParser.template.name,
-                    template_id: posthogPluginSnowplowRefererParser.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 8,
-                    bytecode: await compileHog(posthogPluginSnowplowRefererParser.template.hog),
-                    hog: posthogPluginSnowplowRefererParser.template.hog,
-                    inputs_schema: posthogPluginSnowplowRefererParser.template.inputs_schema,
-                    inputs: {
-                        internal_domains: {
-                            value: 'other.com',
-                        },
-                    },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
-                    name: posthogRouteCensorPlugin.template.name,
-                    template_id: posthogRouteCensorPlugin.template.id,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    enabled: true,
-                    deleted: false,
-                    execution_order: 9,
-                    bytecode: await compileHog(posthogRouteCensorPlugin.template.hog),
-                    hog: posthogRouteCensorPlugin.template.hog,
-                    inputs_schema: posthogRouteCensorPlugin.template.inputs_schema,
-                    inputs: {
-                        routes: {
-                            value: JSON.stringify([
-                                {
-                                    path: '/users/:userId/*',
-                                    include: ['userId'],
-                                },
-                                {
-                                    path: '/orgs/:orgId/*',
-                                    include: ['orgId'],
-                                },
-                            ]),
-                        },
-                        properties: {
-                            value: '$referrer,$pathname,$initial_current_url,$initial_pathname,$initial_referrer',
-                        },
-                        set_properties: {
-                            value: '$initial_current_url,$initial_pathname,$initial_referrer',
-                        },
-                        set_once_properties: {
-                            value: '$initial_current_url,$initial_pathname,$initial_referrer',
-                        },
-                    },
-                },
-                {
-                    id: new UUIDT().toString(),
-                    team_id: team.id,
-                    type: 'transformation',
                     name: userAgentPlugin.template.name,
                     template_id: userAgentPlugin.template.id,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 10,
+                    execution_order: 6,
                     bytecode: await compileHog(userAgentPlugin.template.hog),
                     hog: userAgentPlugin.template.hog,
                     inputs_schema: userAgentPlugin.template.inputs_schema,
@@ -935,7 +843,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 11,
+                    execution_order: 7,
                     bytecode: await compileHog(piiHashingTemplate.hog),
                     inputs: {
                         propertiesToHash: { value: '$geoip_city_name,$geoip_country_name' },
@@ -952,7 +860,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 12,
+                    execution_order: 8,
                     bytecode: await compileHog(ipAnonymizationTemplate.hog),
                 },
                 {
@@ -965,7 +873,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 13,
+                    execution_order: 9,
                     bytecode: await compileHog(propertyFilterPlugin.template.hog),
                     hog: propertyFilterPlugin.template.hog,
                     inputs_schema: propertyFilterPlugin.template.inputs_schema,
@@ -985,7 +893,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 14,
+                    execution_order: 10,
                     bytecode: await compileHog(semverFlattenerPlugin.template.hog),
                     hog: semverFlattenerPlugin.template.hog,
                     inputs_schema: semverFlattenerPlugin.template.inputs_schema,
@@ -1005,7 +913,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 15,
+                    execution_order: 11,
                     bytecode: await compileHog(taxonomyPlugin.template.hog),
                     hog: taxonomyPlugin.template.hog,
                     inputs_schema: taxonomyPlugin.template.inputs_schema,
@@ -1025,7 +933,7 @@ describe('IngestionConsumer', () => {
                     updated_at: new Date().toISOString(),
                     enabled: true,
                     deleted: false,
-                    execution_order: 16,
+                    execution_order: 12,
                     bytecode: await compileHog(timestampParserPlugin.template.hog),
                     hog: timestampParserPlugin.template.hog,
                     inputs_schema: timestampParserPlugin.template.inputs_schema,
@@ -1176,26 +1084,6 @@ describe('IngestionConsumer', () => {
             expect(properties.day).toEqual('01')
             expect(properties.hour).toEqual(13)
             expect(properties.minute).toEqual(30)
-
-            // URL Parser
-            expect(properties.url_safe).toEqual('value') // From $current_url query params
-
-            // URL Normalizer
-            expect(properties.$current_url).toEqual(
-                'https://example.com/users/123/profile?email=[masked]&password=[masked]&token=[masked]&safe=value'
-            ) // URL is normalized (lowercase, no trailing slash)
-
-            // Route Censor
-            expect(properties.$pathname).toEqual('/users/:userId/profile') // Full path with censored userId
-            expect(properties.$initial_pathname).toEqual('/orgs/:orgId/dashboard') // Full path with censored orgId
-            expect(properties.$initial_referrer).toEqual('https://other.com/users/:userId/home') // Full URL with censored userId
-
-            // Snowplow Referer Parser
-            expect(properties.source).toEqual('unknown') // other.com is in the "unknown" category
-            expect(properties.medium).toEqual('unknown')
-            expect(properties.referrer_parser).toEqual('snowplow')
-            expect(properties.$set.source).toEqual('unknown')
-            expect(properties.$set_once.initial_source).toEqual('unknown')
 
             // Add assertions after bot detection checks
             expect(processedEvent.event).not.toEqual('filtered_event') // Filter Out Plugin dropped filtered events
