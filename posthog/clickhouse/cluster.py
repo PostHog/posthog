@@ -338,13 +338,13 @@ class Mutation:
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
         )
 
-        match rows:
-            case [[is_done]]:
-                return is_done
-            case []:
-                raise MutationNotFound(f"could not find mutation matching {self!r}")
-            case _:
-                raise ValueError(f"expected zero or one mutations, found {len(rows)}")
+        if len(rows) == 1:
+            [[is_done]] = rows
+            return is_done
+        elif len(rows) == 0:
+            raise MutationNotFound(f"could not find mutation matching {self!r}")
+        else:
+            raise ValueError(f"expected zero or one mutations, found {len(rows)}")
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
