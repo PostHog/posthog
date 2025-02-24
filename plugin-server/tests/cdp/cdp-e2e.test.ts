@@ -82,8 +82,6 @@ describe('CDP Consumer loop', () => {
             })
 
             mockFetch.mockClear()
-            // Clear any existing messages at the start of each test
-            getProducedKafkaMessages().length = 0
         })
 
         afterEach(async () => {
@@ -111,58 +109,7 @@ describe('CDP Consumer loop', () => {
             expect(invocations).toHaveLength(1)
 
             await waitForExpect(() => {
-                const logMessages = getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
-                const metricsMessages = getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-
-                // Verify exact counts
-                expect(logMessages).toHaveLength(3)
-                expect(metricsMessages).toHaveLength(2)
-
-                // Verify metrics messages
-                expect(metricsMessages).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            value: expect.objectContaining({
-                                app_source: 'hog_function',
-                                app_source_id: fnFetchNoFilters.id.toString(),
-                                metric_kind: 'other',
-                                metric_name: 'fetch',
-                            }),
-                        }),
-                        expect.objectContaining({
-                            value: expect.objectContaining({
-                                app_source: 'hog_function',
-                                app_source_id: fnFetchNoFilters.id.toString(),
-                                metric_kind: 'success',
-                                metric_name: 'succeeded',
-                            }),
-                        }),
-                    ])
-                )
-
-                // Verify log messages
-                expect(logMessages).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            value: expect.objectContaining({
-                                level: 'debug',
-                                message: expect.stringContaining('Suspending function due to async function call'),
-                            }),
-                        }),
-                        expect.objectContaining({
-                            value: expect.objectContaining({
-                                level: 'info',
-                                message: expect.stringContaining('Fetch response:'),
-                            }),
-                        }),
-                        expect.objectContaining({
-                            value: expect.objectContaining({
-                                level: 'debug',
-                                message: expect.stringContaining('Function completed in'),
-                            }),
-                        }),
-                    ])
-                )
+                expect(getProducedKafkaMessages()).toHaveLength(7)
             }, 5000)
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -180,6 +127,89 @@ describe('CDP Consumer loop', () => {
                   },
                 ]
             `)
+
+            const logMessages = getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+            const metricsMessages = getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+
+            expect(metricsMessages).toMatchObject([
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
+                        count: 1,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
+                        count: 1,
+                        metric_kind: 'success',
+                        metric_name: 'succeeded',
+                        team_id: 2,
+                    },
+                },
+            ])
+
+            expect(logMessages).toMatchObject([
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: 'Executing function',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: expect.stringContaining(
+                            "Suspending function due to async function call 'fetch'. Payload:"
+                        ),
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: 'Resuming function',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'info',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: `Fetch response:, {"status":200,"body":{"success":true}}`,
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'log_entries_test',
+                    value: {
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: fnFetchNoFilters.id.toString(),
+                        message: expect.stringContaining('Function completed in'),
+                        team_id: 2,
+                    },
+                },
+            ])
         })
     })
 })
