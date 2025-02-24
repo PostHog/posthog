@@ -79,11 +79,11 @@ class FuturesMap(dict[K, Future[V]]):
 
 
 class ConnectionInfo(NamedTuple):
-    host_name: str
+    host: str
     port: int | None
 
     def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
-        return _make_ch_pool(host=self.host_name, port=self.port, settings=client_settings)
+        return _make_ch_pool(host=self.host, port=self.port, settings=client_settings)
 
 
 class HostInfo(NamedTuple):
