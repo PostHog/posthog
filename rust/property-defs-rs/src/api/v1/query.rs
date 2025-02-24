@@ -231,7 +231,7 @@ impl Manager {
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
         project_id: i32,
-        property_type: &String,
+        property_type: &str,
         filter_by_event_names: &Option<bool>,
         event_names: &'a Option<Vec<String>>,
     ) -> QueryBuilder<'a, Postgres> {
@@ -282,7 +282,7 @@ impl Manager {
     fn where_property_type<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        property_type: &'a String,
+        property_type: &'a str,
     ) -> QueryBuilder<'a, Postgres> {
         qb.push("AND type = ");
         qb.push_bind(property_type);
@@ -293,7 +293,7 @@ impl Manager {
     fn conditionally_filter_excluded_properties<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        property_type: &String,
+        property_type: &str,
         excluded_properties: &'a Option<Vec<String>>,
     ) -> QueryBuilder<'a, Postgres> {
         // conditionally filter on excluded_properties
