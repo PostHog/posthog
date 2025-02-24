@@ -4,6 +4,7 @@ from typing import Any, Literal, Optional, cast
 from unittest.mock import patch
 from uuid import uuid4
 
+from django.test import override_settings
 import pytest
 from langchain_core import messages
 from langchain_core.agents import AgentAction
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 from ee.hogai.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.memory import prompts as memory_prompts
 from ee.hogai.retention.nodes import RetentionSchemaGeneratorOutput
+from ee.hogai.root.nodes import search_documentation
 from ee.hogai.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import PartialAssistantState
@@ -224,7 +226,15 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_root()
+            .add_root(
+                {
+                    "trends": AssistantNodeName.TRENDS_PLANNER,
+                    "funnel": AssistantNodeName.FUNNEL_PLANNER,
+                    "retention": AssistantNodeName.RETENTION_PLANNER,
+                    "root": AssistantNodeName.ROOT,
+                    "end": AssistantNodeName.END,
+                }
+            )
             .add_trends_planner(AssistantNodeName.END)
             .add_funnel_planner(AssistantNodeName.END)
             .add_retention_planner(AssistantNodeName.END)
@@ -864,3 +874,36 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
             actual_output = self._run_assistant_graph(graph)
             self.assertConversationEqual(actual_output, expected_output)
+
+    @override_settings(INKEEP_API_KEY="test")
+    @patch("ee.hogai.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.inkeep_docs.nodes.InkeepDocsNode._get_model")
+    def test_inkeep_docs_basic_search(self, inkeep_docs_model_mock, root_model_mock):
+        """Test basic documentation search functionality using Inkeep."""
+        graph = (
+            AssistantGraph(self.team)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root(
+                {
+                    "docs": AssistantNodeName.INKEEP_DOCS,
+                    "root": AssistantNodeName.ROOT,
+                    "end": AssistantNodeName.END,
+                }
+            )
+            .add_inkeep_docs()
+            .compile()
+        )
+
+        root_model_mock.return_value = RunnableLambda(
+            lambda _: messages.AIMessage(
+                content="", tool_calls=[{"name": search_documentation.__name__, "id": "1", "args": {}}]
+            )
+        )
+        inkeep_docs_model_mock.return_value = RunnableLambda(
+            lambda _: messages.AIMessage(content="Here's what I found in the docs...")
+        )
+        output = self._run_assistant_graph(graph, message="How do I use feature flags?")
+
+        self.assertEqual((output[0][1]["type"], output[0][1]["content"]), ("human", "How do I use feature flags?"))
+        self.assertEqual((output[1][1]["type"], output[1][1]["content"]), ("ai/reasoning", "Checking PostHog docs"))
+        self.assertEqual((output[2][1]["type"], output[2][1]["content"]), ("ai", "Here's what I found in the docs..."))

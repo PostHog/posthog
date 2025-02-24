@@ -129,3 +129,4 @@ class AssistantNodeName(StrEnum):
     QUERY_EXECUTOR = "query_executor"
     MEMORY_COLLECTOR = "memory_collector"
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
+    INKEEP_DOCS = "inkeep_docs"

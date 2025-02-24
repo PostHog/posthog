@@ -73,6 +73,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
             feature_flag=feature_flag,
             start_date=start_date,
             end_date=end_date,
+            exposure_criteria=None,
         )
 
     def setUp(self):

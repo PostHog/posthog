@@ -19,10 +19,7 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import {
-    SessionRecordingPlaylistBottomSettings,
-    SessionRecordingsPlaylistTopSettings,
-} from './SessionRecordingsPlaylistSettings'
+import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 export function SessionRecordingsPlaylist({
@@ -111,7 +108,6 @@ export function SessionRecordingsPlaylist({
                     embedded={!!notebookNode}
                     sections={sections}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
-                    footerActions={<SessionRecordingPlaylistBottomSettings />}
                     filterActions={
                         notebookNode ? null : (
                             <RecordingsUniversalFilters

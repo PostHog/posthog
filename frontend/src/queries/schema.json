@@ -8869,6 +8869,9 @@
                 "code_name": {
                     "type": "string"
                 },
+                "isNull": {
+                    "type": "boolean"
+                },
                 "value": {},
                 "variableId": {
                     "type": "string"
@@ -13861,11 +13864,18 @@
                     "type": "string"
                 },
                 "viewed": {
-                    "description": "Whether this recording has been viewed already.",
+                    "description": "Whether this recording has been viewed by you already.",
                     "type": "boolean"
+                },
+                "viewers": {
+                    "description": "user ids of other users who have viewed this recording",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["id", "viewed", "recording_duration", "start_time", "end_time", "snapshot_source"],
+            "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
             "type": "object"
         },
         "SessionsTimelineQuery": {
