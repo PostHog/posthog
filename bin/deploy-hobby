@@ -231,7 +231,7 @@ if bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_heal
         \"event\": \"magic_curl_install_complete\"
     }" https://us.i.posthog.com/batch/ &> /dev/null
 else
-    echo "Failed to detect PostHog web boot. Please check the logs for more details."
+    echo "Failed to detect PostHog web boot. Please check the logs with 'docker-compose logs' for more details."
 fi
 
 echo ""
