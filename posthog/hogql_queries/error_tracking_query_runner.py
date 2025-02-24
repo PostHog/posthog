@@ -3,6 +3,7 @@ import structlog
 from typing import Any
 
 from posthog.hogql import ast
+from posthog.hogql.base import CTE
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -12,6 +13,7 @@ from posthog.schema import (
     ErrorTrackingSparklineConfig,
     ErrorTrackingQueryResponse,
     CachedErrorTrackingQueryResponse,
+    Interval,
 )
 from posthog.hogql.parser import parse_expr
 from posthog.models.filters.mixins.utils import cached_property
@@ -33,6 +35,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
     response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
+    sparklineConfigs: dict[str, ErrorTrackingSparklineConfig]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -42,14 +45,24 @@ class ErrorTrackingQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
 
+        self.sparkLineConfigs = {
+            "volumeDay": ErrorTrackingSparklineConfig(interval=Interval.HOUR, value=24),
+            "volumeMonth": ErrorTrackingSparklineConfig(interval=Interval.DAY, value=31)
+        }
+
+        if self.query.customVolume:
+            self.sparkLineConfigs["customVolume"] = self.query.customVolume
+
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
+            ctes=self.sparkline_ctes(),
             select=self.select(),
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=self.where(),
             order_by=self.order_by,
             group_by=[ast.Field(chain=["issue_id"])],
         )
+
 
     def select(self):
         exprs: list[ast.Expr] = [
@@ -77,12 +90,10 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="volumeDay", expr=self.volume(ErrorTrackingSparklineConfig(interval="hour", value=24))),
-            ast.Alias(alias="volumeMonth", expr=self.volume(ErrorTrackingSparklineConfig(interval="day", value=31))),
         ]
 
-        if self.query.customVolume:
-            exprs.append(ast.Alias(alias="customVolume", expr=self.volume(self.query.customVolume)))
+        for (alias, _) in self.sparkLineConfigs.items():
+            exprs.append(ast.Alias(alias=alias, expr=self.sparkline_volume(alias)))
 
         if self.query.issueId:
             exprs.append(
@@ -226,11 +237,98 @@ class ErrorTrackingQueryRunner(QueryRunner):
         aggregations["customVolume"] = result.get("customVolume") if "customVolume" in result else None
         return aggregations
 
-    def volume(self, config: ErrorTrackingSparklineConfig):
+    def sparkline_volume(self, alias: str):
+        # This function basically takes an alias to a CTE, and rotates that to turn it into an array column in the result, using the CTEs alias as the column name
+        # It needs to join on issue_id
+        return parse_expr(f"groupArray(SELECT count FROM cte_{alias})")
+
+    # We use CTEs to calculate the volume for sparklines
+    def sparkline_ctes(self):
+        ctes: dict[str, CTE] = {}
+
+        for (alias, config) in self.sparkLineConfigs.items():
+            subquery = self.sparkline_cte_select(config)
+            ctes[f"cte_{alias}"] = ast.CTE(
+                name = f"cte_{alias}",
+                expr = subquery,
+                cte_type = "subquery"
+            )
+
+
+        return ctes
+
+
+    def sparkline_cte_select(self, config: ErrorTrackingSparklineConfig):
         toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
-        return parse_expr(
-            f"reverse(arrayMap(x -> countEqual(groupArray(dateDiff('{config.interval}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now()))), x), range({config.value})))"
+        intervalStr = config.interval.value
+
+        samples = CTE(name="s", expr=parse_expr(f"(SELECT arrayJoin(range({config.value})) AS diff)"), cte_type="subquery")
+
+        distinct_issues_select = ast.SelectQuery(
+            select = [ast.Alias(alias="issue_id", expr=ast.Field(chain=["issue_id"]))],
+            distinct = True,
+            select_from = ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where = self.where(),
         )
+        distinct_issues = CTE(name="di", expr=distinct_issues_select, cte_type="subquery")
+
+        event_counts_select = ast.SelectQuery(
+            select = [
+                ast.Alias(alias="count", expr=ast.Call(name="count", args=[ast.Field(chain=["uuid"])])),
+                parse_expr(f"dateDiff('{intervalStr}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now())) as diff"),
+                ast.Alias(alias="issue_id", expr=ast.Field(chain=["issue_id"])),
+            ],
+            select_from = ast.JoinExpr(table=ast.Field(chain=["events"])),
+            group_by = [ast.Field(chain=["diff"]), ast.Field(chain=["issue_id"])],
+            where = self.where(),
+            having = ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["diff"]), right=ast.Constant(value=24)),
+        )
+
+        event_counts = CTE(name="ec", expr=event_counts_select, cte_type="subquery")
+
+        ctes = {
+            "s": samples,
+            "di": distinct_issues,
+            "ec": event_counts
+        }
+
+        return ast.SelectQuery(
+            ctes = ctes,
+            select = [
+                parse_expr("coalesce(ec.count, 0) as count"),
+                parse_expr("s.diff as diff"),
+                parse_expr("di.issue_id as issue_id")
+            ],
+            #FROM s CROSS JOIN di LEFT JOIN ec ON s.diff = ec.diff AND di.issue_id = ec.issue_id
+            select_from = ast.JoinExpr(
+                table=ast.Field(chain=["s"]),
+                next_join=ast.JoinExpr(
+                    join_type="CROSS JOIN",
+                    table=ast.Field(chain=["di"]),
+                    next_join=ast.JoinExpr(
+                        join_type="LEFT JOIN",
+                        table=ast.Field(chain=["ec"]),
+                        constraint=ast.JoinConstraint(
+                            constraint_type="ON",
+                            expr=ast.And(exprs=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["s", "diff"]),
+                                    right=ast.Field(chain=["ec", "diff"]),
+                                    op=ast.CompareOperationOp.Eq
+                                ),
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["di", "issue_id"]),
+                                    right=ast.Field(chain=["ec", "issue_id"]),
+                                    op=ast.CompareOperationOp.Eq
+                                )
+                            ])
+                        )
+                    )
+                )
+            ),
+            order_by = [ast.OrderExpr(expr=ast.Field(chain=["diff"]), order="ASC")],
+        )
+
 
     @property
     def order_by(self):
