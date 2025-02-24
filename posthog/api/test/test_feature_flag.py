@@ -395,6 +395,21 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_with_analytics_dashboards(self, mock_capture):
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "feature-with-analytics-dashboards", "analytics_dashboards": [dashboard.pk]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["key"], "feature-with-analytics-dashboards")
+        self.assertEqual(len(response.json()["analytics_dashboards"]), 1)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.key, "feature-with-analytics-dashboards")
+        self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_multivariate_feature_flag(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -3402,6 +3417,110 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
                 {b"165192618": b"6"},
             )
+
+    @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", True)
+    def test_local_evaluation_quota_limited(self):
+        """Test that local evaluation returns 402 Payment Required when over quota."""
+        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource
+
+        # Set up a feature flag
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"groups": [{"rollout_percentage": 65}]},
+            },
+            format="json",
+        )
+
+        # Mock the quota limiting cache to simulate being over quota
+        with patch(
+            "ee.billing.quota_limiting.list_limited_team_attributes",
+            return_value=[self.team.api_token],
+        ) as mock_quota_limited:
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+            mock_quota_limited.assert_called_once_with(
+                QuotaResource.FEATURE_FLAG_REQUESTS,
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+            response_data = response.json()
+
+            # Verify the error response structure
+            self.assertEqual(
+                response_data,
+                {
+                    "type": "quota_limited",
+                    "detail": "You have exceeded your feature flag request quota",
+                    "code": "payment_required",
+                },
+            )
+
+    @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", True)
+    def test_local_evaluation_not_quota_limited(self):
+        """Test that local evaluation returns normal response when not over quota."""
+        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource
+
+        # Set up a feature flag
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"groups": [{"rollout_percentage": 65}]},
+            },
+            format="json",
+        )
+
+        # Mock the quota limiting cache to simulate not being over quota
+        with patch(
+            "ee.billing.quota_limiting.list_limited_team_attributes",
+            return_value=[],
+        ) as mock_quota_limited:
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+            mock_quota_limited.assert_called_once_with(
+                QuotaResource.FEATURE_FLAG_REQUESTS,
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+
+            # Verify normal response structure when not quota limited
+            self.assertTrue(len(response_data["flags"]) > 0)
+            self.assertNotIn("quotaLimited", response_data)
+
+    @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", False)
+    def test_local_evaluation_quota_check_disabled(self):
+        """Test that local evaluation bypasses quota check when the setting is disabled."""
+
+        # Set up a feature flag
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"groups": [{"rollout_percentage": 65}]},
+            },
+            format="json",
+        )
+
+        with patch(
+            "ee.billing.quota_limiting.list_limited_team_attributes",
+        ) as mock_quota_limited:
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
+
+            # Verify quota limiting was not checked
+            mock_quota_limited.assert_not_called()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+
+            # Verify normal response structure
+            self.assertTrue(len(response_data["flags"]) > 0)
+            self.assertNotIn("quotaLimited", response_data)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):

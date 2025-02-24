@@ -224,6 +224,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "start_date": None,
                 "current_iteration": None,
                 "current_iteration_start_date": None,
+                "schedule": "once",
             },
             {
                 "id": str(survey_with_flags.id),
@@ -239,6 +240,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "targeting_flag_key": "targeting-flag",
                 "internal_targeting_flag_key": "custom-targeting-flag",
                 "current_iteration_start_date": None,
+                "schedule": "once",
             },
             {
                 "id": str(survey_with_actions.id),
@@ -274,6 +276,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "start_date": None,
                 "current_iteration": None,
                 "current_iteration_start_date": None,
+                "schedule": "once",
             },
         ]
 

@@ -168,7 +168,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
         >
             <div
                 className={twMerge(
-                    'border py-2 px-3 rounded-lg bg-surface-primary',
+                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
                     type === 'human' && 'font-medium',
                     boxClassName
                 )}
@@ -284,7 +284,7 @@ function VisualizationAnswer({
         ? null
         : query && (
               <>
-                  <MessageTemplate type="ai" className="min-h-60 w-full" boxClassName="w-full">
+                  <MessageTemplate type="ai" className="w-full" boxClassName="flex flex-col min-h-60 w-full">
                       <Query query={query} readOnly embedded />
                       <div className="flex items-center justify-between mt-2">
                           <LemonButton

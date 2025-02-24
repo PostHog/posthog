@@ -1822,6 +1822,10 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                         "usage": 1000,
                         "limit": None,
                     },
+                    "feature_flag_requests": {
+                        "usage": 1000,
+                        "limit": None,
+                    },
                 },
             }
         }
@@ -1969,6 +1973,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             "events": {"limit": None, "usage": 10000, "todays_usage": 0},
             "recordings": {"limit": None, "usage": 1000, "todays_usage": 0},
             "rows_synced": {"limit": None, "usage": 1000, "todays_usage": 0},
+            "feature_flag_requests": {"limit": None, "usage": 1000, "todays_usage": 0},
             "period": ["2021-10-01T00:00:00Z", "2021-10-31T00:00:00Z"],
         }
 

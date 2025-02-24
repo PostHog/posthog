@@ -1,1 +1,1 @@
-0671_alter_errortrackingissuefingerprintv2_issue
+0675_add_playlist_viewed

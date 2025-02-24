@@ -126,8 +126,8 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
             case "smallint":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                precision = col.numeric_precision or DEFAULT_NUMERIC_PRECISION
-                scale = col.numeric_scale or DEFAULT_NUMERIC_SCALE
+                precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
+                scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
 
                 arrow_type = build_pyarrow_decimal_type(precision, scale)
             case "real":
