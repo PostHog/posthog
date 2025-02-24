@@ -98,6 +98,34 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     bin/turbo --filter=@posthog/plugin-server prepare
 
+
+# Build delta-rs package from source
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_18.19.1 AS delta-rs-build
+
+# Install required build tools
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "make" \
+    "g++" \
+    "gcc" \
+    "python3" \
+    "libssl-dev" \
+    "zlib1g-dev" \
+    "git" \
+    && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN cargo install --locked maturin
+
+WORKDIR /code
+
+# Clone the delta-rs repository
+RUN git clone --depth 1 --branch python-v0.25.1 https://github.com/delta-io/delta-rs.git
+WORKDIR /code/delta-rs/python
+
+# Build the delta-rs wheel
+RUN RUSTFLAGS="-C target-cpu=native" maturin build --release --out wheels
+
 #
 # ---------------------------------------------------------
 #
@@ -122,6 +150,10 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/* && \
     PIP_NO_BINARY=lxml,xmlsec pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
+
+# Copy and install the delta-rs wheel built
+COPY --from=delta-rs-build /code/delta-rs/python/wheels/*.whl /delta-rs-wheels/
+RUN pip install /delta-rs-wheels/*.whl --force-reinstall --upgrade --no-cache-dir --target=/python-runtime
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
