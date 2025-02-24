@@ -93,7 +93,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                                 className="text-xs"
                                 count={count}
                                 maxDigits={3}
-                                showCountHasMore={recordings_counts.has_more}
+                                forcePlus={recordings_counts.has_more}
                             />
                         ) : (
                             <LemonBadge status="muted" content="?" />

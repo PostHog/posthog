@@ -28,7 +28,7 @@ export interface LemonBadgeNumberProps extends LemonBadgePropsBase {
     /**
      * Whether to force the badge to show a plus with the number e.g. if we know we have the count of a page of values but there are more available
      */
-    showCountHasMore?: boolean
+    forcePlus?: boolean
 }
 
 /** An icon-sized badge. */
@@ -76,7 +76,7 @@ const LemonBadgeComponent: React.FunctionComponent<LemonBadgeProps & React.RefAt
  */
 const LemonBadgeNumber: React.FunctionComponent<LemonBadgeNumberProps & React.RefAttributes<HTMLSpanElement>> =
     forwardRef(function LemonBadgeNumber(
-        { count, maxDigits = 1, showZero = false, showCountHasMore = false, ...badgeProps },
+        { count, maxDigits = 1, showZero = false, forcePlus = false, ...badgeProps },
         ref
     ): JSX.Element {
         if (maxDigits < 1) {
@@ -94,7 +94,8 @@ const LemonBadgeNumber: React.FunctionComponent<LemonBadgeNumberProps & React.Re
                 : showZero
                 ? '0'
                 : '1'
-        if (showCountHasMore && !text.includes('+')) {
+
+        if (forcePlus && !text.includes('+')) {
             text += '+'
         }
 
