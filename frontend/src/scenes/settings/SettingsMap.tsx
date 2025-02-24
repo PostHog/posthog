@@ -98,7 +98,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'authorized-urls',
-                title: 'Authorized URLs',
+                title: 'Toolbar Authorized URLs',
                 component: <TeamAuthorizedURLs />,
             },
             {
@@ -237,7 +237,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'web-analytics-authorized-urls',
-                title: 'Authorized URLs',
+                title: 'Web Analytics Domains',
                 component: <TeamAuthorizedURLs />,
             },
             {
