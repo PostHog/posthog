@@ -5,20 +5,47 @@ import path from 'path';
 import HtmlWebpackPlugin from 'html-webpack-plugin';
 const isDev = process.env.NODE_ENV === 'development';
 
+const distPath = path.resolve(__dirname, 'dist');
 export default defineConfig({
-  entry: path.resolve(__dirname, 'src/index.tsx'),
+  mode: isDev ? 'development' : 'production',
+  entry: {
+    app: path.resolve(__dirname, './src/index.tsx'),
+  },
   output: {
-    path: path.resolve(__dirname, 'dist-rspack'),
-    filename: 'index_bundle.js',
+    globalObject: 'self',
+    path: distPath,
+    filename: '[name].js',
+    publicPath: '/static/',
   },
   devServer: {
-    port: 8080,
+    port: 8010,
+    host: process.env.WEBPACK_HOT_RELOAD_HOST || 'localhost',
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': '*',
+    },
+    devMiddleware: {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': '*',
+      },
+      publicPath: '/static/'
+    },
+    static: {
+      directory: path.join(__dirname, 'dist'),
+      publicPath: '/',
+      serveIndex: true,
+    },
+    historyApiFallback: {
+      index: '/index.html'
+    }
   },
   experiments: {
     css: true,
+    asyncWebAssembly: true,
   },
   resolve: {
-    tsConfig: path.resolve(__dirname, 'tsconfig.json'),
+    tsConfig: path.resolve(__dirname, 'tsconfig.dev.json'),
     extensions: ['.js', '.jsx', '.ts', '.tsx'],
     alias: {
       '~': path.resolve(__dirname, 'src'),
@@ -33,89 +60,135 @@ export default defineConfig({
       storybook: path.resolve(__dirname, '../common/storybook'),
       types: path.resolve(__dirname, '../src/types'),
       cypress: path.resolve(__dirname, '../cypress'),
-      process: 'process/browser',
+      // process: 'process/browser',
       products: path.resolve(__dirname, '../products'),
       public: path.resolve(__dirname, './public'),
+      'process/browser': require.resolve('process/browser.js'),
     },
-    fallback: { "crypto": "crypto-browserify", "stream": "stream-browserify" }
+    fallback: {
+      crypto: "crypto-browserify",
+      stream: "stream-browserify",
+      process: require.resolve('process/browser.js'),
+    },
   },
   plugins: [
-    // new rspack.CopyRspackPlugin({
-    //   // `./src/file.txt` -> `./dist/file.txt`
-    //   patterns: [{
-    //     from: path.resolve(__dirname, 'src/index.html'), 
-    //     to: path.resolve(__dirname, 'dist/index.html') 
-    //   }],
+    new rspack.CopyRspackPlugin({
+      // `./src/file.txt` -> `./dist/file.txt`
+      patterns: [{
+        from: path.resolve(__dirname, 'public'), 
+        to: distPath 
+      }],
+    }),
+    // new HtmlWebpackPlugin({
+    //   title: 'PostHog',
+    //   template: path.resolve(__dirname, 'src/index.ejs'),
+    //   templateParameters: {
+    //     // Add any template parameters you need
+    //   },
+    //   inject: true,
+    //   minify: {
+    //     ignoreCustomFragments: [
+    //       /{%[\s\S]*?%}/,
+    //       /{{[\s\S]*?}}/
+    //     ]
+    //   }
     // }),
     new HtmlWebpackPlugin({
-      title: 'PostHog',
-      template: path.resolve(__dirname, 'src/index.ejs'),
-      templateParameters: {
-        // Add any template parameters you need
-      },
+      filename: path.join(distPath, 'index.html'), // explicitly set output path
+      template: path.resolve(__dirname, 'src/index.html'),
       inject: true,
-      // minify: {
-      //   ignoreCustomFragments: [
-      //     /{%[\s\S]*?%}/,
-      //     /{{[\s\S]*?}}/
-      //   ]
-      // }
+      templateParameters: false,
+      minify: {
+        removeComments: false,
+        collapseWhitespace: false,
+        ignoreCustomFragments: [
+          /\{%[\s\S]*?%}/,
+          /\{\{[\s\S]*?}}/
+        ]
+      }
     }),
-    isDev && new ReactRefreshPlugin(),
+    new rspack.ProvidePlugin({
+      process: 'process/browser.js',
+    }),
+    // new HtmlRspackPlugin({
+    //   title: 'PostHog',
+    //   template: path.resolve(__dirname, 'src/index.ejs'),
+    //   templateParameters: {
+    //     // Add any template parameters you need
+    //   },
+    //   inject: true,
+    //   // minify: {
+    //   //   ignoreCustomFragments: [
+    //   //     /{%[\s\S]*?%}/,
+    //   //     /{{[\s\S]*?}}/
+    //   //   ]
+    //   // }
+    // }),
+    new rspack.DefinePlugin({
+      'process.env.JS_URL': JSON.stringify(process.env.JS_URL),
+      'process.env.LOCAL_HTTPS': JSON.stringify(process.env.LOCAL_HTTPS),
+      'process.env.WEBPACK_HOT_RELOAD_HOST': JSON.stringify(process.env.WEBPACK_HOT_RELOAD_HOST),
+      'process.env.WEBPACK_HOT_RELOAD_FRONTEND_ADDR': JSON.stringify(process.env.WEBPACK_HOT_RELOAD_FRONTEND_ADDR),
+    }),
+    isDev && new ReactRefreshPlugin({
+      exclude: [/node_modules/, /\.json$/],  // Add JSON files to exclude
+      include: /\.([jt]sx?|mjs)$/,  // Only include JS/TS files
+      overlay: true
+    }),
     isDev && new rspack.HotModuleReplacementPlugin(),
     new rspack.ProgressPlugin({}),
-  ],
+  ].filter(Boolean),
   module: {
     rules: [
+      // Add specific JSON handling
       {
-        test: /\.ts$/,
-        exclude: [/node_modules/],
-        loader: 'builtin:swc-loader',
-        options: {
-          jsc: {
-            parser: {
-              syntax: 'typescript',
+        test: /\.json$/,
+        type: 'json',  // Use built-in JSON loader
+        exclude: /node_modules/
+      },
+      {
+        test: /\.tsx$/,
+        use: {
+          loader: 'builtin:swc-loader',
+          options: {
+            sourceMap: true,
+            jsc: {
+              parser: {
+                syntax: 'typescript',
+                jsx: true,
+              },
+              preserveAllComments: false,
+              transform: {
+                react: {
+                  runtime: 'automatic',
+                  throwIfNamespace: true,
+                  useBuiltins: false,
+                },
+              },
             },
           },
         },
         type: 'javascript/auto',
       },
       {
-        test: /\.(jsx?|tsx?)$/,
-        exclude: /[\\/]node_modules[\\/]/,
-        use: [
-          {
-            loader: 'builtin:swc-loader',
-            options: {
-              sourceMap: true,
-              jsc: {
-                parser: {
-                  syntax: 'typescript',
-                  tsx: true,
-                },
-                transform: {
-                  react: {
-                    runtime: 'automatic',
-                    development: isDev,
-                    refresh: isDev,
-                  },
-                },
+        test: /\.ts$/,
+        use: {
+          loader: 'builtin:swc-loader',
+          options: {
+            sourceMap: true,
+            jsc: {
+              parser: {
+                syntax: 'typescript',
               },
-              env: {
-                targets: [
-                  'chrome >= 87',
-                  'edge >= 88',
-                  'firefox >= 78',
-                  'safari >= 14',
-                ],
-              },
+              preserveAllComments: false,
             },
           },
-        ],
+        },
         type: 'javascript/auto',
       },
       {
         test: /\.(sass|scss)$/,
+        exclude: /node_modules/,
         use: {
           loader: 'sass-loader',
           options: {
@@ -127,6 +200,7 @@ export default defineConfig({
       },
       {
         test: /\.css$/,
+        exclude: /node_modules/,
         use: {
           loader: 'builtin:lightningcss-loader',
         },
@@ -134,9 +208,9 @@ export default defineConfig({
       },
       {
         test: /\.(png|jpe?g|gif|svg|lottie)$/,
+        exclude: /node_modules/,
         type: 'asset/resource'
       },
     ],
   },
-
 });
