@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify'
+import { SURVEY_RESPONSE_PROPERTY } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import { SurveyAppearance } from '~/types'
@@ -32,7 +33,17 @@ export function validateColor(color: string | undefined, fieldName: string): str
 }
 
 export function getSurveyResponseKey(questionIndex: number): string {
-    return questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+    return questionIndex === 0 ? SURVEY_RESPONSE_PROPERTY : `${SURVEY_RESPONSE_PROPERTY}_${questionIndex}`
+}
+
+export function getSurveyResponseKeyWithId(questionIndex: number, questionId?: string): string {
+    // If we have a question ID, use the ID-based format
+    if (questionId) {
+        return `${SURVEY_RESPONSE_PROPERTY}_${questionId}`
+    }
+
+    // Otherwise, fall back to the index-based format
+    return getSurveyResponseKey(questionIndex)
 }
 
 export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): SurveyAppearance | null {
