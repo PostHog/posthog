@@ -30,7 +30,7 @@ from posthog.models import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.warehouse.util import database_sync_to_async
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
@@ -337,7 +337,50 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris)
 
     key, delta_table = tables.popitem()
+
+    row_count = await asyncio.to_thread(count_delta_table_rows, delta_table)
+    await update_table_row_count(saved_query, row_count)
+
     return (key, delta_table)
+
+
+def count_delta_table_rows(delta_table: DeltaTable) -> int:
+    """
+    Count the number of rows in a Delta table using metadata.
+    For large tables, we can use Delta table metadata instead of loading the entire table
+    """
+
+    try:
+        # Try to get row count from table metadata
+        stats = delta_table.get_stats()
+        if "numRecords" in stats:
+            return stats["numRecords"]
+    except (AttributeError, KeyError):
+        pass
+
+    # Fallback: Count rows by scanning the table
+    # This is more efficient than loading the entire table into memory
+    count = 0
+    for batch in delta_table.to_pyarrow_dataset().to_batches():
+        count += len(batch)
+    return count
+
+
+async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count: int) -> None:
+    """Update the row count in the DataWarehouseTable record."""
+    try:
+        table = await database_sync_to_async(
+            DataWarehouseTable.objects.filter(team_id=saved_query.team_id, name=saved_query.name).first
+        )()
+
+        if table:
+            table.row_count = row_count
+            await database_sync_to_async(table.save)()
+            await logger.ainfo("Updated row count for table %s to %d", saved_query.name, row_count)
+        else:
+            await logger.awarning("Could not find DataWarehouseTable record for saved query %s", saved_query.name)
+    except Exception as e:
+        await logger.aexception("Failed to update row count for table %s: %s", saved_query.name, str(e))
 
 
 @dlt.source(max_table_nesting=0)
@@ -597,7 +640,37 @@ class CreateTableActivityInputs:
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     """Activity that creates tables for a list of saved queries."""
     for model in inputs.models:
-        await create_table_from_saved_query(model, inputs.team_id)
+        table = await create_table_from_saved_query(model, inputs.team_id)
+
+        if table:
+            try:
+                # Get the saved query to access the Delta table
+                saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.get)(
+                    id=model, team_id=inputs.team_id
+                )
+
+                # Create a pipeline to access the Delta table
+                destination = get_dlt_destination()
+                pipeline = dlt.pipeline(
+                    pipeline_name=f"materialize_model_{model}",
+                    destination=destination,
+                    dataset_name=f"team_{inputs.team_id}_model_{model}",
+                )
+
+                # Get the Delta tables from the pipeline
+                tables = get_delta_tables(pipeline)
+
+                if tables:
+                    # Get the first Delta table
+                    _, delta_table = tables.popitem()
+
+                    # Count rows in the Delta table
+                    row_count = await asyncio.to_thread(count_delta_table_rows, delta_table)
+
+                    # Update the row count
+                    await update_table_row_count(saved_query, row_count)
+            except Exception as e:
+                await logger.aexception("Failed to update row count for table after creation: %s", str(e))
 
 
 async def update_saved_query_status(
