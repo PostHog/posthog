@@ -10,6 +10,7 @@ members = [
     "common/dns",
     "common/alloc",
     "common/types",
+    "common/limiters",
     "feature-flags",
     "hook-api",
     "hook-common",

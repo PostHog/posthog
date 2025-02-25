@@ -1184,6 +1184,7 @@ dependencies = [
  "futures",
  "governor",
  "health",
+ "limiters",
  "metrics",
  "metrics-exporter-prometheus",
  "once_cell",
@@ -3377,6 +3378,20 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "limiters"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "governor",
+ "metrics",
+ "rand",
+ "redis",
+ "time",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

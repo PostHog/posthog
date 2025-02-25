@@ -41,6 +41,7 @@ pub enum QuotaResource {
     // hopefully we can unify these in the future
     Recordings,
     Replay,
+    FeatureFlags,
 }
 
 impl QuotaResource {
@@ -49,6 +50,7 @@ impl QuotaResource {
             Self::Events => "events",
             Self::Recordings => "recordings",
             Self::Replay => "replay",
+            Self::FeatureFlags => "feature_flag_requests",
         }
     }
 }
@@ -209,5 +211,27 @@ mod tests {
 
         assert!(!prefixed_limiter.is_limited("not_limited").await);
         assert!(prefixed_limiter.is_limited("banana").await);
+    }
+
+    #[tokio::test]
+    async fn test_feature_flag_limiter() {
+        let client = MockRedisClient::new().zrangebyscore_ret(
+            "@posthog/quota-limits/feature_flag_requests",
+            vec![String::from("banana")],
+        );
+        let client = Arc::new(client);
+
+        let limiter = RedisLimiter::new(
+            Duration::seconds(1),
+            client,
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None,
+            QuotaResource::FeatureFlags,
+        )
+        .expect("Failed to create feature flag limiter");
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+        assert!(!limiter.is_limited("not_limited").await);
+        assert!(limiter.is_limited("banana").await);
     }
 }

@@ -31,6 +31,7 @@ pub struct State {
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdsToTrack,
+    pub billing_limiter: RedisLimiter,
 }
 
 pub fn router<R, D>(

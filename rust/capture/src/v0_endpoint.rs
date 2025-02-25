@@ -14,7 +14,6 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
-use crate::limiters::token_dropper::TokenDropper;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
     Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,

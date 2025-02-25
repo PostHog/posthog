@@ -1,0 +1,18 @@
+[package]
+name = "limiters"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+governor = { workspace = true }
+metrics = { workspace = true }
+rand = { workspace = true}
+tokio = { workspace = true }
+tracing = { workspace = true }
+time = { workspace = true }
+redis = { version = "0.23.3", features = [
+    "tokio-comp",
+    "cluster",
+    "cluster-async",
+] }
