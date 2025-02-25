@@ -9,6 +9,7 @@ from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager impor
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
 from posthog.schema import InsightThreshold, AlertState, AlertCalculationInterval
+from posthog.utils import deprecated
 
 
 ALERT_STATE_CHOICES = [
@@ -29,11 +30,8 @@ def are_alerts_supported_for_insight(insight: Insight) -> bool:
     return True
 
 
+@deprecated("AlertConfiguration should be used instead.")
 class Alert(models.Model):
-    """
-    @deprecated("AlertConfiguration should be used instead.")
-    """
-
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 
