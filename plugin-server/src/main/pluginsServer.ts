@@ -2,7 +2,6 @@ import * as Sentry from '@sentry/node'
 import fs from 'fs'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes, KafkaJSProtocolError } from 'kafkajs'
-// @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
