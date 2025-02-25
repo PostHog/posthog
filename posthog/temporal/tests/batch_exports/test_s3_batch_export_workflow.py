@@ -94,8 +94,6 @@ def compression(request) -> str | None:
     By decorating a test function with @pytest.mark.parametrize("compression", ..., indirect=True)
     it's possible to set the compression that will be used to create an S3
     BatchExport. Possible values are "brotli", "gzip", or None.
-
-    random change so this suite runs
     """
     try:
         return request.param
