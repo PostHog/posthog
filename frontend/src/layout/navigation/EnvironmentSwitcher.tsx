@@ -152,15 +152,14 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
 
 function determineProjectSwitchUrl(pathname: string, newTeamId: number): string {
     const { currentTeam } = teamLogic.values
-    const { sortedProjectsMap } = environmentSwitcherLogic.values
+    const { currentOrganization } = organizationLogic.values
 
     // Find the target team's project ID
     let targetTeamProjectId: number | null = null
-    for (const [_, [, teams]] of sortedProjectsMap.entries()) {
-        const targetTeam = teams.find((team) => team.id === newTeamId)
+    if (currentOrganization?.teams) {
+        const targetTeam = currentOrganization.teams.find((team) => team.id === newTeamId)
         if (targetTeam) {
             targetTeamProjectId = targetTeam.project_id
-            break
         }
     }
 
