@@ -605,6 +605,15 @@ async def test_run_workflow_with_minio_bucket(
     expected_events_a = [event for event in all_expected_events if event["distinct_id"] == "a"]
     expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
 
+    for query in saved_queries:
+        await DataWarehouseTable.objects.acreate(
+            name=query.name,
+            team=ateam,
+            format="Delta",
+            url_pattern=f"s3://{bucket_name}/team_{ateam.pk}_model_{query.id.hex}",
+            credential=None,
+        )
+
     workflow_id = str(uuid.uuid4())
     inputs = RunWorkflowInputs(team_id=ateam.pk)
 
