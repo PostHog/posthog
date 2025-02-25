@@ -3,7 +3,7 @@ import * as Sankey from 'd3-sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
+import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
 import { Paths } from './types'

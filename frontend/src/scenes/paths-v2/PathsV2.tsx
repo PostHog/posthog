@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { FunnelPathsFilter } from '~/queries/schema'
+import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 
 import { PathNodeLabel } from './PathNodeLabel'
 import { pathsDataLogic } from './pathsDataLogic'
