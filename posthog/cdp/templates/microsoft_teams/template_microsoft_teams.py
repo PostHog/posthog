@@ -108,7 +108,7 @@ if (res.status >= 400) {
             type="internal_destination",
             input_schema_overrides={
                 "text": {
-                    "default": "**🔴 {event.properties.name} created** {event.properties.description}",
+                    "default": "**🔴 {event.properties.name} created:** {event.properties.description}",
                 }
             },
         ),
@@ -120,7 +120,7 @@ if (res.status >= 400) {
             type="internal_destination",
             input_schema_overrides={
                 "text": {
-                    "default": "**🔄 {event.properties.name} reopened** {event.properties.description}",
+                    "default": "**🔄 {event.properties.name} reopened:** {event.properties.description}",
                 }
             },
         ),
