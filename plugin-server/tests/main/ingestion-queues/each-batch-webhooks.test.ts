@@ -94,7 +94,7 @@ describe('eachMessageWebhooksHandlers', () => {
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
         const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
-        groupTypeManager['groupTypesCache'].set(2, [
+        groupTypeManager['groupTypesCache'].set(2 as ProjectId, [
             {
                 organization: 0,
             },
@@ -121,6 +121,7 @@ describe('eachMessageWebhooksHandlers', () => {
                     is_calculating: false,
                     steps: [
                         {
+                            // @ts-expect-error TODO revisit this, but fixing TS for now
                             id: 913,
                             action_id: 69,
                             tag_name: null,

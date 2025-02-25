@@ -31,7 +31,7 @@ describe('elementsToString and chainToElements', () => {
             ].join(';')
         )
 
-        const elements = chainToElements(elementsString, { throwOnError: true })
+        const elements = chainToElements(elementsString, 0, { throwOnError: true })
         expect(elements.length).toBe(4)
         expect(elements[0].tag_name).toEqual('a')
         expect(elements[0].href).toEqual('/a-url')
@@ -51,12 +51,12 @@ describe('elementsToString and chainToElements', () => {
     })
 
     it('handles empty strings', () => {
-        const elements = chainToElements('', { throwOnError: true })
+        const elements = chainToElements('', 0, { throwOnError: true })
         expect(elements).toEqual([])
     })
 
     it('handles broken class names', () => {
-        const elements = chainToElements('"a........small', { throwOnError: true })
+        const elements = chainToElements('"a........small', 0, { throwOnError: true })
         expect(elements).not.toEqual([])
         expect(elements[0]).toEqual(
             expect.objectContaining({
@@ -82,7 +82,7 @@ describe('elementsToString and chainToElements', () => {
             'a.small.xy:z:attr_class="xyz small\\""href="/a-url"nth-child="0"nth-of-type="0"'
         )
 
-        const elements = chainToElements(elementsString, { throwOnError: true })
+        const elements = chainToElements(elementsString, 0, { throwOnError: true })
         expect(elements.length).toEqual(1)
         expect(elements[0]).toEqual(
             expect.objectContaining({
@@ -107,7 +107,7 @@ describe('elementsToString and chainToElements', () => {
         const elementsString = elementsToString([element])
 
         expect(elementsString).toEqual('.another.something:attr__class="something another"nth-child="0"nth-of-type="0"')
-        expect(chainToElements(elementsString)).toEqual([expect.objectContaining(element)])
+        expect(chainToElements(elementsString, 0)).toEqual([expect.objectContaining(element)])
     })
 })
 
