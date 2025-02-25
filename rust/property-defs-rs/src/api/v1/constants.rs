@@ -9,6 +9,10 @@ pub const DEFAULT_QUERY_OFFSET: i32 = 0;
 pub const SEARCH_TRIGGER_WORD: &str = "latest";
 pub const SEARCH_SCREEN_WORD: &str = "initial";
 
+pub const ENTERPRISE_PROP_DEFS_TABLE: &str = "ee_enterprisepropertydefinition";
+pub const PROPERTY_DEFS_TABLE: &str = "posthog_propertydefinition";
+pub const EVENT_PROPERTY_TABLE: &str = "posthog_eventproperty";
+pub const USER_TABLE: &str = "posthog_user";
 pub const POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS: &str = "check_for_matching_event_property";
 
 pub const PARENT_PROPERTY_TYPES: [&str; 4] = ["event", "person", "group", "session"];

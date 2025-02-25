@@ -1,8 +1,9 @@
 use crate::{
     api::v1::{
         constants::{
-            extract_aliases, EVENTS_HIDDEN_PROPERTY_DEFINITIONS,
-            POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS, SEARCH_SCREEN_WORD, SEARCH_TRIGGER_WORD,
+            extract_aliases, ENTERPRISE_PROP_DEFS_TABLE, EVENTS_HIDDEN_PROPERTY_DEFINITIONS,
+            EVENT_PROPERTY_TABLE, POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS, PROPERTY_DEFS_TABLE,
+            SEARCH_SCREEN_WORD, SEARCH_TRIGGER_WORD,
         },
         routing::Params,
     },
@@ -19,11 +20,6 @@ use std::collections::{HashMap, HashSet};
 pub struct Manager {
     pub pool: PgPool,
     search_term_aliases: HashMap<&'static str, &'static str>,
-
-    // extracted at init from config::Config
-    enterprise_prop_defs_table: String,
-    prop_defs_table: String,
-    event_props_table: String,
 }
 
 impl Manager {
@@ -33,9 +29,6 @@ impl Manager {
 
         Ok(Self {
             pool: api_pool,
-            enterprise_prop_defs_table: cfg.enterprise_prop_defs_table_name.clone(),
-            prop_defs_table: cfg.prop_defs_table_name.clone(),
-            event_props_table: cfg.event_props_table_name.clone(),
             search_term_aliases: extract_aliases(),
         })
     }
@@ -208,7 +201,7 @@ impl Manager {
             // "verified" col only exists on the enterprise prop defs table!
             qb.push(" verified DESC NULLS LAST, ");
         }
-        qb.push(format!(" {}.name ASC ", &self.prop_defs_table));
+        qb.push(format!(" {}.name ASC ", PROPERTY_DEFS_TABLE));
         qb.push(" ");
 
         // LIMIT and OFFSET clauses
@@ -231,11 +224,11 @@ impl Manager {
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L505-L506
             format!(
                 " FROM {0} FULL OUTER JOIN {1} ON {1}.id={0}.propertydefinition_ptr_id ",
-                &self.enterprise_prop_defs_table, &self.prop_defs_table
+                ENTERPRISE_PROP_DEFS_TABLE, PROPERTY_DEFS_TABLE
             )
         } else {
             // this is the default if enterprise taxonomy is not requested
-            format!(" FROM {} ", &self.prop_defs_table)
+            format!(" FROM {} ", PROPERTY_DEFS_TABLE)
         };
         qb.push(from_clause);
         qb.push(" ");
@@ -257,7 +250,7 @@ impl Manager {
             qb.push(self.event_property_join_type(filter_by_event_names));
             qb.push(format!(
                 " (SELECT DISTINCT property FROM {0} WHERE COALESCE(project_id, team_id) = ",
-                &self.event_props_table
+                EVENT_PROPERTY_TABLE
             ));
             qb.push_bind(project_id);
             qb.push(" ");
@@ -290,7 +283,7 @@ impl Manager {
     ) -> QueryBuilder<'a, Postgres> {
         qb.push(format!(
             "WHERE COALESCE({0}.project_id, {0}.team_id) = ",
-            self.prop_defs_table
+            PROPERTY_DEFS_TABLE
         ));
         qb.push_bind(project_id);
         qb.push(" ");
@@ -322,7 +315,7 @@ impl Manager {
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L241
         if let Some(excludes) = excluded_properties {
             if self.is_prop_type_event(property_type) && !excludes.is_empty() {
-                qb.push(format!(" AND NOT {0}.name = ANY(", self.prop_defs_table));
+                qb.push(format!(" AND NOT {0}.name = ANY(", PROPERTY_DEFS_TABLE));
                 let mut buf: Vec<&str> = vec![];
                 for entry in EVENTS_HIDDEN_PROPERTY_DEFINITIONS {
                     buf.push(entry);
