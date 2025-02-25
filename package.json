@@ -64,7 +64,7 @@
     },
     "pnpm": {
         "overrides": {
-            "playwright": "1.45.0",
+            "playwright": "1.50.1",
             "typescript": "~4.9.5"
         },
         "patchedDependencies": {
