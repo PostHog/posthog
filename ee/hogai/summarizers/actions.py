@@ -61,8 +61,8 @@ class ActionSummarizer:
 
     @property
     def summary(self) -> str:
-        steps = "\nOR\n".join(self._step_descriptions)
-        description = f"Name: {self._action.name}\nDescription: {self._action.description or '-'}\n{steps}"
+        steps = "\n\nOR\n\n".join(self._step_descriptions)
+        description = f"Name: {self._action.name}\nDescription: {self._action.description or '-'}\n\n{steps}"
         return description
 
     @property
@@ -85,24 +85,23 @@ class ActionSummarizer:
         description: list[str] = []
 
         if step.event:
-            event_desc = f"Match group {index + 1} for `{step.event}`"
-            description.append(event_desc)
+            description.append(f"event is `{step.event}`")
             if event_description := retrieve_hardcoded_taxonomy("events", step.event):
                 taxonomy.add(PropertyFilterTaxonomyEntry(group="events", key=step.event, description=event_description))
         if step.text_matching and step.text:
-            text_desc = f"Element text {ACTION_MATCH_FILTER_VERBOSE_NAME[step.text_matching]} `{step.text}`"
+            text_desc = f"element text {ACTION_MATCH_FILTER_VERBOSE_NAME[step.text_matching]} `{step.text}`"
             description.append(text_desc)
         if step.href_matching and step.href:
-            href_desc = f"Element `href` attribute {ACTION_MATCH_FILTER_VERBOSE_NAME[step.href_matching]} `{step.href}`"
+            href_desc = f"element `href` attribute {ACTION_MATCH_FILTER_VERBOSE_NAME[step.href_matching]} `{step.href}`"
             description.append(href_desc)
         if step.url_matching and step.url:
-            url_desc = f"The URL of event {ACTION_MATCH_FILTER_VERBOSE_NAME[step.url_matching]} `{step.url}`"
+            url_desc = f"the URL of event {ACTION_MATCH_FILTER_VERBOSE_NAME[step.url_matching]} `{step.url}`"
             description.append(url_desc)
         if step.selector:
-            html_desc = f"Element matches HTML selector `{step.selector}`"
+            html_desc = f"element matches HTML selector `{step.selector}`"
             description.append(html_desc)
         if step.tag_name:
-            tag_desc = f"Element tag is `{step.tag_name}`"
+            tag_desc = f"element tag is `{step.tag_name}`"
             description.append(tag_desc)
 
         if step.properties:
@@ -110,4 +109,5 @@ class ActionSummarizer:
             description.append(property_desc)
             taxonomy.update(used_properties)
 
-        return "\nAND\n".join(description), taxonomy
+        conditions = " AND ".join(description)
+        return f"Match group {index + 1}: {conditions}", taxonomy

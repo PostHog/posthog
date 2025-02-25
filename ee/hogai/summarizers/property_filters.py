@@ -65,13 +65,14 @@ PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
 class PropertyFilterTaxonomyEntry(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    group: Literal["event_properties", "person_properties", "element_properties", "session_properties"]
+    group: Literal["events", "event_properties", "person_properties", "element_properties", "session_properties"]
     key: str
     description: str
 
     @property
     def group_verbose_name(self) -> str:
         mapping = {
+            "events": "events",
             "event_properties": "event properties",
             "person_properties": "person properties",
             "element_properties": "autocaptured element properties",
@@ -104,18 +105,18 @@ class PropertyFilterDescriber(BaseModel):
 
         # TODO: cohort
         if isinstance(filter, HogQLPropertyFilter):
-            return f"Matches the SQL filter `{filter.key}`"
+            return f"matches the SQL filter `{filter.key}`"
 
         if isinstance(filter, EventPropertyFilter):
-            verbose_name = "Event property"
+            verbose_name = "event property"
         elif isinstance(filter, PersonPropertyFilter):
-            verbose_name = "Person property"
+            verbose_name = "person property"
         elif isinstance(filter, ElementPropertyFilter):
-            verbose_name = "Element property"
+            verbose_name = "element property"
         elif isinstance(filter, SessionPropertyFilter):
-            verbose_name = "Session property"
+            verbose_name = "session property"
         elif isinstance(filter, FeaturePropertyFilter):
-            verbose_name = "Enrollment of the feature"
+            verbose_name = "enrollment of the feature"
 
         if not verbose_name:
             raise ValueError(f"Unknown filter type: {type(filter)}")
