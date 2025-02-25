@@ -727,7 +727,7 @@ export const billingLogic = kea<billingLogicType>([
                     message: _search.billing_error,
                 })
             }
-            if (_search.upgraded) {
+            if (_search.upgraded || _search.success) {
                 actions.loadCurrentOrganization()
             }
             actions.setRedirectPath()
