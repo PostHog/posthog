@@ -181,26 +181,7 @@ export abstract class CdpConsumerBase {
             })
         })
     }
-
-    protected logFilteringError(item: HogFunctionType, error: string) {
-        const logEntry: HogFunctionLogEntrySerialized = {
-            team_id: item.team_id,
-            log_source: 'hog_function',
-            log_source_id: item.id,
-            instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
-            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-            level: 'error',
-            message: error,
-        }
-
-        this.messagesToProduce.push({
-            topic: KAFKA_LOG_ENTRIES,
-            value: logEntry,
-            key: logEntry.instance_id,
-        })
-    }
-
-    protected async processInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
+    rocessInvocationResults(results: HogFunctionInvocationResult[]): Promise<void> {
         return await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.produceResults`,
             func: async () => {
