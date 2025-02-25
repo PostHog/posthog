@@ -730,7 +730,6 @@ posthog/helpers/full_text_search.py:0: error: Incompatible return value type (go
 posthog/helpers/full_text_search.py:0: error: Argument 1 to "reduce" has incompatible type "Callable[[SearchVector, SearchVector], CombinedExpression]"; expected "Callable[[SearchVector, SearchVector], SearchVector]"  [arg-type]
 posthog/helpers/full_text_search.py:0: error: Incompatible return value type (got "CombinedExpression", expected "SearchVector")  [return-value]
 posthog/async_migrations/test/test_runner.py:0: error: Item "None" of "datetime | None" has no attribute "day"  [union-attr]
-posthog/api/query.py:0: error: Statement is unreachable  [unreachable]
 posthog/api/event.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/api/test/test_personal_api_keys.py:0: error: Item "None" of "str | None" has no attribute "startswith"  [union-attr]
 posthog/api/test/test_personal_api_keys.py:0: error: Item "None" of "str | None" has no attribute "startswith"  [union-attr]

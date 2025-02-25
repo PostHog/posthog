@@ -134,7 +134,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
     sender.add_periodic_task(
-        crontab(hour="*", minute="30"),
+        crontab(minute="*/30"),
         update_quota_limiting.s(),
         name="update quota limiting",
     )

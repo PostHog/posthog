@@ -11,6 +11,8 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     HostInfo,
+    Mutation,
+    MutationNotFound,
     MutationRunner,
     T,
     Query,
@@ -112,6 +114,9 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     assert shard_mutations == duplicate_mutations
 
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
+
+    with pytest.raises(MutationNotFound):
+        assert cluster.any_host(Mutation("x", "y").is_done).result()
 
 
 def test_map_hosts_by_role() -> None:
