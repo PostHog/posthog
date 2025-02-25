@@ -1,7 +1,8 @@
 use crate::{
     api::v1::{constants::*, errors::ApiError, query::Manager},
-    //metrics_consts::{},
     types::PropertyParentType,
+    //metrics_consts::{},
+    AppContext,
 };
 
 use anyhow::Result;
@@ -14,25 +15,25 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::{Executor, Row};
-use tracing::warn;
+use tracing::debug;
 use url::form_urlencoded;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-pub fn apply_routes(parent: Router, qmgr: Arc<Manager>) -> Router {
+pub fn apply_routes(parent: Router, app_ctx: Arc<AppContext>) -> Router {
     let api_router = Router::new()
         .route(
             "/projects/:project_id/property_definitions",
             get(project_property_definitions_handler),
         )
-        .with_state(qmgr);
+        .with_state(app_ctx);
 
     parent.nest("/api/v1", api_router)
 }
 
 async fn project_property_definitions_handler(
-    State(qmgr): State<Arc<Manager>>,
+    State(app_ctx): State<Arc<AppContext>>,
     OriginalUri(uri): OriginalUri,
     Path(project_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,
@@ -40,6 +41,12 @@ async fn project_property_definitions_handler(
     // parse and validate request's query params
     let params = parse_request(params);
     params.valid()?;
+    debug!(
+        "Request for project_id({}) w/params: {:?}",
+        project_id, &params
+    );
+
+    let qmgr: &Manager = &app_ctx.query_manager;
 
     // construct the count query
     let mut count_query_bldr = qmgr.count_query(project_id, &params);
@@ -52,8 +59,8 @@ async fn project_property_definitions_handler(
     let props_query = props_query_bldr.build();
 
     // TODO: temporary, for quick debug in dev as we hone the queries
-    warn!("COUNT QUERY: {:?}", &count_dbg);
-    warn!("PROPS QUERY: {:?}", &props_dbg);
+    debug!("Count query: {:?}", &count_dbg);
+    debug!("Prop defs query: {:?}", &props_dbg);
 
     let total_count: i64 = match qmgr.pool.fetch_one(count_query).await {
         Ok(row) => row.get(0),
@@ -282,6 +289,7 @@ fn gen_url(uri: Uri, total_count: i64, new_offset: i64) -> Option<String> {
     Some(uri.to_string())
 }
 
+#[derive(Debug)]
 pub struct Params {
     pub search_terms: Vec<String>,
     pub search_fields: HashSet<String>,

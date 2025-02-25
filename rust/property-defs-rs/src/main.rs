@@ -33,7 +33,8 @@ pub async fn index() -> &'static str {
     "property definitions service"
 }
 
-fn start_server(config: &Config, context: Arc<AppContext>, qmgr: Arc<Manager>) -> JoinHandle<()> {
+fn start_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
+    let api_ctx = context.clone();
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
@@ -41,7 +42,7 @@ fn start_server(config: &Config, context: Arc<AppContext>, qmgr: Arc<Manager>) -
             "/_liveness",
             get(move || ready(context.liveness.get_status())),
         );
-    let router = apply_routes(router, qmgr);
+    let router = apply_routes(router, api_ctx);
     let router = setup_metrics_routes(router);
 
     let bind = format!("{}:{}", config.host, config.port);
@@ -62,17 +63,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
-    let context = Arc::new(AppContext::new(&config).await?);
+    // owns Postgres client and biz logic that handles property defs API calls
+    let query_manager = Manager::new(&config).await?;
+
+    let context = Arc::new(AppContext::new(&config, query_manager).await?);
 
     info!(
         "Subscribed to topic: {}",
         config.consumer.kafka_consumer_topic
     );
 
-    // owns Postgres client and biz logic that handles property defs API calls
-    let query_manager = Arc::new(Manager::new(&config).await?);
-
-    start_server(&config, context.clone(), query_manager);
+    start_server(&config, context.clone());
 
     let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
 
