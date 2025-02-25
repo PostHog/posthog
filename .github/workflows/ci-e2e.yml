@@ -73,7 +73,7 @@ jobs:
                   fi
 
                   # Use the commit's SHA as a seeded random source. -n = no newline
-                  echo -n "cf73187282afdf3d7cd5e403ae1286955d7af992" | xxd -r -p > /tmp/random_source
+                  echo -n "${{ github.sha }}" | xxd -r -p > /tmp/random_source
 
                   # Shuffle (seeded by the random_source) and pick up to 4
                   selected=$(echo "$files" | shuf --random-source=/tmp/random_source -n 4)
