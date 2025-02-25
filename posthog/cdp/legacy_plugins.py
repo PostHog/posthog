@@ -2,7 +2,6 @@ from typing import Optional
 
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.hog_function_template import HogFunctionTemplates
-from posthog.models.hog_functions.hog_function import HogFunction
 
 
 def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dict) -> Optional[HogFunctionSerializer]:
@@ -25,8 +24,6 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
     inputs = {}
     for key, value in plugin_config["config"].items():
         inputs[key] = {"value": value}
-
-    print(serializer_context["request"], serializer_context["request"].user)
 
     data = {
         "template_id": template.id,
