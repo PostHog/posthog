@@ -100,5 +100,29 @@ if (res.status >= 400) {
                 }
             },
         ),
+        HogFunctionSubTemplate(
+            id="error-tracking-issue-created",
+            name="Post to Microsoft Teams on issue created",
+            description="",
+            filters={"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+            type="internal_destination",
+            input_schema_overrides={
+                "text": {
+                    "default": "**🔴 {event.properties.name} created** {event.properties.description}",
+                }
+            },
+        ),
+        HogFunctionSubTemplate(
+            id="error-tracking-issue-reopened",
+            name="Post to Microsoft Teams on issue reopened",
+            description="",
+            filters={"events": [{"id": "$error_tracking_issue_reopened", "type": "events"}]},
+            type="internal_destination",
+            input_schema_overrides={
+                "text": {
+                    "default": "**🔄 {event.properties.name} reopened** {event.properties.description}",
+                }
+            },
+        ),
     ],
 )
