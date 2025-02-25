@@ -34,7 +34,7 @@ import {
     SurveyType,
 } from '~/types'
 
-import { SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
+import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
 import { SurveyDisplaySummary } from './Survey'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
@@ -698,7 +698,7 @@ function SurveyNPSResults({
                                 {
                                     event: SURVEY_EVENT_NAME,
                                     kind: NodeKind.EventsNode,
-                                    custom_name: 'Promoters',
+                                    custom_name: NPS_PASSIVE_LABEL,
                                     properties: [
                                         {
                                             type: PropertyFilterType.Event,
@@ -711,7 +711,7 @@ function SurveyNPSResults({
                                 {
                                     event: SURVEY_EVENT_NAME,
                                     kind: NodeKind.EventsNode,
-                                    custom_name: 'Passives',
+                                    custom_name: NPS_PASSIVE_LABEL,
                                     properties: [
                                         {
                                             type: PropertyFilterType.Event,
@@ -724,7 +724,7 @@ function SurveyNPSResults({
                                 {
                                     event: SURVEY_EVENT_NAME,
                                     kind: NodeKind.EventsNode,
-                                    custom_name: 'Detractors',
+                                    custom_name: NPS_DETRACTOR_LABEL,
                                     properties: [
                                         {
                                             type: PropertyFilterType.Event,

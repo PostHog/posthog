@@ -24,6 +24,7 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
 import { getSurveyResponseKey, NPSBreakdown } from 'scenes/surveys/utils'
 
 import { GraphType, InsightLogicProps, SurveyQuestionType } from '~/types'
@@ -165,9 +166,9 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
 
 export function NPSStackedBar({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
     const segments: StackedBarSegment[] = [
-        { count: npsBreakdown.detractors, label: 'Detractors', colorClass: 'bg-danger' },
-        { count: npsBreakdown.passives, label: 'Passives', colorClass: 'bg-warning' },
-        { count: npsBreakdown.promoters, label: 'Promoters', colorClass: 'bg-success' },
+        { count: npsBreakdown.detractors, label: NPS_DETRACTOR_LABEL, colorClass: 'bg-danger' },
+        { count: npsBreakdown.passives, label: NPS_PASSIVE_LABEL, colorClass: 'bg-warning' },
+        { count: npsBreakdown.promoters, label: NPS_PROMOTER_LABEL, colorClass: 'bg-success' },
     ]
 
     return <StackedBar segments={segments} />
