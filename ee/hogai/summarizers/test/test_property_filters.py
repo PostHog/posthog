@@ -4,6 +4,7 @@ from ee.hogai.summarizers.property_filters import (
     retrieve_hardcoded_taxonomy,
 )
 from posthog.schema import (
+    DataWarehousePropertyFilter,
     ElementPropertyFilter,
     EventPropertyFilter,
     FeaturePropertyFilter,
@@ -118,6 +119,16 @@ class TestPropertyFilterDescriber(BaseTest):
             filter = EventPropertyFilter(key="prop", operator=operator, value="test")
             descriptor = PropertyFilterDescriber(filter=filter)
             self.assertIsNotNone(descriptor.description)
+
+    def test_datawarehouse_property_filter_raises_error(self):
+        # Test that a ValueError is raised for DataWarehousePropertyFilter
+        filter = DataWarehousePropertyFilter(key="dw_prop", operator="exact", value="test")
+        descriptor = PropertyFilterDescriber(filter=filter)
+        with self.assertRaises(ValueError) as context:
+            _ = descriptor.description
+
+        self.assertIn("Unknown filter type:", str(context.exception))
+        self.assertIn("DataWarehousePropertyFilter", str(context.exception))
 
 
 class TestPropertyFilterCollectionDescriber(BaseTest):
