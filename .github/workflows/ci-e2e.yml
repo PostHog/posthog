@@ -261,7 +261,7 @@ jobs:
               uses: cypress-io/github-action@v6
               with:
                   install-command: 'pnpm --filter=@posthog/cypress... install --frozen-lockfile'
-                  command: 'pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec ${{ matrix.chunk }} --headed'
+                  command: 'pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec ${{ matrix.spec }} --headed'
                   # We were seeing suprising crashes in headless mode
                   # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
               env:
