@@ -1,6 +1,5 @@
 import { IconSearch } from '@posthog/icons'
 import {
-    LemonBadge,
     LemonButton,
     LemonCheckbox,
     LemonInput,
@@ -12,18 +11,13 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 
 import { LogEntryLevel } from '~/types'
 
-import {
-    ALL_LOG_LEVELS,
-    GroupedLogEntry,
-    HOG_FUNCTION_LOGS_LIMIT,
-    hogFunctionLogsLogic,
-    HogFunctionLogsProps,
-} from './hogFunctionLogsLogic'
+import { ALL_LOG_LEVELS, GroupedLogEntry, LOG_VIEWER_LIMIT, logsViewerLogic } from './logsViewerLogic'
+import { LogsViewerLogicProps } from './logsViewerLogic'
 
 const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
     switch (level.toLowerCase()) {
@@ -42,10 +36,11 @@ const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
     }
 }
 
-export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
-    const hogFunctionId = id.startsWith('hog-') ? id.substring(4) : id
-
-    const logic = hogFunctionLogsLogic({ id: hogFunctionId })
+/**
+ * NOTE: There is a loose attempt to keeep this generic so we can use it as an abstract log component in the future.
+ */
+export function LogsViewer(props: LogsViewerLogicProps): JSX.Element {
+    const logic = logsViewerLogic(props)
 
     const { logs, logsLoading, backgroundLogs, isThereMoreToLoad, selectedLogLevels, instanceId, expandedRows } =
         useValues(logic)
@@ -106,29 +101,13 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                 rowKey={(record) => record.instanceId}
                 columns={[
                     {
-                        key: 'count',
-                        width: 0,
-                        render: (_, { entries, instanceId }) => {
-                            return (
-                                <Link
-                                    subtle
-                                    onClick={() => {
-                                        setRowExpanded(instanceId, !expandedRows[instanceId])
-                                    }}
-                                >
-                                    <LemonBadge.Number count={entries.length} status="muted" />
-                                </Link>
-                            )
-                        },
-                    },
-                    {
                         title: 'Timestamp',
                         key: 'timestamp',
-                        dataIndex: 'timestamp',
+                        dataIndex: 'maxTimestamp',
                         width: 0,
                         sorter: (a: GroupedLogEntry, b: GroupedLogEntry) =>
-                            dayjs(a.timestamp).unix() - dayjs(b.timestamp).unix(),
-                        render: (timestamp: string) => <TZLabel time={timestamp} />,
+                            a.maxTimestamp.unix() - b.maxTimestamp.unix(),
+                        render: (maxTimestamp: Dayjs) => <TZLabel time={maxTimestamp} />,
                     },
                     {
                         width: 0,
@@ -150,6 +129,24 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                         ),
                     },
                     {
+                        key: 'logLevel',
+                        dataIndex: 'logLevel',
+                        width: 0,
+                        render: (logLevel: LogEntryLevel, { instanceId }) => {
+                            return (
+                                <Link
+                                    subtle
+                                    className="flex items-center gap-2"
+                                    onClick={() => {
+                                        setRowExpanded(instanceId, !expandedRows[instanceId])
+                                    }}
+                                >
+                                    <LemonTag type={tagTypeForLevel(logLevel)}>{logLevel.toUpperCase()}</LemonTag>
+                                </Link>
+                            )
+                        },
+                    },
+                    {
                         title: 'Last message',
                         key: 'entries',
                         dataIndex: 'entries',
@@ -167,6 +164,14 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                                         }}
                                     >
                                         {lastEntry.message}
+                                        {entries.length > 1 && (
+                                            <>
+                                                <br />
+                                                <span className="text-xs text-muted-alt">
+                                                    + {entries.length - 1} more
+                                                </span>
+                                            </>
+                                        )}
                                     </Link>
                                 </code>
                             )
@@ -193,7 +198,7 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                                         title: 'Timestamp',
                                         key: 'timestamp',
                                         dataIndex: 'timestamp',
-                                        render: (timestamp: string) => <TZLabel time={timestamp} />,
+                                        render: (timestamp: Dayjs) => <TZLabel time={timestamp} />,
                                     },
                                     {
                                         title: 'Level',
@@ -212,7 +217,6 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                                         ),
                                     },
                                 ]}
-                                // rowKey={(record) => `${record.instanceId}:${record.timestamp}`}
                             />
                         )
                     },
@@ -227,7 +231,7 @@ export function HogFunctionLogs({ id }: HogFunctionLogsProps): JSX.Element {
                     center
                     disabledReason={!isThereMoreToLoad ? "There's nothing more to load" : undefined}
                 >
-                    {isThereMoreToLoad ? `Load up to ${HOG_FUNCTION_LOGS_LIMIT} older entries` : 'No older entries'}
+                    {isThereMoreToLoad ? `Load up to ${LOG_VIEWER_LIMIT} older entries` : 'No older entries'}
                 </LemonButton>
             )}
         </div>

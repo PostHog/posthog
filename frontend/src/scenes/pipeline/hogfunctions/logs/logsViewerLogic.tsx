@@ -1,39 +1,39 @@
-import { LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { TZLabel } from 'lib/components/TZLabel'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { LogEntryLevel } from '~/types'
 
-import type { hogFunctionLogsLogicType } from './hogFunctionLogsLogicType'
+import type { logsViewerLogicType } from './logsViewerLogicType'
 
 export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING', 'ERROR']
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
 
-export type HogFunctionLogsProps = {
-    id: string
+export type LogsViewerLogicProps = {
+    sourceType: 'hog_function'
+    sourceId: string
 }
+
+export const LOG_VIEWER_LIMIT = 100
 
 export type GroupedLogEntry = {
     instanceId: string
-    maxTimestamp: string
-    minTimestamp: string
+    maxTimestamp: Dayjs
+    minTimestamp: Dayjs
     logLevel: LogEntryLevel
     entries: {
         message: string
         level: LogEntryLevel
-        timestamp: string
+        timestamp: Dayjs
     }[]
 }
 
-export const HOG_FUNCTION_LOGS_LIMIT = 100
-
 type GroupedLogEntryRequest = {
-    hogFunctionId: string
+    sourceType: 'hog_function'
+    sourceId: string
     levels: LogEntryLevel[]
     searchTerm: string
     before?: Dayjs
@@ -52,8 +52,8 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
             ) AS messages
         FROM log_entries
         WHERE timestamp >= now() - INTERVAL 1 DAY
-        AND log_source = 'hog_function'
-        AND log_source_id = '${request.hogFunctionId}'
+        AND log_source = '${request.sourceType}'
+        AND log_source_id = '${request.sourceId}'
         GROUP BY instance_id
         HAVING countIf(
             lower(level) IN (${request.levels.map((level) => `'${level.toLowerCase()}'`).join(',')})
@@ -62,52 +62,45 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
             ${request.after ? `AND timestamp > ${hogql`${request.after}`}` : ''}
         ) > 0
         ORDER BY latest_timestamp DESC
-        LIMIT ${HOG_FUNCTION_LOGS_LIMIT}`,
+        LIMIT ${LOG_VIEWER_LIMIT}`,
     }
 
     const response = await api.query(query, undefined, undefined, true)
 
     return response.results.map((result) => ({
         instanceId: result[0],
-        maxTimestamp: result[1],
-        minTimestamp: result[2],
+        maxTimestamp: dayjs(result[1]),
+        minTimestamp: dayjs(result[2]),
         entries: result[3].map((entry: any) => ({
-            timestamp: entry[0],
-            level: entry[1],
+            timestamp: dayjs(entry[0]),
+            level: entry[1].toUpperCase(),
             message: entry[2],
         })),
     })) as GroupedLogEntry[]
 }
 
-const dedupeGroupedLogs = (groups: GroupedLogEntry[], newGroups: GroupedLogEntry[] = []): GroupedLogEntry[] => {
-    // NOTE: When we are loading new or older logs we might have some crossover of groups so we want to dedupe here
-    // Any newLogs that are already in the existing logs should just be appended to the existing logs
+const sanitizeGroupedLogs = (groups: GroupedLogEntry[]): GroupedLogEntry[] => {
+    const byId: Record<string, GroupedLogEntry> = {}
 
-    // Store the existing logs by instanceId
-    const existingLogsById: Record<string, GroupedLogEntry> = {}
     for (const group of groups) {
-        existingLogsById[group.instanceId] = group
-    }
-
-    for (const group of newGroups) {
-        if (!existingLogsById[group.instanceId]) {
-            // For each new log group if there is no existing log group with the same instanceId, add it to the existing logs
-            existingLogsById[group.instanceId] = group
-        } else {
-            // Otherwise add the messages to the existing log group
-            existingLogsById[group.instanceId].entries = group.entries
-            existingLogsById[group.instanceId].maxTimestamp = group.maxTimestamp
-            existingLogsById[group.instanceId].minTimestamp = group.minTimestamp
+        // Set the group if not already set
+        if (!byId[group.instanceId]) {
+            byId[group.instanceId] = group
         }
+
+        const highestLogLevel = group.entries.reduce((max, entry) => {
+            return Math.max(max, ALL_LOG_LEVELS.indexOf(entry.level))
+        }, 0)
+        byId[group.instanceId].logLevel = ALL_LOG_LEVELS[highestLogLevel]
     }
 
-    return Object.values(existingLogsById).sort((a, b) => dayjs(b.maxTimestamp).unix() - dayjs(a.maxTimestamp).unix())
+    return Object.values(byId).sort((a, b) => b.maxTimestamp.unix() - a.maxTimestamp.unix())
 }
 
-export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
-    path((key) => ['scenes', 'pipeline', 'hogfunctions', 'logs', 'hogFunctionLogsLogic', key]),
-    props({} as HogFunctionLogsProps), // TODO: Remove `stage` from props, it isn't needed here for anything
-    key(({ id }) => id),
+export const logsViewerLogic = kea<logsViewerLogicType>([
+    path((key) => ['scenes', 'pipeline', 'hogfunctions', 'logs', 'logsViewerLogic', key]),
+    props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
+    key(({ sourceType, sourceId }) => `${sourceType}:${sourceId}`),
     actions({
         setSelectedLogLevels: (levels: LogEntryLevel[]) => ({
             levels,
@@ -131,26 +124,28 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     const logParams: GroupedLogEntryRequest = {
                         levels: values.selectedLogLevels,
                         searchTerm: values.searchTerm,
-                        hogFunctionId: props.id,
+                        sourceType: props.sourceType,
+                        sourceId: props.sourceId,
                     }
                     const results = await loadGroupedLogs(logParams)
-                    return dedupeGroupedLogs(results)
+                    return sanitizeGroupedLogs(results)
                 },
                 loadMoreLogs: async () => {
                     const logParams: GroupedLogEntryRequest = {
                         levels: values.selectedLogLevels,
                         searchTerm: values.searchTerm,
-                        hogFunctionId: props.id,
-                        before: values.trailingEntryTimestamp ?? null,
+                        sourceType: props.sourceType,
+                        sourceId: props.sourceId,
+                        before: values.trailingEntryTimestamp ?? undefined,
                     }
 
                     const results = await loadGroupedLogs(logParams)
-                    return dedupeGroupedLogs(values.logs, results)
+                    return sanitizeGroupedLogs([...results, ...values.logs])
                 },
                 revealBackground: () => {
                     const backgroundLogs = [...values.backgroundLogs]
                     actions.clearBackgroundLogs()
-                    return dedupeGroupedLogs(values.logs, backgroundLogs)
+                    return sanitizeGroupedLogs([...backgroundLogs, ...values.logs])
                 },
             },
         ],
@@ -161,8 +156,9 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     const logParams: GroupedLogEntryRequest = {
                         searchTerm: values.searchTerm,
                         levels: values.selectedLogLevels,
-                        after: values.leadingEntryTimestamp ?? null,
-                        hogFunctionId: props.id,
+                        after: values.leadingEntryTimestamp ?? undefined,
+                        sourceType: props.sourceType,
+                        sourceId: props.sourceId,
                     }
 
                     const results = await loadGroupedLogs(logParams)
@@ -200,7 +196,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         isThereMoreToLoad: [
             true,
             {
-                loadLogsSuccess: (_, { logs }) => logs.length >= HOG_FUNCTION_LOGS_LIMIT,
+                loadLogsSuccess: (_, { logs }) => logs.length >= LOG_VIEWER_LIMIT,
                 markLogsEnd: () => false,
             },
         ],
@@ -214,15 +210,15 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             },
         ],
     }),
-    selectors(({ actions, values }) => ({
+    selectors(() => ({
         leadingEntryTimestamp: [
             (s) => [s.logs, s.backgroundLogs],
             (logs: GroupedLogEntry[], backgroundLogs: GroupedLogEntry[]): Dayjs | null => {
                 if (backgroundLogs.length) {
-                    return dayjs(backgroundLogs[0].minTimestamp)
+                    return backgroundLogs[0].minTimestamp
                 }
                 if (logs.length) {
-                    return dayjs(logs[0].minTimestamp)
+                    return logs[0].minTimestamp
                 }
                 return null
             },
@@ -231,59 +227,12 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             (s) => [s.logs, s.backgroundLogs],
             (logs: GroupedLogEntry[], backgroundLogs: GroupedLogEntry[]): Dayjs | null => {
                 if (logs.length) {
-                    return dayjs(logs[logs.length - 1].maxTimestamp)
+                    return logs[logs.length - 1].maxTimestamp
                 }
                 if (backgroundLogs.length) {
-                    return dayjs(backgroundLogs[backgroundLogs.length - 1].maxTimestamp)
+                    return backgroundLogs[backgroundLogs.length - 1].maxTimestamp
                 }
                 return null
-            },
-        ],
-        columns: [
-            () => [],
-            (): LemonTableColumns<GroupedLogEntry> => {
-                return [
-                    {
-                        title: 'Timestamp',
-                        key: 'timestamp',
-                        dataIndex: 'timestamp',
-                        sorter: (a: GroupedLogEntry, b: GroupedLogEntry) =>
-                            dayjs(a.timestamp).unix() - dayjs(b.timestamp).unix(),
-                        render: (timestamp: string) => <TZLabel time={timestamp} />,
-                        width: 0,
-                    },
-                    {
-                        width: 0,
-                        title: 'Invocation',
-                        dataIndex: 'instanceId',
-                        key: 'instanceId',
-                        render: (instanceId: string) => (
-                            <code className="whitespace-nowrap">
-                                <Link
-                                    subtle
-                                    onClick={() => {
-                                        if (values.instanceId === instanceId) {
-                                            actions.setInstanceId(null)
-                                        } else {
-                                            actions.setInstanceId(instanceId)
-                                        }
-                                    }}
-                                >
-                                    {instanceId}
-                                </Link>
-                            </code>
-                        ),
-                    },
-                    {
-                        title: 'Messages',
-                        key: 'entries',
-                        dataIndex: 'entries',
-                        render: (entries: { message: string; level: LogEntryLevel; timestamp: string }[]) => {
-                            const lastEntry = entries[entries.length - 1]
-                            return <code className="whitespace-pre-wrap">{lastEntry.message}</code>
-                        },
-                    },
-                ] as LemonTableColumns<GroupedLogEntry>
             },
         ],
 
