@@ -362,7 +362,6 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
     from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
     results = []
-
     limited_tokens_events = list_limited_team_attributes(
         QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
@@ -372,7 +371,6 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
 
     recordings_were_limited = False
     events_were_limited = False
-
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
