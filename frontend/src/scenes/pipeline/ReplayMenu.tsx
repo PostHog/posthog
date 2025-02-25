@@ -241,8 +241,9 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
 
 export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionReplayLogic({ id })
-    const { eventsLoading, eventsWithRetries, loadingRetries, totalEvents, pageTimestamps } = useValues(logic)
-    const { retryHogFunction, loadNextEventsPage, loadPreviousEventsPage } = useActions(logic)
+    const { eventsLoading, eventsWithRetries, loadingRetries, totalEvents, pageTimestamps, expandedRows } =
+        useValues(logic)
+    const { retryHogFunction, loadNextEventsPage, loadPreviousEventsPage, expandRow, collapseRow } = useActions(logic)
 
     return (
         <LemonTable
@@ -259,6 +260,9 @@ export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
                 entryCount: totalEvents,
             }}
             expandable={{
+                isRowExpanded: ([event]) => expandedRows.includes(event.uuid),
+                onRowExpand: ([event]) => expandRow(event.uuid),
+                onRowCollapse: ([event]) => collapseRow(event.uuid),
                 noIndent: true,
                 expandedRowRender: ([, , , retries]) => {
                     return (

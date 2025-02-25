@@ -47,6 +47,9 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
         increaseCurrentPage: (timestamp: string | undefined) => ({ timestamp }),
         decreaseCurrentPage: true,
         resetCurrentPage: true,
+        expandRow: (eventId: string) => ({ eventId }),
+        collapseRow: (eventId: string) => ({ eventId }),
+        resetCollapsedRows: true,
     }),
     reducers({
         dateRange: [
@@ -72,6 +75,16 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                 increaseCurrentPage: (state, { timestamp }: { timestamp: string | undefined }) => [...state, timestamp],
                 decreaseCurrentPage: (state) => [...state.filter((_, i) => i !== state.length - 1)],
                 resetCurrentPage: () => [],
+            },
+        ],
+        expandedRows: [
+            [] as (string | undefined)[],
+            {
+                expandRow: (state, { eventId }: { eventId: string }) => [...state, eventId],
+                collapseRow: (state, { eventId }: { eventId: string }) => [
+                    ...state.filter((id: string) => id !== eventId),
+                ],
+                resetCollapsedRows: () => [],
             },
         ],
     }),
@@ -166,6 +179,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                             configuration,
                         })
 
+                        actions.expandRow(row[0].uuid)
                         actions.removeLoadingRetry(row[0].uuid)
                         const retry: DestinationRetryType = {
                             eventId: row[0].uuid,
@@ -177,6 +191,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                         lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
                     }
 
+                    actions.expandRow(row[0].uuid)
                     actions.removeLoadingRetry(row[0].uuid)
                     return [...values.retries]
                 },
@@ -291,6 +306,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
         loadEvents: () => {
             actions.loadTotalEvents()
             actions.resetCurrentPage()
+            actions.resetCollapsedRows()
         },
     })),
     events(({ actions }) => ({
