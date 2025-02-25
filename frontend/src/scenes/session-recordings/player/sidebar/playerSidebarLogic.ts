@@ -43,7 +43,7 @@ export const playerSidebarLogic = kea<playerSidebarLogicType>([
                 ? (searchParams.tab as SessionRecordingSidebarTab)
                 : SessionRecordingSidebarTab.INSPECTOR
 
-            if (!!urlTab && urlTab !== values.activeTab) {
+            if (urlTab !== values.activeTab) {
                 actions.setTab(urlTab)
             }
         },
