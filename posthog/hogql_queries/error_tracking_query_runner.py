@@ -65,7 +65,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         # We want to select from all our CTEs, joining on issue_id for all of them
         statement = "SELECT 1 FROM summary "
         for alias, _ in self.sparkLineConfigs.items():
-            statement += f"JOIN cte_{alias} ON summary.issue_id = cte_{alias}.issue_id "
+            statement += f"LEFT JOIN cte_{alias} ON summary.issue_id = cte_{alias}.issue_id "
 
         return parse_select(statement).select_from  # type: ignore
 
@@ -79,8 +79,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Alias(alias="first_seen", expr=parse_expr("summary.last_seen")),
         ]
 
-        for alias, _ in self.sparkLineConfigs.items():
-            exprs.append(ast.Alias(alias=alias, expr=self.sparkline_volume(alias)))
+        for alias, config in self.sparkLineConfigs.items():
+            exprs.append(ast.Alias(alias=alias, expr=self.sparkline_volume(alias, config.value)))
 
         if self.query.issueId:
             exprs.append(ast.Alias(alias="earliest", expr=parse_expr("summary.earliest")))
@@ -272,10 +272,13 @@ class ErrorTrackingQueryRunner(QueryRunner):
         aggregations["customVolume"] = result.get("customVolume") if "customVolume" in result else None
         return aggregations
 
-    def sparkline_volume(self, alias: str):
-        # This function basically takes an alias to a CTE, and rotates that to turn it into an array column in the result, using the CTEs alias as the column name
-        # It needs to join on issue_id
-        return parse_expr(f"cte_{alias}.count")
+    def sparkline_volume(self, alias: str, value: int):
+        # We coalesce here because our sparklines are time constrained to only the last day, month, or whatever, and
+        # if we're returning whose last event was before then, its sparkline volume will be null
+        default = f"arrayMap(x -> 0, range({value}))"
+        coalesced = f"coalesce(cte_{alias}.count, {default})"
+        expr = f"if(greater(length({coalesced}), 0), {coalesced}, {default})"
+        return parse_expr(expr)
 
     # We use CTEs to calculate the volume for sparklines
     def sparkline_ctes(self):
