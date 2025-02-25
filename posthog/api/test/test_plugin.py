@@ -1583,7 +1583,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             )
 
             assert response.status_code == 201, response.json()
-            # assert response.json()["id"] ==
 
             assert PluginConfig.objects.count() == 0
             hog_function = HogFunction.objects.all()
