@@ -35,43 +35,50 @@ async function runSingleTeamPluginOnEvent(
     const onEventPayload = convertToOnEventPayload(event)
 
     try {
-        // Clear the HTTP call recorder before running the plugin
-        getHttpCallRecorder().clearCalls()
+        // Check if we should record HTTP calls
+        const recordHttpCalls = hub.DESTINATION_MIGRATION_DIFFING_ENABLED === true && hub.TASKS_PER_WORKER === 10
+
+        if (recordHttpCalls) {
+            // Clear the HTTP call recorder before running the plugin
+            getHttpCallRecorder().clearCalls()
+        }
 
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
             await onEvent(onEventPayload)
 
-            // Get recorded HTTP calls
-            const recordedCalls = getHttpCallRecorder().getCalls()
+            if (recordHttpCalls) {
+                // Get recorded HTTP calls
+                const recordedCalls = getHttpCallRecorder().getCalls()
 
-            // Log information about recorded HTTP calls
-            if (recordedCalls.length > 0) {
-                status.info(
-                    '🌐',
-                    `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
-                        recordedCalls.length
-                    } HTTP calls during onEvent for event ${event.eventUuid || 'unknown'}`
-                )
-
-                // Log details about each call
-                recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
+                // Log information about recorded HTTP calls
+                if (recordedCalls.length > 0) {
                     status.info(
                         '🌐',
-                        `Event ${event.eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
-                            call.request.url
-                        } - Status: ${call.response.status}`
+                        `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
+                            recordedCalls.length
+                        } HTTP calls during onEvent for event ${event.eventUuid || 'unknown'}`
                     )
 
-                    // Log errors if any
-                    if (call.error) {
-                        status.error(
+                    // Log details about each call
+                    recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
+                        status.info(
                             '🌐',
-                            `Event ${event.eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`
+                            `Event ${event.eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
+                                call.request.url
+                            } - Status: ${call.response.status}`
                         )
-                    }
-                })
+
+                        // Log errors if any
+                        if (call.error) {
+                            status.error(
+                                '🌐',
+                                `Event ${event.eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`
+                            )
+                        }
+                    })
+                }
             }
 
             pluginActionMsSummary
@@ -84,34 +91,36 @@ async function runSingleTeamPluginOnEvent(
                 successes: 1,
             })
         } catch (error) {
-            // Get recorded HTTP calls even if the plugin failed
-            const recordedCalls = getHttpCallRecorder().getCalls()
+            if (recordHttpCalls) {
+                // Get recorded HTTP calls even if the plugin failed
+                const recordedCalls = getHttpCallRecorder().getCalls()
 
-            if (recordedCalls.length > 0) {
-                status.info(
-                    '🌐',
-                    `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
-                        recordedCalls.length
-                    } HTTP calls before failing for event ${event.eventUuid || 'unknown'}`
-                )
-
-                // Log details about each call
-                recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
+                if (recordedCalls.length > 0) {
                     status.info(
                         '🌐',
-                        `Event ${event.eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
-                            call.request.url
-                        } - Status: ${call.response.status}`
+                        `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
+                            recordedCalls.length
+                        } HTTP calls before failing for event ${event.eventUuid || 'unknown'}`
                     )
 
-                    // Log errors if any
-                    if (call.error) {
-                        status.error(
+                    // Log details about each call
+                    recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
+                        status.info(
                             '🌐',
-                            `Event ${event.eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`
+                            `Event ${event.eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
+                                call.request.url
+                            } - Status: ${call.response.status}`
                         )
-                    }
-                })
+
+                        // Log errors if any
+                        if (call.error) {
+                            status.error(
+                                '🌐',
+                                `Event ${event.eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`
+                            )
+                        }
+                    })
+                }
             }
 
             pluginActionMsSummary

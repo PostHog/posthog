@@ -84,6 +84,11 @@ describe('VM with recorded fetch', () => {
 
     beforeEach(async () => {
         hub = await createHub()
+
+        // Set it to record HTTP calls
+        hub.TASKS_PER_WORKER = 10
+        hub.DESTINATION_MIGRATION_DIFFING_ENABLED = true
+
         pluginConfig = { ...pluginConfig39 }
 
         // Reset the recorder
