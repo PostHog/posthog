@@ -20,8 +20,8 @@ import {
 
 import { PersonType, PropertyFilterType } from '~/types'
 
-import { SimpleTimeLabel } from '../components/SimpleTimeLabel'
-import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
+import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
+import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const

@@ -46,7 +46,7 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
 
 export function HogFunctionFilters(): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping } = useValues(hogFunctionConfigurationLogic)
+    const { configuration, type, useMapping, filtersContainPersonProperties } = useValues(hogFunctionConfigurationLogic)
 
     if (type === 'broadcast') {
         return (
@@ -200,6 +200,14 @@ export function HogFunctionFilters(): JSX.Element {
                     )
                 }}
             </LemonField>
+
+            {filtersContainPersonProperties ? (
+                <LemonBanner type="warning">
+                    You are filtering on Person properties. Be aware that this filtering applies at the time the event
+                    is processed so if Person Profiles are not enabled or the person property has not been set by then
+                    then the filters may not work as expected.
+                </LemonBanner>
+            ) : null}
             {showMasking ? (
                 <LemonField name="masking" label="Trigger options">
                     {({ value, onChange }) => (
