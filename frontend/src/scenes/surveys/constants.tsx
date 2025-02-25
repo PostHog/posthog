@@ -324,3 +324,7 @@ export const WEB_SAFE_FONTS = [
     { value: 'Georgia', label: 'Georgia' },
     { value: 'Courier New', label: 'Courier New' },
 ] as const
+
+export const NPS_DETRACTOR_LABEL = 'Detractors'
+export const NPS_PASSIVE_LABEL = 'Passives'
+export const NPS_PROMOTER_LABEL = 'Promoters'
