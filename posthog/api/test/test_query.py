@@ -1023,7 +1023,7 @@ class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
         error_data_str = content.decode().strip()
         error_data = json.loads(error_data_str.split("data: ")[1])
         assert isinstance(error_data, dict)  # Type guard for mypy
-        self.assertEqual(error_data.get("type"), "invalid_request")
+        self.assertEqual(error_data.get("type"), "invalid_request", error_data)
         self.assertEqual(error_data.get("code"), "parse_error")
 
     def test_async_auth(self):

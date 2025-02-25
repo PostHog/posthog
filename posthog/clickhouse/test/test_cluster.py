@@ -11,6 +11,8 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     HostInfo,
+    Mutation,
+    MutationNotFound,
     MutationRunner,
     T,
     Query,
@@ -30,18 +32,19 @@ def test_mutation_runner_rejects_invalid_parameters() -> None:
 
 
 def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
-    def replace_memory_addresses(value):
-        return re.sub(r"0x[0-9A-Fa-f]{16}", "0x0000000000000000", value)
+    def replace_memory_addresses_and_ips(value):
+        message = re.sub(r"0x[0-9A-Fa-f]{16}", "0x0000000000000000", value)
+        return re.sub(r"address='\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}'", "address='127.0.0.1'", message)
 
     with pytest.raises(ExceptionGroup) as e:
         cluster.map_all_hosts(Query("invalid query")).result()
 
-    assert replace_memory_addresses(e.value.message) == snapshot
+    assert replace_memory_addresses_and_ips(e.value.message) == snapshot
 
     with pytest.raises(ExceptionGroup) as e:
         cluster.map_all_hosts(Query("SELECT * FROM invalid_table_name")).result()
 
-    assert replace_memory_addresses(e.value.message) == snapshot
+    assert replace_memory_addresses_and_ips(e.value.message) == snapshot
 
     with pytest.raises(ExceptionGroup) as e:
 
@@ -50,7 +53,7 @@ def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
 
         cluster.map_all_hosts(explode).result()
 
-    assert e.value.message == snapshot
+    assert replace_memory_addresses_and_ips(e.value.message) == snapshot
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:
@@ -111,6 +114,9 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     assert shard_mutations == duplicate_mutations
 
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
+
+    with pytest.raises(MutationNotFound):
+        assert cluster.any_host(Mutation("x", "y").is_done).result()
 
 
 def test_map_hosts_by_role() -> None:

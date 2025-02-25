@@ -1,4 +1,5 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
@@ -37,9 +38,11 @@ const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
 export function ExperimentMetricForm({
     metric,
     handleSetMetric,
+    filterTestAccounts,
 }: {
     metric: ExperimentMetric
     handleSetMetric: any
+    filterTestAccounts: boolean
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
@@ -49,7 +52,7 @@ export function ExperimentMetricForm({
     return (
         <div className="space-y-4">
             <div>
-                <h4 className="mb-2">Metric type</h4>
+                <LemonLabel className="mb-1">Type</LemonLabel>
                 <LemonRadio
                     data-attr="metrics-selector"
                     value={metric.metric_type}
@@ -71,49 +74,52 @@ export function ExperimentMetricForm({
                             value: ExperimentMetricType.BINOMIAL,
                             label: 'Binomial',
                             description:
-                                'Tracks whether an event happens for each user, useful for measuring conversion rates.',
+                                'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
                         },
                         {
                             value: ExperimentMetricType.COUNT,
                             label: 'Count',
                             description:
-                                'Tracks how many times an event happens, useful for click counts or page views.',
+                                'Tracks how many times the metric occurs per user, useful for measuring click counts or page views.',
                         },
                         {
                             value: ExperimentMetricType.CONTINUOUS,
                             label: 'Continuous',
-                            description: 'Measures numerical values like revenue or session length.',
+                            description: 'Measures numerical values of the metric, such as revenue or session length.',
                         },
                     ]}
                 />
             </div>
-            <ActionFilter
-                bordered
-                filters={metricConfigToFilter(metric.metric_config)}
-                setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
-                    // We only support one event/action for experiment metrics
-                    const entity = events?.[0] || actions?.[0] || data_warehouse?.[0]
-                    const metricConfig = filterToMetricConfig(entity)
-                    if (metricConfig) {
-                        handleSetMetric({
-                            newMetric: {
-                                ...metric,
-                                metric_config: metricConfig,
-                            },
-                        })
-                    }
-                }}
-                typeKey="experiment-metric"
-                buttonCopy="Add graph series"
-                showSeriesIndicator={false}
-                hideRename={true}
-                entitiesLimit={1}
-                showNumericalPropsOnly={true}
-                mathAvailability={mathAvailability}
-                allowedMathTypes={allowedMathTypes}
-                dataWarehousePopoverFields={dataWarehousePopoverFields}
-                {...commonActionFilterProps}
-            />
+            <div>
+                <LemonLabel className="mb-1">Metric</LemonLabel>
+                <ActionFilter
+                    bordered
+                    filters={metricConfigToFilter(metric.metric_config)}
+                    setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
+                        // We only support one event/action for experiment metrics
+                        const entity = events?.[0] || actions?.[0] || data_warehouse?.[0]
+                        const metricConfig = filterToMetricConfig(entity)
+                        if (metricConfig) {
+                            handleSetMetric({
+                                newMetric: {
+                                    ...metric,
+                                    metric_config: metricConfig,
+                                },
+                            })
+                        }
+                    }}
+                    typeKey="experiment-metric"
+                    buttonCopy="Add graph series"
+                    showSeriesIndicator={false}
+                    hideRename={true}
+                    entitiesLimit={1}
+                    showNumericalPropsOnly={true}
+                    mathAvailability={mathAvailability}
+                    allowedMathTypes={allowedMathTypes}
+                    dataWarehousePopoverFields={dataWarehousePopoverFields}
+                    {...commonActionFilterProps}
+                />
+            </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
             {(metric.metric_type === ExperimentMetricType.COUNT ||
                 metric.metric_type === ExperimentMetricType.CONTINUOUS) &&
@@ -121,7 +127,7 @@ export function ExperimentMetricForm({
                     <Query
                         query={{
                             kind: NodeKind.InsightVizNode,
-                            source: metricToQuery(metric),
+                            source: metricToQuery(metric, filterTestAccounts),
                             showTable: false,
                             showLastComputation: true,
                             showLastComputationRefresh: false,
@@ -133,7 +139,7 @@ export function ExperimentMetricForm({
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
-                        source: metricToQuery(metric),
+                        source: metricToQuery(metric, filterTestAccounts),
                         showTable: false,
                         showLastComputation: true,
                         showLastComputationRefresh: false,
