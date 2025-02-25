@@ -491,13 +491,13 @@ def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
 def get_mssql_schemas(
     host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
 ) -> dict[str, list[tuple[str, str]]]:
-    def get_schemas(postgres_host: str, postgres_port: int):
+    def get_schemas(mssql_host: str, mssql_port: int):
         # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
         import pymssql
 
         connection = pymssql.connect(
-            server=postgres_host,
-            port=str(postgres_port),
+            server=mssql_host,
+            port=str(mssql_port),
             database=database,
             user=user,
             password=password,

@@ -40,6 +40,8 @@ class Experiment(models.Model):
     type = models.CharField(max_length=40, choices=ExperimentType.choices, null=True, blank=True, default="product")
     variants = models.JSONField(default=dict, null=True, blank=True)
 
+    exposure_criteria = models.JSONField(default=dict, null=True, blank=True)
+
     metrics = models.JSONField(default=list, null=True, blank=True)
     metrics_secondary = models.JSONField(default=list, null=True, blank=True)
     saved_metrics: models.ManyToManyField = models.ManyToManyField(

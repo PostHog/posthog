@@ -1,4 +1,5 @@
 use aws_sdk_s3::primitives::ByteStreamError;
+use common_kafka::kafka_producer::KafkaProduceError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -20,6 +21,8 @@ pub enum UnhandledError {
     ConfigError(#[from] envconfig::Error),
     #[error("Kafka error: {0}")]
     KafkaError(#[from] KafkaError),
+    #[error("Produce error: {0}")]
+    KafkaProduceError(#[from] KafkaProduceError),
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
     #[error("S3 error: {0}")]
@@ -52,9 +55,6 @@ pub enum JsResolveErr {
     // We failed to parse a found source map
     #[error("Invalid source map: {0}")]
     InvalidSourceMap(String),
-    // We failed to parse a found source map cache
-    #[error("Invalid source map cache: {0}")]
-    InvalidSourceMapCache(String),
     // We found and parsed the source map, but couldn't find our frames token in it
     #[error("Token not found for frame: {0}:{1}:{2}")]
     TokenNotFound(String, u32, u32),
@@ -89,6 +89,8 @@ pub enum JsResolveErr {
     RedirectError(String),
     #[error("JSDataError: {0}")]
     JSDataError(#[from] JsDataError),
+    #[error("Invalid data url found at {0}. {1}")]
+    InvalidDataUrl(String, String),
 }
 
 #[derive(Debug, Error)]
@@ -111,11 +113,11 @@ impl From<JsResolveErr> for Error {
     }
 }
 
-impl From<sourcemap::Error> for JsResolveErr {
-    fn from(e: sourcemap::Error) -> Self {
-        JsResolveErr::InvalidSourceMap(e.to_string())
-    }
-}
+// impl From<sourcemap::Error> for JsResolveErr {
+//     fn from(e: sourcemap::Error) -> Self {
+//         JsResolveErr::InvalidSourceMap(e.to_string())
+//     }
+// }
 
 impl From<reqwest::Error> for JsResolveErr {
     fn from(e: reqwest::Error) -> Self {

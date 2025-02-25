@@ -312,10 +312,16 @@ function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
     )
 }
 
-export function SeriesSummary({ query, heading }: { query: InsightQueryNode; heading?: JSX.Element }): JSX.Element {
+export function SeriesSummary({
+    query,
+    heading,
+}: {
+    query: InsightQueryNode
+    heading?: JSX.Element | null
+}): JSX.Element {
     return (
         <section>
-            <h5>{heading || 'Query summary'}</h5>
+            {heading !== null && <h5>{heading || 'Query summary'}</h5>}
             <div className="InsightDetails__query">
                 {isTrendsQuery(query) && query.trendsFilter?.formula && (
                     <>

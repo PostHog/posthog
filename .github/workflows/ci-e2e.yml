@@ -39,15 +39,12 @@ jobs:
                         - requirements-dev.txt
                         - package.json
                         - pnpm-lock.yaml
-                        # Make sure we run if someone is explicitly change the workflow
-                        - .github/workflows/ci-e2e.yml
                         - .github/actions/build-n-cache-image/action.yml
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
                         - Dockerfile
-                        - cypress/**
 
     # Job that lists and chunks spec file names and caches node modules
     chunks:
@@ -143,6 +140,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18.12.1
+                  cache: 'pnpm'
 
             - name: Get pnpm cache directory path
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -168,6 +166,11 @@ jobs:
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: pnpm --filter=@posthog/cypress... install --frozen-lockfile
+
+            - name: Prepare cypress
+              # these are required checks so, we can't skip entire sections
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              run: bin/turbo --filter=@posthog/cypress prepare
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
@@ -225,7 +228,7 @@ jobs:
                   mkdir -p /tmp/logs
 
                   echo "Starting PostHog using the container image ${{ needs.container.outputs.tag }}"
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
 
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev

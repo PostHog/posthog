@@ -15,6 +15,7 @@ from concurrent.futures import (
 from copy import copy
 from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple, TypeVar
+from collections.abc import Iterable
 
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
@@ -31,6 +32,13 @@ def ON_CLUSTER_CLAUSE(on_cluster=True):
 
 K = TypeVar("K")
 V = TypeVar("V")
+
+
+def format_exception_summary(e: Exception, max_length: int = 256) -> str:
+    value = repr(e).splitlines()[0]
+    if len(value) > max_length:
+        value = value[:max_length] + "..."
+    return value
 
 
 class FuturesMap(dict[K, Future[V]]):
@@ -61,18 +69,21 @@ class FuturesMap(dict[K, Future[V]]):
                     errors[k] = e
 
         if errors:
-            # TODO: messaging could be improved here
-            raise ExceptionGroup("not all futures returned a result", [*errors.values()])
+            raise ExceptionGroup(
+                f"{len(errors)} future(s) did not return a result:\n\n"
+                + "\n".join([f"* {key}: {format_exception_summary(e)}" for key, e in errors.items()]),
+                [*errors.values()],
+            )
 
         return results
 
 
 class ConnectionInfo(NamedTuple):
-    address: str
+    host: str
     port: int | None
 
     def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
-        return _make_ch_pool(host=self.address, port=self.port, settings=client_settings)
+        return _make_ch_pool(host=self.host, port=self.port, settings=client_settings)
 
 
 class HostInfo(NamedTuple):
@@ -103,7 +114,7 @@ class ClickhouseCluster:
 
         cluster_hosts = bootstrap_client.execute(
             """
-            SELECT host_address, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
             FROM clusterAllReplicas(%(name)s, system.clusters)
             WHERE name = %(name)s and is_local
             ORDER BY shard_num, replica_num
@@ -112,10 +123,10 @@ class ClickhouseCluster:
         )
 
         for row in cluster_hosts:
-            (host_address, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
+            (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
             host_info = HostInfo(
                 ConnectionInfo(
-                    host_address,
+                    host_name,
                     # We only use the port from system.clusters if we're running in E2E tests or debug mode,
                     # otherwise, we will use the default port.
                     port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
@@ -155,8 +166,8 @@ class ClickhouseCluster:
                 self.__logger.info("Executing %r on %r...", fn, host)
                 try:
                     result = fn(client)
-                except Exception:
-                    self.__logger.warn("Failed to execute %r on %r!", fn, host, exc_info=True)
+                except Exception as e:
+                    self.__logger.warn("Failed to execute %r on %r: %s", fn, host, e, exc_info=True)
                     raise
                 else:
                     self.__logger.info("Successfully executed %r on %r.", fn, host)
@@ -307,13 +318,17 @@ class Query:
         return client.execute(self.query, self.parameters)
 
 
+class MutationNotFound(Exception):
+    pass
+
+
 @dataclass
 class Mutation:
     table: str
     mutation_id: str
 
     def is_done(self, client: Client) -> bool:
-        [[is_done]] = client.execute(
+        rows = client.execute(
             f"""
             SELECT is_done
             FROM system.mutations
@@ -322,7 +337,14 @@ class Mutation:
             """,
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
         )
-        return is_done
+
+        if len(rows) == 1:
+            [[is_done]] = rows
+            return is_done
+        elif len(rows) == 0:
+            raise MutationNotFound(f"could not find mutation matching {self!r}")
+        else:
+            raise ValueError(f"expected zero or one mutations, found {len(rows)}")
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
@@ -339,12 +361,6 @@ class MutationRunner:
     def __post_init__(self) -> None:
         if invalid_keys := {key for key in self.parameters.keys() if key.startswith("__")}:
             raise ValueError(f"invalid parameter names: {invalid_keys!r} (keys cannot start with double underscore)")
-
-    def __call__(self, client: Client) -> Mutation:
-        """Shorthand method to find or enqueue a mutation, and block until its completion."""
-        mutation = self.enqueue(client)
-        mutation.wait(client)
-        return mutation
 
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
@@ -422,3 +438,26 @@ class MutationRunner:
             raise ValueError(f"Invalid DELETE command format: {self.command}")
         where_clause = self.command.strip()[match.end() :]
         return f"UPDATE _row_exists = 0 WHERE {where_clause}"
+
+    def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
+        """
+        Enqueue (or find) this mutation on one host in each shard, and then block until the mutation is complete on all
+        hosts within the affected shards.
+        """
+        if shards is not None:
+            shard_host_mutations = cluster.map_any_host_in_shards({shard: self.enqueue for shard in shards})
+        else:
+            shard_host_mutations = cluster.map_one_host_per_shard(self.enqueue)
+
+        # XXX: need to convert the `shard_num` of type `int | None` to `int` to appease the type checker -- but nothing
+        # should have actually been filtered out, since we're using the cluster shard functions for targeting
+        shard_mutations = {
+            host.shard_num: mutations
+            for host, mutations in shard_host_mutations.result().items()
+            if host.shard_num is not None
+        }
+        assert len(shard_mutations) == len(shard_host_mutations)
+
+        cluster.map_all_hosts_in_shards(
+            {shard_num: mutation.wait for shard_num, mutation in shard_mutations.items()}
+        ).result()
