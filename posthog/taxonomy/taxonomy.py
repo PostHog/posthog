@@ -145,8 +145,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_enrollment_update": {
             "label": "Feature Enrollment",
-            "description": "When a user enrolls with a feature.",
-            "ignored_in_assistant": True,  # Specific to EarlyAccessFeatureEnrollment, niche
+            "description": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
         },
         "$capture_metrics": {
             "label": "Capture Metrics",
