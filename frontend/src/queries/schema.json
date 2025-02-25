@@ -14018,9 +14018,16 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "StickinessComputationMode": {
+            "enum": ["non_cumulative", "cumulative"],
+            "type": "string"
+        },
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
+                "computedAs": {
+                    "$ref": "#/definitions/StickinessComputationMode"
+                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -14931,12 +14938,16 @@
                 "plan": {
                     "type": "string"
                 },
+                "query": {
+                    "default": "",
+                    "type": "string"
+                },
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": ["type", "query"],
             "type": "object"
         },
         "VizSpecificOptions": {

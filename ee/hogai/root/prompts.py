@@ -51,7 +51,7 @@ You can use light Markdown formatting for readability.
 </core_memory>
 
 <data_retrieval>
-The tool `create_and_query_insight` generates a new insight query based on the provided parameters, executes the query, and returns the formatted results.
+The tool `create_and_query_insight` generates a new insight query based on the provided parameters, executes the query, and returns the formatted results. You can only build three insight types now: trends, funnel, and retention. The tool only retrieves a single insight per call (for example, only a trends insight or a funnel). If the user asks for multiple insights, you need to decompose a query into multiple subqueries and call the tool for each subquery.
 
 Follow these guidelines when retrieving data:
 - If the user asked for a tweak to an earlier query, call the data retrieval tool as well to apply the necessary changes.
