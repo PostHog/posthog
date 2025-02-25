@@ -693,4 +693,6 @@ async def test_run_workflow_with_minio_bucket(
                 DataWarehouseTable.objects.filter(team_id=ateam.pk, name=query.name).first
             )()
             assert warehouse_table is not None, f"DataWarehouseTable for {query.name} not found"
+            # match the 50 page_view events defined above
             assert warehouse_table.row_count == len(expected_data), f"Row count for {query.name} not the expected value"
+
