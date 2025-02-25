@@ -252,6 +252,8 @@ export class CdpApi {
                         if (response.error) {
                             errors.push(response.error)
                         }
+
+                        await this.hogFunctionMonitoringService.processInvocationResults([response])
                     }
                 }
             } else if (compoundConfiguration.type === 'transformation') {
@@ -288,6 +290,8 @@ export class CdpApi {
         } catch (e) {
             console.error(e)
             res.status(500).json({ errors: [e.message] })
+        } finally {
+            await this.hogFunctionMonitoringService.produceQueuedMessages()
         }
     }
 }

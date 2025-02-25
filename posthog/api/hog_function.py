@@ -407,15 +407,10 @@ class HogFunctionViewSet(
         # Remove the team from the config
         configuration.pop("team")
 
-        hog_globals = serializer.validated_data["globals"]
-        mock_async_functions = serializer.validated_data["mock_async_functions"]
-
         res = create_hog_invocation_test(
             team_id=self.team_id,
             hog_function_id=str(hog_function.id) if hog_function else "new",
-            globals=hog_globals,
-            configuration=configuration,
-            mock_async_functions=mock_async_functions,
+            payload=serializer.validated_data,
         )
 
         if res.status_code != 200:
