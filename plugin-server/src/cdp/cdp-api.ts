@@ -20,6 +20,7 @@ import {
     HogFunctionType,
     LogEntry,
 } from './types'
+import { convertToHogFunctionInvocationGlobals } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -117,14 +118,10 @@ export class CdpApi {
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { globals, mock_async_functions, configuration, invocation_id } = req.body
+            const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
+            let { globals } = req.body
 
             status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
-
-            if (!globals || !globals.event) {
-                res.status(400).json({ error: 'Missing event' })
-                return
-            }
 
             const invocationID = invocation_id ?? new UUIDT().toString()
 
@@ -143,6 +140,19 @@ export class CdpApi {
 
             if (!team) {
                 return res.status(404).json({ error: 'Team not found' })
+            }
+
+            globals = clickhouse_event
+                ? convertToHogFunctionInvocationGlobals(
+                      clickhouse_event,
+                      team,
+                      this.hub.SITE_URL ?? 'http://localhost:8000'
+                  )
+                : globals
+
+            if (!globals || !globals.event) {
+                res.status(400).json({ error: 'Missing event' })
+                return
             }
 
             // NOTE: We allow the hog function to be null if it is a "new" hog function

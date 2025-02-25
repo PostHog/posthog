@@ -311,7 +311,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
     configuration = HogFunctionSerializer(write_only=True)
-    globals = serializers.DictField(write_only=True)
+    globals = serializers.DictField(write_only=True, required=False)
+    clickhouse_event = serializers.DictField(write_only=True, required=False)
     mock_async_functions = serializers.BooleanField(default=True, write_only=True)
     status = serializers.CharField(read_only=True)
     logs = serializers.ListField(read_only=True)
