@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -105,6 +106,8 @@ export const billingLogic = kea<billingLogicType>([
         actions: [
             userLogic,
             ['loadUser'],
+            organizationLogic,
+            ['loadCurrentOrganization'],
             eventUsageLogic,
             ['reportProductUnsubscribed'],
             lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }),
@@ -723,6 +726,9 @@ export const billingLogic = kea<billingLogicType>([
                     title: 'Error',
                     message: _search.billing_error,
                 })
+            }
+            if (_search.upgraded) {
+                actions.loadCurrentOrganization()
             }
             actions.setRedirectPath()
             actions.setIsOnboarding()
