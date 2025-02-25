@@ -158,6 +158,7 @@ async function executeQuery<N extends DataNode>(
                     onerror(err) {
                         abortController.abort()
                         reject(err)
+                        throw err // make sure fetchEventSource doesn't attempt to retry
                     },
                 }).catch(reject)
             })
