@@ -55,6 +55,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["schedule"] == "once"
         assert response_data["questions"] == [
             {
+                "id": str(response_data["questions"][0]["id"]),
                 "type": "open",
                 "question": "What do you think of the new notebooks feature?",
             }
@@ -141,6 +142,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["schedule"] == "once"
         assert response_data["questions"] == [
             {
+                "id": str(response_data["questions"][0]["id"]),
                 "type": "open",
                 "question": "What do you think of the new notebooks feature?",
             }
@@ -249,6 +251,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["conditions"] == {"url": "https://app.posthog.com/notebooks"}
         assert response_data["questions"] == [
             {
+                "id": str(response_data["questions"][0]["id"]),
                 "type": "open",
                 "question": "What would you want to improve from notebooks?",
             }
@@ -310,6 +313,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["conditions"] == {"url": "https://app.posthog.com/notebooks"}
         assert response_data["questions"] == [
             {
+                "id": str(response_data["questions"][0]["id"]),
                 "type": "open",
                 "question": "What would you want to improve from notebooks?",
             }
@@ -1083,6 +1087,7 @@ class TestSurvey(APIBaseTest):
                     "schedule": "once",
                     "questions": [
                         {
+                            "id": response_data["results"][0]["questions"][0]["id"],
                             "type": "open",
                             "question": "What would you want to improve from notebooks?",
                         }
@@ -1823,8 +1828,14 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["questions"] == [
-            {"type": "open", "question": "What up?", "description": "check?"},
             {
+                "id": str(response_data["questions"][0]["id"]),
+                "type": "open",
+                "question": "What up?",
+                "description": "check?",
+            },
+            {
+                "id": str(response_data["questions"][1]["id"]),
                 "type": "link",
                 "link": "https://bazinga.com",
                 "question": "<b>What</b> do you think of the new notebooks feature?",
@@ -1879,8 +1890,14 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["questions"] == [
-            {"type": "open", "question": "What up?", "description": "check?"},
             {
+                "id": str(basic_survey.questions[0]["id"]),
+                "type": "open",
+                "question": "What up?",
+                "description": "check?",
+            },
+            {
+                "id": str(basic_survey.questions[1]["id"]),
                 "type": "link",
                 "link": "https://bazinga.com",
                 "question": "<b>What</b> do you think of the new notebooks feature?",
@@ -3053,7 +3070,13 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "type": "popover",
                     "conditions": None,
                     "appearance": None,
-                    "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                    "questions": [
+                        {
+                            "id": str(survey_with_flags.questions[0]["id"]),
+                            "type": "open",
+                            "question": "What's a hedgehog?",
+                        }
+                    ],
                     "linked_flag_key": "linked-flag",
                     "targeting_flag_key": "targeting-flag",
                     "current_iteration": None,
@@ -3070,7 +3093,9 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "id": str(basic_survey.id),
                     "name": "Survey 1",
                     "type": "popover",
-                    "questions": [{"type": "open", "question": "What's a survey?"}],
+                    "questions": [
+                        {"id": str(basic_survey.questions[0]["id"]), "type": "open", "question": "What's a survey?"}
+                    ],
                     "conditions": None,
                     "appearance": None,
                     "start_date": None,
