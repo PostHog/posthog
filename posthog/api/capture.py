@@ -372,7 +372,6 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
     events_were_limited = False
 
     for event in events:
-        # Check if it's a recording event
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
             if token in limited_tokens_recordings:
@@ -381,22 +380,23 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
                     recordings_were_limited = True
                     continue
         else:
-            # Regular events - check if they're free (i.e. non-quota limited) events first
+            # Regular events - check if they're free events (i.e. events that we don't quota-limit) first
             event_name = event.get("event")
             is_free_event = (
                 event_name in ("$exception", "survey sent", "survey shown", "survey dismissed", "$feature_flag_called")
-                or event_name.startswith("$ai_")  # AI events, right now we don't charge for these
-                or event_name.startswith(
-                    "$error_"
-                )  # Error tracking events, same with AI, but we're start charging once it's out of beta
+                or event_name.startswith("$ai_")  # AI events
+                or event_name.startswith("$error_")  # Error tracking events
             )
 
             EVENTS_RECEIVED_COUNTER.labels(resource_type="events").inc()
-            if token in limited_tokens_events and not is_free_event:
-                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
-                if settings.QUOTA_LIMITING_ENABLED:
-                    events_were_limited = True
-                    continue
+            if token in limited_tokens_events:
+                if not is_free_event:  # Only drop if it's not a free event
+                    EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
+                    if settings.QUOTA_LIMITING_ENABLED:
+                        events_were_limited = True
+                        continue
+                # Still mark as limited even if we let free events through
+                events_were_limited = events_were_limited or settings.QUOTA_LIMITING_ENABLED
 
         results.append(event)
 
