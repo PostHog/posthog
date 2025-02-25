@@ -66,10 +66,26 @@ async fn project_property_definitions_handler(
         }
     };
 
+    let mut prop_defs = vec![];
     match qmgr.pool.fetch_all(props_query).await {
         Ok(result) => {
-            for _row in result {
-                // TODO: populate PropDefResponse.results entries!!!
+            for row in result {
+                // TODO: iterate on this! populate all fields, err check, etc.
+                let pd = PropDef {
+                    id: row.try_get("id").unwrap(),
+                    name: row.try_get("name").unwrap(),
+                    is_numeric: row.try_get("is_numerical").unwrap(),
+                    property_type: row.try_get("type").unwrap(),
+                    is_seen_on_filtered_events: None,
+                    verified: None,
+                    updated_by: None,
+                    updated_at: None,
+                    verified_at: None,
+                    verified_by: None,
+                    description: None,
+                    tags: vec![],
+                };
+                prop_defs.push(pd);
             }
         }
         Err(_e) => {
@@ -85,7 +101,7 @@ async fn project_property_definitions_handler(
         count: total_count,
         next: next_url,
         prev: prev_url,
-        results: vec![],
+        results: prop_defs,
     };
 
     Ok(Json(out))
@@ -105,13 +121,14 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     let search_fields: HashSet<String> = HashSet::from([
         "name".to_string(),
         params
-        .get("search_fields")
-        .map(|raw| {
-            raw.split(" ")
-                .map(|s| s.trim().to_string().to_lowercase())
-                .collect()
-        })
-        .unwrap_or_default()]);
+            .get("search_fields")
+            .map(|raw| {
+                raw.split(" ")
+                    .map(|s| s.trim().to_string().to_lowercase())
+                    .collect()
+            })
+            .unwrap_or_default(),
+    ]);
 
     // default value is "event" type, so we set that here if the input is bad or missing
     let property_type =
@@ -320,17 +337,20 @@ pub struct PropDefResponse {
 
 #[derive(Serialize)]
 pub struct PropDef {
+    // required fields
     id: String,
     name: String,
-    description: String,
-    is_numeric: bool,
-    updated_at: String, // UTC ISO8601
-    updated_by: Person,
-    is_seen_on_filtered_events: Option<String>, // VALIDATE THIS!
     property_type: i32,
-    verified: bool,
-    verified_at: String, // UTC ISO8601
-    verified_by: Person,
+    is_numeric: bool,
+    is_seen_on_filtered_events: Option<String>, // VALIDATE THIS!
+
+    // enterprise prop defs only fields below
+    updated_at: Option<String>, // UTC ISO8601
+    updated_by: Option<Person>,
+    verified: Option<bool>,
+    verified_at: Option<String>, // UTC ISO8601
+    verified_by: Option<Person>,
+    description: Option<String>,
     tags: Vec<String>,
 }
 
