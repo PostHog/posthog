@@ -204,7 +204,8 @@ impl Manager {
 
         // ORDER BY clauses
         qb.push(" ORDER BY is_seen_on_filtered_events DESC, ");
-        if params.order_by_verified && params.use_enterprise_taxonomy.is_some_and(|uet| uet) {
+        if params.use_enterprise_taxonomy.is_some_and(|uet| uet) {
+            // "verified" col only exists on the enterprise prop defs table!
             qb.push(" verified DESC NULLS LAST, ");
         }
         qb.push(format!(" {}.name ASC ", &self.prop_defs_table));

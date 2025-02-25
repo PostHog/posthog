@@ -92,19 +92,20 @@ async fn project_property_definitions_handler(
 }
 
 fn parse_request(params: HashMap<String, String>) -> Params {
-    // parse the request parameters; use Option<T> to track presence for query step
+    // space-separated list of search terms: fragments to fuzzy-match
+    // in "search_fields" (postgres columns) by value
     let search_terms: Option<Vec<String>> = params.get("search").map(|raw| {
         raw.split(" ")
             .map(|s| s.trim().to_string().to_lowercase())
             .collect()
     });
 
-    // TODO: this can be parameterized in the orig Django query but
+    // NOTE: this can be parameterized in the orig Django query but
     // I didn't see any evidence of that happening in the code yet
     let search_fields: HashSet<String> = params
         .get("search_fields")
         .map(|raw| {
-            raw.split(',')
+            raw.split(" ")
                 .map(|s| s.trim().to_string().to_lowercase())
                 .collect()
         })
@@ -112,7 +113,7 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     let mut search_fields = search_fields;
     search_fields.insert("name".to_string());
 
-    // default value is "event" type
+    // default value is "event" type, so we set that here if the input is bad or missing
     let property_type =
         params
             .get("type")
@@ -135,9 +136,10 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         })
     });
 
+    // another query param the Rust app (so far!) expects as space-separated list value
     let properties = params
         .get("properties")
-        .map(|raw| raw.split(",").map(|s| s.trim().to_string()).collect());
+        .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect());
 
     let is_numerical = params
         .get("is_numerical")
@@ -149,10 +151,12 @@ fn parse_request(params: HashMap<String, String>) -> Params {
 
     let excluded_properties = params
         .get("excluded_properties")
-        .map(|raw| raw.split(",").map(|s| s.trim().to_string()).collect());
+        .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect());
 
-    // this must be calculated on the Django (caller) side and passed to this API.
-    // it allows us to decide the base table to select from in our property defs queries
+    // NOTE: so far I'm assuming this should be calculated on the Django (caller) side and
+    // passed to this app as a flag b/c it references User model (etc.) but perhaps we just
+    // manually run those queries here too? TBD. the flag allows us to decide the base table
+    // to select from in our property defs queries. see also:
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L463
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L504-L508
     let use_enterprise_taxonomy = params
@@ -163,13 +167,13 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         .get("filter_by_event_names")
         .and_then(|s| s.parse::<bool>().ok());
 
-    // IMPORTANT: this is passed to the Django API as JSON but probably doesn't
-    // matter how we pass it from Django to this service, so it's a CSV for now.
-    // is this a mistake? TBD, revisit and see below:
+    // IMPORTANT: this list is passed to the Django API as JSON but probably doesn't
+    // matter how we pass it to the Rust app, so we use space-separated terms. is
+    // this a mistake? TBD, revisit and see below:
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L214
     let event_names = params
         .get("event_names")
-        .map(|raw| raw.split(",").map(|s| s.trim().to_string()).collect());
+        .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect());
 
     let limit: i32 = params.get("limit").map_or(DEFAULT_QUERY_LIMIT, |s| {
         s.parse::<i32>().unwrap_or(DEFAULT_QUERY_LIMIT)
@@ -178,9 +182,6 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     let offset: i32 = params.get("offset").map_or(DEFAULT_QUERY_OFFSET, |s| {
         s.parse::<i32>().unwrap_or(DEFAULT_QUERY_OFFSET)
     });
-
-    // TODO: should this be a request param? not overridden in Django query
-    let order_by_verified = true;
 
     Params {
         search_terms,
@@ -194,7 +195,6 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         is_numerical,
         use_enterprise_taxonomy,
         filter_by_event_names,
-        order_by_verified,
         limit,
         offset,
     }
@@ -268,7 +268,6 @@ pub struct Params {
     pub is_numerical: Option<bool>,
     pub use_enterprise_taxonomy: Option<bool>,
     pub filter_by_event_names: Option<bool>,
-    pub order_by_verified: bool,
     pub limit: i32,
     pub offset: i32,
 }
