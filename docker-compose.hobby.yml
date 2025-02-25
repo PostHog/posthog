@@ -45,14 +45,13 @@ services:
             - kafka
             - zookeeper
         volumes:
-            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
-            - ./posthog/idl:/idl
-            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
-            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
-            - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
-            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
-            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
-            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+            - ./posthog/posthog/idl:/idl
+            - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./posthog/docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - ./posthog/docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - clickhouse-data:/var/lib/clickhouse
 
     zookeeper:
         extends:
