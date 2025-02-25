@@ -8,6 +8,7 @@ use crate::{
     },
     //metrics_consts::{},
     config::Config,
+    types::PropertyParentType,
 };
 
 use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, QueryBuilder};
@@ -16,12 +17,13 @@ use std::collections::{HashMap, HashSet};
 
 // Wraps Postgres client and builds queries
 pub struct Manager {
-    // TODO: capture more config::Config values here as needed
     pub pool: PgPool,
+    search_term_aliases: HashMap<&'static str, &'static str>,
+
+    // extracted at init from config::Config
     enterprise_prop_defs_table: String,
     prop_defs_table: String,
     event_props_table: String,
-    search_term_aliases: HashMap<&'static str, &'static str>,
 }
 
 impl Manager {
@@ -38,7 +40,11 @@ impl Manager {
         })
     }
 
-    pub fn count_query(&self, project_id: i32, params: &Params) -> String {
+    pub fn count_query<'a>(
+        &self,
+        project_id: i32,
+        params: &'a Params,
+    ) -> QueryBuilder<'a, Postgres> {
         /* The original Django query formulation we're duplicating
                  * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L279-L289
 
@@ -62,26 +68,27 @@ impl Manager {
                 */
 
         // build & render the query
-        let mut qb = QueryBuilder::<Postgres>::new("SELECT count(*) AS full_count FROM ");
+        let mut qb = QueryBuilder::<Postgres>::new("SELECT count(*) AS full_count ");
 
         qb = self.gen_from_clause(qb, &params.use_enterprise_taxonomy);
         qb = self.gen_conditional_join_event_props(
             qb,
             project_id,
-            &params.property_type,
+            params.property_type,
             &params.filter_by_event_names,
             &params.event_names,
         );
 
         // begin the WHERE clause
         qb = self.init_where_clause(qb, project_id);
-        qb = self.where_property_type(qb, &params.property_type);
+        qb = self.where_property_type(qb, params.property_type);
         qb.push("AND COALESCE(group_type_index, -1) = ");
         qb.push_bind(params.group_type_index);
+        qb.push(" ");
 
         qb = self.conditionally_filter_excluded_properties(
             qb,
-            &params.property_type,
+            params.property_type,
             &params.excluded_properties,
         );
         qb = self.conditionally_filter_properties(qb, &params.properties);
@@ -101,10 +108,14 @@ impl Manager {
 
         // NOTE: count query is global per project_id, so no LIMIT/OFFSET handling is applied
 
-        qb.sql().into()
+        qb
     }
 
-    pub fn property_definitions_query(&self, project_id: i32, params: &Params) -> String {
+    pub fn property_definitions_query<'a>(
+        &self,
+        project_id: i32,
+        params: &'a Params,
+    ) -> QueryBuilder<'a, Postgres> {
         /* The original Django query we're duplicating
                  * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L262-L275
 
@@ -132,14 +143,14 @@ impl Manager {
                 * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L293-L305
                 */
 
-        let mut qb = QueryBuilder::<Postgres>::new("SELECT ");
+        let mut qb = QueryBuilder::<Postgres>::new(" SELECT ");
         if params.use_enterprise_taxonomy.is_some_and(|uet| uet) {
             // borrowed from EnterprisePropertyDefinition from Django monolith
             // via EnterprisePropertyDefinition._meta.get_fields()
-            qb.push("id, project, team, name, is_numerical, property_type, type, group_type_index, property_type_format, description, updated_at, updated_by, verified_at, verified_by ");
+            qb.push(" id, project_id, team_id, name, is_numerical, property_type, type, group_type_index, property_type_format, description, updated_at, updated_by, verified_at, verified_by ");
         } else {
             // borrowed from Django monolith via PropertyDefinition._meta.get_fields()
-            qb.push("id, project, team, name, is_numerical, property_type, type, group_type_index, property_type_format ");
+            qb.push(" id, project_id team_id, name, is_numerical, property_type, type, group_type_index, property_type_format ");
         }
 
         // append event_property_field clause to SELECT clause
@@ -161,20 +172,21 @@ impl Manager {
         qb = self.gen_conditional_join_event_props(
             qb,
             project_id,
-            &params.property_type,
+            params.property_type,
             &params.filter_by_event_names,
             &params.event_names,
         );
 
         // begin the WHERE clause
         qb = self.init_where_clause(qb, project_id);
-        qb = self.where_property_type(qb, &params.property_type);
-        qb.push("AND COALESCE(group_type_index, -1) = ");
+        qb = self.where_property_type(qb, params.property_type);
+        qb.push(" AND COALESCE(group_type_index, -1) = ");
         qb.push_bind(params.group_type_index);
+        qb.push(" ");
 
         qb = self.conditionally_filter_excluded_properties(
             qb,
-            &params.property_type,
+            params.property_type,
             &params.excluded_properties,
         );
         qb = self.conditionally_filter_properties(qb, &params.properties);
@@ -191,19 +203,21 @@ impl Manager {
         qb = self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
         // ORDER BY clauses
-        qb.push("ORDER BY is_seen_on_filtered_events DESC, ");
-        if params.order_by_verified {
-            qb.push("verified DESC NULLS LAST, ");
+        qb.push(" ORDER BY is_seen_on_filtered_events DESC, ");
+        if params.order_by_verified && params.use_enterprise_taxonomy.is_some_and(|uet| uet) {
+            qb.push(" verified DESC NULLS LAST, ");
         }
-        qb.push(format!("{}.name ASC ", &self.prop_defs_table));
+        qb.push(format!(" {}.name ASC ", &self.prop_defs_table));
+        qb.push(" ");
 
         // LIMIT and OFFSET clauses
-        qb.push("LIMIT ");
+        qb.push(" LIMIT ");
         qb.push_bind(params.limit);
-        qb.push("OFFSET ");
+        qb.push(" OFFSET ");
         qb.push_bind(params.offset);
+        qb.push(" ");
 
-        qb.sql().into()
+        qb
     }
 
     fn gen_from_clause<'a>(
@@ -215,14 +229,15 @@ impl Manager {
             // TODO: ensure this all behaves as it does in Django (and that we need it!) later...
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L505-L506
             format!(
-                "{0} FULL OUTER JOIN {1} ON {1}.id={0}.propertydefinition_ptr_id",
+                " FROM {0} FULL OUTER JOIN {1} ON {1}.id={0}.propertydefinition_ptr_id ",
                 &self.enterprise_prop_defs_table, &self.prop_defs_table
             )
         } else {
             // this is the default if enterprise taxonomy is not requested
-            self.prop_defs_table.clone()
+            format!(" FROM {} ", &self.prop_defs_table)
         };
-        qb.push_bind(from_clause);
+        qb.push(from_clause);
+        qb.push(" ");
 
         qb
     }
@@ -231,7 +246,7 @@ impl Manager {
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
         project_id: i32,
-        property_type: &str,
+        property_type: PropertyParentType,
         filter_by_event_names: &Option<bool>,
         event_names: &'a Option<Vec<String>>,
     ) -> QueryBuilder<'a, Postgres> {
@@ -239,10 +254,12 @@ impl Manager {
         // this join is only applied if the query is scoped to type "event"
         if self.is_prop_type_event(property_type) {
             qb.push(self.event_property_join_type(filter_by_event_names));
-            qb.push(" (SELECT DISTINCT property FROM ");
-            qb.push_bind(self.event_props_table.clone());
-            qb.push(" WHERE COALESCE(project_id, team_id) = ");
+            qb.push(format!(
+                " (SELECT DISTINCT property FROM {0} WHERE COALESCE(project_id, team_id) = ",
+                &self.event_props_table
+            ));
             qb.push_bind(project_id);
+            qb.push(" ");
 
             // conditionally apply event_names filter
             if filter_by_event_names.is_some_and(|fben| fben) {
@@ -275,6 +292,7 @@ impl Manager {
             self.prop_defs_table
         ));
         qb.push_bind(project_id);
+        qb.push(" ");
 
         qb
     }
@@ -282,10 +300,11 @@ impl Manager {
     fn where_property_type<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        property_type: &'a str,
+        property_type: PropertyParentType,
     ) -> QueryBuilder<'a, Postgres> {
-        qb.push("AND type = ");
-        qb.push_bind(property_type);
+        qb.push(" AND type = ");
+        qb.push_bind(property_type as i32);
+        qb.push(" ");
 
         qb
     }
@@ -293,7 +312,7 @@ impl Manager {
     fn conditionally_filter_excluded_properties<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        property_type: &str,
+        property_type: PropertyParentType,
         excluded_properties: &'a Option<Vec<String>>,
     ) -> QueryBuilder<'a, Postgres> {
         // conditionally filter on excluded_properties
@@ -302,7 +321,7 @@ impl Manager {
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L241
         if let Some(excludes) = excluded_properties {
             if self.is_prop_type_event(property_type) && !excludes.is_empty() {
-                qb.push(format!("AND NOT {0}.name = ANY(", self.prop_defs_table));
+                qb.push(format!(" AND NOT {0}.name = ANY(", self.prop_defs_table));
                 let mut buf: Vec<&str> = vec![];
                 for entry in EVENTS_HIDDEN_PROPERTY_DEFINITIONS {
                     buf.push(entry);
@@ -386,7 +405,7 @@ impl Manager {
             // outside of the builder because these aren't user inputs
             let search_extras = if !term_aliases.is_empty() {
                 format!(
-                    " OR name = ANY(ARRAY[{}])",
+                    " OR name = ANY(ARRAY[{}]) ",
                     term_aliases
                         .iter()
                         .map(|ta| format!("'{}'", ta))
@@ -400,7 +419,7 @@ impl Manager {
             // step 2: filter "initial" prop defs if the user wants "latest"
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
             let screening_clause = if term_aliases.iter().any(|ta| *ta == SEARCH_TRIGGER_WORD) {
-                format!(" OR NOT name ILIKE '%{}%'", SEARCH_SCREEN_WORD)
+                format!(" OR NOT name ILIKE '%{}%' ", SEARCH_SCREEN_WORD)
             } else {
                 "".to_string()
             };
@@ -412,7 +431,7 @@ impl Manager {
             // with each clasue testing search *fields* (like "name") in the table against fuzzy-matched
             // search *terms* (event props.) Original Django monolith query construction step is here:
             // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
-            if !search_fields.is_empty() || !search_terms.as_ref().is_some_and(|s| s.is_empty()) {
+            if !search_fields.is_empty() && !search_terms.as_ref().is_some_and(|s| s.is_empty()) {
                 /* TODO: I don't think we need this cleansing step in the Rust service as Django does
                 let cleansed_terms: Vec<String> = search
                     .as_ref()
@@ -426,20 +445,16 @@ impl Manager {
                 // I battle the borrow checker some more, apologies! :)
                 if let Some(terms) = search_terms {
                     for (tndx, term) in terms.iter().enumerate() {
-                        if search_fields.is_empty() {
-                            continue;
-                        }
                         if tndx == 0 {
-                            qb.push(" AND ((");
+                            qb.push(" AND (( ");
                         }
                         for (fndx, field) in search_fields.iter().enumerate() {
                             if fndx == 0 {
                                 qb.push("(");
                             }
                             qb.push_bind(field.clone());
-                            qb.push(" ILIKE '%");
-                            qb.push_bind(term);
-                            qb.push("%' ");
+                            qb.push(" ILIKE ");
+                            qb.push_bind(format!("%{}%", term));
                             if search_fields.len() > 1 && fndx < search_fields.len() - 1 {
                                 qb.push(" OR ");
                             }
@@ -451,9 +466,7 @@ impl Manager {
                             qb.push(" AND ");
                         }
                         if tndx == terms.len() - 1 {
-                            qb.push(") ");
-                            qb.push_bind(search_extras.clone());
-                            qb.push(") ");
+                            qb.push(format!(" ) {0} ) ", search_extras.clone()));
                         }
                     }
                 }
@@ -504,13 +517,13 @@ impl Manager {
 
     fn event_property_join_type(&self, filter_by_event_names: &Option<bool>) -> &str {
         if let Some(true) = filter_by_event_names {
-            "INNER JOIN"
+            " INNER JOIN "
         } else {
-            "LEFT JOIN"
+            " LEFT JOIN "
         }
     }
 
-    fn is_prop_type_event(&self, property_type: &str) -> bool {
-        property_type == "event"
+    fn is_prop_type_event(&self, property_type: PropertyParentType) -> bool {
+        property_type == PropertyParentType::Event
     }
 }

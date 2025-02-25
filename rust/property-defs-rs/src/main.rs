@@ -41,8 +41,8 @@ fn start_server(config: &Config, context: Arc<AppContext>, qmgr: Arc<Manager>) -
             "/_liveness",
             get(move || ready(context.liveness.get_status())),
         );
-    let router = setup_metrics_routes(router);
     let router = apply_routes(router, qmgr);
+    let router = setup_metrics_routes(router);
 
     let bind = format!("{}:{}", config.host, config.port);
 
