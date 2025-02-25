@@ -134,19 +134,17 @@ function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Elemen
 export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
     const { seen, dismissed, sent } = surveyUserStats
     const total = seen + dismissed + sent
-    const labelTotal = total === 1 ? 'Unique user shown' : 'Unique users shown'
-    const labelSent = sent === 1 ? 'Response sent' : 'Responses sent'
 
     return (
         <div className="inline-flex mb-4">
             <div>
                 <div className="text-4xl font-bold">{humanFriendlyNumber(total)}</div>
-                <div className="font-semibold text-secondary">{labelTotal}</div>
+                <div className="font-semibold text-secondary">Unique user(s) shown</div>
             </div>
             {sent > 0 && (
                 <div className="ml-10">
                     <div className="text-4xl font-bold">{humanFriendlyNumber(sent)}</div>
-                    <div className="font-semibold text-secondary">{labelSent}</div>
+                    <div className="font-semibold text-secondary">Response(s) sent</div>
                 </div>
             )}
         </div>
