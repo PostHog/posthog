@@ -106,7 +106,7 @@ if (res.status >= 400) {
             "label": "Conversion Access Token",
             "description": "You must obtain a Conversion Access Token.",
             "default": "",
-            "secret": False,
+            "secret": True,
             "required": True,
         },
         {
@@ -258,45 +258,3 @@ if (res.status >= 400) {
         ),
     ],
 )
-
-"""
-
-
-
-let eventType := {'tracking_type': inputs.eventType};
-if (not has(RDT_ALLOWED_EVENT_NAMES, inputs.eventType)) {
-    eventType.tracking_type := 'Custom';
-    eventType.custom_event_name := inputs.eventType;
-}
-
-let event := {
-    'event_at': toDateTime(inputs.eventTime),
-    'event_type': eventType,
-    'user': userProperties,
-    'event_metadata': eventProperties,
-};
-
-let events := [event];
-
-let body := {
-    'test_mode': true,
-    'events': events,
-};
-
-let url := f'https://ads-api.reddit.com/api/v2.0/conversions/events/{inputs.accountId}';
-let userAgent := 'hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)';
-
-let res := fetch(url, {
-    'method': 'POST',
-    'headers': {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {inputs.conversionsAccessToken}',
-        'User-Agent': userAgent,
-    },
-    'body': body
-});
-if (res.status >= 400) {
-    throw Error(f'Error from https://ads-api.reddit.com (status {res.status}): {res.body}')
-}
-
-"""

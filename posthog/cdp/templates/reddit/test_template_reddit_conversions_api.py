@@ -20,22 +20,23 @@ class TestTemplateRedditAds(BaseHogFunctionTemplateTest):
             "conversionAccessToken": TEST_CONVERSION_ACCESS_TOKEN,
             "userProperties": {"email": TEST_EMAIL},
             "eventTime": TEST_EVENT_TIMESTAMP,
-            "eventType": "PageVisit",
         }
         inputs.update(kwargs)
         return inputs
 
     def test_pageview(self):
         self.run_function(
-            self._inputs(),
+            self._inputs(
+                eventType="PageVisit",
+                eventProperties={
+                    "conversionId": TEST_EVENT_ID,
+                    "products": [{"product_id": TEST_PRODUCT_ID}],
+                },
+            ),
             globals={
                 "event": {
-                    "uuid": TEST_EVENT_ID,
                     "timestamp": TEST_EVENT_TIMESTAMP,
-                    "properties": {
-                        "$current_url": "https://posthog.com/cdp",
-                    },
-                    "event": "$pageview",
+                    # TODO test the default mappings, and provide the rest of the event data
                 },
             },
         )
@@ -47,10 +48,12 @@ class TestTemplateRedditAds(BaseHogFunctionTemplateTest):
                     "body": {
                         "events": [
                             {
-                                "event_at": 1739463203210,
-                                "event_metadata": {},
+                                "event_at": TEST_EVENT_TIMESTAMP,
+                                "event_metadata": {
+                                    "conversionId": TEST_EVENT_ID,
+                                },
                                 "event_type": {"tracking_type": "PageVisit"},
-                                "user": {"email": "test@example.com"},
+                                "user": {"email": TEST_EMAIL},
                             }
                         ],
                         "test_mode": False,
