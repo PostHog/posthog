@@ -12,6 +12,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/event-property-utls'
+import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 import { useState } from 'react'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
@@ -93,7 +94,14 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
 
 export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
     const [activeTab, setActiveTab] = useState<
-        'properties' | 'flags' | 'image' | 'elements' | '$set_properties' | '$set_once_properties' | 'raw'
+        | 'properties'
+        | 'flags'
+        | 'image'
+        | 'elements'
+        | '$set_properties'
+        | '$set_once_properties'
+        | 'raw'
+        | 'conversation'
     >('properties')
 
     const insightUrl = insightUrlForEvent(item.data)
@@ -120,22 +128,49 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
         }
     }
 
+    // // Check if this is an LLM-related event
+    // const isLLMEvent = item.data.event === '$ai_generation' ||
+    //                    item.data.event === '$ai_span' ||
+    //                    item.data.event === '$ai_trace'
+
+    // Get trace ID for linking to LLM trace view
+    const traceId = item.data.properties.$ai_trace_id
+    const traceUrl = traceId
+        ? `/llm-observability/traces/${traceId}${
+              item.data.id && item.data.event !== '$ai_trace' ? `?event=${item.data.id}` : ''
+          }`
+        : null
+
     return (
         <div data-attr="item-event" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t">
-                {insightUrl ? (
+                {insightUrl || traceUrl ? (
                     <>
-                        <div className="flex justify-end">
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                sideIcon={<IconOpenInNew />}
-                                data-attr="recordings-event-to-insights"
-                                to={insightUrl}
-                                targetBlank
-                            >
-                                Try out in Insights
-                            </LemonButton>
+                        <div className="flex justify-end gap-2">
+                            {insightUrl && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    sideIcon={<IconOpenInNew />}
+                                    data-attr="recordings-event-to-insights"
+                                    to={insightUrl}
+                                    targetBlank
+                                >
+                                    Try out in Insights
+                                </LemonButton>
+                            )}
+                            {traceUrl && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    sideIcon={<IconOpenInNew />}
+                                    data-attr="recordings-event-to-llm-trace"
+                                    to={traceUrl}
+                                    targetBlank
+                                >
+                                    View LLM Trace
+                                </LemonButton>
+                            )}
                         </div>
                         <LemonDivider dashed />
                     </>
@@ -185,6 +220,18 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                           key: 'image',
                                           label: 'Image',
                                           content: <AutocaptureImageTab elements={item.data.elements} />,
+                                      }
+                                    : null,
+                                // Add conversation tab for $ai_generation events
+                                item.data.event === '$ai_generation'
+                                    ? {
+                                          key: 'conversation',
+                                          label: 'Conversation',
+                                          content: (
+                                              <div className="py-2">
+                                                  <ConversationDisplay eventProperties={item.data.properties} />
+                                              </div>
+                                          ),
                                       }
                                     : null,
                                 Object.keys(setProperties).length > 0
