@@ -152,7 +152,7 @@ class BillingManager:
         organization.available_product_features = available_product_features
         organization.save()
 
-        return
+        return available_product_features
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         try:
@@ -405,9 +405,9 @@ class BillingManager:
             json=data,
         )
 
-        self.update_available_product_features(organization)
-
         handle_billing_service_error(res)
+
+        self.update_available_product_features(organization)
 
         return res.json()
 
@@ -418,9 +418,9 @@ class BillingManager:
             json=data,
         )
 
-        self.update_available_product_features(organization)
-
         handle_billing_service_error(res)
+
+        self.update_available_product_features(organization)
 
     def authorize(self, organization: Organization):
         res = requests.post(
