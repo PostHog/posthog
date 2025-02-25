@@ -192,6 +192,10 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 actions.setStats(data)
             } catch (error) {
                 console.error('Failed to poll stats:', error)
+            } finally {
+                cache.statsTimer = setTimeout(() => {
+                    actions.pollStats()
+                }, 1500)
             }
         },
         addEvents: ({ events }) => {
@@ -209,16 +213,14 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     events(({ actions, cache }) => ({
         afterMount: () => {
             actions.updateEventsConnection()
-            cache.statsInterval = setInterval(() => {
-                actions.pollStats()
-            }, 1500)
+            actions.pollStats()
         },
         beforeUnmount: () => {
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
             }
-            if (cache.statsInterval) {
-                clearInterval(cache.statsInterval)
+            if (cache.statsTimer) {
+                clearTimeout(cache.statsTimer)
             }
         },
     })),
