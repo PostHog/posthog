@@ -1,10 +1,10 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { logsViewerLogicType } from './logsViewerLogicType'
@@ -43,8 +43,8 @@ type GroupedLogEntryRequest = {
     sourceId: string
     levels: LogEntryLevel[]
     searchTerm: string
-    before?: Dayjs
-    after?: Dayjs
+    before?: string
+    after?: string
 }
 
 const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<GroupedLogEntry[]> => {
@@ -64,14 +64,17 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
         HAVING countIf(
             lower(level) IN (${request.levels.map((level) => `'${level.toLowerCase()}'`).join(',')})
             AND message ILIKE '%${request.searchTerm}%'
-            ${request.before ? `AND timestamp < ${hogql`${request.before}`}` : ''}
-            ${request.after ? `AND timestamp > ${hogql`${request.after}`}` : ''}
+            AND timestamp >= {filters.dateRange.from}
+            AND timestamp <= {filters.dateRange.to}
         ) > 0
         ORDER BY latest_timestamp DESC
         LIMIT ${LOG_VIEWER_LIMIT}`,
     }
 
-    const response = await api.query(query, undefined, undefined, true)
+    const response = await api.query(query, undefined, undefined, true, {
+        date_from: request.after ?? '-7d',
+        date_to: request.before,
+    })
 
     return response.results.map((result) => ({
         instanceId: result[0],
@@ -131,17 +134,24 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         searchTerm: values.filters.searchTerm,
                         sourceType: props.sourceType,
                         sourceId: props.sourceId,
+                        before: values.filters.before,
+                        after: values.filters.after,
                     }
                     const results = await loadGroupedLogs(logParams)
                     return sanitizeGroupedLogs(results)
                 },
                 loadMoreLogs: async () => {
+                    if (!values.trailingEntryTimestamp) {
+                        lemonToast.warning('No more logs to load')
+                        return values.logs
+                    }
                     const logParams: GroupedLogEntryRequest = {
                         levels: values.filters.logLevels,
                         searchTerm: values.filters.searchTerm,
                         sourceType: props.sourceType,
                         sourceId: props.sourceId,
-                        before: values.trailingEntryTimestamp ?? undefined,
+                        before: values.trailingEntryTimestamp.toISOString(),
+                        after: values.filters.after,
                     }
 
                     const results = await loadGroupedLogs(logParams)
@@ -161,10 +171,14 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             [] as GroupedLogEntry[],
             {
                 pollBackgroundLogs: async () => {
+                    if (!values.leadingEntryTimestamp) {
+                        return []
+                    }
                     const logParams: GroupedLogEntryRequest = {
                         searchTerm: values.filters.searchTerm,
                         levels: values.filters.logLevels,
-                        after: values.leadingEntryTimestamp ?? undefined,
+                        after: values.leadingEntryTimestamp.toISOString(),
+                        before: values.filters.before,
                         sourceType: props.sourceType,
                         sourceId: props.sourceId,
                     }

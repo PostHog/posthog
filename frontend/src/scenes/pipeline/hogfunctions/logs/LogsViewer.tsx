@@ -72,6 +72,18 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                 }
             />
             <div className="flex items-center gap-4">
+                <DateFilter
+                    dateTo={filters.before}
+                    dateFrom={filters.after}
+                    onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
+                    allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                    makeLabel={(key) => (
+                        <>
+                            <IconCalendar /> {key}
+                        </>
+                    )}
+                />
+
                 <span className="mr-1">Show logs of level:</span>
                 {ALL_LOG_LEVELS.map((level) => {
                     return (
@@ -88,18 +100,6 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                         />
                     )
                 })}
-
-                <DateFilter
-                    dateTo={filters.before}
-                    dateFrom={filters.after}
-                    onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
-                    allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
-                    makeLabel={(key) => (
-                        <>
-                            <IconCalendar /> {key}
-                        </>
-                    )}
-                />
             </div>
             <LemonButton
                 onClick={revealBackground}
@@ -251,6 +251,8 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                     {isThereMoreToLoad ? `Load up to ${LOG_VIEWER_LIMIT} older entries` : 'No older entries'}
                 </LemonButton>
             )}
+
+            <div className="mb-8" />
         </div>
     )
 }
