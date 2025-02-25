@@ -6,37 +6,17 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { useEffect, useMemo } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
-import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentVariant } from '~/toolbar/experiments/WebExperimentVariant'
 import { WebExperimentVariantHeader } from '~/toolbar/experiments/WebExperimentVariantHeader'
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
-    const { getExperiments } = useActions(experimentsLogic)
     const { selectedExperimentId, experimentForm, addVariantAvailable, selectedVariant, experimentFormErrors } =
         useValues(experimentsTabLogic)
-    const {
-        selectExperiment,
-        selectVariant,
-        inspectForElementWithIndex,
-        addNewVariant,
-        applyVariant,
-        setExperimentFormValue,
-    } = useActions(experimentsTabLogic)
-
-    useMemo(() => {
-        if (selectedExperimentId === 'new') {
-            selectVariant('test')
-            inspectForElementWithIndex('test', 'all-elements', 0)
-        }
-    }, [selectedExperimentId, selectVariant, inspectForElementWithIndex])
-
-    useEffect(() => {
-        getExperiments()
-    }, [])
+    const { selectExperiment, selectVariant, addNewVariant, applyVariant, setExperimentFormValue } =
+        useActions(experimentsTabLogic)
 
     return (
         <ToolbarMenu>
@@ -49,10 +29,10 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
             >
                 <ToolbarMenu.Header className="border-b">
                     {selectedExperimentId === 'new' ? (
-                        <div className="w-full p-4">
+                        <div className="w-full px-2 pb-4 pt-2">
                             <LemonLabel>Experiment name</LemonLabel>
                             <LemonInput
-                                className="w-2/3"
+                                className="w-2/3 mt-1"
                                 placeholder="Example: Pricing page conversion"
                                 onChange={(newName: string) => {
                                     setExperimentFormValue('name', newName)

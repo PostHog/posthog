@@ -49,6 +49,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         setFilters: (filters: LegacyRecordingFilters | RecordingUniversalFilters | null) => ({ filters }),
         loadPinnedRecordings: true,
         onPinnedChange: (recording: SessionRecordingType, pinned: boolean) => ({ pinned, recording }),
+        markPlaylistViewed: true,
     }),
     loaders(({ values, props }) => ({
         playlist: [
@@ -126,11 +127,21 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     })),
 
     listeners(({ actions, values }) => ({
-        getPlaylistSuccess: () => {
+        getPlaylistSuccess: ({ playlist }) => {
             if (values.playlist?.derived_name !== values.derivedName) {
                 // This keeps the derived name up to date if the playlist changes
                 actions.updatePlaylist({ derived_name: values.derivedName }, true)
             }
+
+            if (playlist.filters) {
+                actions.markPlaylistViewed()
+            }
+        },
+        markPlaylistViewed: async () => {
+            if (!values.playlist) {
+                return
+            }
+            await api.recordings.playlistViewed(values.playlist.short_id)
         },
     })),
 

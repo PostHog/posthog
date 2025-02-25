@@ -16,12 +16,7 @@ const web_experiments = [
         name: 'Test Experiment 1',
         variants: {
             control: {
-                transforms: [
-                    {
-                        html: '',
-                        selector: 'h1',
-                    },
-                ],
+                transforms: [],
             },
         },
     },
@@ -155,13 +150,17 @@ describe('experimentsTabLogic', () => {
             })
                 .toMatchValues({
                     experimentForm: {
-                        name: '',
+                        name: 'Test Experiment 1',
                         variants: {
-                            'variant #0': {
+                            control: {
+                                transforms: [],
+                                rollout_percentage: 50,
+                            },
+                            'variant #1': {
+                                transforms: [{}],
+                                rollout_percentage: 50,
                                 is_new: true,
                                 conditions: null,
-                                rollout_percentage: 100,
-                                transforms: [{}],
                             },
                         },
                         original_html_state: {},
@@ -173,12 +172,17 @@ describe('experimentsTabLogic', () => {
         it('can remove an existing variant', async () => {
             await expectLogic(theExperimentsTabLogic, () => {
                 theExperimentsTabLogic.actions.selectExperiment(1)
-                theExperimentsTabLogic.actions.removeVariant('control')
+                theExperimentsTabLogic.actions.removeVariant('variant #1')
             })
                 .toMatchValues({
                     experimentForm: {
-                        name: '',
-                        variants: {},
+                        name: 'Test Experiment 1',
+                        variants: {
+                            control: {
+                                transforms: [],
+                                rollout_percentage: 100,
+                            },
+                        },
                         original_html_state: {},
                     },
                 })
@@ -269,7 +273,16 @@ describe('experimentsTabLogic', () => {
             })
                 .toDispatchActions(['selectExperiment', 'setExperimentFormValue', 'submitExperimentForm'])
                 .toMatchValues({
-                    experimentForm: { name: 'Updated Experiment 1', variants: {}, original_html_state: {} },
+                    experimentForm: {
+                        name: 'Updated Experiment 1',
+                        variants: {
+                            control: {
+                                transforms: [],
+                                rollout_percentage: 100,
+                            },
+                        },
+                        original_html_state: {},
+                    },
                 })
         })
 
