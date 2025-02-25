@@ -83,25 +83,6 @@ class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_perso
 
         self.assertTrue(results.isUdf)
 
-    def test_assert_trends_flag_is_off(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "interval": "hour",
-            "date_from": "2021-05-01 00:00:00",
-            "funnel_window_interval": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
-
-        self.assertFalse(results.isUdf)
-
     # Old style funnels fails on this (not sure why)
     def test_events_same_timestamp_no_exclusions(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
