@@ -5,6 +5,7 @@ import {
     LemonInput,
     LemonSnack,
     LemonTable,
+    LemonTableColumns,
     LemonTag,
     LemonTagProps,
     Link,
@@ -36,10 +37,14 @@ const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
     }
 }
 
+export type LogsViewerProps = LogsViewerLogicProps & {
+    renderColumns?: (columns: LemonTableColumns<GroupedLogEntry>) => LemonTableColumns<GroupedLogEntry>
+}
+
 /**
  * NOTE: There is a loose attempt to keeep this generic so we can use it as an abstract log component in the future.
  */
-export function LogsViewer(props: LogsViewerLogicProps): JSX.Element {
+export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
 
     const { logs, logsLoading, backgroundLogs, isThereMoreToLoad, selectedLogLevels, instanceId, expandedRows } =
@@ -99,7 +104,7 @@ export function LogsViewer(props: LogsViewerLogicProps): JSX.Element {
                 loading={logsLoading}
                 className="ph-no-capture"
                 rowKey={(record) => record.instanceId}
-                columns={[
+                columns={renderColumns([
                     {
                         title: 'Timestamp',
                         key: 'timestamp',
@@ -177,7 +182,7 @@ export function LogsViewer(props: LogsViewerLogicProps): JSX.Element {
                             )
                         },
                     },
-                ]}
+                ])}
                 expandable={{
                     noIndent: true,
                     isRowExpanded: (record) => expandedRows[record.instanceId] ?? false,

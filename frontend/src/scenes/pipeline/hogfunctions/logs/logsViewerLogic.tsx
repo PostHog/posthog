@@ -88,6 +88,8 @@ const sanitizeGroupedLogs = (groups: GroupedLogEntry[]): GroupedLogEntry[] => {
             byId[group.instanceId] = group
         }
 
+        // Go in reverse and find the highest level message
+
         const highestLogLevel = group.entries.reduce((max, entry) => {
             return Math.max(max, ALL_LOG_LEVELS.indexOf(entry.level))
         }, 0)
@@ -102,6 +104,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
     key(({ sourceType, sourceId }) => `${sourceType}:${sourceId}`),
     actions({
+        addLogGroups: (logGroups: GroupedLogEntry[]) => ({ logGroups }),
         setSelectedLogLevels: (levels: LogEntryLevel[]) => ({
             levels,
         }),
@@ -146,6 +149,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     const backgroundLogs = [...values.backgroundLogs]
                     actions.clearBackgroundLogs()
                     return sanitizeGroupedLogs([...backgroundLogs, ...values.logs])
+                },
+                addLogGroups: ({ logGroups }) => {
+                    return sanitizeGroupedLogs([...logGroups, ...values.logs])
                 },
             },
         ],
