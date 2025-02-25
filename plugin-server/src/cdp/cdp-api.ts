@@ -10,6 +10,7 @@ import { createCdpRedisPool } from './redis'
 import { FetchExecutorService } from './services/fetch-executor.service'
 import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
+import { HogFunctionMonitoringService } from './services/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import {
@@ -26,6 +27,7 @@ export class CdpApi {
     private fetchExecutor: FetchExecutorService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
+    private hogFunctionMonitoringService: HogFunctionMonitoringService
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -33,6 +35,7 @@ export class CdpApi {
         this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
+        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
     }
 
     public get service(): PluginServerService {
