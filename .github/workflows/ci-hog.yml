@@ -202,7 +202,8 @@ jobs:
         name: Update versions in package.json
         runs-on: ubuntu-24.04
         needs: release-hogvm
-        if: always() # This ensures the job runs regardless of the result of release-hogvm
+        # The condition ensures the job runs regardless of the result of release-hogvm, but not on forks
+        if: always() && github.repository != 'PostHog/posthog'
         steps:
             - name: Checkout the repository
               uses: actions/checkout@v4
