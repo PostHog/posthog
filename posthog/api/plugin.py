@@ -4,7 +4,6 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from posthoganalytics import capture_exception
-import posthoganalytics
 import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
