@@ -36,7 +36,9 @@ export const playerSidebarLogic = kea<playerSidebarLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        ['**/replay/home*']: (_, searchParams) => {
+        // intentionally locked to replay/* to prevent other pages from setting the tab
+        // this is a debug affordance
+        ['**/replay/*']: (_, searchParams) => {
             const urlTab = Object.values(SessionRecordingSidebarTab).includes(searchParams.tab)
                 ? (searchParams.tab as SessionRecordingSidebarTab)
                 : SessionRecordingSidebarTab.INSPECTOR
