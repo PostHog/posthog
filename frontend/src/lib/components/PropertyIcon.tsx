@@ -38,8 +38,8 @@ const osIcons = {
     ['windows mobile']: <IconWindows />,
     ['windows phone']: <IconWindows />,
     ['xbox']: <IconWindows />,
-    ['playstation']: <IconGearFilled />,
-    ['nintendo']: <IconGearFilled />,
+    ['playstation']: <IconHeadset />,
+    ['nintendo']: <IconHeadset />,
     ['blackberry']: <IconBlackberry />,
     ['watchos']: <IconMacOS />,
 }
