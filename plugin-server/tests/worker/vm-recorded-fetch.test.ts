@@ -1,6 +1,6 @@
-import { mocked } from 'jest-mock'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginEvent } from '../../src/types'
+import { Hub, PluginConfig } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { trackedFetch } from '../../src/utils/fetch'
 import { RecordedHttpCall } from '../../src/utils/recorded-fetch'
@@ -90,7 +90,7 @@ describe('VM with recorded fetch', () => {
         getHttpCallRecorder().clearCalls()
 
         // Mock the fetch response
-        mocked(trackedFetch).mockResolvedValue(mockResponse as any)
+        jest.mocked(trackedFetch).mockResolvedValue(mockResponse as any)
 
         jest.clearAllMocks()
     })
@@ -120,10 +120,10 @@ describe('VM with recorded fetch', () => {
             now: new Date().toISOString(),
             event: 'test_event',
             properties: {},
-        }
+        } as unknown as PluginEvent
 
         // Run the onEvent method
-        await vm.methods.onEvent!(event)
+        await vm.methods.onEvent!(event as any)
 
         // Get the recorded calls
         recordedCalls = getHttpCallRecorder().getCalls()
@@ -138,7 +138,7 @@ describe('VM with recorded fetch', () => {
 
     it('records fetch calls with error responses', async () => {
         const error = new Error('Network error')
-        mocked(trackedFetch).mockRejectedValueOnce(error)
+        jest.mocked(trackedFetch).mockRejectedValueOnce(error)
 
         const indexJs = `
             async function processEvent(event) {
@@ -161,13 +161,13 @@ describe('VM with recorded fetch', () => {
             now: new Date().toISOString(),
             event: 'test_event',
             properties: {},
-        }
+        } as unknown as PluginEvent
 
         // Run the processEvent method
         const processedEvent = await vm.methods.processEvent!(event)
 
         // Verify the error was caught in the plugin
-        expect(processedEvent.properties.error).toBe('Network error')
+        expect(processedEvent?.properties?.error).toBe('Network error')
 
         // Get the recorded calls
         recordedCalls = getHttpCallRecorder().getCalls()
@@ -183,9 +183,9 @@ describe('VM with recorded fetch', () => {
 
     it('records chained HTTP requests where data from first response is used in second request', async () => {
         // First mock the user API response
-        mocked(trackedFetch).mockImplementationOnce(() => mockUserResponse as any)
+        jest.mocked(trackedFetch).mockImplementationOnce(() => mockUserResponse as any)
         // Then mock the analytics API response for the second call
-        mocked(trackedFetch).mockImplementationOnce(() => mockAnalyticsResponse as any)
+        jest.mocked(trackedFetch).mockImplementationOnce(() => mockAnalyticsResponse as any)
 
         const indexJs = `
             async function processEvent(event) {
@@ -226,15 +226,15 @@ describe('VM with recorded fetch', () => {
             now: new Date().toISOString(),
             event: 'page_view',
             properties: { page: '/home' },
-        }
+        } as unknown as PluginEvent
 
         // Run the processEvent method
         const processedEvent = await vm.methods.processEvent!(event)
 
         // Verify the user data was added to the event
-        expect(processedEvent.properties.user_id).toBe(123)
-        expect(processedEvent.properties.user_name).toBe('Test User')
-        expect(processedEvent.properties.user_email).toBe('test@example.com')
+        expect(processedEvent?.properties?.user_id).toBe(123)
+        expect(processedEvent?.properties?.user_name).toBe('Test User')
+        expect(processedEvent?.properties?.user_email).toBe('test@example.com')
 
         // Get the recorded calls
         recordedCalls = getHttpCallRecorder().getCalls()
@@ -263,7 +263,7 @@ describe('VM with recorded fetch', () => {
 
     // Add a new test for direct JSON object body without manual stringification
     it('handles JSON object bodies directly without manual stringification', async () => {
-        mocked(trackedFetch).mockResolvedValueOnce(mockResponse as any)
+        jest.mocked(trackedFetch).mockResolvedValueOnce(mockResponse as any)
 
         const indexJs = `
             async function processEvent(event) {
@@ -291,7 +291,7 @@ describe('VM with recorded fetch', () => {
             now: new Date().toISOString(),
             event: 'direct_json_test',
             properties: { test: true },
-        }
+        } as unknown as PluginEvent
 
         // Run the processEvent method
         await vm.methods.processEvent!(event)

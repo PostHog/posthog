@@ -1,4 +1,3 @@
-import { mocked } from 'jest-mock'
 import { Response } from 'node-fetch'
 
 import { trackedFetch } from '../../src/utils/fetch'
@@ -90,7 +89,7 @@ describe('recordedFetch', () => {
     beforeEach(() => {
         recorder = new HttpCallRecorder()
         jest.clearAllMocks()
-        mocked(trackedFetch).mockResolvedValue(mockResponse)
+        jest.mocked(trackedFetch).mockResolvedValue(mockResponse)
     })
 
     it('should record successful HTTP requests and responses', async () => {
@@ -131,7 +130,7 @@ describe('recordedFetch', () => {
         const url = 'https://example.com/api/error'
         const error = new Error('Network error')
 
-        mocked(trackedFetch).mockRejectedValueOnce(error)
+        jest.mocked(trackedFetch).mockRejectedValueOnce(error)
 
         await expect(recordedFetch(recorder, url)).rejects.toThrow('Network error')
 
@@ -166,7 +165,7 @@ describe('recordedFetch', () => {
         // JSON body as object (should be automatically stringified)
         await recordedFetch(recorder, 'https://example.com', {
             method: 'POST',
-            body: { key: 'value', nested: { prop: true } },
+            body: JSON.stringify({ key: 'value', nested: { prop: true } }),
         })
 
         // URLSearchParams body
@@ -198,14 +197,14 @@ describe('recordedFetch', () => {
         }
 
         // Mock the trackedFetch implementation for this test
-        mocked(trackedFetch).mockImplementationOnce(() => {
-            return {
+        jest.mocked(trackedFetch).mockImplementationOnce(() => {
+            return Promise.resolve({
                 status: 200,
                 statusText: 'OK',
                 headers: mockHeaders1,
                 clone: jest.fn().mockReturnThis(),
                 text: jest.fn().mockResolvedValue('{}'),
-            } as unknown as Response
+            } as unknown as Response)
         })
 
         await recordedFetch(recorder, 'https://example.com/headers-test-1', {
@@ -271,9 +270,9 @@ describe('recordedFetch', () => {
         } as unknown as Response
 
         // First mock the user API response
-        mocked(trackedFetch).mockResolvedValueOnce(userResponse)
+        jest.mocked(trackedFetch).mockResolvedValueOnce(userResponse)
         // Then mock the analytics API response for the second call
-        mocked(trackedFetch).mockResolvedValueOnce(analyticsResponse)
+        jest.mocked(trackedFetch).mockResolvedValueOnce(analyticsResponse)
 
         // First request - get user data
         const userUrl = 'https://example.com/api/users/user123'
@@ -287,13 +286,13 @@ describe('recordedFetch', () => {
         const analyticsInit = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: {
+            body: JSON.stringify({
                 userId: userData.id,
                 userName: userData.name,
                 userEmail: userData.email,
                 eventType: 'page_view',
                 timestamp: new Date().toISOString(),
-            },
+            }),
         }
 
         await recordedFetch(recorder, analyticsUrl, analyticsInit)
