@@ -1,4 +1,5 @@
-import { LemonTabs } from '@posthog/lemon-ui'
+import { IconCalculator } from '@posthog/icons'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
@@ -10,6 +11,7 @@ import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
+import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
@@ -90,7 +92,7 @@ const VariantsTab = (): JSX.Element => {
 export function ExperimentView(): JSX.Element {
     const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
 
-    const { setTabKey } = useActions(experimentLogic)
+    const { setTabKey, openCalculateRunningTimeModal } = useActions(experimentLogic)
 
     return (
         <>
@@ -102,12 +104,26 @@ export function ExperimentView(): JSX.Element {
                     <>
                         <Info />
                         <div className="xl:flex">
-                            <div className="w-1/2 mt-8 xl:mt-0">
-                                <DataCollection />
-                            </div>
-                            <div className="w-1/2 mt-8 xl:mt-0">
-                                {shouldUseExperimentMetrics && <ExposureCriteria />}
-                            </div>
+                            {shouldUseExperimentMetrics ? (
+                                <div className="w-1/2 mt-8 xl:mt-0">
+                                    <h2 className="font-semibold text-lg mb-1">Data collection</h2>
+                                    <LemonButton
+                                        icon={<IconCalculator />}
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={openCalculateRunningTimeModal}
+                                    >
+                                        Calculate running time
+                                    </LemonButton>
+                                    <div className="mt-4">
+                                        <ExposureCriteria />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="w-1/2 mt-8 xl:mt-0">
+                                    <DataCollection />
+                                </div>
+                            )}
                         </div>
                         <LemonTabs
                             activeKey={tabKey}
@@ -140,6 +156,8 @@ export function ExperimentView(): JSX.Element {
                                 <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
                             </>
                         )}
+
+                        <RunningTimeCalculatorModal />
 
                         <SharedMetricModal experimentId={experimentId} isSecondary={true} />
                         <SharedMetricModal experimentId={experimentId} isSecondary={false} />

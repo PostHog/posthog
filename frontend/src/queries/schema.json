@@ -13288,7 +13288,7 @@
                 },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
-                    "default": 11
+                    "default": 8
                 }
             },
             "type": "object"
@@ -14931,12 +14931,16 @@
                 "plan": {
                     "type": "string"
                 },
+                "query": {
+                    "default": "",
+                    "type": "string"
+                },
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": ["type", "query"],
             "type": "object"
         },
         "VizSpecificOptions": {
