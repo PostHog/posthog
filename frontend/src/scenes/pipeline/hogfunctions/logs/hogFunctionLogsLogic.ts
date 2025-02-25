@@ -6,11 +6,10 @@ import { delay } from 'lib/utils'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { HogFunctionInvocationGlobals } from '~/types'
-
-import { GroupedLogEntry, logsViewerLogic, LogsViewerLogicProps } from './logsViewerLogic'
+import { HogFunctionInvocationGlobals, LogEntryLevel } from '~/types'
 
 import type { hogFunctionLogsLogicType } from './hogFunctionLogsLogicType'
+import { GroupedLogEntry, logsViewerLogic, LogsViewerLogicProps } from './logsViewerLogic'
 
 export type RetryInvocationState = 'pending' | 'success' | 'failure'
 
@@ -108,13 +107,13 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     throw new Error('No log group found')
                 }
 
-                const newLogGroup = {
+                const newLogGroup: GroupedLogEntry = {
                     ...existingLogGroup,
                     entries: [
                         ...existingLogGroup.entries,
                         ...res.logs.map((x) => ({
                             timestamp: dayjs(x.timestamp),
-                            level: x.level.toUpperCase(),
+                            level: x.level.toUpperCase() as LogEntryLevel,
                             message: x.message,
                         })),
                     ],
