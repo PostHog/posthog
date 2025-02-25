@@ -1,5 +1,6 @@
 import json
 from time import sleep
+from typing import Optional
 from uuid import uuid4
 
 from django.conf import settings
@@ -31,7 +32,9 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import (
     AssistantFunnelsQuery,
+    AssistantMessage,
     AssistantRetentionQuery,
+    AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     FailureMessage,
@@ -108,9 +111,21 @@ class QueryExecutorNode(AssistantNode):
             results = json.dumps(results_response["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
             example_prompt = FALLBACK_EXAMPLE_PROMPT
 
+        # Starting from the latest message, find the first AssistantMessage with a tool call matching the tool call id
+        relevant_tool_call: Optional[AssistantToolCall] = None
+        for message in reversed(state.messages):
+            if isinstance(message, AssistantMessage) and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    if tool_call.id == tool_call_id:
+                        relevant_tool_call = tool_call
+                        break
+        if not relevant_tool_call:
+            raise ValueError("Could not find the relevant create_and_query_insight tool call")
+
         formatted_query_result = QUERY_RESULTS_PROMPT.format(
             example=example_prompt,
             query_kind=viz_message.answer.kind,
+            query_description=relevant_tool_call.args["query_description"],
             results=results,
             utc_datetime_display=self.utc_now,
             project_datetime_display=self.project_now,
