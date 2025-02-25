@@ -50,9 +50,7 @@ class TestBillingManager(BaseTest):
 
         BillingManager(license=None).get_billing(organization, plan_keys=None)
         assert billing_patch_request_mock.call_count == 1
-        billing_patch_request_mock.assert_called_with(
-            "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
-        )
+        billing_patch_request_mock.assert_called_with("https://billing.posthog.com/api/products-v2", headers={})
 
     @patch(
         "ee.billing.billing_manager.requests.patch",
