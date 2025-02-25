@@ -26,6 +26,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
 
     return (
         <LemonTable
+            id="managed-sources"
             dataSource={dataWarehouseSources?.results ?? []}
             loading={dataWarehouseSourcesLoading}
             disableTableWhileLoading={false}
@@ -74,9 +75,19 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                 {
                     title: 'Status',
                     key: 'status',
-                    render: (_, source) => (
-                        <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
-                    ),
+                    render: (_, source) => {
+                        if (!source.status) {
+                            return null
+                        }
+                        const tagContent = (
+                            <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
+                        )
+                        return source.latest_error && source.status === 'Error' ? (
+                            <Tooltip title={source.latest_error}>{tagContent}</Tooltip>
+                        ) : (
+                            tagContent
+                        )
+                    },
                 },
                 {
                     key: 'actions',

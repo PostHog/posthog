@@ -2,6 +2,7 @@ import datetime
 from typing import Literal, cast
 from uuid import uuid4
 
+from django.conf import settings
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -15,7 +16,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 from ee.hogai.root.prompts import (
-    POST_QUERY_USER_PROMPT,
+    ROOT_HARD_LIMIT_REACHED_PROMPT,
     ROOT_INSIGHT_DESCRIPTION_PROMPT,
     ROOT_SYSTEM_PROMPT,
     ROOT_VALIDATION_EXCEPTION_PROMPT,
@@ -24,7 +25,7 @@ from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-RouteName = Literal["trends", "funnel", "retention", "root", "end"]
+RouteName = Literal["trends", "funnel", "retention", "root", "end", "docs"]
 
 
 # Lower casing matters here. Do not change it.
@@ -40,11 +41,21 @@ class create_and_query_insight(BaseModel):
     query_kind: Literal["trends", "funnel", "retention"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
-RootToolCall = create_and_query_insight
-root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight])
+class search_documentation(BaseModel):
+    """
+    Search PostHog documentation to answer questions about features, concepts, and usage.
+    Use this tool when the user asks about how to use PostHog, its features, or needs help understanding concepts.
+    Don't use this tool if the necessary information is already in the conversation.
+    """
+
+
+RootToolCall = create_and_query_insight | search_documentation
+root_tools_parser = PydanticToolsParser(tools=[create_and_query_insight, search_documentation])
 
 
 class RootNode(AssistantNode):
+    MAX_TOOL_CALLS = 4
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -52,12 +63,12 @@ class RootNode(AssistantNode):
             ],
             template_format="mustache",
         ) + self._construct_messages(state)
-        chain = prompt | self._model
+        chain = prompt | self._get_model(state)
 
         utc_now = datetime.datetime.now(datetime.UTC)
         project_now = utc_now.astimezone(self._team.timezone_info)
 
-        message: LangchainAIMessage = chain.invoke(
+        message = chain.invoke(
             {
                 "core_memory": self.core_memory_text,
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -66,6 +77,7 @@ class RootNode(AssistantNode):
             },
             config,
         )
+        message = cast(LangchainAIMessage, message)
 
         return PartialAssistantState(
             messages=[
@@ -80,15 +92,21 @@ class RootNode(AssistantNode):
             ]
         )
 
-    @property
-    def _model(self):
+    def _get_model(self, state: AssistantState):
         # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
-        return ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True).bind_tools(
-            [create_and_query_insight],
-            strict=True,
-            parallel_tool_calls=False,
-        )
+        base_model = ChatOpenAI(model="gpt-4", temperature=0.0, streaming=True, stream_usage=True)
+
+        # The agent can now be involved in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
+        # This will remove the functions, so the agent don't have any other option but to exit.
+        if self._is_hard_limit_reached(state):
+            return base_model
+
+        available_tools: list[type[BaseModel]] = [create_and_query_insight]
+        if settings.INKEEP_API_KEY:
+            available_tools.append(search_documentation)
+
+        return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         # `assistant` messages must be contiguous with the respective `tool` messages.
@@ -101,27 +119,38 @@ class RootNode(AssistantNode):
             if isinstance(message, HumanMessage):
                 history.append(LangchainHumanMessage(content=message.content))
             elif isinstance(message, AssistantMessage):
-                history.append(
-                    LangchainAIMessage(content=message.content, tool_calls=message.model_dump()["tool_calls"] or [])
-                )
-                for tool_call in message.tool_calls or []:
-                    if tool_call.id in tool_result_messages:
-                        history.append(
-                            LangchainToolMessage(
-                                content=tool_result_messages[tool_call.id].content, tool_call_id=tool_call.id
-                            )
-                        )
+                # Filter out tool calls without a tool response, so the completion doesn't fail.
+                tool_calls = [
+                    tool for tool in message.model_dump()["tool_calls"] or [] if tool["id"] in tool_result_messages
+                ]
 
-        if state.messages and isinstance(state.messages[-1], AssistantMessage):
-            history.append(LangchainHumanMessage(content=POST_QUERY_USER_PROMPT))
+                history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls))
+
+                # Append associated tool call messages.
+                for tool_call in tool_calls:
+                    history.append(
+                        LangchainToolMessage(
+                            content=tool_result_messages[tool_call["id"]].content, tool_call_id=tool_call["id"]
+                        )
+                    )
+
+        if self._is_hard_limit_reached(state):
+            history.append(LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT))
+
         return history
+
+    def _is_hard_limit_reached(self, state: AssistantState) -> bool:
+        return state.root_tool_calls_count is not None and state.root_tool_calls_count >= self.MAX_TOOL_CALLS
 
 
 class RootNodeTools(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
-            return None
+            # Reset tools.
+            return PartialAssistantState(root_tool_calls_count=0)
+
+        tool_call_count = state.root_tool_calls_count or 0
 
         try:
             langchain_msg = self._construct_langchain_ai_message(last_message)
@@ -133,23 +162,42 @@ class RootNodeTools(AssistantNode):
                 .content
             )
             return PartialAssistantState(
-                messages=[AssistantToolCallMessage(content=str(content), id=str(uuid4()), tool_call_id=last_message.id)]
+                messages=[
+                    AssistantToolCallMessage(content=str(content), id=str(uuid4()), tool_call_id=last_message.id)
+                ],
+                root_tool_calls_count=tool_call_count + 1,
             )
+
         if len(parsed_tool_calls) != 1:
             raise ValueError("Expected exactly one tool call.")
+
         tool_call = parsed_tool_calls[0]
-        return PartialAssistantState(
-            root_tool_call_id=last_message.tool_calls[-1].id,
-            root_tool_insight_plan=tool_call.query_description,
-            root_tool_insight_type=tool_call.query_kind,
-        )
+        if isinstance(tool_call, create_and_query_insight):
+            return PartialAssistantState(
+                root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
+                root_tool_insight_plan=tool_call.query_description,
+                root_tool_insight_type=tool_call.query_kind,
+                root_tool_calls_count=tool_call_count + 1,
+            )
+        elif isinstance(tool_call, search_documentation):
+            return PartialAssistantState(
+                root_tool_call_id=langchain_msg.tool_calls[-1]["id"],
+                root_tool_insight_plan=None,  # No insight plan for docs search
+                root_tool_insight_type=None,  # No insight type for docs search
+                root_tool_calls_count=tool_call_count + 1,
+            )
+        else:
+            raise ValueError(f"Unsupported tool call: {type(tool_call)}")
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"
-        if state.root_tool_call_id is not None and state.root_tool_insight_type:
-            return cast(RouteName, state.root_tool_insight_type)
+        if state.root_tool_call_id:
+            if state.root_tool_insight_type:
+                return cast(RouteName, state.root_tool_insight_type)
+            # If no insight type is set but we have a tool call ID, it must be a docs search
+            return "docs"
         return "end"
 
     def _construct_langchain_ai_message(self, message: AssistantMessage):

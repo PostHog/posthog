@@ -35,6 +35,7 @@ export function ActionHogFunctions(): JSX.Element | null {
             ) : null}
 
             <LinkedHogFunctions
+                logicKey="actions"
                 type="destination"
                 filters={filters}
                 newDisabledReason={

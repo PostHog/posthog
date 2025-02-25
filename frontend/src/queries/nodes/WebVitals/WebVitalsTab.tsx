@@ -1,9 +1,8 @@
-import './WebVitalsTab.scss'
-
 import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 
-import { WebVitalsMetric } from '~/queries/schema'
+import { WebVitalsMetric } from '~/queries/schema/schema-general'
 
 import { getThresholdColor, getValueWithUnit, LONG_METRIC_NAME, METRIC_DESCRIPTION } from './definitions'
 import { WebVitalsProgressBar } from './WebVitalsProgressBar'
@@ -24,18 +23,23 @@ export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabPr
     return (
         <div
             onClick={setTab}
-            className="WebVitals__WebVitalsTab flex flex-1 flex-row sm:flex-col justify-around sm:justify-start items-center sm:items-start p-4"
-            data-active={isActive ? 'true' : 'false'}
+            className={clsx(
+                'flex-1 gap-2 border p-2 bg-surface-primary rounded items-center sm:items-start flex flex-col justify-between cursor-pointer',
+                isActive && 'border-accent-primary border-2'
+            )}
         >
             <div className="text-sm hidden sm:flex w-full flex-row justify-between">
-                <span>{label}</span>
+                <span>
+                    {label} ({metric})
+                </span>
                 <Tooltip title={METRIC_DESCRIPTION[metric]}>
                     <IconInfo />
                 </Tooltip>
             </div>
-            <span className="text-sm block sm:hidden">
-                <Tooltip title={label}>{metric}</Tooltip>
-            </span>
+            <div className="flex flex-col items-center sm:hidden">
+                <span className="text-sm font-bold">{metric}</span>
+                <span className="text-xs">{label}</span>
+            </div>
 
             <div className="flex flex-row items-end">
                 <span

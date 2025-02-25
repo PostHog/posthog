@@ -1,19 +1,59 @@
-from collections import defaultdict
-from unittest.mock import Mock, patch
+import re
 import uuid
+from collections import defaultdict
 from collections.abc import Callable, Iterator
+from unittest.mock import Mock, patch
 
 import pytest
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.cluster import T, ClickhouseCluster, HostInfo, MutationRunner, get_cluster
+from posthog.clickhouse.cluster import (
+    ClickhouseCluster,
+    HostInfo,
+    Mutation,
+    MutationNotFound,
+    MutationRunner,
+    T,
+    Query,
+    get_cluster,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
 
 @pytest.fixture
 def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
     yield get_cluster()
+
+
+def test_mutation_runner_rejects_invalid_parameters() -> None:
+    with pytest.raises(ValueError):
+        MutationRunner("table", "command", {"__invalid_key": True})
+
+
+def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
+    def replace_memory_addresses_and_ips(value):
+        message = re.sub(r"0x[0-9A-Fa-f]{16}", "0x0000000000000000", value)
+        return re.sub(r"address='\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}'", "address='127.0.0.1'", message)
+
+    with pytest.raises(ExceptionGroup) as e:
+        cluster.map_all_hosts(Query("invalid query")).result()
+
+    assert replace_memory_addresses_and_ips(e.value.message) == snapshot
+
+    with pytest.raises(ExceptionGroup) as e:
+        cluster.map_all_hosts(Query("SELECT * FROM invalid_table_name")).result()
+
+    assert replace_memory_addresses_and_ips(e.value.message) == snapshot
+
+    with pytest.raises(ExceptionGroup) as e:
+
+        def explode(_):
+            raise ValueError("custom error")
+
+        cluster.map_all_hosts(explode).result()
+
+    assert replace_memory_addresses_and_ips(e.value.message) == snapshot
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:
@@ -74,6 +114,9 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     assert shard_mutations == duplicate_mutations
 
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
+
+    with pytest.raises(MutationNotFound):
+        assert cluster.any_host(Mutation("x", "y").is_done).result()
 
 
 def test_map_hosts_by_role() -> None:

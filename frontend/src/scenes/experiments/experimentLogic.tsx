@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -26,6 +26,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
@@ -34,8 +35,10 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
+    ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
-    ExperimentQuery,
+    ExperimentMetric,
+    ExperimentMetricType,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     InsightQueryNode,
@@ -70,6 +73,7 @@ import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     featureFlagEligibleForExperiment,
     getMinimumDetectableEffect,
+    percentageDistribution,
     transformFiltersForWinningVariant,
 } from './utils'
 
@@ -131,12 +135,23 @@ const loadMetrics = async ({
         | null
     )[] = []
 
+    const currentErrors = new Array(metrics.length).fill(null)
+
     return await Promise.all(
         metrics.map(async (metric, index) => {
             try {
-                const queryWithExperimentId = {
-                    ...metric,
-                    experiment_id: experimentId,
+                let queryWithExperimentId
+                if (metric.kind === NodeKind.ExperimentMetric) {
+                    queryWithExperimentId = {
+                        kind: NodeKind.ExperimentQuery,
+                        metric: metric,
+                        experiment_id: experimentId,
+                    }
+                } else {
+                    queryWithExperimentId = {
+                        ...metric,
+                        experiment_id: experimentId,
+                    }
                 }
                 const response = await performQuery(queryWithExperimentId, undefined, refresh)
 
@@ -149,7 +164,6 @@ const loadMetrics = async ({
                 const errorDetailMatch = error.detail?.match(/\{.*\}/)
                 const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail || error.message
 
-                const currentErrors = new Array(metrics.length).fill(null)
                 currentErrors[index] = {
                     detail: errorDetail,
                     statusCode: error.status,
@@ -236,6 +250,7 @@ export const experimentLogic = kea<experimentLogicType>([
         refreshExperimentResults: (forceRefresh?: boolean) => ({ forceRefresh }),
         updateExperimentGoal: true,
         updateExperimentCollectionGoal: true,
+        updateExposureCriteria: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         setExperimentStatsVersion: (version: number) => ({ version }),
         launchExperiment: true,
@@ -246,6 +261,8 @@ export const experimentLogic = kea<experimentLogicType>([
         checkFlagImplementationWarning: true,
         openExperimentCollectionGoalModal: true,
         closeExperimentCollectionGoalModal: true,
+        openExposureCriteriaModal: true,
+        closeExposureCriteriaModal: true,
         openShipVariantModal: true,
         closeShipVariantModal: true,
         openDistributionModal: true,
@@ -255,6 +272,18 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
         }),
+        setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => ({ exposureCriteria }),
+        setMetric: ({
+            metricIdx,
+            name,
+            metric,
+            isSecondary = false,
+        }: {
+            metricIdx: number
+            name?: string
+            metric: ExperimentMetric
+            isSecondary?: boolean
+        }) => ({ metricIdx, name, metric, isSecondary }),
         setTrendsMetric: ({
             metricIdx,
             name,
@@ -372,6 +401,8 @@ export const experimentLogic = kea<experimentLogicType>([
         setValidExistingFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
         setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
+        openCalculateRunningTimeModal: true,
+        closeCalculateRunningTimeModal: true,
     }),
     reducers({
         experiment: [
@@ -427,6 +458,26 @@ export const experimentLogic = kea<experimentLogicType>([
                             ...state.parameters,
                             feature_flag_variants: updatedVariants,
                         },
+                    }
+                },
+                setExposureCriteria: (
+                    state,
+                    { exposureCriteria }: { exposureCriteria: ExperimentExposureCriteria }
+                ) => {
+                    return {
+                        ...state,
+                        exposure_criteria: { ...state.exposure_criteria, ...exposureCriteria },
+                    }
+                },
+                setMetric: (state, { metricIdx, metric, isSecondary }) => {
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
+
+                    metrics[metricIdx] = metric
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
                     }
                 },
                 setTrendsMetric: (state, { metricIdx, name, series, filterTestAccounts, isSecondary }) => {
@@ -538,6 +589,13 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openExperimentCollectionGoalModal: () => true,
                 closeExperimentCollectionGoalModal: () => false,
+            },
+        ],
+        isExposureCriteriaModalOpen: [
+            false,
+            {
+                openExposureCriteriaModal: () => true,
+                closeExposureCriteriaModal: () => false,
             },
         ],
         isShipVariantModalOpen: [
@@ -723,6 +781,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFeatureFlagValidationError: (_, { error }) => error,
             },
         ],
+        isCalculateRunningTimeModalOpen: [
+            false,
+            {
+                openCalculateRunningTimeModal: () => true,
+                closeCalculateRunningTimeModal: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
@@ -833,6 +898,7 @@ export const experimentLogic = kea<experimentLogicType>([
             const startDate = dayjs()
             actions.updateExperiment({ start_date: startDate.toISOString() })
             values.experiment && eventUsageLogic.actions.reportExperimentLaunched(values.experiment, startDate)
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchExperiment)
         },
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate })
@@ -864,6 +930,7 @@ export const experimentLogic = kea<experimentLogicType>([
         refreshExperimentResults: async ({ forceRefresh }) => {
             actions.loadMetricResults(forceRefresh)
             actions.loadSecondaryMetricResults(forceRefresh)
+            actions.loadExposures(forceRefresh)
         },
         updateExperimentGoal: async () => {
             // Reset MDE to the recommended setting
@@ -898,6 +965,14 @@ export const experimentLogic = kea<experimentLogicType>([
                     minimum_detectable_effect: minimumDetectableEffect || 0,
                 },
             })
+        },
+        updateExposureCriteria: async () => {
+            actions.updateExperiment({
+                exposure_criteria: {
+                    ...values.experiment.exposure_criteria,
+                },
+            })
+            actions.refreshExperimentResults(true)
         },
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null, archived: false })
@@ -1319,6 +1394,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
             },
         ],
+        exposures: [
+            null as any,
+            {
+                loadExposures: async (refresh: boolean = false) => {
+                    const query = {
+                        kind: NodeKind.ExperimentExposureQuery,
+                        experiment_id: props.experimentId,
+                    }
+                    return await performQuery(query, undefined, refresh)
+                },
+            },
+        ],
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
@@ -1329,11 +1416,23 @@ export const experimentLogic = kea<experimentLogicType>([
         getMetricType: [
             () => [],
             () =>
-                (metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined): InsightType => {
+                (
+                    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined
+                ): InsightType => {
                     return metric &&
-                        (metric?.kind === NodeKind.ExperimentQuery || metric?.kind === NodeKind.ExperimentTrendsQuery)
+                        ((metric?.kind === NodeKind.ExperimentMetric &&
+                            (metric.metric_type === ExperimentMetricType.COUNT ||
+                                metric.metric_type === ExperimentMetricType.CONTINUOUS)) ||
+                            metric?.kind === NodeKind.ExperimentTrendsQuery)
                         ? InsightType.TRENDS
                         : InsightType.FUNNELS
+                },
+        ],
+        getExperimentMetricType: [
+            () => [],
+            () =>
+                (metric: ExperimentMetric | undefined): ExperimentMetricType => {
+                    return metric?.metric_type || ExperimentMetricType.COUNT
                 },
         ],
         isExperimentRunning: [
@@ -1593,20 +1692,41 @@ export const experimentLogic = kea<experimentLogicType>([
                         | null,
                     variantKey: string
                 ): number | null => {
-                    if (!metricResult || !metricResult.insight) {
+                    if (!metricResult) {
                         return null
                     }
-                    const variantResults = (metricResult.insight as FunnelStep[][]).find(
-                        (variantFunnel: FunnelStep[]) => {
-                            const breakdownValue = variantFunnel[0]?.breakdown_value
-                            return Array.isArray(breakdownValue) && breakdownValue[0] === variantKey
-                        }
-                    )
 
-                    if (!variantResults) {
-                        return null
+                    if (
+                        metricResult.kind === NodeKind.ExperimentQuery &&
+                        metricResult.metric.metric_type === ExperimentMetricType.BINOMIAL
+                    ) {
+                        const variants = metricResult.variants as FunnelExperimentVariant[]
+                        const variantResults = variants.find((variant) => variant.key === variantKey)
+
+                        if (!variantResults) {
+                            return null
+                        }
+                        return (
+                            (variantResults.success_count /
+                                (variantResults.success_count + variantResults.failure_count)) *
+                            100
+                        )
+                    } else if (metricResult.kind === NodeKind.ExperimentFunnelsQuery && metricResult.insight) {
+                        const variantResults = (metricResult.insight as FunnelStep[][]).find(
+                            (variantFunnel: FunnelStep[]) => {
+                                const breakdownValue = variantFunnel[0]?.breakdown_value
+                                return Array.isArray(breakdownValue) && breakdownValue[0] === variantKey
+                            }
+                        )
+
+                        if (!variantResults) {
+                            return null
+                        }
+
+                        return (variantResults[variantResults.length - 1].count / variantResults[0].count) * 100
                     }
-                    return (variantResults[variantResults.length - 1].count / variantResults[0].count) * 100
+
+                    return null
                 },
         ],
         credibleIntervalForVariant: [
@@ -1649,6 +1769,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     ) as TrendExperimentVariant
 
                     const controlMean = controlVariant.count / controlVariant.absolute_exposure
+                    if (!controlMean) {
+                        return null
+                    }
 
                     // Calculate the percentage difference between the credible interval bounds of the variant and the control's mean.
                     // This represents the range in which the true percentage change relative to the control is likely to fall.
@@ -1715,8 +1838,26 @@ export const experimentLogic = kea<experimentLogicType>([
                     variant: string,
                     type: 'primary' | 'secondary' = 'primary'
                 ): number | null => {
+                    if (!metricResult) {
+                        return null
+                    }
+
+                    if ('kind' in metricResult && metricResult.kind === NodeKind.ExperimentQuery) {
+                        const variantResults = (
+                            metricResult.variants as Array<{ key: string } & Record<string, any>>
+                        ).find((variantData) => variantData.key === variant)
+                        // NOTE: Unfortunately, there does not seem to be a better way at the moment to figure out which type it is.
+                        // Something we can improve later when we replace the ExperimentVariantTrendsBaseStats with a new type / interface.
+                        if (variantResults && 'success_count' in variantResults) {
+                            return variantResults.success_count + variantResults.failure_count
+                        } else if (variantResults && 'count' in variantResults) {
+                            return variantResults.count
+                        }
+                        return null
+                    }
+
                     const usingMathAggregationType = type === 'primary' ? experimentMathAggregationForTrends() : false
-                    if (!metricResult || !metricResult.insight) {
+                    if (!metricResult.insight) {
                         return null
                     }
                     const variantResults = (metricResult.insight as TrendResult[]).find(
@@ -1767,6 +1908,14 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (!metricResult || !metricResult.variants) {
                         return null
                     }
+
+                    if ('kind' in metricResult && metricResult.kind === NodeKind.ExperimentQuery) {
+                        const variantResults = (
+                            metricResult.variants as Array<{ key: string; exposure?: number }>
+                        ).find((variantData) => variantData.key === variant)
+                        return variantResults?.exposure ?? null
+                    }
+
                     const variantResults = (metricResult.variants as TrendExperimentVariant[]).find(
                         (variantTrend: TrendExperimentVariant) => variantTrend.key === variant
                     )
@@ -1774,9 +1923,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         return null
                     }
 
-                    const result = variantResults.absolute_exposure
-
-                    return result
+                    return variantResults.absolute_exposure
                 },
         ],
         getHighestProbabilityVariant: [
@@ -1943,7 +2090,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         firstPrimaryMetric: [
             (s) => [s.experiment],
-            (experiment: Experiment): ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined => {
+            (experiment: Experiment): ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined => {
                 if (experiment.metrics.length) {
                     return experiment.metrics[0]
                 }
@@ -1975,6 +2122,36 @@ export const experimentLogic = kea<experimentLogicType>([
                     experiment.metrics_secondary.length +
                     experiment.saved_metrics.filter((savedMetric) => savedMetric.metadata.type === 'secondary').length
                 )
+            },
+        ],
+        compatibleSharedMetrics: [
+            (s) => [s.sharedMetrics, s.shouldUseExperimentMetrics],
+            (sharedMetrics: SharedMetric[], shouldUseExperimentMetrics: boolean): SharedMetric[] => {
+                if (!sharedMetrics) {
+                    return []
+                }
+                if (shouldUseExperimentMetrics) {
+                    return sharedMetrics.filter((metric) => metric.query.kind === NodeKind.ExperimentMetric)
+                }
+                return sharedMetrics.filter((metric) => metric.query.kind !== NodeKind.ExperimentMetric)
+            },
+        ],
+        shouldUseExperimentMetrics: [
+            (s) => [s.experiment, s.featureFlags],
+            (experiment: Experiment, featureFlags: Record<string, boolean>): boolean => {
+                const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
+                const hasExperimentMetrics = allMetrics.some((query) => query.kind === NodeKind.ExperimentMetric)
+                const hasLegacyMetrics = allMetrics.some(
+                    (query) =>
+                        query.kind === NodeKind.ExperimentTrendsQuery || query.kind === NodeKind.ExperimentFunnelsQuery
+                )
+                if (hasExperimentMetrics) {
+                    return true
+                }
+                if (hasLegacyMetrics) {
+                    return false
+                }
+                return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
             },
         ],
     }),
@@ -2013,19 +2190,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
+                    if (values.isExperimentRunning) {
+                        actions.loadExposures()
+                    }
                 }
             }
         },
     })),
 ])
-
-export function percentageDistribution(variantCount: number): number[] {
-    const basePercentage = Math.floor(100 / variantCount)
-    const percentages = new Array(variantCount).fill(basePercentage)
-    let remaining = 100 - basePercentage * variantCount
-    for (let i = 0; remaining > 0; i++, remaining--) {
-        // try to equally distribute `remaining` across variants
-        percentages[i] += 1
-    }
-    return percentages
-}

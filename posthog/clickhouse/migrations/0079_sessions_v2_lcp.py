@@ -7,7 +7,7 @@ from posthog.models.raw_sessions.migrations import (
 from posthog.models.raw_sessions.sql import (
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
-    RAW_SESSIONS_VIEW_SQL,
+    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
 )
 
 operations = [
@@ -19,5 +19,5 @@ operations = [
     run_sql_with_exceptions(BASE_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL()),
     # and then recreate the materialized view and view
     run_sql_with_exceptions(RAW_SESSIONS_TABLE_MV_SQL()),
-    run_sql_with_exceptions(RAW_SESSIONS_VIEW_SQL()),
+    run_sql_with_exceptions(RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL()),
 ]

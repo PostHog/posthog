@@ -323,7 +323,8 @@ class TestOrganizationRbacMigrations(APIBaseTest):
             organization_member=self.admin_user.organization_memberships.first(),
         )
 
-    def test_migrate_feature_flags_rbac_as_admin(self):
+    @patch("posthog.api.organization.report_organization_action")
+    def test_migrate_feature_flags_rbac_as_admin(self, mock_report_action):
         self.client.force_login(self.admin_user)
 
         # Create a test feature flag
@@ -348,7 +349,16 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.assertEqual(access_control.resource, "feature_flag")
         self.assertEqual(access_control.resource_id, str(feature_flag.id))
 
-    def test_migrate_feature_flags_rbac_with_org_view_only(self):
+        # Verify reporting calls
+        mock_report_action.assert_any_call(
+            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
+        )
+        mock_report_action.assert_any_call(
+            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
+        )
+
+    @patch("posthog.api.organization.report_organization_action")
+    def test_migrate_feature_flags_rbac_with_org_view_only(self, mock_report_action):
         self.client.force_login(self.admin_user)
 
         # Create organization-wide view-only access
@@ -386,7 +396,16 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         )
         self.assertEqual(editor_access.count(), 3)
 
-    def test_migrate_feature_flags_rbac_with_specific_role_access(self):
+        # Add verification of reporting calls at the end
+        mock_report_action.assert_any_call(
+            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
+        )
+        mock_report_action.assert_any_call(
+            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
+        )
+
+    @patch("posthog.api.organization.report_organization_action")
+    def test_migrate_feature_flags_rbac_with_specific_role_access(self, mock_report_action):
         self.client.force_login(self.admin_user)
 
         # Create a test feature flag
@@ -413,7 +432,16 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         )
         self.assertEqual(access_control.access_level, "editor")
 
-    def test_migrate_team_rbac_as_admin(self):
+        # Add verification of reporting calls at the end
+        mock_report_action.assert_any_call(
+            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
+        )
+        mock_report_action.assert_any_call(
+            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
+        )
+
+    @patch("posthog.api.organization.report_organization_action")
+    def test_migrate_team_rbac_as_admin(self, mock_report_action):
         # Create a new team with access control enabled
         team_with_access_control = Team.objects.create(
             organization=self.organization, name="Team with Access Control", access_control=True
@@ -501,6 +529,14 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         team_with_access_control.refresh_from_db()
         self.assertFalse(team_with_access_control.access_control)
 
+        # Add verification of reporting calls at the end
+        mock_report_action.assert_any_call(
+            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
+        )
+        mock_report_action.assert_any_call(
+            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
+        )
+
     def test_migrate_team_rbac_as_member_without_permissions(self):
         self.member_user = self._create_user("rbac_member+3@posthog.com")
         self.client.force_login(self.member_user)
@@ -517,7 +553,8 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         response = self.client.post(f"/api/organizations/{other_org.id}/migrate_access_control/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_migrate_both_feature_flags_and_team_rbac(self):
+    @patch("posthog.api.organization.report_organization_action")
+    def test_migrate_both_feature_flags_and_team_rbac(self, mock_report_action):
         """Test that both feature flag and team RBAC migrations can be performed in a single call."""
         # Create a new team with access control enabled
         team_with_access_control = Team.objects.create(
@@ -604,3 +641,32 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         # Verify total number of access controls
         # 2 feature flags + 2 team access controls (base + member)
         self.assertEqual(AccessControl.objects.count(), 4)
+
+        # Add verification of reporting calls at the end
+        mock_report_action.assert_any_call(
+            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
+        )
+        mock_report_action.assert_any_call(
+            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
+        )
+
+    @patch("posthog.api.organization.report_organization_action")
+    def test_migrate_team_rbac_fails_with_error(self, mock_report_action):
+        """Test that errors during migration are properly handled and reported."""
+        self.client.force_login(self.admin_user)
+
+        with patch("posthog.api.organization.rbac_team_access_control_migration", side_effect=Exception("Test error")):
+            response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
+
+            self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+            self.assertEqual(response.json(), {"status": False, "error": "An internal error has occurred."})
+
+            # Verify error was reported
+            mock_report_action.assert_any_call(
+                self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
+            )
+            mock_report_action.assert_any_call(
+                self.organization,
+                "rbac_team_migration_failed",
+                {"user": self.admin_user.distinct_id, "error": "Test error"},
+            )

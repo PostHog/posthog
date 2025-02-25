@@ -1,6 +1,6 @@
-import { captureException } from '@sentry/node'
 import { KafkaConsumer, PartitionMetadata } from 'node-rdkafka'
 
+import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 
 export const getPartitionsForTopic = (

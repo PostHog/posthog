@@ -63,7 +63,7 @@ export const FORMATTING_TEMPLATES: FormattingTemplate[] = [
     },
 ]
 
-export type VariableType = 'String' | 'Number' | 'Boolean' | 'List'
+export type VariableType = 'String' | 'Number' | 'Boolean' | 'List' | 'Date'
 
 interface VariableBase {
     id: string
@@ -71,6 +71,7 @@ interface VariableBase {
     code_name: string
     type: VariableType
     value?: any
+    isNull?: boolean
 }
 
 export interface StringVariable extends VariableBase {
@@ -95,4 +96,10 @@ export interface ListVariable extends VariableBase {
     value?: string
 }
 
-export type Variable = StringVariable | NumberVariable | BooleanVariable | ListVariable
+export interface DateVariable extends VariableBase {
+    type: 'Date'
+    default_value: string
+    value?: string
+}
+
+export type Variable = StringVariable | NumberVariable | BooleanVariable | ListVariable | DateVariable

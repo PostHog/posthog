@@ -23,6 +23,7 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { GraphType, InsightLogicProps, SurveyQuestionType } from '~/types'
 
@@ -189,7 +190,6 @@ export function RatingQuestionBarChart({
     questionIndex,
     surveyRatingResults,
     surveyRatingResultsReady,
-    iteration,
 }: {
     questionIndex: number
     surveyRatingResults: SurveyRatingResults
@@ -200,13 +200,12 @@ export function RatingQuestionBarChart({
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
     const question = survey.questions[questionIndex]
+    useEffect(() => {
+        loadSurveyRatingResults({ questionIndex })
+    }, [questionIndex, loadSurveyRatingResults])
     if (question.type !== SurveyQuestionType.Rating) {
         throw new Error(`Question type must be ${SurveyQuestionType.Rating}`)
     }
-    useEffect(() => {
-        loadSurveyRatingResults({ questionIndex, iteration })
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [questionIndex])
 
     return (
         <div>
@@ -576,7 +575,7 @@ export function OpenTextViz({
 }): JSX.Element {
     const { loadSurveyOpenTextResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
-    const surveyResponseField = questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+    const surveyResponseKey = getSurveyResponseKey(questionIndex)
 
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.Open) {
@@ -619,9 +618,9 @@ export function OpenTextViz({
                             return (
                                 <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
                                     <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
-                                        {typeof event.properties[surveyResponseField] !== 'string'
-                                            ? JSON.stringify(event.properties[surveyResponseField])
-                                            : event.properties[surveyResponseField]}
+                                        {typeof event.properties[surveyResponseKey] !== 'string'
+                                            ? JSON.stringify(event.properties[surveyResponseKey])
+                                            : event.properties[surveyResponseKey]}
                                     </div>
                                     <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay

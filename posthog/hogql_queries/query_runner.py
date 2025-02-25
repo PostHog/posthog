@@ -31,6 +31,7 @@ from posthog.schema import (
     DateRange,
     EventsQuery,
     EventTaxonomyQuery,
+    ExperimentExposureQuery,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
@@ -392,6 +393,29 @@ def get_query_runner(
             modifiers=modifiers,
             limit_context=limit_context,
         )
+
+    if kind == "ExperimentQuery":
+        from .experiments.experiment_query_runner import ExperimentQueryRunner
+
+        return ExperimentQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ExperimentExposureQuery":
+        from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+
+        return ExperimentExposuresQueryRunner(
+            query=cast(ExperimentExposureQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+
     if kind == "SuggestedQuestionsQuery":
         from posthog.hogql_queries.ai.suggested_questions_query_runner import SuggestedQuestionsQueryRunner
 
