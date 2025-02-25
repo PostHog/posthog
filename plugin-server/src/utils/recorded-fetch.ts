@@ -22,7 +22,6 @@ export interface RecordedHttpCall {
     id: string
     request: RecordedRequest
     response: RecordedResponse
-    duration: number
     error?: Error
 }
 
@@ -53,7 +52,6 @@ export async function recordedFetch(
     init?: RequestInit
 ): Promise<Response> {
     const id = generateCallId()
-    const requestStartTime = Date.now()
     const requestTimestamp = new Date()
 
     // Clone the request init to avoid modifying the original
@@ -94,15 +92,11 @@ export async function recordedFetch(
             timestamp: new Date(),
         }
 
-        // Calculate duration
-        const duration = Date.now() - requestStartTime
-
         // Add the recorded call to the recorder
         recorder.addCall({
             id,
             request,
             response: recordedResponse,
-            duration,
         })
 
         return response
@@ -118,15 +112,11 @@ export async function recordedFetch(
             timestamp: new Date(),
         }
 
-        // Calculate duration
-        const duration = Date.now() - requestStartTime
-
         // Add the recorded call to the recorder
         recorder.addCall({
             id,
             request,
             response: recordedResponse,
-            duration,
             error,
         })
 

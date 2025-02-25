@@ -37,7 +37,6 @@ describe('HttpCallRecorder', () => {
                 body: '{"success": true}',
                 timestamp: new Date(),
             },
-            duration: 100,
         }
 
         recorder.addCall(mockCall)
@@ -61,7 +60,6 @@ describe('HttpCallRecorder', () => {
                 body: '{"success": true}',
                 timestamp: new Date(),
             },
-            duration: 100,
         }
 
         recorder.addCall(mockCall)
@@ -126,7 +124,6 @@ describe('recordedFetch', () => {
         expect(recordedCall.response.headers['content-type']).toBe('application/json')
         expect(recordedCall.response.body).toBe(mockResponseBody)
 
-        expect(recordedCall.duration).toBeGreaterThanOrEqual(0)
         expect(recordedCall.error).toBeUndefined()
     })
 
@@ -150,7 +147,6 @@ describe('recordedFetch', () => {
         expect(recordedCall.response.statusText).toBe('Network error')
         expect(recordedCall.response.body).toBeNull()
 
-        expect(recordedCall.duration).toBeGreaterThanOrEqual(0)
         expect(recordedCall.error).toBe(error)
     })
 

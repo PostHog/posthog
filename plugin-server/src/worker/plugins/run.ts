@@ -61,7 +61,7 @@ async function runSingleTeamPluginOnEvent(
                         '🌐',
                         `Event ${event.eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
                             call.request.url
-                        } - Status: ${call.response.status} - Duration: ${call.duration}ms`
+                        } - Status: ${call.response.status}`
                     )
 
                     // Log errors if any
@@ -101,7 +101,7 @@ async function runSingleTeamPluginOnEvent(
                         '🌐',
                         `Event ${event.eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
                             call.request.url
-                        } - Status: ${call.response.status} - Duration: ${call.duration}ms`
+                        } - Status: ${call.response.status}`
                     )
 
                     // Log errors if any
