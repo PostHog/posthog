@@ -11,6 +11,10 @@ from posthog.session_recordings.session_recording_api import list_recordings_fro
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
 
+from structlog import get_logger
+
+logger = get_logger(__name__)
+
 THIRTY_SIX_HOURS_IN_SECONDS = 36 * 60 * 60
 
 REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT = Counter(
@@ -57,6 +61,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
     except Exception as e:
         posthoganalytics.capture_exception(e)
+        logger.exception("Failed to count recordings that match playlist filters", playlist_id=playlist_id, error=e)
         REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
 
 
