@@ -17,7 +17,7 @@ class TestTemplateRedditAds(BaseHogFunctionTemplateTest):
     def _inputs(self, **kwargs):
         inputs = {
             "accountId": TEST_PIXEL_ID,
-            "conversionAccessToken": TEST_CONVERSION_ACCESS_TOKEN,
+            "conversionsAccessToken": TEST_CONVERSION_ACCESS_TOKEN,
             "userProperties": {"email": TEST_EMAIL},
             "eventTime": TEST_EVENT_TIMESTAMP,
         }
@@ -48,18 +48,19 @@ class TestTemplateRedditAds(BaseHogFunctionTemplateTest):
                     "body": {
                         "events": [
                             {
-                                "event_at": TEST_EVENT_TIMESTAMP,
+                                "event_at": 1739463203210,
                                 "event_metadata": {
-                                    "conversionId": TEST_EVENT_ID,
+                                    "conversionId": "0194ff28-77c9-798a-88d5-7225f3d9a5a6",
+                                    "products": [{"product_id": "product12345"}],
                                 },
                                 "event_type": {"tracking_type": "PageVisit"},
-                                "user": {"email": TEST_EMAIL},
+                                "user": {"email": "test@example.com"},
                             }
                         ],
                         "test_mode": False,
                     },
                     "headers": {
-                        "Authorization": "Bearer ",
+                        "Authorization": f"Bearer test_access_token",
                         "Content-Type": "application/json",
                         "User-Agent": "hog:com.posthog.cdp:0.0.1 (by /u/PostHogTeam)",
                     },
