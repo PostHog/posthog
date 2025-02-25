@@ -16,6 +16,7 @@ from posthog.models.utils import uuid7
 from posthog.test.base import BaseTest, APIBaseTest
 
 
+# TODO this test class only tests part of the template. The hog code is tested, the default mappings are not
 class BaseHogFunctionTemplateTest(BaseTest):
     template: HogFunctionTemplate
     compiled_hog: Any

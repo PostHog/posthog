@@ -16,7 +16,7 @@ import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
 import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
-import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
+import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -34,6 +34,7 @@ import {
 } from '~/types'
 
 import { Breakdown } from './Breakdown'
+import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
@@ -90,9 +91,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isRetention
                     ? {
-                          key: 'retention-config',
-                          label: 'Retention Summary',
-                          component: RetentionSummary,
+                          key: 'retention-condition',
+                          label: 'Retention Condition',
+                          component: RetentionCondition,
                       }
                     : null,
                 isFunnels
@@ -206,6 +207,31 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               </div>
                           ),
                           component: StickinessCriteria as (props: EditorFilterProps) => JSX.Element | null,
+                      }
+                    : null,
+                isStickiness
+                    ? {
+                          key: 'cumulativeStickiness',
+                          label: () => (
+                              <div className="flex">
+                                  <span>Compute as</span>
+                                  <Tooltip
+                                      closeDelayMs={200}
+                                      title={
+                                          <div className="space-y-2">
+                                              <div>
+                                                  Choose how to compute stickiness values. Non-cumulative shows exact
+                                                  numbers for each day count, while cumulative shows users active for at
+                                                  least that many days.
+                                              </div>
+                                          </div>
+                                      }
+                                  >
+                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                  </Tooltip>
+                              </div>
+                          ),
+                          component: CumulativeStickinessFilter as (props: EditorFilterProps) => JSX.Element | null,
                       }
                     : null,
                 {

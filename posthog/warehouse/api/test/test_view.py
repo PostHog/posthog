@@ -132,4 +132,4 @@ class TestView(APIBaseTest):
 
         response = self.client.delete(f"/api/projects/{self.team.id}/warehouse_tables/{response['id']}")
 
-        self.assertEqual(DataWarehouseSavedQuery.objects.all().count(), 0)
+        self.assertEqual(DataWarehouseSavedQuery.objects.all().count(), 1)

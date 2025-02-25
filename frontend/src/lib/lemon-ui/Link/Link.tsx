@@ -1,5 +1,6 @@
 import './Link.scss'
 
+import { IconExternal, IconOpenSidebar } from '@posthog/icons'
 import clsx from 'clsx'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
@@ -11,7 +12,6 @@ import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNoteb
 import { sidePanelStateLogic, WithinSidePanelContext } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
 
 type RoutePart = string | Record<string, any>
@@ -94,15 +94,16 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         },
         ref
     ) => {
+        const withinSidePanel = useContext(WithinSidePanelContext)
         const { elementProps: draggableProps } = useNotebookDrag({
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const withinSidePanel = useContext(WithinSidePanelContext)
-
         if (withinSidePanel && target === '_blank' && !isExternalLink(to)) {
             target = undefined // Within side panels, treat target="_blank" as "open in main scene"
         }
+
+        const shouldOpenInDocsPanel = !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -119,7 +120,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
             const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
 
-            if (!disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to) && mountedSidePanelLogic) {
+            if (shouldOpenInDocsPanel && mountedSidePanelLogic) {
                 // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
                 const { sidePanelOpen } = mountedSidePanelLogic.values
                 const { openSidePanel } = mountedSidePanelLogic.actions
@@ -175,7 +176,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {...draggableProps}
             >
                 {children}
-                {targetBlankIcon && target === '_blank' ? <IconOpenInNew /> : null}
+                {targetBlankIcon &&
+                    (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
+                        <IconOpenSidebar />
+                    ) : target === '_blank' ? (
+                        <IconExternal />
+                    ) : null)}
             </a>
         ) : (
             <Tooltip title={disabledReason ? <span className="italic">{disabledReason}</span> : undefined}>

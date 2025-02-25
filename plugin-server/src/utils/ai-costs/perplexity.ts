@@ -2,6 +2,13 @@ import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
+        model: 'r1-1776',
+        cost: {
+            prompt_token: 0.000002,
+            completion_token: 0.000008,
+        },
+    },
+    {
         model: 'sonar-reasoning',
         cost: {
             prompt_token: 0.000001,

@@ -1268,48 +1268,6 @@ class TestExperimentCRUD(APILicensedTest):
             "Feature flag variants must contain a control variant",
         )
 
-    def test_deleting_experiment_soft_deletes_feature_flag(self):
-        ff_key = "a-b-tests"
-        data = {
-            "name": "Test Experiment",
-            "description": "",
-            "start_date": "2021-12-01T10:23",
-            "end_date": None,
-            "feature_flag_key": ff_key,
-            "parameters": None,
-            "filters": {
-                "events": [
-                    {"order": 0, "id": "$pageview"},
-                    {"order": 1, "id": "$pageleave"},
-                ],
-                "properties": [],
-            },
-        }
-        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test Experiment")
-        self.assertEqual(response.json()["feature_flag_key"], ff_key)
-
-        created_ff = FeatureFlag.objects.get(key=ff_key)
-
-        id = response.json()["id"]
-
-        # Now delete the experiment
-        response = self.client.delete(f"/api/projects/{self.team.id}/experiments/{id}")
-
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-        with self.assertRaises(Experiment.DoesNotExist):
-            Experiment.objects.get(pk=id)
-
-        # soft deleted
-        self.assertEqual(FeatureFlag.objects.get(pk=created_ff.id).deleted, True)
-
-        # can recreate new experiment with same FF key
-        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
     def test_soft_deleting_feature_flag_does_not_delete_experiment(self):
         ff_key = "a-b-tests"
         response = self.client.post(

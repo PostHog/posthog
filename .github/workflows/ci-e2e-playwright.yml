@@ -96,6 +96,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18.12.1
+                  cache: 'pnpm'
 
             - name: Get pnpm cache directory path
               if: needs.changes.outputs.shouldRun == 'true'
@@ -175,7 +176,7 @@ jobs:
                   mkdir -p /tmp/logs
 
                   echo "Starting PostHog using the container image ${{ needs.container.outputs.tag }}"
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
 
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev

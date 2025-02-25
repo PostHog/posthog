@@ -1429,6 +1429,11 @@ class StepOrderValue(StrEnum):
     ORDERED = "ordered"
 
 
+class StickinessComputationMode(StrEnum):
+    NON_CUMULATIVE = "non_cumulative"
+    CUMULATIVE = "cumulative"
+
+
 class StickinessFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2777,6 +2782,7 @@ class StickinessFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    computedAs: Optional[StickinessComputationMode] = None
     display: Optional[ChartDisplayType] = None
     hiddenLegendIndexes: Optional[list[int]] = None
     showLegend: Optional[bool] = None
@@ -5875,7 +5881,7 @@ class RetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = None
     showMean: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
-    totalIntervals: Optional[int] = 11
+    totalIntervals: Optional[int] = 8
 
 
 class RetentionFilterLegacy(BaseModel):
@@ -6913,6 +6919,7 @@ class VisualizationMessage(BaseModel):
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None
+    query: Optional[str] = ""
     type: Literal["ai/viz"] = "ai/viz"
 
 

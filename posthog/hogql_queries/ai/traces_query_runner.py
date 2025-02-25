@@ -214,7 +214,12 @@ class TracesQueryRunner(QueryRunner):
                         argMin(person.id, timestamp), argMin(distinct_id, timestamp),
                         argMin(person.created_at, timestamp), argMin(person.properties, timestamp)
                     ) as first_person,
-                    round(toFloat(sum(properties.$ai_latency)), 2) as total_latency,
+                    round(toFloat(sum(if(
+                        properties.$ai_parent_id IS NULL OR
+                        properties.$ai_parent_id = properties.$ai_trace_id,
+                        properties.$ai_latency,
+                        0
+                    ))), 2) as total_latency,
                     sum(toFloat(properties.$ai_input_tokens)) as input_tokens,
                     sum(toFloat(properties.$ai_output_tokens)) as output_tokens,
                     round(sum(toFloat(properties.$ai_input_cost_usd)), 4) as input_cost,
