@@ -17,7 +17,7 @@ import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
-import { AIAIEventSummary, AIEventExpanded } from './AIEventItems'
+import { AIEventExpanded, AIEventSummary } from './AIEventItems'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
@@ -69,7 +69,7 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
         ) : item.data.event === '$ai_generation' ||
           item.data.event === '$ai_span' ||
           item.data.event === '$ai_trace' ? (
-            <AIAIEventSummary event={item.data} />
+            <AIEventSummary event={item.data} />
         ) : null
 
     return (
