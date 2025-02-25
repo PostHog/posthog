@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from posthoganalytics import capture_exception
+import posthoganalytics
 import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
@@ -24,6 +25,7 @@ from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
+from posthog.event_usage import report_user_action
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
@@ -697,8 +699,19 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 hog_function_serializer = hog_function_from_plugin_config(validated_data, self.context)
 
                 if hog_function_serializer:
-                    hog_function_serializer.create(hog_function_serializer.validated_data)
+                    hog_function = hog_function_serializer.create(hog_function_serializer.validated_data)
                     # A bit hacky - we return the non saved plugin config
+
+                    report_user_action(
+                        self.context["request"].user,
+                        "hog function created from plugin config api",
+                        {
+                            "hog_function_id": hog_function.id,
+                            "plugin_id": validated_data["plugin"].id,
+                            "team_id": self.context["team_id"],
+                        },
+                    )
+
                     return PluginConfig(**validated_data)
                 raise ValidationError("Failed to create hog function")
 
