@@ -13,7 +13,7 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
-import { countryTitleFrom } from 'scenes/session-recordings/player/playerMetaLogic'
+import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 

@@ -30,7 +30,7 @@ importers:
         specifier: ~15.4.3
         version: 15.4.3
       turbo:
-        specifier: ^2.3.4
+        specifier: ^2.4.2
         version: 2.4.2
     optionalDependencies:
       fsevents:
@@ -63,7 +63,7 @@ importers:
         version: 2.29.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)
       eslint-plugin-jest:
         specifier: ^28.6.0
-        version: 28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0)(typescript@4.9.5)
+        version: 28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))(typescript@4.9.5)
       eslint-plugin-posthog:
         specifier: workspace:*
         version: link:common/eslint_rules
@@ -96,7 +96,7 @@ importers:
         version: 4.3.0(stylelint@15.11.0(typescript@4.9.5))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
-        version: 11.1.0(postcss@8.5.2)(stylelint@15.11.0(typescript@4.9.5))
+        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5))
       stylelint-order:
         specifier: ^6.0.3
         version: 6.0.3(stylelint@15.11.0(typescript@4.9.5))
@@ -313,6 +313,9 @@ importers:
       babel-preset-nano-react-app:
         specifier: ^0.1.0
         version: 0.1.0
+      buffer:
+        specifier: ^6.0.3
+        version: 6.0.3
       css-loader:
         specifier: ^3.4.2
         version: 3.6.0(webpack@5.88.2)
@@ -538,8 +541,8 @@ importers:
         specifier: workspace:*
         version: link:../common/esbuilder
       '@posthog/hogvm':
-        specifier: ^1.0.67
-        version: 1.0.67(luxon@3.5.0)
+        specifier: workspace:*
+        version: link:../common/hogvm/typescript
       '@posthog/icons':
         specifier: 0.11.1
         version: 0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -775,8 +778,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.223.2
-        version: 1.223.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.223.3
+        version: 1.223.3(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1036,7 +1039,7 @@ importers:
         version: 2.29.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)
       eslint-plugin-jest:
         specifier: ^28.6.0
-        version: 28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0)(typescript@4.9.5)
+        version: 28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))(typescript@4.9.5)
       eslint-plugin-posthog:
         specifier: workspace:*
         version: link:../common/eslint_rules
@@ -1185,11 +1188,11 @@ importers:
         specifier: ^1.7.0
         version: 1.7.0
       '@posthog/cyclotron':
-        specifier: file:../rust/cyclotron-node
+        specifier: workspace:*
         version: link:../rust/cyclotron-node
       '@posthog/hogvm':
-        specifier: ^1.0.67
-        version: 1.0.67(luxon@3.5.0)
+        specifier: workspace:*
+        version: link:../common/hogvm/typescript
       '@posthog/plugin-scaffold':
         specifier: 1.4.4
         version: 1.4.4
@@ -1380,6 +1383,9 @@ importers:
       '@types/jest':
         specifier: ^29.5.14
         version: 29.5.14
+      '@types/kafkajs-snappy':
+        specifier: ^1.0.0
+        version: 1.0.0
       '@types/long':
         specifier: 4.x.x
         version: 4.0.2
@@ -4154,11 +4160,6 @@ packages:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
 
-  '@posthog/hogvm@1.0.67':
-    resolution: {integrity: sha512-kSAtW2rN8z16SOS7PvCfqOBFpg9E+aeuKlkLHaDbUSAG5Rf34n9Nq7t4d4iyfn9YHVTCzFvDGDPvKbbOXg5HBA==}
-    peerDependencies:
-      luxon: ^3.4.4
-
   '@posthog/icons@0.11.1':
     resolution: {integrity: sha512-usNM3nAk1EuWut577qu2enGedfhrQLcRR0nLPYt0U3wt3YV7fKR9VSFbX/J2mcbF+bqdY89lAi6OQnHj6ZJo1A==}
     peerDependencies:
@@ -5883,6 +5884,9 @@ packages:
 
   '@types/json5@0.0.29':
     resolution: {integrity: sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ==}
+
+  '@types/kafkajs-snappy@1.0.0':
+    resolution: {integrity: sha512-P0DdLdmn5z4foYpCVTMpEGVpfrHG7C6cpzeysxw79rfyESp5/k0wiCOfI4euDKsc6N/2+BHaNoTGwmNLmxCUWw==}
 
   '@types/leaflet@0.7.40':
     resolution: {integrity: sha512-R2UwXOKwnKZi9zNm37WbPTAVuqHmysE6NVihkc5DUrovTirUxFSbZzvXrlwv0n5sibe0w8VF1bWu0ta4kZlAaA==}
@@ -12664,8 +12668,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.223.2:
-    resolution: {integrity: sha512-NtdbfBlMmo9s+GGygROPd14Kag9lTQgiCL4Kf1nwii9vL4dGjaQeHI720XqxXNuslTP8ZjhxJxJcSH1uWRlNXA==}
+  posthog-js@1.223.3:
+    resolution: {integrity: sha512-ZQTc17M21IzkQmECJa2Xjont4tZrvIn252uGT3sTfmahTqZoW4j+kBj4eOJt9SNR6hOheFNkg7MSiI/rA6FaDA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
@@ -19047,10 +19051,6 @@ snapshots:
 
   '@posthog/clickhouse@1.7.0': {}
 
-  '@posthog/hogvm@1.0.67(luxon@3.5.0)':
-    dependencies:
-      luxon: 3.5.0
-
   '@posthog/icons@0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
@@ -21540,6 +21540,10 @@ snapshots:
   '@types/json-schema@7.0.15': {}
 
   '@types/json5@0.0.29': {}
+
+  '@types/kafkajs-snappy@1.0.0':
+    dependencies:
+      '@types/node': 18.18.4
 
   '@types/leaflet@0.7.40':
     dependencies:
@@ -24874,7 +24878,7 @@ snapshots:
       - eslint-import-resolver-webpack
       - supports-color
 
-  eslint-plugin-jest@28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0)(typescript@4.9.5):
+  eslint-plugin-jest@28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))(typescript@4.9.5):
     dependencies:
       '@typescript-eslint/utils': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
       eslint: 8.57.0
@@ -29899,6 +29903,10 @@ snapshots:
     dependencies:
       postcss: 8.4.31
 
+  postcss-scss@4.0.9(postcss@8.4.31):
+    dependencies:
+      postcss: 8.4.31
+
   postcss-scss@4.0.9(postcss@8.5.2):
     dependencies:
       postcss: 8.5.2
@@ -29981,7 +29989,7 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.223.2(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.223.3(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       '@rrweb/types': 2.0.0-alpha.17
       core-js: 3.40.0
@@ -31793,6 +31801,15 @@ snapshots:
       stylelint: 15.11.0(typescript@4.9.5)
       stylelint-order: 6.0.3(stylelint@15.11.0(typescript@4.9.5))
 
+  stylelint-config-recommended-scss@13.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5)):
+    dependencies:
+      postcss-scss: 4.0.9(postcss@8.4.31)
+      stylelint: 15.11.0(typescript@4.9.5)
+      stylelint-config-recommended: 13.0.0(stylelint@15.11.0(typescript@4.9.5))
+      stylelint-scss: 5.3.1(stylelint@15.11.0(typescript@4.9.5))
+    optionalDependencies:
+      postcss: 8.4.31
+
   stylelint-config-recommended-scss@13.1.0(postcss@8.5.2)(stylelint@15.11.0(typescript@4.9.5)):
     dependencies:
       postcss-scss: 4.0.9(postcss@8.5.2)
@@ -31805,6 +31822,14 @@ snapshots:
   stylelint-config-recommended@13.0.0(stylelint@15.11.0(typescript@4.9.5)):
     dependencies:
       stylelint: 15.11.0(typescript@4.9.5)
+
+  stylelint-config-standard-scss@11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5)):
+    dependencies:
+      stylelint: 15.11.0(typescript@4.9.5)
+      stylelint-config-recommended-scss: 13.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5))
+      stylelint-config-standard: 34.0.0(stylelint@15.11.0(typescript@4.9.5))
+    optionalDependencies:
+      postcss: 8.4.31
 
   stylelint-config-standard-scss@11.1.0(postcss@8.5.2)(stylelint@15.11.0(typescript@4.9.5)):
     dependencies:

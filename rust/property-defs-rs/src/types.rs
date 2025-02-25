@@ -112,21 +112,12 @@ pub struct EventProperty {
     pub property: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub struct HostDefinition {
-    pub team_id: i32,
-    pub project_id: i64,
-    pub host: String,
-    pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen
-}
-
 // Represents a generic update, but comparable, allowing us to dedupe and cache updates
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Update {
     Event(EventDefinition),
     Property(PropertyDefinition),
     EventProperty(EventProperty),
-    Host(HostDefinition),
 }
 
 impl Update {
@@ -138,7 +129,6 @@ impl Update {
             Update::Event(e) => e.issue(executor).await,
             Update::Property(p) => p.issue(executor).await,
             Update::EventProperty(ep) => ep.issue(executor).await,
-            Update::Host(h) => h.issue(executor).await,
         }
     }
 }
@@ -229,9 +219,6 @@ impl Event {
             return updates;
         }
 
-        // Check for $host property and add HostDefinition if present
-        self.get_host_from_props(&mut updates, &props);
-
         // Grab the "ordinary" (non-person) event properties
         self.get_props_from_object(&mut updates, &props, PropertyParentType::Event, None);
 
@@ -249,22 +236,6 @@ impl Event {
         }
 
         updates
-    }
-
-    fn get_host_from_props(&self, updates: &mut Vec<Update>, props: &Map<String, Value>) {
-        if let Some(Value::String(host)) = props.get("$host") {
-            if will_fit_in_postgres_column(host) {
-                updates.push(Update::Host(HostDefinition {
-                    team_id: self.team_id,
-                    project_id: self.project_id,
-                    host: host.to_string(),
-                    last_seen_at: get_floored_last_seen(),
-                }));
-            } else {
-                metrics::counter!(UPDATES_SKIPPED, &[("reason", "host_wont_fit_in_postgres")])
-                    .increment(1);
-            }
-        }
     }
 
     fn get_props_from_object(
@@ -397,14 +368,6 @@ impl Hash for EventDefinition {
         self.team_id.hash(state);
         self.name.hash(state);
         self.last_seen_at.hash(state)
-    }
-}
-
-impl Hash for HostDefinition {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.team_id.hash(state);
-        self.host.hash(state);
-        self.last_seen_at.hash(state);
     }
 }
 
@@ -546,31 +509,6 @@ impl EventProperty {
         .map(|_| ());
 
         metrics::counter!(UPDATES_ISSUED, &[("type", "event_property")]).increment(1);
-
-        res
-    }
-}
-
-impl HostDefinition {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        let res = sqlx::query!(
-            r#"
-            INSERT INTO posthog_hostdefinition (id, host, team_id, project_id, last_seen_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, NOW())
-            ON CONFLICT (coalesce(project_id, team_id::bigint), host)
-            DO UPDATE SET last_seen_at = $5
-            "#,
-            Uuid::now_v7(),
-            sanitize_string(self.host.clone()),
-            self.team_id,
-            self.project_id,
-            Utc::now() // We floor the update datetime for cache purposes, but can insert the exact time we see the event
-        ).execute(executor).await.map(|_| ());
-
-        metrics::counter!(UPDATES_ISSUED, &[("type", "host_definition")]).increment(1);
 
         res
     }
