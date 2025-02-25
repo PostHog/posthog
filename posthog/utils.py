@@ -3,6 +3,7 @@ import base64
 import dataclasses
 import datetime
 import datetime as dt
+import functools
 import gzip
 import hashlib
 import json
@@ -12,6 +13,7 @@ import secrets
 import string
 import time
 import uuid
+import warnings
 import zlib
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
@@ -1536,3 +1538,47 @@ def get_from_dict_or_attr(obj: Any, key: str):
         return getattr(obj, key, None)
     else:
         raise AttributeError(f"Object {obj} has no key {key}")
+
+
+def deprecated(reason: str | None = None):
+    """
+    Mark a class or function as deprecated.
+
+    This will emit a warning when the class/function is used.
+
+    Args:
+        reason: Explanation why the class/function is deprecated
+    """
+
+    def decorator(obj):
+        message = f"{obj.__name__} is deprecated"
+        if reason:
+            message += f": {reason}"
+
+        @functools.wraps(obj)
+        def wrapper(*args, **kwargs):
+            warnings.warn(message, category=DeprecationWarning, stacklevel=2)
+            return obj(*args, **kwargs)
+
+        if isinstance(obj, type):
+            # If it's a class, override __new__ to show warning when instantiated
+            orig_new = obj.__new__
+
+            @functools.wraps(orig_new)
+            def __new__(cls, *args, **kwargs):
+                warnings.warn(message, category=DeprecationWarning, stacklevel=2)
+                if orig_new is not object.__new__:
+                    return orig_new(cls, *args, **kwargs)
+                return super(obj, cls).__new__(cls)
+
+            obj.__new__ = __new__
+            return obj
+
+        return wrapper
+
+    # Handle both @deprecated and @deprecated("reason")
+    if isinstance(reason, str):
+        return decorator
+    if reason is None:
+        return decorator
+    return decorator(reason)
