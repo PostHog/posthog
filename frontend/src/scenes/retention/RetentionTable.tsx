@@ -53,7 +53,8 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                             (() => {
                                                 const validRows = tableRows.filter((row) => {
                                                     return !(
-                                                        (columnIndex >= row.length - 1 && isLatestPeriod) ||
+                                                        (columnIndex >= row.length - 1 &&
+                                                            row[columnIndex]?.isCurrentPeriod) ||
                                                         !row[columnIndex] ||
                                                         row[columnIndex].count <= 0
                                                     )
@@ -73,7 +74,6 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                 return totalWeight > 0 ? weightedSum / totalWeight : 0
                                             })() || 0
                                         }
-                                        latest={isLatestPeriod && columnIndex == tableRows[0].length - 1}
                                         clickable={false}
                                         backgroundColor={backgroundColorMean}
                                     />
@@ -99,7 +99,8 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                     // Don't include the last item in a row, which is an incomplete time period
                                                     // Also don't include the percentage if the cohort size (count) is 0 or less
                                                     if (
-                                                        (columnIndex >= row.length - 1 && isLatestPeriod) ||
+                                                        (columnIndex >= row.length - 1 &&
+                                                            row[columnIndex]?.isCurrentPeriod) ||
                                                         !row[columnIndex] ||
                                                         row[columnIndex].count <= 0
                                                     ) {
