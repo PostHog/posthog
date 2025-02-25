@@ -7,9 +7,11 @@ import {
     convertToPostHogEvent,
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
-import { trackedFetch } from '../../utils/fetch'
+import * as fetchModule from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
+import { patchTrackedFetch, restoreTrackedFetch } from '../ingestion/event-pipeline/http-recording/patch-fetch'
+import { DestinationHttpRecorder } from '../ingestion/event-pipeline/http-recording/recorder'
 import { WebhookFormatter } from '../ingestion/webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
 
@@ -175,7 +177,7 @@ async function runSingleTeamPluginComposeWebhook(
     const timer = new Date()
 
     try {
-        const request = await trackedFetch(webhook.url, {
+        const request = await fetchModule.trackedFetch(webhook.url, {
             method: webhook.method || 'POST',
             body: webhook.body,
             headers: webhook.headers || { 'Content-Type': 'application/json' },
@@ -243,7 +245,19 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
     )
 }
 
-export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
+/**
+ * Runs processEvent for all plugins for this team
+ *
+ * @param hub The Hub instance
+ * @param event The event to process
+ * @param recorder Optional HTTP recorder to record HTTP interactions
+ * @returns The processed event or null if the event was dropped
+ */
+export async function runProcessEvent(
+    hub: Hub,
+    event: PluginEvent,
+    recorder?: DestinationHttpRecorder
+): Promise<PluginEvent | null> {
     const teamId = event.team_id
 
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
@@ -254,64 +268,105 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
     const pluginsFailed = event.properties?.$plugins_failed || []
     const pluginsAlreadyProcessed = new Set([...pluginsSucceeded, ...pluginsFailed])
 
-    for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
-        const timer = new Date()
-        const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
+    // If we have a recorder, patch the trackedFetch function
+    if (recorder) {
+        patchTrackedFetch(fetchModule, recorder)
+    }
 
-        if (pluginsAlreadyProcessed.has(pluginIdentifier)) {
-            continue
-        }
+    try {
+        for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
+            const timer = new Date()
+            const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
 
-        try {
-            returnedEvent = (await processEvent(returnedEvent!)) || null
-            if (returnedEvent && returnedEvent.team_id !== teamId) {
-                returnedEvent.team_id = teamId
-                throw new IllegalOperationError('Plugin tried to change event.team_id')
+            if (pluginsAlreadyProcessed.has(pluginIdentifier)) {
+                continue
             }
-            pluginsSucceeded.push(pluginIdentifier)
-            pluginActionMsSummary
-                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'success')
-                .observe(new Date().getTime() - timer.getTime())
-            await hub.appMetrics.queueMetric({
-                teamId,
-                pluginConfigId: pluginConfig.id,
-                category: 'processEvent',
-                successes: 1,
-            })
-        } catch (error) {
-            await processError(hub, pluginConfig, error, returnedEvent)
-            pluginActionMsSummary
-                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'error')
-                .observe(new Date().getTime() - timer.getTime())
-            pluginsFailed.push(pluginIdentifier)
-            await hub.appMetrics.queueError(
-                {
+
+            try {
+                // If this is a destination plugin and we have a recorder, start recording
+                if (recorder && pluginConfig.plugin?.capabilities?.methods?.includes('onEvent')) {
+                    // Start recording for this specific destination
+                    recorder.startRecording(event.uuid || 'unknown', teamId, pluginConfig.id.toString())
+                }
+
+                returnedEvent = (await processEvent(returnedEvent!)) || null
+
+                if (returnedEvent && returnedEvent.team_id !== teamId) {
+                    returnedEvent.team_id = teamId
+                    throw new IllegalOperationError('Plugin tried to change event.team_id')
+                }
+
+                pluginsSucceeded.push(pluginIdentifier)
+                pluginActionMsSummary
+                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'success')
+                    .observe(new Date().getTime() - timer.getTime())
+                await hub.appMetrics.queueMetric({
                     teamId,
                     pluginConfigId: pluginConfig.id,
                     category: 'processEvent',
-                    failures: 1,
-                },
-                {
-                    error,
-                    event,
+                    successes: 1,
+                })
+
+                // If we were recording, stop recording
+                if (recorder && pluginConfig.plugin?.capabilities?.methods?.includes('onEvent')) {
+                    try {
+                        // Stop recording for this destination
+                        recorder.stopRecording()
+                    } catch (error) {
+                        // Don't let recording errors affect the main flow
+                        status.warn('⚠️', `Error stopping HTTP recording: ${error.message}`)
+                    }
                 }
-            )
+            } catch (error) {
+                // If we were recording, stop recording even on error
+                if (recorder && pluginConfig.plugin?.capabilities?.methods?.includes('onEvent')) {
+                    try {
+                        recorder.stopRecording()
+                    } catch (recorderError) {
+                        // Don't let recording errors affect the main flow
+                        status.warn('⚠️', `Error stopping HTTP recording: ${recorderError.message}`)
+                    }
+                }
+
+                await processError(hub, pluginConfig, error, returnedEvent)
+                pluginActionMsSummary
+                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'error')
+                    .observe(new Date().getTime() - timer.getTime())
+                pluginsFailed.push(pluginIdentifier)
+                await hub.appMetrics.queueError(
+                    {
+                        teamId,
+                        pluginConfigId: pluginConfig.id,
+                        category: 'processEvent',
+                        failures: 1,
+                    },
+                    {
+                        error,
+                        event,
+                    }
+                )
+            }
+
+            if (!returnedEvent) {
+                return null
+            }
         }
 
-        if (!returnedEvent) {
-            return null
+        if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0) {
+            event.properties = {
+                ...event.properties,
+                $plugins_succeeded: pluginsSucceeded,
+                $plugins_failed: pluginsFailed,
+            }
+        }
+
+        return returnedEvent
+    } finally {
+        // Restore the original trackedFetch function if we patched it
+        if (recorder) {
+            restoreTrackedFetch(fetchModule)
         }
     }
-
-    if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0) {
-        event.properties = {
-            ...event.properties,
-            $plugins_succeeded: pluginsSucceeded,
-            $plugins_failed: pluginsFailed,
-        }
-    }
-
-    return returnedEvent
 }
 
 export async function runPluginTask(

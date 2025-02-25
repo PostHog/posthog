@@ -12,6 +12,9 @@ export interface HttpInteraction {
         status: number
         headers: Record<string, string>
         body?: any
+        timing?: {
+            duration?: number
+        }
     }
 }
 

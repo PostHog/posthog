@@ -16,6 +16,7 @@ import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
+import { DestinationHttpRecorder } from './http-recording/recorder'
 import {
     eventProcessedAndIngestedCounter,
     pipelineLastStepCounter,
@@ -42,6 +43,8 @@ export type EventPipelineResult = {
     lastStep: string
     args: any[]
     error?: string
+    // HTTP recordings for destinations
+    httpRecordings?: Record<string, any>
 }
 
 class StepErrorNoRetry extends Error {
@@ -58,12 +61,14 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
+    httpRecorder: DestinationHttpRecorder | null
 
     constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null = null) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
         this.hogTransformer = hogTransformer
+        this.httpRecorder = null
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -231,7 +236,43 @@ export class EventPipelineRunner {
             return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
         }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
+        // Create a recorder for HTTP interactions
+        this.httpRecorder = new DestinationHttpRecorder()
+
+        const processedEvent = await this.runStep(
+            pluginsProcessEventStep,
+            [this, postCookielessEvent, this.httpRecorder],
+            event.team_id
+        )
+
+        // Log the HTTP recordings to verify they're being captured
+        if (this.httpRecorder) {
+            try {
+                const recordings = this.httpRecorder.stopRecording()
+
+                if (recordings.interactions.length > 0) {
+                    status.info(
+                        '📊',
+                        `Captured ${recordings.interactions.length} HTTP interactions for event ${event.uuid}`
+                    )
+
+                    // Log details of the first few interactions for debugging
+                    recordings.interactions.slice(0, 3).forEach((interaction, index) => {
+                        status.info(
+                            '📊',
+                            `Interaction ${index + 1}: ${interaction.request.method} ${interaction.request.url} -> ${
+                                interaction.response.status
+                            }`
+                        )
+                    })
+                }
+            } catch (error) {
+                status.warn('⚠️', `Error accessing HTTP recordings: ${error.message}`)
+            }
+
+            // Reset the recorder for the next step
+            this.httpRecorder = new DestinationHttpRecorder()
+        }
 
         if (processedEvent == null) {
             // A plugin dropped the event.
@@ -312,6 +353,7 @@ export class EventPipelineRunner {
             ackPromises,
             lastStep: stepName,
             args,
+            httpRecordings: this.httpRecorder ? { oldStep: this.httpRecorder.stopRecording() } : undefined,
         }
     }
 
