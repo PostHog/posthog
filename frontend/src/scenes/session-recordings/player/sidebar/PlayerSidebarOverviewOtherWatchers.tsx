@@ -49,7 +49,7 @@ export function PlayerSidebarOverviewOtherWatchers(): JSX.Element {
         <div className="rounded border bg-surface-primary">
             {sessionPlayerMetaDataLoading ? (
                 <OtherWatchersLoading />
-            ) : sessionPlayerMetaData?.viewers.length ? (
+            ) : sessionPlayerMetaData?.viewers?.length ? (
                 <OtherWatchersDisplay metadata={sessionPlayerMetaData} />
             ) : (
                 <NoOtherWatchers />
