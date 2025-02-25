@@ -7,7 +7,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from ee.hogai.summarizers.chains import batch_summarize_actions
-from posthog.models import Action
+from posthog.models import Action, Team
 
 logger = structlog.get_logger(__name__)
 
@@ -16,17 +16,18 @@ cohere_client = cohere.ClientV2()
 
 
 @shared_task
-def summarize_actions_batch(team_id: int, action_ids: list[int]):
+def summarize_actions_batch(project_id: int, action_ids: list[int]):
     """
     Summarize actions in batches, embed the summaries, and save them to the vector database.
-    TurboPuffer supports only a single upsert request per namespace, so we batch by team.
+    TurboPuffer supports only a single upsert request per a namespace, so we batch by a project.
     """
+    team = Team.objects.get(id=project_id)
     actions = Action.objects.filter(id__in=action_ids)
 
     start_dt = timezone.now()
     summaries = batch_summarize_actions(actions)
 
-    logger.info("summarized actions", team_id=team_id, action_ids=action_ids)
+    logger.info("summarized actions", team_id=project_id, action_ids=action_ids)
 
     models_to_update = []
     for action, maybe_summary in zip(actions, summaries):
@@ -44,12 +45,12 @@ def summarize_actions_batch(team_id: int, action_ids: list[int]):
         embedding_types=["float"],
     )
 
-    logger.info("embedded actions", team_id=team_id, action_ids=action_ids)
+    logger.info("embedded actions", project_id=project_id, action_ids=action_ids)
 
     if not embeddings_response.embeddings.float_:
         raise ValueError("No embeddings found")
 
-    ns = tpuf.Namespace(f"org:{team_id}")
+    ns = tpuf.Namespace(f"project:{team.id}")
     ns.upsert(
         ids=[action.id for action in models_to_update],
         vectors=embeddings_response.embeddings.float_,
@@ -76,9 +77,10 @@ def summarize_actions_batch(team_id: int, action_ids: list[int]):
         },
     )
 
+    # Updating models is done last to retry on failure.
     Action.objects.bulk_update(models_to_update, ["last_summarized_at", "summary"])
 
-    logger.info("upserted embeddings", team_id=team_id, action_ids=action_ids)
+    logger.info("upserted embeddings", project_id=project_id, action_ids=action_ids)
 
 
 MAX_EMBEDDING_BATCH_SIZE = 96

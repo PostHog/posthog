@@ -6,8 +6,8 @@ from posthog.schema import (
 )
 
 from .property_filters import (
-    InferredPropertyFilterTaxonony,
-    PropertyFiltersDescriptor,
+    PropertyFilterCollectionDescriber,
+    PropertyFilterTaxonomyEntry,
     retrieve_hardcoded_taxonomy,
 )
 
@@ -46,7 +46,7 @@ ACTION_MATCH_FILTER_VERBOSE_NAME: dict[ActionStepMatching, str] = {
 
 class ActionSummarizer:
     _action: Action
-    _taxonomy: set[InferredPropertyFilterTaxonony]
+    _taxonomy: set[PropertyFilterTaxonomyEntry]
     _step_descriptions: list[str]
 
     def __init__(self, action: Action):
@@ -67,7 +67,7 @@ class ActionSummarizer:
 
     @property
     def taxonomy_description(self) -> str:
-        groups: dict[str, list[InferredPropertyFilterTaxonony]] = defaultdict(list)
+        groups: dict[str, list[PropertyFilterTaxonomyEntry]] = defaultdict(list)
         for taxonony in self._taxonomy:
             groups[taxonony.group_verbose_name].append(taxonony)
 
@@ -81,16 +81,14 @@ class ActionSummarizer:
         return description
 
     def _describe_action_step(self, step: ActionStepJSON, index: int):
-        taxonomy: set[InferredPropertyFilterTaxonony] = set()
+        taxonomy: set[PropertyFilterTaxonomyEntry] = set()
         description: list[str] = []
 
         if step.event:
             event_desc = f"Match group {index + 1} for `{step.event}`"
             description.append(event_desc)
             if event_description := retrieve_hardcoded_taxonomy("events", step.event):
-                taxonomy.add(
-                    InferredPropertyFilterTaxonony(group="events", key=step.event, description=event_description)
-                )
+                taxonomy.add(PropertyFilterTaxonomyEntry(group="events", key=step.event, description=event_description))
         if step.text_matching and step.text:
             text_desc = f"Element text {ACTION_MATCH_FILTER_VERBOSE_NAME[step.text_matching]} `{step.text}`"
             description.append(text_desc)
@@ -108,7 +106,7 @@ class ActionSummarizer:
             description.append(tag_desc)
 
         if step.properties:
-            property_desc, used_properties = PropertyFiltersDescriptor(filters=step.properties).describe()
+            property_desc, used_properties = PropertyFilterCollectionDescriber(filters=step.properties).describe()
             description.append(property_desc)
             taxonomy.update(used_properties)
 

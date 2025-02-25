@@ -1,9 +1,7 @@
-import json
 from typing import Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict
 
-from posthog.models import Team
 from posthog.schema import (
     CohortPropertyFilter,
     DataWarehousePersonPropertyFilter,
@@ -64,17 +62,16 @@ PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
 }
 
 
-class InferredPropertyFilterTaxonony(BaseModel):
+class PropertyFilterTaxonomyEntry(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    group: Literal["events", "event_properties", "person_properties", "element_properties", "session_properties"]
+    group: Literal["event_properties", "person_properties", "element_properties", "session_properties"]
     key: str
     description: str
 
     @property
     def group_verbose_name(self) -> str:
         mapping = {
-            "events": "events",
             "event_properties": "event properties",
             "person_properties": "person properties",
             "element_properties": "autocaptured element properties",
@@ -92,10 +89,9 @@ def retrieve_hardcoded_taxonomy(taxonomy_group: str, key: str) -> str | None:
     return None
 
 
-class PropertyFilterDescriptor(BaseModel):
+class PropertyFilterDescriber(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    team: Team
     filter: PropertyFilterUnion
 
     @property
@@ -106,6 +102,10 @@ class PropertyFilterDescriptor(BaseModel):
         filter = self.filter
         verbose_name = ""
 
+        # TODO: cohort
+        if isinstance(filter, HogQLPropertyFilter):
+            return f"Matches the SQL filter `{filter.key}`"
+
         if isinstance(filter, EventPropertyFilter):
             verbose_name = "Event property"
         elif isinstance(filter, PersonPropertyFilter):
@@ -115,9 +115,7 @@ class PropertyFilterDescriptor(BaseModel):
         elif isinstance(filter, SessionPropertyFilter):
             verbose_name = "Session property"
         elif isinstance(filter, FeaturePropertyFilter):
-            verbose_name = "Feature property"
-        elif isinstance(filter, HogQLPropertyFilter):
-            verbose_name = "Matches SQL filter for a property"
+            verbose_name = "Enrollment of the feature"
 
         if not verbose_name:
             raise ValueError(f"Unknown filter type: {type(filter)}")
@@ -125,44 +123,46 @@ class PropertyFilterDescriptor(BaseModel):
         return f"{verbose_name} {self._describe_filter_with_value(filter.key, filter.operator, filter.value)}"
 
     @property
-    def taxonomy(self) -> list[InferredPropertyFilterTaxonony]:
+    def taxonomy(self) -> PropertyFilterTaxonomyEntry | None:
         """
         Returns the associated taxonomy with the filter.
         """
         filter = self.filter
-        taxonomy: list[InferredPropertyFilterTaxonony] = []
+        prop: tuple[str, str, str | None] | None = None
+
+        # TODO: cohort
 
         if isinstance(filter, EventPropertyFilter):
-            taxonomy = [
-                ("events", filter.key, retrieve_hardcoded_taxonomy("events", filter.key)),
-                ("event_properties", filter.key, retrieve_hardcoded_taxonomy("event_properties", filter.key)),
-            ]
+            prop = ("event_properties", filter.key, retrieve_hardcoded_taxonomy("event_properties", filter.key))
         elif isinstance(filter, PersonPropertyFilter):
-            taxonomy = [
-                ("person_properties", filter.key, retrieve_hardcoded_taxonomy("person_properties", filter.key)),
-            ]
+            prop = ("person_properties", filter.key, retrieve_hardcoded_taxonomy("person_properties", filter.key))
         elif isinstance(filter, ElementPropertyFilter):
-            taxonomy = [
-                ("element", filter.key, retrieve_hardcoded_taxonomy("element", filter.key)),
-            ]
+            prop = ("element_properties", filter.key, retrieve_hardcoded_taxonomy("elements", filter.key))
         elif isinstance(filter, SessionPropertyFilter):
-            taxonomy = [
-                ("session_properties", filter.key, retrieve_hardcoded_taxonomy("session_properties", filter.key)),
-            ]
-        return [
-            InferredPropertyFilterTaxonony(group=group, key=key, description=description)
-            for group, key, description in taxonomy
-            if description
-        ]
+            prop = ("session_properties", filter.key, retrieve_hardcoded_taxonomy("session_properties", filter.key))
+
+        if not prop or not prop[2]:
+            return None
+
+        group, key, description = prop
+        return PropertyFilterTaxonomyEntry(group=group, key=key, description=description)
 
     def _describe_filter_with_value(self, key: str, operator: PropertyOperator, value: Any):
-        return f"`{key}` {PROPERTY_FILTER_VERBOSE_NAME[operator]} `{json.dumps(value)}`"
+        if value is None:
+            formatted_value = "null"
+        elif isinstance(value, list):
+            formatted_value = ", ".join(str(v) for v in value)
+        elif isinstance(value, float) and value.is_integer():
+            # Convert float values with trailing zeros to integers
+            formatted_value = str(int(value))
+        else:
+            formatted_value = str(value)
+        return f"`{key}` {PROPERTY_FILTER_VERBOSE_NAME[operator]} `{formatted_value}`"
 
 
-class PropertyFiltersDescriptor(BaseModel):
+class PropertyFilterCollectionDescriber(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    DEFAULT_CONDITION = "AND"
     filters: list[
         Union[
             EventPropertyFilter,
@@ -181,14 +181,14 @@ class PropertyFiltersDescriptor(BaseModel):
         ]
     ]
 
-    def describe(self) -> tuple[str, set[InferredPropertyFilterTaxonony]]:
+    def describe(self) -> tuple[str, set[PropertyFilterTaxonomyEntry]]:
         descriptions: list[str] = []
-        taxonomy: set[InferredPropertyFilterTaxonony] = set()
+        taxonomy: set[PropertyFilterTaxonomyEntry] = set()
 
         for filter in self.filters:
-            model = PropertyFilterDescriptor(filter=filter)
-            for property_taxonomy in model.taxonomy:
+            model = PropertyFilterDescriber(filter=filter)
+            if property_taxonomy := model.taxonomy:
                 taxonomy.add(property_taxonomy)
             descriptions.append(model.description)
 
-        return self.DEFAULT_CONDITION.join(descriptions), taxonomy
+        return "AND".join(descriptions), taxonomy
