@@ -78,7 +78,7 @@ sudo apt update
 
 # clone posthog
 echo "Installing PostHog 🦔 from Github"
-sudo apt install -y git
+sudo apt install -y git gettext
 # try to clone - if folder is already there pull latest for that branch
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
 cd posthog
