@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useMemo } from 'react'
+import { urls } from 'scenes/urls'
 
 import { hogFunctionLogsLogic } from './hogFunctionLogsLogic'
 import { LogsViewer } from './LogsViewer'
@@ -62,7 +63,7 @@ function HogFunctionLogsStatus({
 
         const lastEntry = record.entries[record.entries.length - 1]
 
-        if (lastEntry.message.includes('Function completed')) {
+        if (lastEntry.message.includes('Function completed') || lastEntry.message.includes('Execution successful')) {
             return 'success'
         }
 
@@ -99,8 +100,14 @@ function HogFunctionLogsStatus({
 
             <LemonMenu
                 items={[
+                    eventId
+                        ? {
+                              label: 'View event',
+                              to: urls.event(eventId, ''),
+                          }
+                        : null,
                     {
-                        label: 'Retry',
+                        label: 'Retry event',
                         disabledReason: !eventId ? 'Could not find the source event' : undefined,
                         onClick: () => retryInvocation(record, eventId),
                     },

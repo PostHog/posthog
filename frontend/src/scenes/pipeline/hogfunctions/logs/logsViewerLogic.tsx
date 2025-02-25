@@ -51,8 +51,7 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
                 groupArray((timestamp, level, message))
             ) AS messages
         FROM log_entries
-        WHERE timestamp >= now() - INTERVAL 1 DAY
-        AND log_source = '${request.sourceType}'
+        WHERE log_source = '${request.sourceType}'
         AND log_source_id = '${request.sourceId}'
         GROUP BY instance_id
         HAVING countIf(
@@ -178,7 +177,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         selectedLogLevels: [
             DEFAULT_LOG_LEVELS,
             {
-                setSelectedLogLevels: (_, { levels }) => levels,
+                setSelectedLogLevels: (_, { levels }) => (levels.length ? levels : DEFAULT_LOG_LEVELS),
             },
         ],
         backgroundLogs: [

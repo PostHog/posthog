@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { delay } from 'lib/utils'
@@ -84,28 +84,6 @@ export const hogFunctionLogsLogic = kea([
             },
         ],
     }),
-    selectors(() => ({
-        // baseEventsQuery: [
-        //     (s) => [],
-        //     (): EventsQuery | null => {
-        //         const query: EventsQuery = {
-        //             kind: NodeKind.EventsQuery,
-        //             fixedProperties: [],
-        //             select: ['*', 'person'],
-        //             after: '-7d',
-        //             orderBy: ['timestamp DESC'],
-        //         }
-        //         // groupTypes.forEach((groupType) => {
-        //         //     const name = escapePropertyAsHogQlIdentifier(groupType.group_type)
-        //         //     query.select.push(
-        //         //         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
-        //         //     )
-        //         // })
-        //         return query
-        //     },
-        //     { resultEqualityCheck: equal },
-        // ],
-    })),
     listeners(({ actions, props, values }) => ({
         retryInvocation: async ({ groupedLogEntry, eventId }, breakpoint) => {
             await breakpoint(100)

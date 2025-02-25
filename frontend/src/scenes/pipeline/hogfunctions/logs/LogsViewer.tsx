@@ -197,7 +197,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                                     {
                                         key: 'spacer',
                                         width: 0,
-                                        render: () => <div className="w-16" />,
+                                        render: () => <div className="w-6" />,
                                     },
                                     {
                                         title: 'Timestamp',
