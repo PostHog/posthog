@@ -214,7 +214,12 @@ class TracesQueryRunner(QueryRunner):
                         argMin(person.id, timestamp), argMin(distinct_id, timestamp),
                         argMin(person.created_at, timestamp), argMin(person.properties, timestamp)
                     ) as first_person,
-                    round(toFloat(sum(properties.$ai_latency)), 2) as total_latency,
+                    round(toFloat(sum(if(
+                        properties.$ai_parent_id IS NULL OR
+                        properties.$ai_parent_id = properties.$ai_trace_id,
+                        properties.$ai_latency,
+                        0
+                    ))), 2) as total_latency,
                     sum(toFloat(properties.$ai_input_tokens)) as input_tokens,
                     sum(toFloat(properties.$ai_output_tokens)) as output_tokens,
                     round(sum(toFloat(properties.$ai_input_cost_usd)), 4) as input_cost,
@@ -223,7 +228,9 @@ class TracesQueryRunner(QueryRunner):
                     arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events,
                     {filter_conditions}
                 FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback') AND {common_conditions}
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')
+                    AND properties.$ai_trace_id IS NOT NULL
+                    AND {common_conditions}
                 GROUP BY id
             ) AS generations
             LEFT JOIN (
@@ -234,8 +241,10 @@ class TracesQueryRunner(QueryRunner):
                     argMin(ifNull(properties.$ai_span_name, properties.$ai_trace_name), timestamp) as trace_name,
                     {filter_conditions}
                 FROM events
-                WHERE event = '$ai_trace' AND {common_conditions}
-                GROUP BY id -- In case there are multiple trace events for the same trace ID, an unexpected but possible case
+                WHERE event = '$ai_trace'
+                    AND properties.$ai_trace_id IS NOT NULL
+                    AND {common_conditions}
+                GROUP BY id
             ) AS traces
             ON traces.id = generations.id
             ORDER BY first_timestamp DESC

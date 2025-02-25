@@ -2,7 +2,7 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { LegacyDestinationPluginMeta } from '../../types'
 
-type EngagePluginEvent = ProcessedPluginEvent & {
+export type EngagePluginEvent = ProcessedPluginEvent & {
     config?: any
 }
 

@@ -77,6 +77,7 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "person_distinct_id_version",
     "created_at",
     "_inserted_at",
+    "is_deleted",
 ]
 
 
@@ -189,7 +190,6 @@ async def assert_clickhouse_records_in_bigquery(
             is_backfill=backfill_details is not None,
             backfill_details=backfill_details,
             extra_query_parameters=extra_query_parameters,
-            use_latest_schema=True,
         )
 
         while True:

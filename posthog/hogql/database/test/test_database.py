@@ -326,7 +326,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
         db = create_hogql_database(team_id=self.team.pk)
 
-        assert db.events.fields["event"] == StringDatabaseField(name="event")
+        assert db.events.fields["event"] == StringDatabaseField(name="event", nullable=False)
 
     def test_database_expression_fields(self):
         db = create_hogql_database(team_id=self.team.pk)

@@ -161,6 +161,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
 
     ongoing = serializers.SerializerMethodField()
     viewed = serializers.SerializerMethodField()
+    viewers = serializers.SerializerMethodField()
     activity_score = serializers.SerializerMethodField()
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
@@ -171,6 +172,9 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
         # viewed is a custom field that we load from PG Sql and merge into the model
         return getattr(obj, "viewed", False)
 
+    def get_viewers(self, obj: SessionRecording) -> list[str]:
+        return getattr(obj, "viewers", [])
+
     def get_activity_score(self, obj: SessionRecording) -> Optional[float]:
         return getattr(obj, "activity_score", None)
 
@@ -180,6 +184,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "id",
             "distinct_id",
             "viewed",
+            "viewers",
             "recording_duration",
             "active_seconds",
             "inactive_seconds",
@@ -456,6 +461,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.NotFound("Recording not found")
 
         recording.load_person()
+        if not request.user.is_anonymous:
+            viewed = _current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+            other_viewers = _other_users_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+
+            recording.viewed = str(recording.session_id) in viewed
+            recording.viewers = other_viewers.get(str(recording.session_id), [])
 
         serializer = self.get_serializer(recording)
 
@@ -891,6 +902,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             model=SESSION_REPLAY_AI_DEFAULT_MODEL,
             messages=messages,
             response_format=AiFilterSchema,
+            # need to type ignore before, this will be a WrappedParse
+            # but the type detection can't figure that out
+            posthog_distinct_id=self._distinct_id_from_request(request),  # type: ignore
+            posthog_properties={
+                "ai_product": "session_replay",
+                "ai_feature": "ai_filters",
+            },
         )
 
         if not completion.choices or not completion.choices[0].message.content:
@@ -925,6 +943,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             model=SESSION_REPLAY_AI_REGEX_MODEL,
             messages=messages,
             response_format=AiRegexSchema,
+            # need to type ignore before, this will be a WrappedParse
+            # but the type detection can't figure that out
+            posthog_distinct_id=self._distinct_id_from_request(request),  # type: ignore
+            posthog_properties={
+                "ai_product": "session_replay",
+                "ai_feature": "ai_regex",
+            },
         )
 
         if not completion.choices or not completion.choices[0].message.content:
@@ -1002,11 +1027,13 @@ def list_recordings_from_query(
     if not request.user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
 
+    recording_ids_in_list: list[str] = [str(r.session_id) for r in recordings]
     # Update the viewed status for all loaded recordings
     with timer("load_viewed_recordings"):
-        viewed_session_recordings = set(
-            SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
-        )
+        viewed_session_recordings = _current_user_viewed(recording_ids_in_list, cast(User, request.user), team)
+
+    with timer("load_other_viewers_by_recording"):
+        other_viewers = _other_users_viewed(recording_ids_in_list, cast(User, request.user), team)
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
@@ -1025,6 +1052,7 @@ def list_recordings_from_query(
 
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
+            recording.viewers = other_viewers.get(recording.session_id, [])
             person = distinct_id_to_person.get(recording.distinct_id)
             if person:
                 recording.person = person
@@ -1037,6 +1065,31 @@ def list_recordings_from_query(
         {"results": results, "has_next": more_recordings_available, "version": 4},
         all_timings,
     )
+
+
+def _other_users_viewed(recording_ids_in_list: list[str], user: User, team: Team) -> dict[str, list[str]]:
+    # we're looping in python
+    # but since we limit the number of session recordings in the results set
+    # it shouldn't be too bad
+    other_viewers: dict[str, list[str]] = {str(x): [] for x in recording_ids_in_list}
+    queryset = (
+        SessionRecordingViewed.objects.filter(team=team, session_id__in=recording_ids_in_list)
+        .exclude(user=user)
+        .values_list("session_id", "user__email")
+    )
+    for session_id, user_email in queryset:
+        other_viewers[session_id].append(str(user_email))
+
+    return other_viewers
+
+
+def _current_user_viewed(recording_ids_in_list: list[str], user: User, team: Team) -> set[str]:
+    viewed_session_recordings = set(
+        SessionRecordingViewed.objects.filter(team=team, user=user)
+        .filter(session_id__in=recording_ids_in_list)
+        .values_list("session_id", flat=True)
+    )
+    return viewed_session_recordings
 
 
 def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryModifiers:

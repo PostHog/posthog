@@ -16,7 +16,7 @@ import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
 import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
-import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
+import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -80,8 +80,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
     const isLineGraph =
         isTrends &&
-        display &&
-        [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
+        [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
+            display || ChartDisplayType.ActionsLineGraph
+        )
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
@@ -89,9 +90,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isRetention
                     ? {
-                          key: 'retention-config',
-                          label: 'Retention Summary',
-                          component: RetentionSummary,
+                          key: 'retention-condition',
+                          label: 'Retention Condition',
+                          component: RetentionCondition,
                       }
                     : null,
                 isFunnels
