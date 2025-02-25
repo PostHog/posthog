@@ -68,7 +68,7 @@ class TestFileSystemModel(TestCase):
         created = save_unfiled_files(self.team, self.user)
         self.assertEqual(len(created), 1)
         self.assertEqual(FileSystem.objects.count(), 1)
-        self.assertEqual(FileSystem.objects.first().path, "Unfiled/Insights/Active Insight")
+        self.assertEqual(FileSystem.objects.first().path, "Unfiled/Insights/Active Insight")  # type: ignore
 
     def test_save_unfiled_files_includes_all_experiments(self):
         """
@@ -80,8 +80,8 @@ class TestFileSystemModel(TestCase):
         created = save_unfiled_files(self.team, self.user)
         self.assertEqual(len(created), 2)  # 1 FeatureFlag, 1 Experiment
         exp_item = FileSystem.objects.filter(type=FileSystemType.EXPERIMENT).first()
-        assert exp_item.path is not None
-        self.assertEqual(exp_item.path, "Unfiled/Experiments/Experiment #1")
+        assert exp_item.path is not None  # type: ignore
+        self.assertEqual(exp_item.path, "Unfiled/Experiments/Experiment #1")  # type: ignore
 
     def test_save_unfiled_files_does_not_duplicate_existing(self):
         """
