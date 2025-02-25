@@ -26,8 +26,8 @@ export default defineConfig({
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
     retries: process.env.CI ? 8 : 2,
-    /* 4 cores in GitHub Actions so run 3 workers and leave one core for all the rest */
-    workers: process.env.CI ? 3 : undefined,
+    /* 4 cores in GitHub Actions so run 7 workers and leave one core for all the rest */
+    workers: process.env.CI ? 7 : undefined,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [['html', { open: 'never' }]],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
