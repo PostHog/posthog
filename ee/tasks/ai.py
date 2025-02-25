@@ -3,7 +3,7 @@ import posthoganalytics
 import structlog
 import turbopuffer as tpuf
 from celery import shared_task
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from ee.hogai.summarizers.chains import batch_summarize_actions
@@ -93,7 +93,7 @@ def summarize_actions():
         .annotate(
             actions=F("id"),
         )
-        .filter(updated_at__gte=F("last_summarized_at"))
+        .filter(Q(updated_at__gte=F("last_summarized_at")) | Q(last_summarized_at__isnull=True))
     )
 
     for action in actions_to_summarize:
