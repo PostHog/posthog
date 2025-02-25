@@ -11,7 +11,6 @@ from posthog.schema import DatabaseSerializedFieldType
 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
 from posthog.warehouse.models import (
     DataWarehouseCredential,
-    DataWarehouseSavedQuery,
     DataWarehouseTable,
 )
 from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
@@ -186,8 +185,6 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
-        DataWarehouseSavedQuery.objects.filter(external_tables__icontains=instance.name).delete()
-
         instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
