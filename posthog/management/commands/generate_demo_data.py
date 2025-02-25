@@ -71,8 +71,9 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--staff",
-            help="Created a staff user",
             action="store_true",
+            default=False,
+            help="Create a staff user",
         )
 
     def handle(self, *args, **options):
