@@ -1,5 +1,5 @@
 import json
-
+from typing import Any
 import posthoganalytics
 from celery import shared_task
 from django.conf import settings
@@ -10,6 +10,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
+from posthog.schema import RecordingsQuery, FilterLogicalOperator, NodeKind
 
 from structlog import get_logger
 
@@ -39,6 +40,91 @@ REPLAY_PLAYLIST_COUNT_TIMER = Histogram(
 )
 
 
+def convert_universal_filters_to_recordings_query(universal_filters: dict[str, Any]) -> RecordingsQuery:
+    """
+    Convert universal filters to a RecordingsQuery object.
+    This is the Python equivalent of the frontend's convertUniversalFiltersToRecordingsQuery function.
+    """
+    # Check if we have universal filters or legacy filters
+    if "filter_group" not in universal_filters:
+        # If we don't have universal filters, we can just use filter_from_params_to_query
+        return filter_from_params_to_query(universal_filters)
+
+    # Extract filters from the filter group
+    filters = []
+    if universal_filters.get("filter_group") and universal_filters["filter_group"].get("values"):
+        # Get the first group (which should be the only one)
+        group = universal_filters["filter_group"]["values"][0]
+        if group and group.get("values"):
+            filters = group["values"]
+    else:
+        raise Exception("Invalid universal filters")
+
+    events = []
+    actions = []
+    properties = []
+    console_log_filters = []
+    having_predicates = []
+
+    # Get order and duration filter
+    order = universal_filters.get("order")
+    duration_filters = universal_filters.get("duration", [])
+    if duration_filters and len(duration_filters) > 0:
+        having_predicates.append(duration_filters[0])
+
+    # Process each filter
+    for f in filters:
+        filter_type = f.get("type")
+
+        if filter_type == "events":
+            events.append(f)
+        elif filter_type == "actions":
+            actions.append(f)
+        elif filter_type == "log_entry":
+            console_log_filters.append(f)
+        elif filter_type == "hogql":
+            properties.append(f)
+        elif filter_type == "recording":
+            if f.get("key") == "visited_page":
+                events.append(
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "properties": [
+                            {
+                                "type": "event",
+                                "key": "$current_url",
+                                "value": f.get("value"),
+                                "operator": f.get("operator"),
+                            }
+                        ],
+                    }
+                )
+            elif f.get("key") == "snapshot_source" and f.get("value"):
+                having_predicates.append(f)
+            else:
+                properties.append(f)
+        else:
+            # For any other property filter
+            properties.append(f)
+
+    # Construct the RecordingsQuery
+    return RecordingsQuery(
+        kind=NodeKind.RecordingsQuery,
+        order=order,
+        date_from=universal_filters.get("date_from"),
+        date_to=universal_filters.get("date_to"),
+        properties=properties,
+        events=events,
+        actions=actions,
+        console_log_filters=console_log_filters,
+        having_predicates=having_predicates,
+        filter_test_accounts=universal_filters.get("filter_test_accounts"),
+        operand=universal_filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+    )
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value,
@@ -47,7 +133,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     try:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
-            query = filter_from_params_to_query(playlist.filters)
+            query = convert_universal_filters_to_recordings_query(playlist.filters)
             (recordings, more_recordings_available, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )
