@@ -49,7 +49,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
     path((key) => ['scenes', 'pipeline', 'hogfunctions', 'logs', 'hogFunctionLogsLogic', key]),
     props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
     key(({ sourceType, sourceId }) => `${sourceType}:${sourceId}`),
-    connect((props) => ({
+    connect((props: LogsViewerLogicProps) => ({
         values: [logsViewerLogic(props), ['logs']],
         actions: [logsViewerLogic(props), ['addLogGroups', 'setRowExpanded']],
     })),
