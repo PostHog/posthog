@@ -2334,3 +2334,95 @@ class TestCapture(BaseTest):
 
             with pytest.raises(ObjectStorageError):
                 object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    class TestQuotaLimitedCapture(BaseTest):
+        def setUp(self):
+            super().setUp()
+            self.client = Client()
+
+        def test_free_events_not_dropped_when_over_quota(self, _kafka_produce, mock_limited_tokens):
+            # Mock the team as being quota limited
+            mock_limited_tokens.return_value = [self.team.api_token]
+
+            # Test each type of free event
+            free_events = [
+                {"event": "$exception", "properties": {"distinct_id": "id1", "token": self.team.api_token}},
+                {"event": "survey sent", "properties": {"distinct_id": "id2", "token": self.team.api_token}},
+                {"event": "survey shown", "properties": {"distinct_id": "id3", "token": self.team.api_token}},
+                {"event": "survey dismissed", "properties": {"distinct_id": "id4", "token": self.team.api_token}},
+                {"event": "$feature_flag_called", "properties": {"distinct_id": "id5", "token": self.team.api_token}},
+                {"event": "$ai_feedback", "properties": {"distinct_id": "id5", "token": self.team.api_token}},
+                {"event": "$error_details", "properties": {"distinct_id": "id6", "token": self.team.api_token}},
+            ]
+
+            with self.settings(QUOTA_LIMITING_ENABLED=True):
+                response = self.client.post(
+                    "/batch/",
+                    data={
+                        "data": json.dumps(free_events),
+                        "api_key": self.team.api_token,
+                    },
+                )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Each event should be produced to Kafka
+            self.assertEqual(_kafka_produce.call_count, len(free_events))
+
+        def test_mixed_events_only_paid_dropped_when_over_quota(self, _kafka_produce, mock_limited_tokens):
+            # Mock the team as being quota limited
+            mock_limited_tokens.return_value = [self.team.api_token]
+
+            events = [
+                # Free events
+                {"event": "$exception", "properties": {"distinct_id": "id1", "token": self.team.api_token}},
+                {"event": "$ai_feedback", "properties": {"distinct_id": "id2", "token": self.team.api_token}},
+                {"event": "$feature_flag_called", "properties": {"distinct_id": "id3", "token": self.team.api_token}},
+                # Paid events
+                {"event": "paid_event", "properties": {"distinct_id": "id3", "token": self.team.api_token}},
+                {"event": "another_paid_event", "properties": {"distinct_id": "id4", "token": self.team.api_token}},
+            ]
+
+            with self.settings(QUOTA_LIMITING_ENABLED=True):
+                response = self.client.post(
+                    "/batch/",
+                    data={
+                        "data": json.dumps(events),
+                        "api_key": self.team.api_token,
+                    },
+                )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Only the 2 free events should be produced to Kafka
+            self.assertEqual(_kafka_produce.call_count, 2)
+
+            # Verify the events produced are the free ones
+            produced_events = [
+                json.loads(call.kwargs["data"]["data"])["event"] for call in _kafka_produce.call_args_list
+            ]
+            self.assertCountEqual(produced_events, ["$exception", "$ai_feedback"])
+
+        def test_all_events_processed_when_not_over_quota(self, _kafka_produce, mock_limited_tokens):
+            # Mock the team as NOT being quota limited
+            mock_limited_tokens.return_value = []
+
+            events = [
+                {"event": "$exception", "properties": {"distinct_id": "id1", "token": self.team.api_token}},
+                {"event": "paid_event", "properties": {"distinct_id": "id2", "token": self.team.api_token}},
+                {"event": "$feature_flag_called", "properties": {"distinct_id": "id3", "token": self.team.api_token}},
+                {"event": "$ai_feedback", "properties": {"distinct_id": "id3", "token": self.team.api_token}},
+            ]
+
+            with self.settings(QUOTA_LIMITING_ENABLED=True):
+                response = self.client.post(
+                    "/batch/",
+                    data={
+                        "data": json.dumps(events),
+                        "api_key": self.team.api_token,
+                    },
+                )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # All events should be produced to Kafka
+            self.assertEqual(_kafka_produce.call_count, 4)
