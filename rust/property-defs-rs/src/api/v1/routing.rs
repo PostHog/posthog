@@ -60,8 +60,8 @@ async fn project_property_definitions_handler(
 
     let total_count: i64 = match qmgr.pool.fetch_one(count_query).await {
         Ok(row) => row.get(0),
-        Err(e) => {
-            panic!("COUNT Q: {:?}", e);
+        Err(_e) => {
+            //panic!("COUNT QUERY ERROR: {:?}", e);
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
@@ -72,8 +72,8 @@ async fn project_property_definitions_handler(
                 // TODO: populate PropDefResponse.results entries!!!
             }
         }
-        Err(e) => {
-            panic!("PROPS Q: {:?}", e);
+        Err(_e) => {
+            //panic!("PROPS QUERY ERROR: {:?}", e);
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     }
