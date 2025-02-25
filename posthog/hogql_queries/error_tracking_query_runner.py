@@ -75,8 +75,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Alias(alias="occurrences", expr=parse_expr("summary.occurrences")),
             ast.Alias(alias="sessions", expr=parse_expr("summary.sessions")),
             ast.Alias(alias="users", expr=parse_expr("summary.users")),
-            ast.Alias(alias="last_seen", expr=parse_expr("summary.first_seen")),
-            ast.Alias(alias="first_seen", expr=parse_expr("summary.last_seen")),
+            ast.Alias(alias="last_seen", expr=parse_expr("summary.last_seen")),
+            ast.Alias(alias="first_seen", expr=parse_expr("summary.first_seen")),
         ]
 
         for alias, config in self.sparkLineConfigs.items():

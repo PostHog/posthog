@@ -5,8 +5,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -118,8 +118,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth,
          summary.earliest AS earliest
@@ -233,8 +233,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth,
          summary.earliest AS earliest
@@ -348,8 +348,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -546,8 +546,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth,
          summary.earliest AS earliest
@@ -661,8 +661,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -775,8 +775,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -889,8 +889,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -1087,8 +1087,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -1285,8 +1285,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -1398,8 +1398,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -1511,8 +1511,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -1624,8 +1624,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -1737,8 +1737,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
@@ -1850,8 +1850,8 @@
          summary.occurrences AS occurrences,
          summary.sessions AS sessions,
          summary.users AS users,
-         summary.first_seen AS last_seen,
-         summary.last_seen AS first_seen,
+         summary.last_seen AS last_seen,
+         summary.first_seen AS first_seen,
          if(ifNull(greater(length(coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24)))), 0), 0), coalesce(cte_volumeDay.count, arrayMap(x -> 0, range(24))), arrayMap(x -> 0, range(24))) AS volumeDay,
          if(ifNull(greater(length(coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31)))), 0), 0), coalesce(cte_volumeMonth.count, arrayMap(x -> 0, range(31))), arrayMap(x -> 0, range(31))) AS volumeMonth
   FROM
