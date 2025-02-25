@@ -102,16 +102,16 @@ fn parse_request(params: HashMap<String, String>) -> Params {
 
     // NOTE: this can be parameterized in the orig Django query but
     // I didn't see any evidence of that happening in the code yet
-    let search_fields: HashSet<String> = params
+    let search_fields: HashSet<String> = HashSet::from([
+        "name".to_string(),
+        params
         .get("search_fields")
         .map(|raw| {
             raw.split(" ")
                 .map(|s| s.trim().to_string().to_lowercase())
                 .collect()
         })
-        .unwrap_or_default();
-    let mut search_fields = search_fields;
-    search_fields.insert("name".to_string());
+        .unwrap_or_default()]);
 
     // default value is "event" type, so we set that here if the input is bad or missing
     let property_type =
