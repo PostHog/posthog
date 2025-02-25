@@ -765,6 +765,7 @@ export enum PipelineStage {
 export enum PipelineNodeTab {
     Backfills = 'backfills',
     Configuration = 'configuration',
+    Replay = 'replay',
     Runs = 'runs',
     Logs = 'logs',
     Metrics = 'metrics',
@@ -4884,6 +4885,10 @@ export type HogFunctionTestInvocationResult = {
     logs: LogEntry[]
     result: any
     errors?: string[]
+}
+
+export interface DestinationRetryType extends HogFunctionTestInvocationResult {
+    eventId: string
 }
 
 export type AppMetricsV2Response = {
