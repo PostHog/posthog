@@ -9,7 +9,7 @@ import { runningTimeCalculatorLogic, TIMEFRAME_HISTORICAL_DATA_DAYS } from './ru
 
 export function RunningTimeCalculatorModal(): JSX.Element {
     const { experimentId, isCalculateRunningTimeModalOpen } = useValues(experimentLogic)
-    const { closeCalculateRunningTimeModal } = useActions(experimentLogic)
+    const { closeCalculateRunningTimeModal, updateExperiment } = useActions(experimentLogic)
 
     const {
         minimumDetectableEffect,
@@ -40,7 +40,20 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         >
                             Cancel
                         </LemonButton>
-                        <LemonButton form="edit-experiment-metric-form" onClick={() => {}} type="primary">
+                        <LemonButton
+                            form="edit-experiment-metric-form"
+                            onClick={() => {
+                                updateExperiment({
+                                    parameters: {
+                                        ...experiment?.parameters,
+                                        recommended_running_time: recommendedRunningTime,
+                                        recommended_sample_size: recommendedSampleSize,
+                                    },
+                                })
+                                closeCalculateRunningTimeModal()
+                            }}
+                            type="primary"
+                        >
                             Save
                         </LemonButton>
                     </div>

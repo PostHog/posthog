@@ -20,7 +20,6 @@ export interface RunningTimeCalculatorLogicProps {
 export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeCalculatorLogic']),
     connect(({ experimentId }: RunningTimeCalculatorLogicProps) => ({
-        actions: [experimentLogic({ experimentId }), ['loadExperimentSuccess']],
         values: [experimentLogic({ experimentId }), ['experiment']],
     })),
     actions({
