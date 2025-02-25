@@ -43,7 +43,32 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "verified_by",
         ]
 
+    def validate(self, data):
+        validated_data = super().validate(data)
+
+        if "hidden" in validated_data and "verified" in validated_data:
+            if validated_data["hidden"] and validated_data["verified"]:
+                raise serializers.ValidationError("A property cannot be both hidden and verified")
+
+        # If setting hidden=True, ensure verified becomes false
+        if validated_data.get("hidden", False):
+            validated_data["verified"] = False
+        # If setting verified=True, ensure hidden becomes false
+        elif validated_data.get("verified", False):
+            validated_data["hidden"] = False
+
+        return validated_data
+
     def update(self, property_definition: EnterprisePropertyDefinition, validated_data: dict):
+        # If setting hidden=True, ensure verified becomes false
+        if validated_data.get("hidden", False):
+            validated_data["verified"] = False
+            validated_data["verified_by"] = None
+            validated_data["verified_at"] = None
+        # If setting verified=True, ensure hidden becomes false
+        elif validated_data.get("verified", False):
+            validated_data["hidden"] = False
+
         validated_data["updated_by"] = self.context["request"].user
         if "property_type" in validated_data:
             if validated_data["property_type"] == "Numeric":

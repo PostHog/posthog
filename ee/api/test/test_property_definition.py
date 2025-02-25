@@ -8,6 +8,7 @@ from rest_framework import status
 
 from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition
+from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EventProperty, Tag
 from posthog.models.property_definition import PropertyDefinition
 from posthog.test.base import APIBaseTest
@@ -402,7 +403,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["hidden"] is True
         assert response.json()["verified"] is False  # Hiding should ensure verified is False
 
-        # Try to verify a hidden property (should fail)
+        # Try to verify and hide a property at the same time (should fail)
         response = self.client.patch(
             f"/api/projects/@current/property_definitions/{property.id}",
             {"verified": True, "hidden": True},
@@ -422,7 +423,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified"] is False
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_verified_property_cannot_be_hidden(self):
+    def test_marking_hidden_removes_verified_status(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
@@ -435,58 +436,14 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["hidden"] is False
         assert response.json()["verified"] is True
 
-        # Try to hide a verified property (should fail)
         response = self.client.patch(
             f"/api/projects/@current/property_definitions/{property.id}",
             {"hidden": True},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("cannot be both hidden and verified", response.json()["detail"].lower())
-
-    def test_list_hidden_properties(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
-        )
-
-        properties: list[dict] = [
-            {"name": "1_test", "verified": True, "hidden": False},
-            {"name": "2_test", "verified": False, "hidden": True},
-            {"name": "3_test", "verified": False, "hidden": True},
-            {"name": "4_test", "verified": False, "hidden": False},
-        ]
-
-        for property in properties:
-            EnterprisePropertyDefinition.objects.create(
-                team=self.team, name=property["name"], verified=property["verified"], hidden=property["hidden"]
-            )
-
-        response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], len(properties))
-
-        results = response.json()["results"]
-        # Verify properties should be first, then standard properties, then hidden properties
-        assert [(r["name"], r["verified"], r["hidden"]) for r in results] == [
-            ("1_test", True, False),  # Verified first
-            ("4_test", False, False),  # Then standard
-            ("2_test", False, True),  # Then hidden
-            ("3_test", False, True),  # Then hidden
-        ]
-
-        # We should prefer properties that have been seen on an event
-        EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="3_test")
-        EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="4_test")
-
-        response = self.client.get("/api/projects/@current/property_definitions/?event_names=%5B%22%24pageview%22%5D")
-        results = response.json()["results"]
-
-        # Within each category (verified, standard, hidden), properties seen on events should be first
-        assert [(r["name"], r["verified"], r["hidden"], r["is_seen_on_filtered_events"]) for r in results] == [
-            ("1_test", True, False, False),  # Verified first (not seen)
-            ("4_test", False, False, True),  # Standard seen on event
-            ("3_test", False, True, True),  # Hidden seen on event
-            ("2_test", False, True, False),  # Hidden not seen
-        ]
+        property.refresh_from_db()
+        assert property.hidden is True
+        assert property.verified is False
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_verify_then_verify_again_no_change(self):
@@ -618,3 +575,48 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             ("5_when_verified", False, False),
             ("6_when_verified", False, False),
         ]
+
+    def test_exclude_hidden_properties(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        # Create some properties with hidden flag
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="visible_property", property_type="String")
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="hidden_property1", property_type="String", hidden=True
+        )
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="hidden_property2", property_type="String", hidden=True
+        )
+
+        # Test without enterprise taxonomy - hidden properties should still be shown even with exclude_hidden=true
+        self.organization.available_features = []
+        self.organization.save()
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        property_names = {p["name"] for p in response.json()["results"]}
+        self.assertIn("visible_property", property_names)
+        self.assertIn("hidden_property1", property_names)
+        self.assertIn("hidden_property2", property_names)
+
+        # Test with enterprise taxonomy enabled - hidden properties should be excluded when exclude_hidden=true
+        self.team.organization.available_product_features = [
+            {"key": AvailableFeature.INGESTION_TAXONOMY, "name": "ingestion-taxonomy"}
+        ]
+        self.team.organization.save()
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        property_names = {p["name"] for p in response.json()["results"]}
+        self.assertIn("visible_property", property_names)
+        self.assertNotIn("hidden_property1", property_names)
+        self.assertNotIn("hidden_property2", property_names)
+
+        # Test with exclude_hidden=false (should be same as not setting it)
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        property_names = {p["name"] for p in response.json()["results"]}
+        self.assertIn("visible_property", property_names)
+        self.assertIn("hidden_property1", property_names)
+        self.assertIn("hidden_property2", property_names)
