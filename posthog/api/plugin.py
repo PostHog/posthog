@@ -2,6 +2,8 @@ import json
 import re
 from typing import Any, Optional, cast
 
+from django.conf import settings
+from posthoganalytics import capture_exception
 import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
@@ -686,6 +688,24 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         _fix_formdata_config_json(self.context["request"], validated_data)
 
         validated_data["web_token"] = generate_random_token()
+
+        if settings.CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG:
+            # Try and create a hog function if possible, otherwise fail
+            from posthog.cdp.legacy_plugins import hog_function_from_plugin_config
+
+            try:
+                hog_function_serializer = hog_function_from_plugin_config(validated_data, self.context)
+
+                if hog_function_serializer:
+                    hog_function_serializer.create(hog_function_serializer.validated_data)
+                    # A bit hacky - we return the non saved plugin config
+                    return PluginConfig(**validated_data)
+                raise ValidationError("Failed to create hog function")
+
+            except Exception as e:
+                capture_exception(e)
+                raise ValidationError("Failed to create hog function")
+
         plugin_config = super().create(validated_data)
         log_enabled_change_activity(
             new_plugin_config=plugin_config,
