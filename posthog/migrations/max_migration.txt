@@ -1,1 +1,1 @@
-0675_add_playlist_viewed
+0676_add_default_event_columns_to_eventdefinition

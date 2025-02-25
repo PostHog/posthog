@@ -36,6 +36,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
     last_calculated_at = serializers.DateTimeField(read_only=True)
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
+    default_event_columns = serializers.ListField(child=serializers.CharField(), required=False)
 
     class Meta:
         model = EventDefinition
@@ -53,6 +54,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "last_calculated_at",
             "created_by",
             "post_to_slack",
+            "default_event_columns",
         )
 
     def update(self, event_definition: EventDefinition, validated_data):
