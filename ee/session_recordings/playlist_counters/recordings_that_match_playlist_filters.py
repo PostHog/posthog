@@ -5,7 +5,7 @@ from celery import shared_task
 from django.conf import settings
 from prometheus_client import Counter, Histogram
 
-from posthog.session_recordings.session_recording_playlist import PLAYLIST_COUNT_REDIS_PREFIX
+from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
 from posthog.tasks.utils import CeleryQueue
