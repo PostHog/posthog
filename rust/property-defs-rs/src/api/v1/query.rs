@@ -63,12 +63,11 @@ impl Manager {
         // build & render the query
         let mut qb = QueryBuilder::<Postgres>::new("SELECT count(*) AS full_count ");
 
-        qb = self.gen_from_clause(qb, &params.use_enterprise_taxonomy);
+        qb = self.gen_from_clause(qb, params.use_enterprise_taxonomy);
         qb = self.gen_conditional_join_event_props(
             qb,
             project_id,
             params.property_type,
-            &params.filter_by_event_names,
             &params.event_names,
         );
 
@@ -85,16 +84,12 @@ impl Manager {
             &params.excluded_properties,
         );
         qb = self.conditionally_filter_properties(qb, &params.properties);
-        qb = self.conditionally_filter_numerical_properties(qb, &params.is_numerical);
+        qb = self.conditionally_filter_numerical_properties(qb, params.is_numerical);
 
         qb =
             self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
 
-        qb = self.conditionally_filter_event_names(
-            qb,
-            &params.filter_by_event_names,
-            &params.event_names,
-        );
+        qb = self.conditionally_filter_event_names(qb, &params.event_names);
         qb = self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
         // NOTE: event_name_filter from orig Django query doesn't appear to be applied anywhere atm
@@ -137,7 +132,7 @@ impl Manager {
                 */
 
         let mut qb = QueryBuilder::<Postgres>::new(" SELECT ");
-        if params.use_enterprise_taxonomy.is_some_and(|uet| uet) {
+        if params.use_enterprise_taxonomy {
             // borrowed from EnterprisePropertyDefinition from Django monolith
             // via EnterprisePropertyDefinition._meta.get_fields()
             qb.push(" id, project_id, team_id, name, is_numerical, property_type, type, group_type_index, property_type_format, description, updated_at, updated_by, verified_at, verified_by ");
@@ -147,11 +142,7 @@ impl Manager {
         }
 
         // append event_property_field clause to SELECT clause
-        let is_seen_resolved = if params
-            .event_names
-            .as_ref()
-            .is_some_and(|evs| !evs.is_empty())
-        {
+        let is_seen_resolved = if !params.event_names.is_empty() {
             format!("{}.property", POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS)
         } else {
             "NULL".to_string()
@@ -161,12 +152,11 @@ impl Manager {
             is_seen_resolved
         ));
 
-        qb = self.gen_from_clause(qb, &params.use_enterprise_taxonomy);
+        qb = self.gen_from_clause(qb, params.use_enterprise_taxonomy);
         qb = self.gen_conditional_join_event_props(
             qb,
             project_id,
             params.property_type,
-            &params.filter_by_event_names,
             &params.event_names,
         );
 
@@ -183,21 +173,17 @@ impl Manager {
             &params.excluded_properties,
         );
         qb = self.conditionally_filter_properties(qb, &params.properties);
-        qb = self.conditionally_filter_numerical_properties(qb, &params.is_numerical);
+        qb = self.conditionally_filter_numerical_properties(qb, params.is_numerical);
 
         qb =
             self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
 
-        qb = self.conditionally_filter_event_names(
-            qb,
-            &params.filter_by_event_names,
-            &params.event_names,
-        );
+        qb = self.conditionally_filter_event_names(qb, &params.event_names);
         qb = self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
         // ORDER BY clauses
         qb.push(" ORDER BY is_seen_on_filtered_events DESC, ");
-        if params.use_enterprise_taxonomy.is_some_and(|uet| uet) {
+        if params.use_enterprise_taxonomy {
             // "verified" col only exists on the enterprise prop defs table!
             qb.push(" verified DESC NULLS LAST, ");
         }
@@ -217,9 +203,9 @@ impl Manager {
     fn gen_from_clause<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        use_enterprise_taxonomy: &Option<bool>,
+        use_enterprise_taxonomy: bool,
     ) -> QueryBuilder<'a, Postgres> {
-        let from_clause = if use_enterprise_taxonomy.is_some_and(|uet| uet) {
+        let from_clause = if use_enterprise_taxonomy {
             // TODO: ensure this all behaves as it does in Django (and that we need it!) later...
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L505-L506
             format!(
@@ -241,12 +227,12 @@ impl Manager {
         mut qb: QueryBuilder<'a, Postgres>,
         project_id: i32,
         property_type: PropertyParentType,
-        filter_by_event_names: &Option<bool>,
-        event_names: &'a Option<Vec<String>>,
+        event_names: &'a Vec<String>,
     ) -> QueryBuilder<'a, Postgres> {
         // conditionally join on event properties table
         // this join is only applied if the query is scoped to type "event"
         if self.is_prop_type_event(property_type) {
+            let filter_by_event_names = !event_names.is_empty();
             qb.push(self.event_property_join_type(filter_by_event_names));
             qb.push(format!(
                 " (SELECT DISTINCT property FROM {0} WHERE COALESCE(project_id, team_id) = ",
@@ -256,13 +242,11 @@ impl Manager {
             qb.push(" ");
 
             // conditionally apply event_names filter
-            if filter_by_event_names.is_some_and(|fben| fben) {
-                if let Some(names) = event_names {
-                    if !names.is_empty() {
-                        qb.push(" AND event = ANY(");
-                        qb.push_bind(names);
-                        qb.push(") ");
-                    }
+            if filter_by_event_names {
+                if !event_names.is_empty() {
+                    qb.push(" AND event = ANY(");
+                    qb.push_bind(event_names);
+                    qb.push(") ");
                 }
             }
 
@@ -307,25 +291,26 @@ impl Manager {
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
         property_type: PropertyParentType,
-        excluded_properties: &'a Option<Vec<String>>,
+        excluded_properties: &'a Vec<String>,
     ) -> QueryBuilder<'a, Postgres> {
         // conditionally filter on excluded_properties
         // NOTE: excluded_properties is also passed to the Django API as JSON,
         // but may not matter when passed to this service. TBD. See below:
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L241
-        if let Some(excludes) = excluded_properties {
-            if self.is_prop_type_event(property_type) && !excludes.is_empty() {
-                qb.push(format!(" AND NOT {0}.name = ANY(", PROPERTY_DEFS_TABLE));
-                let mut buf: Vec<&str> = vec![];
-                for entry in EVENTS_HIDDEN_PROPERTY_DEFINITIONS {
-                    buf.push(entry);
-                }
-                for entry in excludes.iter() {
-                    buf.push(entry);
-                }
-                qb.push_bind(buf);
-                qb.push(") ");
+        if self.is_prop_type_event(property_type) {
+            qb.push(format!(" AND NOT {0}.name = ANY(", PROPERTY_DEFS_TABLE));
+
+            // here we combine fixed set of "hidden" event props with a
+            // possibly empty list of user-supplied excluded props to filter
+            let mut buf: Vec<&str> = vec![];
+            for entry in EVENTS_HIDDEN_PROPERTY_DEFINITIONS {
+                buf.push(entry);
             }
+            for entry in excluded_properties.iter() {
+                buf.push(entry);
+            }
+            qb.push_bind(buf);
+            qb.push(") ");
         }
 
         qb
@@ -334,15 +319,13 @@ impl Manager {
     fn conditionally_filter_properties<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        properties: &'a Option<Vec<String>>,
+        properties: &'a Vec<String>,
     ) -> QueryBuilder<'a, Postgres> {
         // conditionally filter on property names ("name" col)
-        if let Some(props) = properties {
-            if !props.is_empty() {
-                qb.push(" AND name = ANY(");
-                qb.push_bind(props);
-                qb.push(") ");
-            }
+        if !properties.is_empty() {
+            qb.push(" AND name = ANY(");
+            qb.push_bind(properties);
+            qb.push(") ");
         }
 
         qb
@@ -351,12 +334,12 @@ impl Manager {
     fn conditionally_filter_numerical_properties<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        is_numerical: &Option<bool>,
+        is_numerical: bool,
     ) -> QueryBuilder<'a, Postgres> {
         // conditionally filter for numerical-valued properties:
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
         // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
-        if is_numerical.is_some_and(|is_num| is_num) {
+        if is_numerical {
             qb.push(
                 " AND is_numerical = true AND NOT name = ANY(ARRAY['distinct_id', 'timestamp']) ",
             );
@@ -368,12 +351,12 @@ impl Manager {
     fn conditionally_apply_search_clause<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        search_terms: &'a Option<Vec<String>>,
+        search_terms: &'a Vec<String>,
         search_fields: &'a HashSet<String>,
     ) -> QueryBuilder<'a, Postgres> {
         // conditionally apply search term matching; skip this if possible, it's not cheap!
         // logic: https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
-        if search_terms.as_ref().is_some_and(|terms| !terms.is_empty()) {
+        if !search_terms.is_empty() {
             // step 1: identify property def "aliases" to enrich our fuzzy matching; see also:
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L309-L324
 
@@ -387,8 +370,6 @@ impl Manager {
                 .iter()
                 .filter(|(_key, prop_long_slug)| {
                     search_terms
-                        .as_ref()
-                        .unwrap()
                         .iter()
                         .all(|term| prop_long_slug.contains(term))
                 })
@@ -421,11 +402,10 @@ impl Manager {
             // step 2.5: join whatever we found in search_extras and trigger word result
             let search_extras = format!("{}{}", search_extras, screening_clause);
 
-            // step 3: generate the search SQL which consistes of nested AND/OR clauses of arbitrary size,
-            // with each clasue testing search *fields* (like "name") in the table against fuzzy-matched
-            // search *terms* (event props.) Original Django monolith query construction step is here:
+            // step 3: generate the search fuzzy-matching SQL clause
+            // Original Django monolith query construction step is here:
             // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
-            if !search_fields.is_empty() && !search_terms.as_ref().is_some_and(|s| s.is_empty()) {
+            if !search_fields.is_empty() && !search_terms.is_empty() {
                 /* TODO: I don't think we need this cleansing step in the Rust service as Django does
                 let cleansed_terms: Vec<String> = search
                     .as_ref()
@@ -435,33 +415,34 @@ impl Manager {
                     .collect();
                 */
 
-                // TODO: this code is unhinged!! I'll circle back to refactor after
-                // I battle the borrow checker some more, apologies! :)
-                if let Some(terms) = search_terms {
-                    for (tndx, term) in terms.iter().enumerate() {
-                        if tndx == 0 {
-                            qb.push(" AND (( ");
+                // outer loop: one AND clause for every search term supplied by caller.
+                // each of these clauses may be enriched with "search_extras" suffix
+                for (tndx, term) in search_terms.iter().enumerate() {
+                    if tndx == 0 {
+                        qb.push(" AND (( ");
+                    }
+                    // inner loop: nested OR clause for every search field (column; by default
+                    // "name" only) performing a fuzzy match attempt (ILIKE) for the current
+                    // search term against that column
+                    for (fndx, field) in search_fields.iter().enumerate() {
+                        if fndx == 0 {
+                            qb.push("(");
                         }
-                        for (fndx, field) in search_fields.iter().enumerate() {
-                            if fndx == 0 {
-                                qb.push("(");
-                            }
-                            qb.push_bind(field.clone());
-                            qb.push(" ILIKE ");
-                            qb.push_bind(format!("%{}%", term));
-                            if search_fields.len() > 1 && fndx < search_fields.len() - 1 {
-                                qb.push(" OR ");
-                            }
-                            if fndx == search_fields.len() - 1 {
-                                qb.push(") ");
-                            }
+                        qb.push_bind(field.clone());
+                        qb.push(" ILIKE ");
+                        qb.push_bind(format!("%{}%", term));
+                        if search_fields.len() > 1 && fndx < search_fields.len() - 1 {
+                            qb.push(" OR ");
                         }
-                        if terms.len() > 1 && tndx < terms.len() - 1 {
-                            qb.push(" AND ");
+                        if fndx == search_fields.len() - 1 {
+                            qb.push(") ");
                         }
-                        if tndx == terms.len() - 1 {
-                            qb.push(format!(" ) {0} ) ", search_extras.clone()));
-                        }
+                    }
+                    if search_terms.len() > 1 && tndx < search_terms.len() - 1 {
+                        qb.push(" AND ");
+                    }
+                    if tndx == search_terms.len() - 1 {
+                        qb.push(format!(" ) {} ) ", search_extras.clone()));
                     }
                 }
             }
@@ -473,22 +454,16 @@ impl Manager {
     fn conditionally_filter_event_names<'a>(
         &self,
         mut qb: QueryBuilder<'a, Postgres>,
-        filter_by_event_names: &Option<bool>,
-        event_names: &'a Option<Vec<String>>,
+        event_names: &'a Vec<String>,
     ) -> QueryBuilder<'a, Postgres> {
-        // conditionally apply event_names filter for outer query
-        //
         // NOTE: the conditional join on event props table applied
         // above applies the same filter, but it can be an INNER or
-        // LEFT join, so this is still required.
-        if filter_by_event_names.is_some() && filter_by_event_names.unwrap() {
-            if let Some(names) = event_names {
-                if !names.is_empty() {
-                    qb.push(" AND event = ANY(");
-                    qb.push_bind(names);
-                    qb.push(") ");
-                }
-            }
+        // LEFT join, so this is still required in the outer query
+        let filter_by_event_names = !event_names.is_empty();
+        if filter_by_event_names {
+            qb.push(" AND event = ANY(");
+            qb.push_bind(event_names);
+            qb.push(") ");
         }
 
         qb
@@ -500,17 +475,19 @@ impl Manager {
         is_feature_flag: &Option<bool>,
     ) -> QueryBuilder<'a, Postgres> {
         // conditionally apply feature flag property filters
-        if is_feature_flag.is_some_and(|iff| iff) {
-            qb.push(" AND (name LIKE '$feature/%') ");
-        } else {
-            qb.push(" AND (name NOT LIKE '$feature/%') ");
+        if is_feature_flag.is_some() {
+            if is_feature_flag.unwrap() {
+                qb.push(" AND (name LIKE '$feature/%') ");
+            } else {
+                qb.push(" AND (name NOT LIKE '$feature/%') ");
+            }
         }
 
         qb
     }
 
-    fn event_property_join_type(&self, filter_by_event_names: &Option<bool>) -> &str {
-        if let Some(true) = filter_by_event_names {
+    fn event_property_join_type(&self, filter_by_event_names: bool) -> &str {
+        if filter_by_event_names {
             " INNER JOIN "
         } else {
             " LEFT JOIN "

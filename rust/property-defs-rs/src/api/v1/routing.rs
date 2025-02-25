@@ -94,6 +94,10 @@ async fn project_property_definitions_handler(
         }
     }
 
+    // TODO: since this is an internal API, and using the incoming URI
+    // will likely not behave as expected for building user-visible
+    // next/prev URIs, we could return next limit/offset instead
+    // and let the caller (Django) build the URIs for responses?
     let (prev_url, next_url) = gen_next_prev_urls(uri, total_count, params.limit, params.offset);
 
     // execute the queries, and populate the response
@@ -110,16 +114,19 @@ async fn project_property_definitions_handler(
 fn parse_request(params: HashMap<String, String>) -> Params {
     // space-separated list of search terms: fragments to fuzzy-match
     // in "search_fields" (postgres columns) by value
-    let search_terms: Option<Vec<String>> = params.get("search").map(|raw| {
-        raw.split(" ")
-            .map(|s| s.trim().to_string().to_lowercase())
-            .collect()
-    });
+    let search_terms: Vec<String> = params
+        .get("search")
+        .map(|raw| {
+            raw.split(" ")
+                .map(|s| s.trim().to_string().to_lowercase())
+                .collect()
+        })
+        .unwrap();
 
     // NOTE: this can be parameterized in the orig Django query but
     // I didn't see any evidence of that happening in the code yet
     let search_fields: HashSet<String> = HashSet::from([
-        "name".to_string(),
+        "name".to_string(), // this is the default value, always include it
         params
             .get("search_fields")
             .map(|raw| {
@@ -154,21 +161,25 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     });
 
     // another query param the Rust app (so far!) expects as space-separated list value
-    let properties = params
+    let properties: Vec<String> = params
         .get("properties")
-        .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect());
+        .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect())
+        .unwrap_or_default();
 
     let is_numerical = params
         .get("is_numerical")
-        .and_then(|s| s.parse::<bool>().ok());
+        .and_then(|s| s.parse::<bool>().ok())
+        .unwrap_or(false);
 
+    // false is not equivalent of absence here so make this an Option
     let is_feature_flag = params
         .get("is_feature_flag")
         .and_then(|s| s.parse::<bool>().ok());
 
     let excluded_properties = params
         .get("excluded_properties")
-        .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect());
+        .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect())
+        .unwrap_or_default();
 
     // NOTE: so far I'm assuming this should be calculated on the Django (caller) side and
     // passed to this app as a flag b/c it references User model (etc.) but perhaps we just
@@ -178,11 +189,8 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L504-L508
     let use_enterprise_taxonomy = params
         .get("use_enterprise_taxonomy")
-        .and_then(|s| s.parse::<bool>().ok());
-
-    let filter_by_event_names = params
-        .get("filter_by_event_names")
-        .and_then(|s| s.parse::<bool>().ok());
+        .and_then(|s| s.parse::<bool>().ok())
+        .unwrap_or(false);
 
     // IMPORTANT: this list is passed to the Django API as JSON but probably doesn't
     // matter how we pass it to the Rust app, so we use space-separated terms. is
@@ -190,7 +198,8 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L214
     let event_names = params
         .get("event_names")
-        .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect());
+        .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect())
+        .unwrap_or_default();
 
     let limit: i32 = params.get("limit").map_or(DEFAULT_QUERY_LIMIT, |s| {
         s.parse::<i32>().unwrap_or(DEFAULT_QUERY_LIMIT)
@@ -211,7 +220,6 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         is_feature_flag,
         is_numerical,
         use_enterprise_taxonomy,
-        filter_by_event_names,
         limit,
         offset,
     }
@@ -274,17 +282,16 @@ fn gen_url(uri: Uri, total_count: i64, new_offset: i32) -> Option<String> {
 }
 
 pub struct Params {
-    pub search_terms: Option<Vec<String>>,
+    pub search_terms: Vec<String>,
     pub search_fields: HashSet<String>,
     pub property_type: PropertyParentType,
     pub group_type_index: i32,
-    pub properties: Option<Vec<String>>,
-    pub excluded_properties: Option<Vec<String>>,
-    pub event_names: Option<Vec<String>>,
+    pub properties: Vec<String>,
+    pub excluded_properties: Vec<String>,
+    pub event_names: Vec<String>,
     pub is_feature_flag: Option<bool>,
-    pub is_numerical: Option<bool>,
-    pub use_enterprise_taxonomy: Option<bool>,
-    pub filter_by_event_names: Option<bool>,
+    pub is_numerical: bool,
+    pub use_enterprise_taxonomy: bool,
     pub limit: i32,
     pub offset: i32,
 }
@@ -305,9 +312,7 @@ impl Params {
             ));
         }
 
-        if self.event_names.as_ref().is_some_and(|ens| !ens.is_empty())
-            && self.property_type != PropertyParentType::Event
-        {
+        if !self.event_names.is_empty() && self.property_type != PropertyParentType::Event {
             return Err(InvalidParamError(
                 "parameter 'event_names' is only allowed with property_type 'event'".to_string(),
             ));
