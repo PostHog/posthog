@@ -54,10 +54,13 @@ const formatCount = (count: number, total: number): string => {
     return `${humanFriendlyNumber(count)}`
 }
 
+// Define a type for the color classes to ensure type safety
+type ColorClass = 'bg-brand-blue' | 'bg-warning' | 'bg-success' | 'bg-danger'
+
 type StackedBarSegment = {
     count: number
     label: string
-    color: string
+    colorClass: ColorClass
 }
 
 function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Element {
@@ -69,7 +72,7 @@ function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Elemen
             {total > 0 && (
                 <div>
                     <div className="relative w-full mx-auto h-10 mb-4">
-                        {segments.map(({ count, label, color }, index) => {
+                        {segments.map(({ count, label, colorClass }, index) => {
                             const percentage = (count / total) * 100
                             const left = accumulatedPercentage
                             accumulatedPercentage += percentage
@@ -88,12 +91,12 @@ function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Elemen
                                     <div
                                         className={clsx(
                                             'h-10 text-white text-center absolute cursor-pointer',
+                                            colorClass,
                                             isFirst || isOnly ? 'rounded-l' : '',
                                             isLast || isOnly ? 'rounded-r' : ''
                                         )}
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
-                                            backgroundColor: color,
                                             width: `${percentage}%`,
                                             left: `${left}%`,
                                         }}
@@ -109,15 +112,10 @@ function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Elemen
                     <div className="w-full flex justify-center">
                         <div className="flex items-center">
                             {segments.map(
-                                ({ count, label, color }) =>
+                                ({ count, label, colorClass }) =>
                                     count > 0 && (
                                         <div key={`stacked-bar-legend-${label}`} className="flex items-center mr-6">
-                                            {}
-                                            <div
-                                                className="w-3 h-3 rounded-full mr-2"
-                                                // eslint-disable-next-line react/forbid-dom-props
-                                                style={{ backgroundColor: color }}
-                                            />
+                                            <div className={clsx('w-3 h-3 rounded-full mr-2', colorClass)} />
                                             <span className="font-semibold text-secondary">{`${label} (${(
                                                 (count / total) *
                                                 100
@@ -159,9 +157,9 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
     const { seen, dismissed, sent } = surveyUserStats
 
     const segments: StackedBarSegment[] = [
-        { count: seen, label: 'Unanswered', color: '#1D4AFF' },
-        { count: dismissed, label: 'Dismissed', color: '#E3A506' },
-        { count: sent, label: 'Submitted', color: '#529B08' },
+        { count: seen, label: 'Unanswered', colorClass: 'bg-brand-blue' },
+        { count: dismissed, label: 'Dismissed', colorClass: 'bg-warning' },
+        { count: sent, label: 'Submitted', colorClass: 'bg-success' },
     ]
 
     return <StackedBar segments={segments} />
@@ -169,9 +167,9 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
 
 export function NPSStackedBar({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
     const segments: StackedBarSegment[] = [
-        { count: npsBreakdown.detractors, label: 'Detractors', color: 'var(--danger)' },
-        { count: npsBreakdown.passives, label: 'Passives', color: 'var(--warning)' },
-        { count: npsBreakdown.promoters, label: 'Promoters', color: 'var(--success)' },
+        { count: npsBreakdown.detractors, label: 'Detractors', colorClass: 'bg-danger' },
+        { count: npsBreakdown.passives, label: 'Passives', colorClass: 'bg-warning' },
+        { count: npsBreakdown.promoters, label: 'Promoters', colorClass: 'bg-success' },
     ]
 
     return <StackedBar segments={segments} />
