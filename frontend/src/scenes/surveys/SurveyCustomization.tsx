@@ -192,18 +192,23 @@ export function Customization({
                     </LemonField.Pure>
                 )}
                 {isCustomFontsEnabled && (
-                    <LemonField.Pure className="mt-2" label="Font family">
+                    <LemonField.Pure
+                        className="mt-2"
+                        label="Font family"
+                        // TODO: Update this info when we have a version of posthog-js that supports this
+                        info="Showing a survey all the time requires at least version [XXX] of posthog-js"
+                    >
                         <LemonSelect
                             value={appearance?.fontFamily}
                             onChange={(fontFamily) => onAppearanceChange({ ...appearance, fontFamily })}
                             options={WEB_SAFE_FONTS.map((font) => {
                                 return {
                                     label: (
-                                        <span className={font.toLowerCase().replace(/\s/g, '-')}>
-                                            {font} {font === 'system-ui' ? '(default)' : ''}
+                                        <span className={font.value.toLowerCase().replace(/\s/g, '-')}>
+                                            {font.label}
                                         </span>
                                     ),
-                                    value: font,
+                                    value: font.value,
                                 }
                             })}
                             className="ignore-error-border"
