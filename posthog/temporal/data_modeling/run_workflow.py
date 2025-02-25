@@ -640,37 +640,7 @@ class CreateTableActivityInputs:
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     """Activity that creates tables for a list of saved queries."""
     for model in inputs.models:
-        table = await create_table_from_saved_query(model, inputs.team_id)
-
-        if table:
-            try:
-                # Get the saved query to access the Delta table
-                saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.get)(
-                    id=model, team_id=inputs.team_id
-                )
-
-                # Create a pipeline to access the Delta table
-                destination = get_dlt_destination()
-                pipeline = dlt.pipeline(
-                    pipeline_name=f"materialize_model_{model}",
-                    destination=destination,
-                    dataset_name=f"team_{inputs.team_id}_model_{model}",
-                )
-
-                # Get the Delta tables from the pipeline
-                tables = get_delta_tables(pipeline)
-
-                if tables:
-                    # Get the first Delta table
-                    _, delta_table = tables.popitem()
-
-                    # Count rows in the Delta table
-                    row_count = await asyncio.to_thread(count_delta_table_rows, delta_table)
-
-                    # Update the row count
-                    await update_table_row_count(saved_query, row_count)
-            except Exception as e:
-                await logger.aexception("Failed to update row count for table after creation: %s", str(e))
+        await create_table_from_saved_query(model, inputs.team_id)
 
 
 async def update_saved_query_status(
