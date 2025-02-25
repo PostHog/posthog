@@ -260,4 +260,53 @@ describe('VM with recorded fetch', () => {
         expect(requestBody.eventType).toBe('page_view')
         expect(requestBody.eventProperties).toEqual({ page: '/home' })
     })
+
+    // Add a new test for direct JSON object body without manual stringification
+    it('handles JSON object bodies directly without manual stringification', async () => {
+        mocked(trackedFetch).mockResolvedValueOnce(mockResponse as any)
+
+        const indexJs = `
+            async function processEvent(event) {
+                // Send a request with a direct object body (not pre-stringified)
+                await fetch('https://example.com/api/direct-json', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: { 
+                        eventName: event.event,
+                        properties: event.properties,
+                        timestamp: new Date().toISOString()
+                    }
+                })
+                return event
+            }
+        `
+        await resetTestDatabase(indexJs)
+        const vm = createPluginConfigVM(hub, pluginConfig, indexJs)
+
+        const event: PluginEvent = {
+            distinct_id: 'test_user',
+            ip: '127.0.0.1',
+            site_url: 'http://localhost',
+            team_id: 3,
+            now: new Date().toISOString(),
+            event: 'direct_json_test',
+            properties: { test: true },
+        }
+
+        // Run the processEvent method
+        await vm.methods.processEvent!(event)
+
+        // Get the recorded calls
+        recordedCalls = getHttpCallRecorder().getCalls()
+
+        // Verify the call was recorded
+        expect(recordedCalls.length).toBe(1)
+        expect(recordedCalls[0].request.url).toBe('https://example.com/api/direct-json')
+        expect(recordedCalls[0].request.method).toBe('POST')
+
+        // Verify the body was automatically stringified
+        const requestBody = JSON.parse(recordedCalls[0].request.body!)
+        expect(requestBody.eventName).toBe('direct_json_test')
+        expect(requestBody.properties).toEqual({ test: true })
+    })
 })

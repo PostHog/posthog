@@ -64,7 +64,7 @@ export async function recordedFetch(
         url: url.toString(),
         method: requestInit.method || 'GET',
         headers: requestInit.headers ? convertHeadersToRecord(requestInit.headers) : {},
-        body: requestInit.body ? await convertBodyToString(requestInit.body) : null,
+        body: requestInit.body ? convertBodyToString(requestInit.body) : null,
         timestamp: requestTimestamp,
     }
 
@@ -167,53 +167,30 @@ function convertHeadersToRecord(headers: any): Record<string, string> {
 /**
  * Convert request body to string for recording
  */
-async function convertBodyToString(body: any): Promise<string | null> {
+function convertBodyToString(body: any): string | null {
     if (body === null || body === undefined) {
         return null
     }
 
-    if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
-        return '[Binary data]'
-    }
-
-    if (body instanceof URLSearchParams) {
-        return body.toString()
-    }
-
+    // Handle string bodies (already stringified JSON or plain text)
     if (typeof body === 'string') {
         return body
     }
 
+    // Handle URLSearchParams for form submissions
+    if (body instanceof URLSearchParams) {
+        return body.toString()
+    }
+
+    // For objects, try to stringify them as JSON
     if (typeof body === 'object' && body !== null) {
-        if (typeof body.pipe === 'function') {
-            return '[Stream data]'
-        }
-
-        if (typeof body.getBoundary === 'function') {
-            return '[FormData]'
-        }
-
-        // Handle Blob objects
-        if (typeof body.text === 'function') {
-            try {
-                return await body.text()
-            } catch {
-                return '[Blob data]'
-            }
-        }
-
-        // For regular objects
         try {
             return JSON.stringify(body)
         } catch {
-            return '[Unserializable object]'
+            return '[Object]'
         }
     }
 
-    // For any other types
-    try {
-        return String(body)
-    } catch {
-        return '[Unserializable data]'
-    }
+    // For any other types, convert to string
+    return String(body)
 }

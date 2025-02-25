@@ -161,10 +161,16 @@ describe('recordedFetch', () => {
             body: 'plain text body',
         })
 
-        // JSON body
+        // JSON body as string
         await recordedFetch(recorder, 'https://example.com', {
             method: 'POST',
             body: JSON.stringify({ key: 'value' }),
+        })
+
+        // JSON body as object (should be automatically stringified)
+        await recordedFetch(recorder, 'https://example.com', {
+            method: 'POST',
+            body: { key: 'value', nested: { prop: true } },
         })
 
         // URLSearchParams body
@@ -176,11 +182,13 @@ describe('recordedFetch', () => {
         })
 
         const calls = recorder.getCalls()
-        expect(calls).toHaveLength(3)
+        expect(calls).toHaveLength(4)
 
         expect(calls[0].request.body).toBe('plain text body')
         expect(calls[1].request.body).toBe('{"key":"value"}')
-        expect(calls[2].request.body).toBe('key=value')
+        // The third call should have automatically stringified the object
+        expect(JSON.parse(calls[2].request.body!)).toEqual({ key: 'value', nested: { prop: true } })
+        expect(calls[3].request.body).toBe('key=value')
     })
 
     it('should handle different types of headers', async () => {
@@ -278,16 +286,18 @@ describe('recordedFetch', () => {
 
         // Second request - post analytics data using user data from first response
         const analyticsUrl = 'https://example.com/api/analytics'
+
+        // Use a direct object instead of pre-stringifying it
         const analyticsInit = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+            body: {
                 userId: userData.id,
                 userName: userData.name,
                 userEmail: userData.email,
                 eventType: 'page_view',
                 timestamp: new Date().toISOString(),
-            }),
+            },
         }
 
         await recordedFetch(recorder, analyticsUrl, analyticsInit)
