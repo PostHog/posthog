@@ -4,7 +4,7 @@ use crate::{
     types::PropertyParentType,
 };
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use axum::{
     extract::{OriginalUri, Path, Query, State},
     http::Uri,
@@ -39,9 +39,7 @@ async fn project_property_definitions_handler(
 ) -> Result<Json<PropDefResponse>, ApiError> {
     // parse and validate request's query params
     let params = parse_request(params);
-    if let Err(e) = params.valid() {
-        return Err(ApiError::InvalidRequestParam(e.to_string()));
-    }
+    params.valid()?;
 
     // construct the count query
     let mut count_query_bldr = qmgr.count_query(project_id, &params);
@@ -301,17 +299,24 @@ pub struct Params {
 
 impl Params {
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L81-L96
-    pub fn valid(&self) -> Result<()> {
+    pub fn valid(&self) -> Result<(), ApiError> {
         if self.property_type == PropertyParentType::Group && self.group_type_index <= 0 {
-            bail!("property_type 'group' requires 'group_type_index' parameter");
+            return Err(ApiError::InvalidRequestParam(
+                "property_type 'group' requires 'group_type_index' parameter".to_string(),
+            ));
         }
 
         if self.property_type != PropertyParentType::Group && self.group_type_index != -1 {
-            bail!("parameter 'group_type_index' is only allowed with property_type 'group'");
+            return Err(ApiError::InvalidRequestParam(
+                "parameter 'group_type_index' is only allowed with property_type 'group'"
+                    .to_string(),
+            ));
         }
 
         if !self.event_names.is_empty() && self.property_type != PropertyParentType::Event {
-            bail!("parameter 'event_names' is only allowed with property_type 'event'");
+            return Err(ApiError::InvalidRequestParam(
+                "parameter 'event_names' is only allowed with property_type 'event'".to_string(),
+            ));
         }
 
         Ok(())
