@@ -38,7 +38,13 @@ class _SharedAssistantState(BaseModel):
     """
 
     intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
+    """
+    Actions taken by the ReAct agent.
+    """
     plan: Optional[str] = Field(default=None)
+    """
+    The insight generation plan.
+    """
 
     memory_updated: Optional[bool] = Field(default=None)
     """
@@ -49,6 +55,10 @@ class _SharedAssistantState(BaseModel):
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
 
+    root_conversation_start_id: Optional[str] = Field(default=None)
+    """
+    The ID of the message to start from to keep the message window short enough.
+    """
     root_tool_call_id: Optional[str] = Field(default=None)
     """
     The ID of the tool call from the root node.
@@ -92,6 +102,7 @@ class PartialAssistantState(_SharedAssistantState):
             root_tool_insight_plan="",
             root_tool_insight_type="",
             root_tool_calls_count=0,
+            root_conversation_start_id="",
         )
 
 

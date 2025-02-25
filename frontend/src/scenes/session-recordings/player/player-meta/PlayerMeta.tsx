@@ -10,16 +10,19 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isObject } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { PlayerMetaLinks } from 'scenes/session-recordings/player/PlayerMetaLinks'
-import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
+import { PlayerMetaBottomSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaBottomSettings'
+import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 
-import { PlayerBottomSettings } from './controller/PlayerController'
+import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
 function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
     if (isObject(lastUrl) && 'href' in lastUrl) {
@@ -42,9 +45,9 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     }
 
     return (
-        <span className="flex items-center gap-2 truncate">
+        <span className="flex flex-row items-center space-x-1 truncate">
             <span>·</span>
-            <span className="flex items-center gap-1 truncate">
+            <span className="flex flex-row items-center space-x-1 truncate">
                 {isValidUrl ? (
                     <Tooltip title="Click to open url">
                         <Link to={lastUrl} target="_blank" className="truncate">
@@ -67,7 +70,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     )
 }
 
-export function ResolutionView(): JSX.Element {
+export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const { resolutionDisplay, scaleDisplay, loading } = useValues(playerMetaLogic(logicProps))
@@ -85,15 +88,17 @@ export function ResolutionView(): JSX.Element {
                 </>
             }
         >
-            <span className="text-secondary text-xs">
-                <span className="hidden @[30rem]:inline-block">{resolutionDisplay} </span>
+            <span className="text-secondary text-xs flex flex-row items-center space-x-1">
+                {size === 'normal' && <span>{resolutionDisplay}</span>}
                 <span>({scaleDisplay})</span>
             </span>
         </Tooltip>
     )
 }
 
-export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
+export type PlayerMetaBreakpoints = 'small' | 'normal'
+
+export function PlayerMeta(): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const { windowIds, trackedWindow, lastPageviewEvent, lastUrl, currentWindowIndex, loading } = useValues(
@@ -103,11 +108,9 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
 
     const { ref, size } = useResizeBreakpoints({
-        0: 'compact',
-        550: 'normal',
+        0: 'small',
+        600: 'normal',
     })
-
-    const isSmallPlayer = size === 'compact'
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const whitelabel = getCurrentExporterData()?.whitelabel ?? false
@@ -143,7 +146,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
         windowOptions.push({
             label: <IconWindow value={index + 1} className="text-secondary" />,
             labelInMenu: (
-                <div className="flex flex-row gap-2 space-between items-center">
+                <div className="flex flex-row space-x-1 space-between items-center">
                     Follow window: <IconWindow value={index + 1} className="text-secondary" />
                 </div>
             ),
@@ -159,7 +162,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div className="flex items-center justify-between gap-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs @container">
+                <div className="flex flex-row items-center justify-between space-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
                     {loading ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
@@ -174,23 +177,21 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
 
                             <URLOrScreen lastUrl={lastUrl} />
                             {lastPageviewEvent?.properties?.['$screen_name'] && (
-                                <span className="flex items-center gap-2 truncate">
+                                <span className="flex flex-row items-center space-x-1 truncate">
                                     <span>·</span>
-                                    <span className="flex items-center gap-1 truncate">
+                                    <span className="flex flex-row items-center space-x-1 truncate">
                                         {lastPageviewEvent?.properties['$screen_name']}
                                     </span>
                                 </span>
                             )}
                         </>
                     )}
-                    <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    <PlayerMetaLinks iconsOnly={iconsOnly} />
-                    <ResolutionView />
-                    <div className="ml-2">
-                        <PlayerPersonMeta />
-                    </div>
+                    <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
+                    <PlayerMetaLinks size={size} />
+                    <ResolutionView size={size} />
+                    <PlayerPersonMeta />
                 </div>
-                <PlayerBottomSettings />
+                <PlayerMetaBottomSettings size={size} />
             </div>
         </DraggableToNotebook>
     )
