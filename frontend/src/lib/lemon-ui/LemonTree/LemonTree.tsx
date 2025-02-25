@@ -28,7 +28,7 @@ export type TreeDataItem = {
     onClick?: (open?: boolean) => void
 
     /** The type of the item. */
-    type: 'folder' | 'file' | 'project' | 'separator' | 'loading'
+    elementType: 'folder' | 'file' | 'project' | 'separator' | 'loading'
 
     /** The path of the item. */
     filePath?: string
@@ -229,7 +229,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         </AccordionPrimitive.Root>
                     )
 
-                    if (item.type === 'loading') {
+                    if (item.elementType === 'loading') {
                         return <LemonSkeleton key={item.id} className="h-[33px] w-full" />
                     }
 
@@ -300,7 +300,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         function collectAllFolderIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
             if (items instanceof Array) {
                 items.forEach((item) => {
-                    if (!item.disabledReason && item.type === 'folder') {
+                    if (!item.disabledReason && item.elementType === 'folder') {
                         allIds.push(item.id)
                     }
                     if (item.children) {
@@ -308,7 +308,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     }
                 })
             } else {
-                if (!items.disabledReason && items.type === 'folder') {
+                if (!items.disabledReason && items.elementType === 'folder') {
                     allIds.push(items.id)
                 }
                 if (items.children) {
@@ -457,7 +457,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 setFocusedId(item?.id)
 
                 // Handle click on a node
-                if (item?.type === 'file') {
+                if (item?.elementType === 'file') {
                     if (onNodeClick) {
                         setSelectedId(item?.id)
                         onNodeClick(item)
@@ -467,7 +467,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             focusContent()
                         }
                     }
-                } else if (item?.type === 'folder') {
+                } else if (item?.elementType === 'folder') {
                     // Handle click on a folder
                     if (onFolderClick) {
                         onFolderClick(item, !expandedItemIdsState.includes(item.id))

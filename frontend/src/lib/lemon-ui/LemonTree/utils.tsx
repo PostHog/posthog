@@ -19,9 +19,9 @@ export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): 
     const ICON_CLASSES = 'size-6 aspect-square flex place-items-center'
 
     const isOpen = expandedItemIds.includes(item.id)
-    const isFolder = item.type === 'folder'
-    const isFile = item.type === 'file'
-    const isProject = item.type === 'project'
+    const isFolder = item.elementType === 'folder'
+    const isFile = item.elementType === 'file'
+    const isProject = item.elementType === 'project'
 
     if (isFolder || isProject) {
         return (

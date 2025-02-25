@@ -10,14 +10,20 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
 
     // Helper to find an existing folder node or create one if it doesn't exist.
     const findOrCreateFolder = (nodes: TreeDataItem[], folderName: string, fullPath: string): TreeDataItem => {
-        let folderNode: TreeDataItem | undefined = nodes.find((node) => node.filePath === fullPath)
+        if (fullPath.includes("Hedgebox")) {
+            console.log('----- findOrCreateFolder', nodes)
+            console.log('----- fullPath.includes(project)', fullPath)
+            console.log('----- found folder', nodes.find((node) => node.filePath === fullPath))
+            console.log('----- WHY IS THIS NOT FINDING THE FOLDER?')
+        }
+        let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
         if (!folderNode) {
             folderNode = {
                 id: fullPath,
                 name: folderName,
                 record: { type: 'folder', id: 'project/' + fullPath, path: fullPath },
                 children: [],
-                type: 'folder' as const,
+                elementType: 'folder' as const,
                 filePath: fullPath,
             }
             nodes.push(folderNode)
@@ -54,7 +60,7 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
 
         // Create the actual item node.
         const node: TreeDataItem = {
-            id: item.id || item.path,
+            id: itemName,
             name: itemName,
             icon: item.icon || iconForType(item.type),
             record: item,
@@ -63,7 +69,7 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
                     router.actions.push(item.href)
                 }
             },
-            type: item.type === 'folder' ? ('folder' as const) : ('file' as const),
+            elementType: item.type === 'folder' ? ('folder' as const) : ('file' as const),
             filePath: item.path,
         }
         // Place the item in the current (deepest) folder.

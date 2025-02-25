@@ -123,7 +123,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                         isItemDraggable={(item) => Boolean(item.record?.type)}
-                        isItemDroppable={(item) => Boolean(item.record?.type === 'folder')}
+                        isItemDroppable={(item) => Boolean(item.record?.type === 'folder' || item.record?.type === 'project')}
                         isItemLoading={(item) => Boolean(item.filePath && loadingPaths[item.filePath])}
                         isItemUnapplied={(item) => Boolean(item.filePath && unappliedPaths[item.filePath])}
                         itemSideAction={(item) => ({

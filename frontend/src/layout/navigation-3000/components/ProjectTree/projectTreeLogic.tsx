@@ -292,7 +292,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                               onClick: !pendingLoaderLoading
                                   ? () => projectTreeLogic.actions.applyPendingActions()
                                   : undefined,
-                              type: 'file' as const,
+                                elementType: 'file' as const,
                               filePath: 'applyPendingActions',
                           },
                       ]
@@ -300,17 +300,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                           {
                               id: '--',
                               name: '----------------------',
-                              type: 'separator' as const,
+                              elementType: 'separator' as const,
                           },
                       ]),
                 {
-                    id: 'project',
+                    id: currentTeamName,
                     name: currentTeamName,
                     icon: <IconBook />,
-                    record: { type: 'project', id: 'project' },
+                    record: { type: 'project', id: `project/${currentTeamName}` },
                     onClick: () => router.actions.push(urls.projectHomepage()),
-                    type: 'project' as const,
-                    filePath: 'project',
+                    elementType: 'project' as const,
+                    filePath: currentTeamName,
                 },
             ],
         ],
@@ -324,7 +324,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                           {
                               id: '',
                               name: '',
-                              type: 'loading' as const,
+                              elementType: 'loading' as const,
                               filePath: '',
                           },
                       ]
@@ -348,6 +348,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     }),
     listeners(({ actions, values }) => ({
         moveItem: async ({ oldFilePath, newFilePath }) => {
+            console.log('moveItem', oldFilePath, '===>', newFilePath)
             for (const item of values.viableItems) {
                 if (item.path === oldFilePath || item.path.startsWith(oldFilePath + '/')) {
                     actions.queueAction({
