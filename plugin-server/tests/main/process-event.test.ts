@@ -11,7 +11,16 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
-import { ClickHouseEvent, Database, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
+import {
+    ClickHouseEvent,
+    Database,
+    Hub,
+    InternalPerson,
+    LogLevel,
+    Person,
+    PluginsServerConfig,
+    Team,
+} from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
@@ -186,14 +195,14 @@ const alias = async (hub: Hub, alias: string, distinctId: string) => {
 }
 
 test('merge people', async () => {
-    const p0 = await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })
+    const p0 = (await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })) as InternalPerson
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
     const [_person0, kafkaMessages0] = await hub.db.updatePersonDeprecated(p0, {
         created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
     })
 
-    const p1 = await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })
+    const p1 = (await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })) as InternalPerson
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
     const [_person1, kafkaMessages1] = await hub.db.updatePersonDeprecated(p1, {
         created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
@@ -1432,6 +1441,7 @@ describe('when handling $identify', () => {
         const originalCreatePerson = hub.db.createPerson.bind(hub.db)
         const createPersonMock = jest.fn(async (...args) => {
             // We need to slice off the txn arg, or else we conflict with the `identify` below.
+            // @ts-expect-error because TS is crazy, this is valid
             const result = await originalCreatePerson(...args.slice(0, -1))
 
             if (createPersonMock.mock.calls.length === 1) {
