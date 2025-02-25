@@ -22,3 +22,4 @@
 - CSS: Use utility classes instead of inline styles
 - Error handling: Prefer explicit error handling with typed errors
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
+- Comments: Leave comments to explain tricky areas of the code or to explain WHY something is there, but don't just leave comments everywhere, the code should be default readable
