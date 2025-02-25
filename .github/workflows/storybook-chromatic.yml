@@ -132,15 +132,46 @@ jobs:
 
             - name: Serve Storybook in the background
               run: |
-                  retries=3
+                  retries=5
+                  max_timeout=30
+                  pnpm exec http-server common/storybook/dist --port 6006 --silent &
+                  server_pid=$!
+                  echo "Started http-server with PID: $server_pid"
+
+                  # Give the server a moment to start
+                  sleep 2
+
                   while [ $retries -gt 0 ]; do
-                      pnpm exec http-server common/storybook/dist --port 6006 --silent &
-                      if pnpm wait-on http://127.0.0.1:6006 --timeout 15; then
+                      echo "Checking if Storybook is available (retries left: $retries, timeout: ${max_timeout}s)..."
+                      if pnpm wait-on http://127.0.0.1:6006 --timeout $max_timeout; then
+                          echo "✅ Storybook is available at http://127.0.0.1:6006"
                           break
                       fi
                       retries=$((retries-1))
-                      echo "Failed to serve Storybook, retrying... ($retries retries left)"
+                      if [ $retries -gt 0 ]; then
+                          echo "⚠️ Failed to connect to Storybook, retrying... ($retries retries left)"
+                          # Check if server is still running
+                          if ! kill -0 $server_pid 2>/dev/null; then
+                              echo "❌ http-server process is no longer running, restarting it..."
+                              pnpm exec http-server common/storybook/dist --port 6006 --silent &
+                              server_pid=$!
+                              echo "Restarted http-server with PID: $server_pid"
+                              sleep 2
+                          fi
+                      fi
                   done
+
+                  if [ $retries -eq 0 ]; then
+                      echo "❌ Failed to serve Storybook after all retries"
+                      # Try to get some diagnostic information
+                      echo "Checking port 6006 status:"
+                      netstat -tuln | grep 6006 || echo "Port 6006 is not in use"
+                      echo "Checking http-server process:"
+                      ps aux | grep http-server || echo "No http-server process found"
+                      echo "Checking Storybook dist directory:"
+                      ls -la common/storybook/dist || echo "Storybook dist directory not found"
+                      exit 1
+                  fi
 
             - name: Run @storybook/test-runner
               env:
@@ -159,13 +190,17 @@ jobs:
                   name: failure-screenshots-${{ matrix.browser }}-${{ matrix.shard }}
                   path: frontend/__snapshots__/__failures__/
 
+            - name: Configure global git diff log
+              run: git config --global --add safe.directory '*'
+
             - name: Count and optimize updated snapshots
               id: diff
               # Skip on forks
               if: github.event.pull_request.head.repo.full_name == github.repository
               run: |
-                  git config --global --add safe.directory '*' # Calm git down about file ownership
-                  git diff --name-status frontend/__snapshots__/ # For debugging
+                  echo "Current directory: $(pwd)"
+                  FRONTEND_DIFF_OUTPUT=$(git diff --name-status frontend/__snapshots__)
+                  echo "$FRONTEND_DIFF_OUTPUT"
                   ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
                   MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
                   DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
@@ -195,6 +230,11 @@ jobs:
                     fi
                   fi
 
+                  echo "Snapshot changes:"
+                  echo "Added: $ADDED"
+                  echo "Modified: $MODIFIED" 
+                  echo "Deleted: $DELETED"
+                  echo "Total: $TOTAL"
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-modified=$MODIFIED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
