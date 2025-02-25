@@ -60,7 +60,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
     )
 }
 
-export function AIAIEventSummary({ event }: { event: Record<string, any> }): JSX.Element | null {
+export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.Element | null {
     if (event.properties.$ai_is_error) {
         return (
             <div className="flex items-center gap-1 text-danger">
