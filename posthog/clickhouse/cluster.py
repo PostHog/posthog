@@ -318,13 +318,17 @@ class Query:
         return client.execute(self.query, self.parameters)
 
 
+class MutationNotFound(Exception):
+    pass
+
+
 @dataclass
 class Mutation:
     table: str
     mutation_id: str
 
     def is_done(self, client: Client) -> bool:
-        [[is_done]] = client.execute(
+        rows = client.execute(
             f"""
             SELECT is_done
             FROM system.mutations
@@ -333,7 +337,14 @@ class Mutation:
             """,
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
         )
-        return is_done
+
+        if len(rows) == 1:
+            [[is_done]] = rows
+            return is_done
+        elif len(rows) == 0:
+            raise MutationNotFound(f"could not find mutation matching {self!r}")
+        else:
+            raise ValueError(f"expected zero or one mutations, found {len(rows)}")
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
