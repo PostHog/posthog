@@ -131,6 +131,9 @@ jobs:
             matrix:
                 spec: ${{ fromJson(needs.chunks.outputs.chunks) }}
 
+        env:
+          NODE_OPTIONS: "--max-old-space-size=10240"
+
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
