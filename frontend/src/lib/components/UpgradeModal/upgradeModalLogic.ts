@@ -66,10 +66,11 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
                     }
                     const {
                         guardOnCloud = true,
-                        guardOnSelfHosted = true,
+                        guardOnSelfHosted = false,
                         currentUsage,
                         isGrandfathered,
                     } = options || {}
+                    console.log("preflight",preflight)
                     let featureAvailable: boolean
                     if (!preflight) {
                         featureAvailable = false
@@ -86,6 +87,7 @@ export const upgradeModalLogic = kea<upgradeModalLogicType>([
                     } else {
                         featureAvailableCallback?.()
                     }
+                    console.log("featureAvailable", featureAvailable)
 
                     return featureAvailable
                 }
