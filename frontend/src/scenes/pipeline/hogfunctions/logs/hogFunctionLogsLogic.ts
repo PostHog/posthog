@@ -98,7 +98,10 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                 const res = await api.hogFunctions.createTestInvocation(props.sourceId, {
                     globals,
                     mock_async_functions: false,
-                    configuration: {},
+                    configuration: {
+                        // For retries we don't care about filters
+                        filters: {},
+                    },
                     invocation_id: groupedLogEntry.instanceId,
                 })
 
