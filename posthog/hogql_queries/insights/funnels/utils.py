@@ -1,24 +1,8 @@
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql_queries.legacy_compatibility.feature_flag import (
-    insight_funnels_use_udf_trends,
-    insight_funnels_use_udf,
-)
-from posthog.models import Team
 from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, FunnelsFilter, StepOrderValue
 from rest_framework.exceptions import ValidationError
-
-
-def use_udf(funnelsFilter: FunnelsFilter, team: Team):
-    if funnelsFilter.useUdf:
-        return True
-    funnelVizType = funnelsFilter.funnelVizType
-    if funnelVizType == FunnelVizType.TRENDS and insight_funnels_use_udf_trends(team):
-        return True
-    if funnelVizType == FunnelVizType.STEPS and insight_funnels_use_udf(team):
-        return True
-    return False
 
 
 def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):

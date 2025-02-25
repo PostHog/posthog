@@ -23,7 +23,6 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.funnels.utils import (
     funnel_window_interval_unit_to_sql,
     get_funnel_actor_class,
-    use_udf,
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
@@ -137,9 +136,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         self.context.actorsQuery = self.actors_query
 
         # Used for generating the funnel persons cte
-        funnel_order_actor_class = get_funnel_actor_class(
-            self.context.funnelsFilter, use_udf(self.context.funnelsFilter, self.team)
-        )(context=self.context)
+        funnel_order_actor_class = get_funnel_actor_class(self.context.funnelsFilter, True)(context=self.context)
         assert isinstance(
             funnel_order_actor_class, FunnelActors | FunnelStrictActors | FunnelUnorderedActors | FunnelUDF
         )  # for typings
