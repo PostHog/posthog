@@ -43,7 +43,7 @@ export function roundedRect(
     bl: boolean,
     br: boolean
 ): string {
-    let retval
+    let retval: string
     retval = 'M' + (x + r) + ',' + y
     retval += 'h' + (w - 2 * r)
     if (tr) {

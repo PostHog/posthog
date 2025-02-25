@@ -84,13 +84,13 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             (pathsFilter) => {
                 const taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
                 if (pathsFilter?.includeEventTypes) {
-                    if (pathsFilter?.includeEventTypes.includes(PathType.PageView)) {
+                    if (pathsFilter.includeEventTypes.includes(PathType.PageView)) {
                         taxonomicGroupTypes.push(TaxonomicFilterGroupType.PageviewUrls)
                     }
-                    if (pathsFilter?.includeEventTypes.includes(PathType.Screen)) {
+                    if (pathsFilter.includeEventTypes.includes(PathType.Screen)) {
                         taxonomicGroupTypes.push(TaxonomicFilterGroupType.Screens)
                     }
-                    if (pathsFilter?.includeEventTypes.includes(PathType.CustomEvent)) {
+                    if (pathsFilter.includeEventTypes.includes(PathType.CustomEvent)) {
                         taxonomicGroupTypes.push(TaxonomicFilterGroupType.CustomEvents)
                     }
                 }

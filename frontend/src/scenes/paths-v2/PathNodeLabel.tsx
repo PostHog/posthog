@@ -35,7 +35,7 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
         viewPathToFunnel(node)
     }
     const copyName = (): void => {
-        void copyToClipboard(nodeName).then(captureException)
+        void copyToClipboard(nodeName).catch(captureException)
     }
     const openModal = (): void => openPersonsModal({ path_end_key: node.name })
 
