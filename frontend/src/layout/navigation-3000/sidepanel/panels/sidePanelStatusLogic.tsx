@@ -63,7 +63,6 @@ export interface SPIncidentUpdate {
     custom_tweet: null
     tweet_id: null
 }
-
 export interface SPAffectedComponent {
     code: string
     name: string
@@ -82,7 +81,8 @@ export const STATUS_PAGE_BASE = 'https://status.posthog.com'
 // export const STATUS_PAGE_BASE = 'https://posthogtesting.statuspage.io'
 
 // Map the hostname to relevant groups (found via the summary.json endpoint)
-const RELEVANT_GROUPS_MAP = {
+type GroupIdString = string
+const RELEVANT_GROUPS_MAP: Record<string, GroupIdString[]> = {
     'us.posthog.com': ['41df083ftqt6', 'z0y6m9kyvy3j'],
     'eu.posthog.com': ['c4d9jd1jcx3f', 'nfknrn2bf3yz'],
     localhost: ['f58xx1143yvt', 't3rdjq2z0x7p'], // localhost has IDs for the test status page - that way we really only show it if local dev and overridden to use the other status page
@@ -107,7 +107,8 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
             { persist: true },
             {
                 loadStatusPageSuccess: (_, { statusPage }) => {
-                    const relevantGroups = RELEVANT_GROUPS_MAP[window.location.hostname]
+                    const hostname = window.location.hostname
+                    const relevantGroups = RELEVANT_GROUPS_MAP[hostname]
                     if (!relevantGroups) {
                         return 'operational'
                     }
