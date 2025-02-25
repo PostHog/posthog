@@ -18,6 +18,7 @@ import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/ty
 
 import { BatchExportBackfills } from './BatchExportBackfills'
 import { BatchExportRuns } from './BatchExportRuns'
+import { HogFunctionLogs } from './hogfunctions/logs/HogFunctionLogs'
 import { AppMetricsV2 } from './metrics/AppMetricsV2'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
@@ -80,7 +81,12 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                       ) : (
                           <PipelineNodeMetrics id={id} />
                       ),
-                  [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
+                  [PipelineNodeTab.Logs]:
+                      node.backend === PipelineBackend.HogFunction ? (
+                          <HogFunctionLogs hogFunctionId={id.toString().substring(4)} />
+                      ) : (
+                          <PipelineNodeLogs id={id} stage={stage} />
+                      ),
               }
             : {}
 

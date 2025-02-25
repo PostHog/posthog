@@ -254,9 +254,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
-        else:
-            attrs["bytecode"] = None
-            attrs["transpiled"] = None
 
         if is_create:
             if not attrs.get("hog"):
