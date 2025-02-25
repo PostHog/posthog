@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
+import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -107,6 +108,7 @@ function DashboardScene(): JSX.Element {
     return (
         <div className="dashboard">
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
+            {canEditDashboard && <AddInsightToDashboardModal />}
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />

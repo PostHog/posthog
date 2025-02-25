@@ -1,1 +1,1 @@
-0663_alter_insightvariable_type
+0675_add_playlist_viewed

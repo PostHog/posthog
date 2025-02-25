@@ -106,7 +106,19 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
+                '/api/environments/:team_id/session_recordings/:id': (req, res, ctx) => {
+                    if (req.params.id === '12345') {
+                        return res(ctx.json(recordingMetaJson))
+                    } else if (req.params.id === 'thirty_others') {
+                        return res(
+                            ctx.json({
+                                ...recordingMetaJson,
+                                viewers: Array.from({ length: 30 }, (_, i) => `${i}@example.com`),
+                            })
+                        )
+                    }
+                    return res(ctx.json({ ...recordingMetaJson, viewers: ['abcdefg'] }))
+                },
                 'api/projects/:team/notebooks': {
                     count: 0,
                     next: null,
@@ -131,9 +143,10 @@ const meta: Meta = {
                                     '$device_type',
                                     '$os',
                                     '$os_name',
-                                    '$referring_domain',
+                                    '$entry_referring_domain',
                                     '$geoip_subdivision_1_name',
                                     '$geoip_city_name',
+                                    '$entry_current_url',
                                 ],
                                 results: [
                                     [
@@ -146,6 +159,7 @@ const meta: Meta = {
                                         'hedgehog.io',
                                         'Spikeville',
                                         'Hogington',
+                                        'https://hedgehog.io/entry-page',
                                     ],
                                 ],
                             })
@@ -168,15 +182,22 @@ export default meta
 
 interface OverviewTabProps {
     width: number
+    sessionId?: string
 }
 
-const OverviewTabTemplate: StoryFn<OverviewTabProps> = ({ width }: { width: number }) => {
+const OverviewTabTemplate: StoryFn<OverviewTabProps> = ({
+    width,
+    sessionId = '12345',
+}: {
+    width: number
+    sessionId?: string
+}) => {
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ width: `${width}px`, height: '100vh' }}>
             <BindLogic
                 logic={sessionRecordingPlayerLogic}
-                props={{ playerKey: 'storybook', sessionRecordingId: '12345' }}
+                props={{ playerKey: 'storybook', sessionRecordingId: sessionId }}
             >
                 <PlayerSidebarOverviewTab />
             </BindLogic>
@@ -189,3 +210,9 @@ NarrowOverviewTab.args = { width: 320 }
 
 export const WideOverviewTab = OverviewTabTemplate.bind({})
 WideOverviewTab.args = { width: 500 }
+
+export const OneOtherWatchersOverviewTab = OverviewTabTemplate.bind({})
+OneOtherWatchersOverviewTab.args = { width: 400, sessionId: '34567' }
+
+export const ManyOtherWatchersOverviewTab = OverviewTabTemplate.bind({})
+ManyOtherWatchersOverviewTab.args = { width: 400, sessionId: 'thirty_others' }

@@ -63,7 +63,11 @@ from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOIC
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
-from posthog.tasks.email import send_email_change_emails
+from posthog.tasks.email import (
+    send_email_change_emails,
+    send_two_factor_auth_disabled_email,
+    send_two_factor_auth_enabled_email,
+)
 from posthog.user_permissions import UserPermissions
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
@@ -532,6 +536,9 @@ class UserViewSet(
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
         otp_login(request, default_device(request.user))
+
+        send_two_factor_auth_enabled_email.delay(request.user.id)
+
         return Response({"success": True})
 
     @action(methods=["GET"], detail=True)
@@ -586,6 +593,8 @@ class UserViewSet(
         # Remove all 2FA devices
         TOTPDevice.objects.filter(user=user).delete()
         StaticDevice.objects.filter(user=user).delete()
+
+        send_two_factor_auth_disabled_email.delay(user.id)
 
         return Response({"success": True})
 

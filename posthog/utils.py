@@ -14,6 +14,7 @@ import time
 import uuid
 import zlib
 from collections.abc import Generator, Mapping
+from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
@@ -30,8 +31,10 @@ from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
+from django.db import ProgrammingError
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -40,7 +43,6 @@ from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
-from posthog.exceptions_capture import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -48,6 +50,7 @@ from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
@@ -370,11 +373,9 @@ def render_template(
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
-        api_token = get_self_capture_api_token(request.user)
-
-        if api_token:
-            context["js_posthog_api_key"] = api_token
-            context["js_posthog_host"] = ""
+        if posthoganalytics.api_key:
+            context["js_posthog_api_key"] = posthoganalytics.api_key
+            context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
         context["js_posthog_host"] = "https://internal-t.posthog.com"
@@ -505,22 +506,35 @@ def render_template(
     return response
 
 
-def get_self_capture_api_token(user: Optional[Union["AbstractBaseUser", "AnonymousUser"]]) -> Optional[str]:
-    from posthog.models import Team
+async def initialize_self_capture_api_token():
+    """
+    Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way.
+    """
 
-    # Get the current user's team (or first team in the instance) to set self capture configs
-    team: Optional[Team] = None
-    if user and getattr(user, "team", None):
-        team = user.team  # type: ignore
-    else:
-        try:
-            team = Team.objects.only("api_token").first()
-        except Exception:
-            pass
+    User = apps.get_model("posthog", "User")
+    Team = apps.get_model("posthog", "Team")
+    try:
+        user = (
+            await User.objects.filter(last_login__isnull=False)
+            .order_by("-last_login")
+            .select_related("current_team")
+            .afirst()
+        )
+        # Get the current user's team (or first team in the instance) to set self capture configs
+        team = None
+        if user and getattr(user, "team", None):
+            team = user.current_team
+        else:
+            team = await Team.objects.only("api_token").aget()
+        local_api_key = team.api_token
+    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
+        local_api_key = None
 
-    if team:
-        return team.api_token
-    return None
+    # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
+    if local_api_key is not None:
+        posthoganalytics.disabled = False
+        posthoganalytics.api_key = local_api_key
+        posthoganalytics.host = settings.SITE_URL
 
 
 def get_default_event_name(team: "Team"):
@@ -1447,6 +1461,11 @@ def patchable(fn):
     Used in benchmarking scripts.
     """
 
+    import posthog
+
+    if not posthog.settings.TEST:
+        return fn
+
     @wraps(fn)
     def inner(*args, **kwargs):
         return inner._impl(*args, **kwargs)  # type: ignore
@@ -1456,6 +1475,19 @@ def patchable(fn):
 
     inner._impl = fn  # type: ignore
     inner._patch = patch  # type: ignore
+
+    @contextmanager
+    def temp_patch(wrapper):
+        """
+        Context manager for temporary patching.  Restores the original function when the 'with' block exits.
+        """
+        patch(wrapper)
+        try:
+            yield
+        finally:
+            inner._impl = fn  # type: ignore
+
+    inner._temp_patch = temp_patch  # type: ignore
 
     return inner
 

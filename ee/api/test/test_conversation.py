@@ -169,3 +169,60 @@ class TestConversation(APIBaseTest):
             with self.assertRaises(Exception) as context:
                 b"".join(response.streaming_content)
             self.assertTrue("Streaming error" in str(context.exception))
+
+    def test_cancel_conversation(self):
+        conversation = Conversation.objects.create(user=self.user, team=self.team)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.status, Conversation.Status.CANCELING)
+
+    def test_cancel_already_canceling_conversation(self):
+        conversation = Conversation.objects.create(user=self.user, team=self.team, status=Conversation.Status.CANCELING)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Generation has already been cancelled.")
+
+    def test_cancel_other_users_conversation(self):
+        conversation = Conversation.objects.create(user=self.other_user, team=self.team)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cancel_other_teams_conversation(self):
+        conversation = Conversation.objects.create(user=self.user, team=self.other_team)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cant_use_locked_conversation(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
+                "conversation": str(conversation.id),
+                "content": "test query",
+                "trace_id": str(uuid.uuid4()),
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+
+        conversation.status = Conversation.Status.CANCELING
+        conversation.save()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
+                "conversation": str(conversation.id),
+                "content": "test query",
+                "trace_id": str(uuid.uuid4()),
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)

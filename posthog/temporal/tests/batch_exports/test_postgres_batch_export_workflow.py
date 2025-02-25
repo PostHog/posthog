@@ -34,12 +34,17 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     insert_into_postgres_activity,
     postgres_default_fields,
 )
-from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, SessionsRecordBatchModel
-from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import get_record_batch_from_queue, mocked_start_batch_export_run
-from posthog.temporal.tests.utils.events import (
-    generate_test_events_in_clickhouse,
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    SessionsRecordBatchModel,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import (
+    get_record_batch_from_queue,
+    mocked_start_batch_export_run,
+)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -64,6 +69,7 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "person_distinct_id_version",
     "created_at",
     "_inserted_at",
+    "is_deleted",
 ]
 
 
@@ -151,7 +157,6 @@ async def assert_clickhouse_records_in_postgres(
         is_backfill=backfill_details is not None,
         backfill_details=backfill_details,
         extra_query_parameters=extra_query_parameters,
-        use_latest_schema=True,
     )
     while True:
         record_batch = await get_record_batch_from_queue(queue, producer_task)
@@ -553,7 +558,8 @@ async def persons_table_without_primary_key(postgres_connection, postgres_config
                         person_distinct_id_version BIGINT,
                         person_version BIGINT,
                         created_at TIMESTAMP,
-                        updated_at TIMESTAMP
+                        updated_at TIMESTAMP,
+                        is_deleted BOOLEAN
                     )
                     """
                 ).format(table=sql.Identifier(postgres_config["schema"], self_managed_table_name))
@@ -845,7 +851,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
     more than an hour ago) when setting `is_earliest_backfill=True`.
     """
     backfill_details = BackfillDetails(
-        backfill_id=str(uuid.uuid4()),
+        backfill_id=None,
         is_earliest_backfill=True,
         start_at=None,
         end_at=data_interval_end.isoformat(),

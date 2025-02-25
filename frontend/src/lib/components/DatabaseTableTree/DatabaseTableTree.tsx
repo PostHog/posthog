@@ -1,6 +1,6 @@
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import { TreeFolderRow, TreeRow, TreeTableRow } from './TreeRow'
 

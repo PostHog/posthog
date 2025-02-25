@@ -4,6 +4,7 @@ import { combineUrl } from 'kea-router'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import {
+    DataWarehousePopoverField,
     ListStorage,
     SimpleOption,
     TaxonomicFilterGroup,
@@ -69,6 +70,23 @@ export const propertyTaxonomicGroupProps = (
     },
     getIcon: getPropertyDefinitionIcon,
 })
+
+export const defaultDataWarehousePopoverFields: DataWarehousePopoverField[] = [
+    {
+        key: 'id_field',
+        label: 'ID Field',
+    },
+    {
+        key: 'timestamp_field',
+        label: 'Timestamp Field',
+        allowHogQL: true,
+    },
+    {
+        key: 'distinct_id_field',
+        label: 'Distinct ID Field',
+        allowHogQL: true,
+    },
+]
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     props({} as TaxonomicFilterLogicProps),
@@ -144,6 +162,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
         schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
+        dataWarehousePopoverFields: [
+            () => [(_, props) => props.dataWarehousePopoverFields],
+            (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? {},
+        ],
         metadataSource: [
             () => [(_, props) => props.metadataSource],
             (metadataSource): AnyDataNode =>
@@ -487,11 +509,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: getPropertyDefinitionIcon,
                     },
                     {
-                        name: 'HogQL expression',
+                        name: 'SQL expression',
                         searchPlaceholder: null,
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
-                        getPopoverHeader: () => 'HogQL expression',
+                        getPopoverHeader: () => 'SQL expression',
                         componentProps: { metadataSource },
                     },
                     {

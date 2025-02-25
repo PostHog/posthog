@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/node'
 import { Histogram } from 'prom-client'
 import { RustyHook } from 'worker/rusty-hook'
 
@@ -6,6 +5,7 @@ import { Action, Hook, HookPayload, PostIngestionEvent, Team } from '../../types
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { convertToHookPayload } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { AppMetric, AppMetrics } from './app-metrics'
 import { OrganizationManager } from './organization-manager'

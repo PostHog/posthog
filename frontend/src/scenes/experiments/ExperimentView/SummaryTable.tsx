@@ -9,7 +9,12 @@ import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
-import { ExperimentFunnelsQuery, ExperimentQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
     InsightType,
@@ -27,7 +32,7 @@ export function SummaryTable({
     metricIndex = 0,
     isSecondary = false,
 }: {
-    metric: ExperimentQuery | ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
     metricIndex?: number
     isSecondary?: boolean
 }): JSX.Element {
@@ -320,7 +325,7 @@ export function SummaryTable({
 
             return (
                 <>
-                    {percentage && hasValidConversionRate ? (
+                    {percentage && (metricType === InsightType.FUNNELS ? hasValidConversionRate : true) ? (
                         <span className="inline-flex items-center w-52 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
@@ -363,7 +368,7 @@ export function SummaryTable({
                             date_from: experiment?.start_date,
                             date_to: experiment?.end_date,
                             filter_test_accounts:
-                                metric.kind === NodeKind.ExperimentQuery
+                                metric.kind === NodeKind.ExperimentMetric
                                     ? false
                                     : metric.kind === NodeKind.ExperimentTrendsQuery
                                     ? metric.count_query.filterTestAccounts

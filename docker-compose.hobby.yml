@@ -50,7 +50,10 @@ services:
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - ./posthog/docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/posthog/user_scripts:/var/lib/clickhouse/user_scripts
             - clickhouse-data:/var/lib/clickhouse
+
     zookeeper:
         extends:
             file: docker-compose.base.yml
@@ -224,8 +227,10 @@ services:
         extends:
             file: docker-compose.base.yml
             service: cyclotron-fetch
+        build:
+            context: ./posthog/rust
         environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             SENTRY_DSN: $SENTRY_DSN
         depends_on:
@@ -238,8 +243,10 @@ services:
         extends:
             file: docker-compose.base.yml
             service: cyclotron-janitor
+        build:
+            context: ./posthog/rust
         environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             SENTRY_DSN: $SENTRY_DSN
         depends_on:
@@ -247,6 +254,27 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_started
+
+    capture:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+
+    replay-capture:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
+
+    property-defs-rs:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
 
 volumes:
     zookeeper-data:
