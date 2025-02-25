@@ -639,6 +639,22 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         )
 
+    def test_create_insight_with_filters_fails(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "name": "an insight with legacy filters",
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "date_from": "-90d",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertEqual(response_data["type"], "validation_error")
+        self.assertEqual(response_data["attr"], "filters")
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_with_no_names_logs_no_activity(self) -> None:
         response = self.client.post(
