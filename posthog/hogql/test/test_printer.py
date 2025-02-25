@@ -213,15 +213,7 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            "SELECT\n"
-            "    1 AS id\n"
-            "LIMIT 50000\n"
-            "INTERSECT\n"
-            "(SELECT\n"
-            "    2 AS id\n"
-            "UNION ALL\n"
-            "SELECT\n"
-            "    3 AS id)",
+            "SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\n(SELECT\n    2 AS id\nUNION ALL\nSELECT\n    3 AS id)",
         )
 
     # INTERSECT has higher priority than union
@@ -892,6 +884,10 @@ class TestPrinter(BaseTest):
         self._assert_expr_error(
             "avg(avg(properties.bla))",
             "Aggregation 'avg' cannot be nested inside another aggregation 'avg'.",
+        )
+        self.assertEqual(  # does not error through subqueries
+            "avg((select avg(properties.bla) from events))",
+            "avg((select avg(properties.bla) from events))",
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
         self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array.1")
