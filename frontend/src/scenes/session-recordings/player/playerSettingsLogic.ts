@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
@@ -162,6 +163,32 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             if (hideViewedRecordings === true) {
                 actions.setHideViewedRecordings('current-user')
             }
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        // intentionally locked to replay/* to prevent other pages from setting the tab
+        // this is a debug affordance
+        ['**/replay/*']: (_, searchParams) => {
+            // this is a debug affordance, so we only listen to whether it should be open, not also closed
+            const inspectorSideBarOpen = searchParams.inspectorSideBar === true
+            if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
+                actions.setSidebarOpen(inspectorSideBarOpen)
+            }
+        },
+    })),
+
+    actionToUrl(() => ({
+        setSidebarOpen: ({ open }) => {
+            const { currentLocation } = router.values
+            return [
+                currentLocation.pathname,
+                {
+                    ...currentLocation.searchParams,
+                    inspectorSideBar: open,
+                },
+                currentLocation.hashParams,
+            ]
         },
     })),
 ])
