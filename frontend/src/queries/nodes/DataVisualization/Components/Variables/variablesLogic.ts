@@ -205,7 +205,6 @@ export const variablesLogic = kea<variablesLogicType>([
             const queryVariableMatches = getVariablesFromQuery(query)
 
             if (!queryVariableMatches.length) {
-                actions.resetVariables()
                 return
             }
 
