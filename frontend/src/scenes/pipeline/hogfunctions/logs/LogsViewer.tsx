@@ -1,9 +1,8 @@
-import { IconSearch } from '@posthog/icons'
+import { IconCalendar, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
     LemonInput,
-    LemonSnack,
     LemonTable,
     LemonTableColumn,
     LemonTag,
@@ -11,12 +10,19 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils'
 
 import { LogEntryLevel } from '~/types'
 
-import { ALL_LOG_LEVELS, GroupedLogEntry, LOG_VIEWER_LIMIT, logsViewerLogic } from './logsViewerLogic'
+import {
+    ALL_LOG_LEVELS,
+    DEFAULT_LOG_LEVELS,
+    GroupedLogEntry,
+    LOG_VIEWER_LIMIT,
+    logsViewerLogic,
+} from './logsViewerLogic'
 import { LogsViewerLogicProps } from './logsViewerLogic'
 
 const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
@@ -48,10 +54,8 @@ export type LogsViewerProps = LogsViewerLogicProps & {
 export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
 
-    const { logs, logsLoading, backgroundLogs, isThereMoreToLoad, selectedLogLevels, instanceId, expandedRows } =
-        useValues(logic)
-    const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm, setInstanceId, setRowExpanded } =
-        useActions(logic)
+    const { logs, logsLoading, backgroundLogs, isThereMoreToLoad, expandedRows, filters } = useValues(logic)
+    const { revealBackground, loadMoreLogs, setFilters, setRowExpanded } = useActions(logic)
 
     return (
         <div className="flex-1 space-y-2 ph-no-capture">
@@ -59,13 +63,11 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                 type="search"
                 placeholder="Search for messages containing…"
                 fullWidth
-                onChange={setSearchTerm}
+                onChange={(value) => setFilters({ searchTerm: value })}
                 allowClear
                 prefix={
                     <>
                         <IconSearch />
-
-                        {instanceId && <LemonSnack onClose={() => setInstanceId(null)}>{instanceId}</LemonSnack>}
                     </>
                 }
             />
@@ -76,16 +78,28 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                         <LemonCheckbox
                             key={level}
                             label={level}
-                            checked={selectedLogLevels.includes(level)}
+                            checked={filters.logLevels.includes(level)}
                             onChange={(checked) => {
                                 const newLogLevels = checked
-                                    ? [...selectedLogLevels, level]
-                                    : selectedLogLevels.filter((t) => t != level)
-                                setSelectedLogLevels(newLogLevels)
+                                    ? [...filters.logLevels, level]
+                                    : filters.logLevels.filter((t) => t != level)
+                                setFilters({ logLevels: newLogLevels.length ? newLogLevels : DEFAULT_LOG_LEVELS })
                             }}
                         />
                     )
                 })}
+
+                <DateFilter
+                    dateTo={filters.before}
+                    dateFrom={filters.after}
+                    onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
+                    allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                    makeLabel={(key) => (
+                        <>
+                            <IconCalendar /> {key}
+                        </>
+                    )}
+                />
             </div>
             <LemonButton
                 onClick={revealBackground}

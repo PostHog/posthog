@@ -17,6 +17,13 @@ export type LogsViewerLogicProps = {
     sourceId: string
 }
 
+export type LogsViewerFilters = {
+    logLevels: LogEntryLevel[]
+    searchTerm: string
+    after?: string
+    before?: string
+}
+
 export const LOG_VIEWER_LIMIT = 100
 
 export type GroupedLogEntry = {
@@ -103,12 +110,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
     key(({ sourceType, sourceId }) => `${sourceType}:${sourceId}`),
     actions({
+        setFilters: (filters: Partial<LogsViewerFilters>) => ({ filters }),
         addLogGroups: (logGroups: GroupedLogEntry[]) => ({ logGroups }),
-        setSelectedLogLevels: (levels: LogEntryLevel[]) => ({
-            levels,
-        }),
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setInstanceId: (instanceId: string | null) => ({ instanceId }),
         clearBackgroundLogs: true,
         markLogsEnd: true,
         setRowExpanded: (instanceId: string, expanded: boolean) => ({ instanceId, expanded }),
@@ -124,8 +127,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     actions.clearBackgroundLogs()
 
                     const logParams: GroupedLogEntryRequest = {
-                        levels: values.selectedLogLevels,
-                        searchTerm: values.searchTerm,
+                        levels: values.filters.logLevels,
+                        searchTerm: values.filters.searchTerm,
                         sourceType: props.sourceType,
                         sourceId: props.sourceId,
                     }
@@ -134,8 +137,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 },
                 loadMoreLogs: async () => {
                     const logParams: GroupedLogEntryRequest = {
-                        levels: values.selectedLogLevels,
-                        searchTerm: values.searchTerm,
+                        levels: values.filters.logLevels,
+                        searchTerm: values.filters.searchTerm,
                         sourceType: props.sourceType,
                         sourceId: props.sourceId,
                         before: values.trailingEntryTimestamp ?? undefined,
@@ -159,8 +162,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             {
                 pollBackgroundLogs: async () => {
                     const logParams: GroupedLogEntryRequest = {
-                        searchTerm: values.searchTerm,
-                        levels: values.selectedLogLevels,
+                        searchTerm: values.filters.searchTerm,
+                        levels: values.filters.logLevels,
                         after: values.leadingEntryTimestamp ?? undefined,
                         sourceType: props.sourceType,
                         sourceId: props.sourceId,
@@ -174,28 +177,24 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         ],
     })),
     reducers({
-        selectedLogLevels: [
-            DEFAULT_LOG_LEVELS,
+        filters: [
             {
-                setSelectedLogLevels: (_, { levels }) => (levels.length ? levels : DEFAULT_LOG_LEVELS),
+                searchTerm: '',
+                logLevels: DEFAULT_LOG_LEVELS,
+                after: '-7d',
+                before: undefined,
+            } as LogsViewerFilters,
+            {
+                setFilters: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
+                }),
             },
         ],
         backgroundLogs: [
             [] as GroupedLogEntry[],
             {
                 clearBackgroundLogs: () => [],
-            },
-        ],
-        searchTerm: [
-            '',
-            {
-                setSearchTerm: (_, { searchTerm }) => searchTerm,
-            },
-        ],
-        instanceId: [
-            null as null | string,
-            {
-                setInstanceId: (_, { instanceId }) => instanceId,
             },
         ],
         isThereMoreToLoad: [
@@ -240,32 +239,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 return null
             },
         ],
-
-        selectedLogLevelsForAPI: [
-            (s) => [s.selectedLogLevels],
-            (logLevels: LogEntryLevel[]): LogEntryLevel[] => {
-                const uniqueLevels = new Set<LogEntryLevel>(logLevels)
-                if (uniqueLevels.has('WARN')) {
-                    uniqueLevels.add('WARNING')
-                }
-                if (uniqueLevels.has('WARNING')) {
-                    uniqueLevels.add('WARN')
-                }
-                return Array.from(uniqueLevels)
-            },
-        ],
     })),
     listeners(({ actions }) => ({
-        setSelectedLogLevels: () => {
-            actions.loadLogs()
-        },
-        setSearchTerm: async ({ searchTerm }, breakpoint) => {
-            if (searchTerm) {
-                await breakpoint(1000)
-            }
-            actions.loadLogs()
-        },
-        setInstanceId: async () => {
+        setFilters: async (_, breakpoint) => {
+            await breakpoint(500)
             actions.loadLogs()
         },
     })),
