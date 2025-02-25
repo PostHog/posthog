@@ -3,8 +3,8 @@ use std::collections::HashMap;
 // keep this in sync with Django posthog.taxonomy pkg values
 pub const GROUP_TYPE_LIMIT: i32 = 5;
 
-pub const DEFAULT_QUERY_LIMIT: i32 = 100;
-pub const DEFAULT_QUERY_OFFSET: i32 = 0;
+pub const DEFAULT_QUERY_LIMIT: i64 = 100;
+pub const DEFAULT_QUERY_OFFSET: i64 = 0;
 
 pub const SEARCH_TRIGGER_WORD: &str = "latest";
 pub const SEARCH_SCREEN_WORD: &str = "initial";

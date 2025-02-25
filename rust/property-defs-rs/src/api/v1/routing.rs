@@ -201,12 +201,12 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect())
         .unwrap_or_default();
 
-    let limit: i32 = params.get("limit").map_or(DEFAULT_QUERY_LIMIT, |s| {
-        s.parse::<i32>().unwrap_or(DEFAULT_QUERY_LIMIT)
+    let limit: i64 = params.get("limit").map_or(DEFAULT_QUERY_LIMIT, |s| {
+        s.parse::<i64>().unwrap_or(DEFAULT_QUERY_LIMIT)
     });
 
-    let offset: i32 = params.get("offset").map_or(DEFAULT_QUERY_OFFSET, |s| {
-        s.parse::<i32>().unwrap_or(DEFAULT_QUERY_OFFSET)
+    let offset: i64 = params.get("offset").map_or(DEFAULT_QUERY_OFFSET, |s| {
+        s.parse::<i64>().unwrap_or(DEFAULT_QUERY_OFFSET)
     });
 
     Params {
@@ -228,8 +228,8 @@ fn parse_request(params: HashMap<String, String>) -> Params {
 fn gen_next_prev_urls(
     uri: Uri,
     total_count: i64,
-    curr_limit: i32,
-    curr_offset: i32,
+    curr_limit: i64,
+    curr_offset: i64,
 ) -> (Option<String>, Option<String>) {
     let next_offset = curr_offset + curr_limit;
     let prev_offset = curr_offset - curr_limit;
@@ -240,8 +240,8 @@ fn gen_next_prev_urls(
     )
 }
 
-fn gen_url(uri: Uri, total_count: i64, new_offset: i32) -> Option<String> {
-    if new_offset < 0 || new_offset as i64 > total_count {
+fn gen_url(uri: Uri, total_count: i64, new_offset: i64) -> Option<String> {
+    if new_offset < 0 || new_offset > total_count {
         return None;
     }
 
@@ -292,8 +292,8 @@ pub struct Params {
     pub is_feature_flag: Option<bool>,
     pub is_numerical: bool,
     pub use_enterprise_taxonomy: bool,
-    pub limit: i32,
-    pub offset: i32,
+    pub limit: i64,
+    pub offset: i64,
 }
 
 impl Params {
