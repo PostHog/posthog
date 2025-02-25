@@ -364,9 +364,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         )}
                                                     </span>
                                                     {survey.questions.map((q, idx) => (
-                                                        <li key={q.id ?? idx}>
-                                                            {q.question} - {q.id}
-                                                        </li>
+                                                        <li key={q.id ?? idx}>{q.question}</li>
                                                     ))}
                                                 </>
                                             )}
