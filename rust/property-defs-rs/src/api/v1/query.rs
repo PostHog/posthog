@@ -233,9 +233,10 @@ impl Manager {
         // this join is only applied if the query is scoped to type "event"
         if self.is_prop_type_event(property_type) {
             let filter_by_event_names = !event_names.is_empty();
+
             qb.push(self.event_property_join_type(filter_by_event_names));
             qb.push(format!(
-                " (SELECT DISTINCT property FROM {0} WHERE COALESCE(project_id, team_id) = ",
+                " (SELECT DISTINCT property FROM {} WHERE COALESCE(project_id, team_id) = ",
                 EVENT_PROPERTY_TABLE
             ));
             qb.push_bind(project_id);

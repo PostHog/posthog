@@ -1,23 +1,23 @@
 use crate::{
-    api::v1::{constants::*, query::Manager},
+    api::v1::{constants::*, errors::ApiError, query::Manager},
     //metrics_consts::{},
     types::PropertyParentType,
 };
 
+use anyhow::{bail, Result};
 use axum::{
     extract::{OriginalUri, Path, Query, State},
-    http::{StatusCode, Uri},
+    http::Uri,
     routing::get,
     Json, Router,
 };
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::{Executor, Row};
-use tracing::{error, warn};
+use tracing::warn;
 use url::form_urlencoded;
 
 use std::collections::{HashMap, HashSet};
-use std::error;
-use std::fmt;
 use std::sync::Arc;
 
 pub fn apply_routes(parent: Router, qmgr: Arc<Manager>) -> Router {
@@ -36,12 +36,11 @@ async fn project_property_definitions_handler(
     OriginalUri(uri): OriginalUri,
     Path(project_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<PropDefResponse>, StatusCode> {
+) -> Result<Json<PropDefResponse>, ApiError> {
     // parse and validate request's query params
     let params = parse_request(params);
     if let Err(e) = params.valid() {
-        error!("invalid request parameter: {:?}", e);
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::InvalidRequestParam(e.to_string()));
     }
 
     // construct the count query
@@ -54,15 +53,17 @@ async fn project_property_definitions_handler(
     let props_dbg: String = props_query_bldr.sql().into();
     let props_query = props_query_bldr.build();
 
-    // TODO(eli): DEBUG
+    // TODO: temporary, for quick debug in dev as we hone the queries
     warn!("COUNT QUERY: {:?}", &count_dbg);
     warn!("PROPS QUERY: {:?}", &props_dbg);
 
     let total_count: i64 = match qmgr.pool.fetch_one(count_query).await {
         Ok(row) => row.get(0),
-        Err(_e) => {
-            //panic!("COUNT QUERY ERROR: {:?}", e);
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        Err(e) => {
+            return Err(ApiError::QueryError(format!(
+                "in count query: {}",
+                e.to_string()
+            )))
         }
     };
 
@@ -88,9 +89,11 @@ async fn project_property_definitions_handler(
                 prop_defs.push(pd);
             }
         }
-        Err(_e) => {
-            //panic!("PROPS QUERY ERROR: {:?}", e);
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        Err(e) => {
+            return Err(ApiError::QueryError(format!(
+                "in prop defs query: {}",
+                e.to_string()
+            )))
         }
     }
 
@@ -298,37 +301,20 @@ pub struct Params {
 
 impl Params {
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L81-L96
-    pub fn valid(&self) -> Result<(), InvalidParamError> {
+    pub fn valid(&self) -> Result<()> {
         if self.property_type == PropertyParentType::Group && self.group_type_index <= 0 {
-            return Err(InvalidParamError(
-                "property_type 'group' requires 'group_type_index' parameter".to_string(),
-            ));
+            bail!("property_type 'group' requires 'group_type_index' parameter");
         }
 
         if self.property_type != PropertyParentType::Group && self.group_type_index != -1 {
-            return Err(InvalidParamError(
-                "parameter 'group_type_index' is only allowed with property_type 'group'"
-                    .to_string(),
-            ));
+            bail!("parameter 'group_type_index' is only allowed with property_type 'group'");
         }
 
         if !self.event_names.is_empty() && self.property_type != PropertyParentType::Event {
-            return Err(InvalidParamError(
-                "parameter 'event_names' is only allowed with property_type 'event'".to_string(),
-            ));
+            bail!("parameter 'event_names' is only allowed with property_type 'event'");
         }
 
         Ok(())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct InvalidParamError(String);
-impl error::Error for InvalidParamError {}
-
-impl fmt::Display for InvalidParamError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "invalid request parameter: {}", self.0)
     }
 }
 
@@ -350,10 +336,10 @@ pub struct PropDef {
     is_seen_on_filtered_events: Option<String>, // VALIDATE THIS!
 
     // enterprise prop defs only fields below
-    updated_at: Option<String>, // UTC ISO8601
+    updated_at: Option<DateTime<Utc>>,
     updated_by: Option<Person>,
     verified: Option<bool>,
-    verified_at: Option<String>, // UTC ISO8601
+    verified_at: Option<DateTime<Utc>>,
     verified_by: Option<Person>,
     description: Option<String>,
     tags: Vec<String>,

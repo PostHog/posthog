@@ -4374,6 +4374,7 @@ dependencies = [
  "serde_json",
  "serve-metrics",
  "sqlx",
+ "thiserror",
  "time",
  "tokio",
  "tracing",
