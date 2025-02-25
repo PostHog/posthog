@@ -40,7 +40,7 @@ import { surveysLogic } from './surveysLogic'
 import {
     calculateNpsBreakdown,
     calculateNpsScore,
-    getSurveyResponseKey as getResponseField,
+    getSurveyResponseKey,
     getSurveyResponseKeyWithId,
     sanitizeHTML,
     sanitizeSurveyAppearance,
@@ -149,9 +149,9 @@ export interface SurveyDateRange {
 }
 
 // New function that supports both index-based and ID-based approaches
-const getResponseFieldWithId = (questionIndex: number, questionId?: string): string[] => {
+export const getResponseFieldWithId = (questionIndex: number, questionId?: string): string[] => {
     // Always include the index-based key for backward compatibility
-    const keys = [getResponseField(questionIndex)]
+    const keys = [getSurveyResponseKey(questionIndex)]
 
     // If we have a question ID, also include the ID-based key
     if (questionId) {
@@ -162,7 +162,7 @@ const getResponseFieldWithId = (questionIndex: number, questionId?: string): str
 }
 
 // Helper function to generate the HogQL condition for checking survey responses in both formats
-const getResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
+export const getResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
     const fields = getResponseFieldWithId(questionIndex, questionId)
 
     // For ClickHouse, we need to use coalesce to check both fields
@@ -174,7 +174,7 @@ const getResponseFieldCondition = (questionIndex: number, questionId?: string): 
 }
 
 // Helper function to generate the HogQL condition for checking multiple choice survey responses in both formats
-const getMultipleChoiceResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
+export const getMultipleChoiceResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
     const fields = getResponseFieldWithId(questionIndex, questionId)
 
     // For multiple choice, we need to check if either field has a value and use that one
