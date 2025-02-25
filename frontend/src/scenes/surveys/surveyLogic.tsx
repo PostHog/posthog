@@ -1259,25 +1259,31 @@ export const surveyLogic = kea<surveyLogicType>([
                     const questionResults = surveyRatingResults[questionIdx]
 
                     // If we don't have any results, return 'No data available' instead of NaN.
-                    if (questionResults.total === 0) {
+                    if (questionResults.total === 0 || !questionResults) {
                         return 'No data available'
                     }
 
-                    const data: number[] = questionResults.data
-                    if (data.length === 11) {
-                        return calculateNpsScore(calculateNpsBreakdown(questionResults)).toFixed(1)
+                    const npsBreakdown = calculateNpsBreakdown(questionResults)
+                    if (!npsBreakdown) {
+                        return null
                     }
+
+                    return calculateNpsScore(npsBreakdown).toFixed(1)
                 }
             },
         ],
         npsBreakdown: [
             (s) => [s.surveyRatingResults],
             (surveyRatingResults) => {
-                if (!surveyRatingResults) {
+                const surveyRatingKeys = Object.keys(surveyRatingResults ?? {})
+                if (surveyRatingKeys.length === 0) {
                     return null
                 }
-                const questionIdx = Object.keys(surveyRatingResults)[0]
+                const questionIdx = surveyRatingKeys[0]
                 const questionResults = surveyRatingResults[questionIdx]
+                if (!questionResults) {
+                    return null
+                }
 
                 return calculateNpsBreakdown(questionResults)
             },
@@ -1436,11 +1442,16 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey: Survey): IntervalType => {
                 const start = getSurveyStartDateForQuery(survey)
                 const end = getSurveyEndDateForQuery(survey)
+                const diffInDays = dayjs(end).diff(dayjs(start), 'days')
                 const diffInWeeks = dayjs(end).diff(dayjs(start), 'weeks')
 
+                if (diffInDays < 2) {
+                    return 'hour'
+                }
                 if (diffInWeeks <= 4) {
                     return 'day'
-                } else if (diffInWeeks <= 12) {
+                }
+                if (diffInWeeks <= 12) {
                     return 'week'
                 }
                 return 'month'

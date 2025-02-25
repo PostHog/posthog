@@ -57,6 +57,7 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
 
 STREAMING_NODES: set[AssistantNodeName] = {
     AssistantNodeName.ROOT,
+    AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
 }
@@ -246,6 +247,8 @@ class Assistant:
                 return ReasoningMessage(content="Creating funnel query")
             case AssistantNodeName.RETENTION_GENERATOR:
                 return ReasoningMessage(content="Creating retention query")
+            case AssistantNodeName.INKEEP_DOCS:
+                return ReasoningMessage(content="Checking PostHog docs")
             case _:
                 return None
 
@@ -282,14 +285,14 @@ class Assistant:
             if node_val := state_update.get(node_name):
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
-                    message = node_val.messages[0]
-                    # Filter out tool calls and empty assistant messages
-                    if not isinstance(message, AssistantToolCallMessage) and (
-                        not isinstance(message, AssistantMessage)
-                        or isinstance(message, AssistantMessage)
-                        and message.content
-                    ):
-                        return message
+                    for candidate_message in node_val.messages:
+                        # Filter out tool calls and empty assistant messages
+                        if not isinstance(candidate_message, AssistantToolCallMessage) and (
+                            not isinstance(candidate_message, AssistantMessage)
+                            or isinstance(candidate_message, AssistantMessage)
+                            and candidate_message.content
+                        ):
+                            return candidate_message
 
         return None
 

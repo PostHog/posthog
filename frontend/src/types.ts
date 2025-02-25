@@ -4141,6 +4141,11 @@ export interface DataWarehouseViewLink {
     }
 }
 
+export interface QueryTabState {
+    id: string
+    state: Record<string, any>
+}
+
 export enum DataWarehouseSettingsTab {
     Managed = 'managed',
     SelfManaged = 'self-managed',
@@ -4723,14 +4728,13 @@ export interface HogFunctionFilterActions extends HogFunctionFilterBase {
     type: 'actions'
 }
 
-export type HogFunctionFilterPropertyFilter = (
+export type HogFunctionFilterPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
-)[]
 
 export interface HogFunctionFiltersType {
     events?: HogFunctionFilterEvents[]

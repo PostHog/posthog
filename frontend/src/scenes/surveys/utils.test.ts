@@ -1,3 +1,5 @@
+import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+
 import { SurveyAppearance } from '~/types'
 
 import {
@@ -148,49 +150,40 @@ describe('survey utils', () => {
 
     describe('calculateNpsBreakdown', () => {
         it('returns all zeros when surveyRatingResults is empty', () => {
-            const surveyResults: any = []
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [],
+                total: 0,
+            }
 
             const result = calculateNpsBreakdown(surveyResults)
 
-            expect(result).toEqual({
-                detractors: 0,
-                passives: 0,
-                promoters: 0,
-                total: 0,
-            })
+            expect(result).toBeNull()
         })
 
         it('returns all zeros when data array is missing', () => {
-            const surveyResults: any = [{}]
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [],
+                total: 0,
+            }
 
             const result = calculateNpsBreakdown(surveyResults)
 
-            expect(result).toEqual({
-                detractors: 0,
-                passives: 0,
-                promoters: 0,
-                total: 0,
-            })
+            expect(result).toBeNull()
         })
 
         it('returns all zeros when data array has incorrect length', () => {
-            const surveyResults = {
+            const surveyResults: SurveyRatingResults[number] = {
                 data: [1, 2, 3], // Less than 11 elements
                 total: 6,
             }
 
             const result = calculateNpsBreakdown(surveyResults)
 
-            expect(result).toEqual({
-                detractors: 0,
-                passives: 0,
-                promoters: 0,
-                total: 0,
-            })
+            expect(result).toBeNull()
         })
 
         it('returns early with all zeros when total is 0', () => {
-            const surveyResults = {
+            const surveyResults: SurveyRatingResults[number] = {
                 data: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], // despite having some counts in data
                 total: 0, // total is explicitly 0
             }
@@ -206,7 +199,7 @@ describe('survey utils', () => {
         })
 
         it('correctly calculates NPS breakdown with all categories present', () => {
-            const surveyResults = {
+            const surveyResults: SurveyRatingResults[number] = {
                 data: [
                     1,
                     1,
@@ -234,7 +227,7 @@ describe('survey utils', () => {
         })
 
         it('handles all zeros', () => {
-            const surveyResults = {
+            const surveyResults: SurveyRatingResults[number] = {
                 data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 total: 0,
             }
@@ -250,7 +243,7 @@ describe('survey utils', () => {
         })
 
         it('handles only promoters', () => {
-            const surveyResults = {
+            const surveyResults: SurveyRatingResults[number] = {
                 data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5], // only 9s and 10s
                 total: 10,
             }
@@ -266,7 +259,7 @@ describe('survey utils', () => {
         })
 
         it('handles only passives', () => {
-            const surveyResults = {
+            const surveyResults: SurveyRatingResults[number] = {
                 data: [0, 0, 0, 0, 0, 0, 0, 5, 5, 0, 0], // only 7s and 8s
                 total: 10,
             }
@@ -282,7 +275,7 @@ describe('survey utils', () => {
         })
 
         it('handles only detractors', () => {
-            const surveyResults = {
+            const surveyResults: SurveyRatingResults[number] = {
                 data: [2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0], // only 0-6
                 total: 14,
             }

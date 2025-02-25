@@ -58,24 +58,22 @@ export type NPSBreakdown = {
     detractors: number
 }
 
-export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[number]): NPSBreakdown {
+export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[number]): NPSBreakdown | null {
     // Validate input structure
-    if (!surveyRatingResults.data) {
-        return { total: 0, promoters: 0, passives: 0, detractors: 0 }
-    }
-
-    // Validate data array length
-    if (surveyRatingResults.data.length !== 11) {
-        return { total: 0, promoters: 0, passives: 0, detractors: 0 }
+    if (!surveyRatingResults.data || surveyRatingResults.data.length !== 11) {
+        return null
     }
 
     if (surveyRatingResults.total === 0) {
         return { total: 0, promoters: 0, passives: 0, detractors: 0 }
     }
 
-    const promoters = surveyRatingResults.data.slice(9, 11).reduce((a, b) => a + b, 0)
-    const passives = surveyRatingResults.data.slice(7, 9).reduce((a, b) => a + b, 0)
-    const detractors = surveyRatingResults.data.slice(0, 7).reduce((a, b) => a + b, 0)
+    const PROMOTER_MIN = 9
+    const PASSIVE_MIN = 7
+
+    const promoters = surveyRatingResults.data.slice(PROMOTER_MIN, 11).reduce((a, b) => a + b, 0)
+    const passives = surveyRatingResults.data.slice(PASSIVE_MIN, PROMOTER_MIN).reduce((a, b) => a + b, 0)
+    const detractors = surveyRatingResults.data.slice(0, PASSIVE_MIN).reduce((a, b) => a + b, 0)
     return { total: surveyRatingResults.total, promoters, passives, detractors }
 }
 
