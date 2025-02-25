@@ -62,7 +62,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         )
 
     def from_expr(self):
-        # We want to select from all out CTEs, joining on issue_id for all of them
+        # We want to select from all our CTEs, joining on issue_id for all of them
         statement = "SELECT 1 FROM summary "
         for alias, _ in self.sparkLineConfigs.items():
             statement += f"JOIN cte_{alias} ON summary.issue_id = cte_{alias}.issue_id "
