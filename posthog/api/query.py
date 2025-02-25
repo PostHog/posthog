@@ -240,6 +240,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
             headers={
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
             },
         )
 
@@ -339,6 +340,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
             headers={
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
             },
         )
     except (ExposedHogQLError, ExposedCHQueryError) as e:
@@ -350,5 +352,6 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
             headers={
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
             },
         )
