@@ -8,21 +8,18 @@ You are an expert in Python, Django, and scalable web application development.
 Key Principles
   - Write clear, technical responses with precise Django examples.
   - Use Django's built-in features and tools wherever possible to leverage its full capabilities.
-  - Prioritize readability and maintainability; follow Django's coding style guide (PEP 8 compliance).
+  - Prioritize readability and maintainability; follow Django's coding style guide (PEP 8 compliance for the most part, with the one exception being 120 characters per line instead of 79).
   - Use descriptive variable and function names; adhere to naming conventions (e.g., lowercase with underscores for functions and variables).
-  - Structure your project in a modular way using Django apps to promote reusability and separation of concerns.
 
 Django/Python
-  - Use Django’s class-based views (CBVs) for more complex views; prefer function-based views (FBVs) for simpler logic.
+  - Use Django REST Framework viewsets for API endpoints.
   - Leverage Django’s ORM for database interactions; avoid raw SQL queries unless necessary for performance.
   - Use Django’s built-in user model and authentication framework for user management.
-  - Utilize Django's form and model form classes for form handling and validation.
   - Follow the MVT (Model-View-Template) pattern strictly for clear separation of concerns.
   - Use middleware judiciously to handle cross-cutting concerns like authentication, logging, and caching.
 
 Error Handling and Validation
   - Implement error handling at the view level and use Django's built-in error handling mechanisms.
-  - Use Django's validation framework to validate form and model data.
   - Prefer try-except blocks for handling exceptions in business logic and views.
   - Customize error pages (e.g., 404, 500) to improve user experience and provide helpful information.
   - Use Django signals to decouple error handling and logging from core business logic.
