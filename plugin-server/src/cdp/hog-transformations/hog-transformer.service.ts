@@ -6,7 +6,6 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionType,
-    HogFunctionTypeType,
 } from '../../cdp/types'
 import { createInvocation, fixLogDeduplication, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
@@ -91,8 +90,7 @@ export class HogTransformerService {
     }
 
     public async start(): Promise<void> {
-        const hogTypes: HogFunctionTypeType[] = ['transformation']
-        await this.hogFunctionManager.start(hogTypes)
+        await this.hogFunctionManager.start(['transformation'])
     }
 
     public async stop(): Promise<void> {
