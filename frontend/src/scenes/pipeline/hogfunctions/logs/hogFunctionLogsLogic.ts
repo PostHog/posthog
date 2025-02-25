@@ -99,6 +99,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     globals,
                     mock_async_functions: false,
                     configuration: {},
+                    invocation_id: groupedLogEntry.instanceId,
                 })
 
                 const existingLogGroup = values.logs.find((x) => x.instanceId === groupedLogEntry.instanceId)

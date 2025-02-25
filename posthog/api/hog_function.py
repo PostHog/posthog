@@ -315,6 +315,7 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
     mock_async_functions = serializers.BooleanField(default=True, write_only=True)
     status = serializers.CharField(read_only=True)
     logs = serializers.ListField(read_only=True)
+    invocation_id = serializers.CharField(required=False, allow_null=True)
 
 
 class HogFunctionViewSet(

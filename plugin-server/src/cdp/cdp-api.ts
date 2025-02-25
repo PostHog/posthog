@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 
 import { Hub, PluginServerService } from '../types'
 import { status } from '../utils/status'
-import { delay, UUIDT } from '../utils/utils'
+import { delay, UUID, UUIDT } from '../utils/utils'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { FetchExecutorService } from './services/fetch-executor.service'
@@ -114,12 +114,20 @@ export class CdpApi {
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { globals, mock_async_functions, configuration } = req.body
+            const { globals, mock_async_functions, configuration, invocation_id } = req.body
 
             status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
 
             if (!globals || !globals.event) {
                 res.status(400).json({ error: 'Missing event' })
+                return
+            }
+
+            const invocationID = invocation_id ?? new UUIDT().toString()
+
+            // Check the invocationId is a valid UUID
+            if (!UUID.validateString(invocationID)) {
+                res.status(400).json({ error: 'Invalid invocation ID' })
                 return
             }
 
@@ -189,6 +197,7 @@ export class CdpApi {
                 for (const _invocation of invocations) {
                     let count = 0
                     let invocation = _invocation
+                    invocation.id = invocationID
 
                     while (!lastResponse || !lastResponse.finished) {
                         if (count > MAX_ASYNC_STEPS * 2) {

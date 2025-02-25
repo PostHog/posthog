@@ -2009,6 +2009,7 @@ const api = {
                 configuration: Record<string, any>
                 mock_async_functions: boolean
                 globals: any
+                invocation_id?: string
             }
         ): Promise<HogFunctionTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
