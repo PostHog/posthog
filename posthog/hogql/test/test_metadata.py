@@ -7,6 +7,57 @@ from posthog.models import Cohort, PropertyDefinition
 from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLQuery
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+explain_plan_0 = """
+[
+  {
+    "Plan": {
+      "Node Type": "Expression",
+      "Description": "(Project names + Projection)",
+      "Plans": [
+        {
+          "Node Type": "Expression",
+          "Plans": [
+            {
+              "Node Type": "ReadFromMergeTree",
+              "Description": "default.sharded_events",
+              "Indexes": [
+                {
+                  "Type": "MinMax",
+                  "Keys": ["timestamp"],
+                  "Condition": "(timestamp in ('1735828351', +Inf))",
+                  "Initial Parts": 7,
+                  "Selected Parts": 3,
+                  "Initial Granules": 14,
+                  "Selected Granules": 9
+                },
+                {
+                  "Type": "Partition",
+                  "Keys": ["toYYYYMM(timestamp)"],
+                  "Condition": "(toYYYYMM(timestamp) in [202501, +Inf))",
+                  "Initial Parts": 3,
+                  "Selected Parts": 3,
+                  "Initial Granules": 9,
+                  "Selected Granules": 9
+                },
+                {
+                  "Type": "PrimaryKey",
+                  "Keys": ["team_id", "toDate(timestamp)"],
+                  "Condition": "and((toDate(timestamp) in [20090, +Inf)), (team_id in [1, 1]))",
+                  "Initial Parts": 3,
+                  "Selected Parts": 3,
+                  "Initial Granules": 9,
+                  "Selected Granules": 9
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
+"""
+
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
