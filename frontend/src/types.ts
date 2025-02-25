@@ -4740,7 +4740,7 @@ export type HogFunctionFilterPropertyFilter = (
 export interface HogFunctionFiltersType {
     events?: HogFunctionFilterEvents[]
     actions?: HogFunctionFilterActions[]
-    properties?: HogFunctionFilterPropertyFilter[]
+    properties?: HogFunctionFilterPropertyFilter
     filter_test_accounts?: boolean
     bytecode?: any[]
     bytecode_error?: string
