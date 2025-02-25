@@ -347,19 +347,7 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
 def count_delta_table_rows(delta_table: DeltaTable) -> int:
     """
     Count the number of rows in a Delta table using metadata.
-    For large tables, we can use Delta table metadata instead of loading the entire table
     """
-
-    try:
-        # Try to get row count from table metadata
-        stats = delta_table.get_stats()
-        if "numRecords" in stats:
-            return stats["numRecords"]
-    except (AttributeError, KeyError):
-        pass
-
-    # Fallback: Count rows by scanning the table
-    # This is more efficient than loading the entire table into memory
     count = 0
     for batch in delta_table.to_pyarrow_dataset().to_batches():
         count += len(batch)
@@ -367,7 +355,7 @@ def count_delta_table_rows(delta_table: DeltaTable) -> int:
 
 
 async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count: int) -> None:
-    """Update the row count in the DataWarehouseTable record."""
+    """Update the row count in the DataWarehouseTable record. `saved_query` name is unique per team."""
     try:
         table = await database_sync_to_async(
             DataWarehouseTable.objects.filter(team_id=saved_query.team_id, name=saved_query.name).first
