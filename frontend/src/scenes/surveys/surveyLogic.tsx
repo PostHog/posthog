@@ -1259,7 +1259,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     const questionResults = surveyRatingResults[questionIdx]
 
                     // If we don't have any results, return 'No data available' instead of NaN.
-                    if (questionResults.total === 0) {
+                    if (questionResults.total === 0 || !questionResults) {
                         return 'No data available'
                     }
 
@@ -1281,6 +1281,9 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 const questionIdx = surveyRatingKeys[0]
                 const questionResults = surveyRatingResults[questionIdx]
+                if (!questionResults) {
+                    return null
+                }
 
                 return calculateNpsBreakdown(questionResults)
             },
