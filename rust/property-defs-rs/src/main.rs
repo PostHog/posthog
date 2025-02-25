@@ -35,6 +35,7 @@ pub async fn index() -> &'static str {
 
 fn start_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
     let api_ctx = context.clone();
+
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
