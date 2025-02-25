@@ -1,7 +1,8 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -309,10 +310,12 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
             actions.resetCollapsedRows()
         },
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadEvents()
-            actions.loadTotalEvents()
+    subscriptions(({ actions, values }) => ({
+        matchingFilters: () => {
+            if (values.configuration?.name) {
+                actions.loadEvents()
+                actions.loadTotalEvents()
+            }
         },
     })),
 ])
