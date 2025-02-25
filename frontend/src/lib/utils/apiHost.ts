@@ -1,3 +1,5 @@
+import { getAppContext } from './getAppContext'
+
 export function apiHostOrigin(): string {
     const appOrigin = window.location.origin
     if (appOrigin === 'https://us.posthog.com') {
@@ -10,6 +12,8 @@ export function apiHostOrigin(): string {
 
 export function liveEventsHostOrigin(): string | null {
     const appOrigin = window.location.origin
+    const appContext = getAppContext()
+
     if (appOrigin === 'https://us.posthog.com') {
         return 'https://live.us.posthog.com'
     } else if (appOrigin === 'https://eu.posthog.com') {
@@ -20,5 +24,5 @@ export function liveEventsHostOrigin(): string | null {
         return 'http://localhost:6006'
     }
 
-    return 'http://localhost:8666'
+    return appContext?.livestream_host || 'http://localhost:8666'
 }
