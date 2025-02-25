@@ -8,10 +8,12 @@ import {
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
+import { RecordedHttpCall } from '../../utils/recorded-fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
 import { WebhookFormatter } from '../ingestion/webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
+import { getHttpCallRecorder } from '../vm/imports'
 
 const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
 
@@ -33,10 +35,51 @@ async function runSingleTeamPluginOnEvent(
     const onEventPayload = convertToOnEventPayload(event)
 
     try {
+        // Check if we should record HTTP calls
+        const recordHttpCalls = hub.DESTINATION_MIGRATION_DIFFING_ENABLED === true && hub.TASKS_PER_WORKER === 10
+
+        if (recordHttpCalls) {
+            // Clear the HTTP call recorder before running the plugin
+            getHttpCallRecorder().clearCalls()
+        }
+
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
             await onEvent(onEventPayload)
+
+            if (recordHttpCalls) {
+                // Get recorded HTTP calls
+                const recordedCalls = getHttpCallRecorder().getCalls()
+
+                // Log information about recorded HTTP calls
+                if (recordedCalls.length > 0) {
+                    status.info(
+                        '🌐',
+                        `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
+                            recordedCalls.length
+                        } HTTP calls during onEvent for event ${event.eventUuid || 'unknown'}`
+                    )
+
+                    // Log details about each call
+                    recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
+                        status.info(
+                            '🌐',
+                            `Event ${event.eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
+                                call.request.url
+                            } - Status: ${call.response.status}`
+                        )
+
+                        // Log errors if any
+                        if (call.error) {
+                            status.error(
+                                '🌐',
+                                `Event ${event.eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`
+                            )
+                        }
+                    })
+                }
+            }
 
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')
@@ -48,6 +91,38 @@ async function runSingleTeamPluginOnEvent(
                 successes: 1,
             })
         } catch (error) {
+            if (recordHttpCalls) {
+                // Get recorded HTTP calls even if the plugin failed
+                const recordedCalls = getHttpCallRecorder().getCalls()
+
+                if (recordedCalls.length > 0) {
+                    status.info(
+                        '🌐',
+                        `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
+                            recordedCalls.length
+                        } HTTP calls before failing for event ${event.eventUuid || 'unknown'}`
+                    )
+
+                    // Log details about each call
+                    recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
+                        status.info(
+                            '🌐',
+                            `Event ${event.eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
+                                call.request.url
+                            } - Status: ${call.response.status}`
+                        )
+
+                        // Log errors if any
+                        if (call.error) {
+                            status.error(
+                                '🌐',
+                                `Event ${event.eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`
+                            )
+                        }
+                    })
+                }
+            }
+
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'error')
                 .observe(new Date().getTime() - timer.getTime())
@@ -64,6 +139,9 @@ async function runSingleTeamPluginOnEvent(
                     event,
                 }
             )
+        } finally {
+            // Clear the recorder to prevent memory leaks
+            getHttpCallRecorder().clearCalls()
         }
     } finally {
         clearTimeout(timeout)
@@ -105,7 +183,7 @@ async function runSingleTeamPluginComposeWebhook(
                     team,
                     siteUrl: hub.SITE_URL || '',
                     // TODO: What about pluginConfig.name ?
-                    sourceName: pluginConfig.plugin.name || 'Unnamed plugin',
+                    sourceName: pluginConfig.plugin?.name || 'Unnamed plugin',
                     sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
                 })
                 maybeWebhook = webhookFormatter.composeWebhook()
