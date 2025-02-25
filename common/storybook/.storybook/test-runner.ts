@@ -158,7 +158,7 @@ async function takeSnapshotWithTheme(page: Page, context: TestContext, browser: 
     // Wait until we're sure we've finished loading everything
     await waitForPageReady(page)
     await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
-    await page.waitForTimeout(100)
+    await page.waitForTimeout(2000)
 
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
