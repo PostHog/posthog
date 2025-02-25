@@ -196,7 +196,7 @@ export function Customization({
                         className="mt-2"
                         label="Font family"
                         // TODO: Update this info when we have a version of posthog-js that supports this
-                        info="Requires at least version [XXX] of posthog-js"
+                        info="Custom font selection requires at least version [XXX] of posthog-js"
                     >
                         <LemonSelect
                             value={appearance?.fontFamily}
