@@ -20,7 +20,7 @@ export interface RecordedResponse {
 }
 
 export interface RecordedHttpCall {
-    id: UUIDT
+    id: string
     request: RecordedRequest
     response: RecordedResponse
     error?: Error
@@ -52,7 +52,7 @@ export async function recordedFetch(
     url: RequestInfo,
     init?: RequestInit
 ): Promise<Response> {
-    const id = new UUIDT()
+    const id = new UUIDT().toString()
     const requestTimestamp = new Date()
 
     // Clone the request init to avoid modifying the original
