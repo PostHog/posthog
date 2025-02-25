@@ -10,6 +10,8 @@ import { HogFunctionInvocationGlobals } from '~/types'
 
 import { GroupedLogEntry, logsViewerLogic, LogsViewerLogicProps } from './logsViewerLogic'
 
+import type { hogFunctionLogsLogicType } from './hogFunctionLogsLogicType'
+
 export type RetryInvocationState = 'pending' | 'success' | 'failure'
 
 const loadEventGlobals = async (eventId: string): Promise<Pick<HogFunctionInvocationGlobals, 'event' | 'person'>> => {
@@ -44,7 +46,7 @@ const loadEventGlobals = async (eventId: string): Promise<Pick<HogFunctionInvoca
     }
 }
 
-export const hogFunctionLogsLogic = kea([
+export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
     path((key) => ['scenes', 'pipeline', 'hogfunctions', 'logs', 'hogFunctionLogsLogic', key]),
     props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
     key(({ sourceType, sourceId }) => `${sourceType}:${sourceId}`),

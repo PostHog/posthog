@@ -109,7 +109,7 @@ function HogFunctionLogsStatus({
                     {
                         label: 'Retry event',
                         disabledReason: !eventId ? 'Could not find the source event' : undefined,
-                        onClick: () => retryInvocation(record, eventId),
+                        onClick: () => retryInvocation(record, eventId!),
                     },
                 ]}
             >
