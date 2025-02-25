@@ -1280,7 +1280,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     return null
                 }
                 const questionIdx = surveyRatingKeys[0]
-                const questionResults = surveyRatingResults?.[questionIdx]
+                const questionResults = surveyRatingResults[questionIdx]
                 if (!questionResults) {
                     return null
                 }
