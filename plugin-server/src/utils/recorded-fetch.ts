@@ -1,6 +1,7 @@
 import { Headers, RequestInfo, RequestInit, Response } from 'node-fetch'
 
 import { trackedFetch } from './fetch'
+import { UUIDT } from './utils'
 
 export interface RecordedRequest {
     url: string
@@ -19,7 +20,7 @@ export interface RecordedResponse {
 }
 
 export interface RecordedHttpCall {
-    id: string
+    id: UUIDT
     request: RecordedRequest
     response: RecordedResponse
     error?: Error
@@ -51,7 +52,7 @@ export async function recordedFetch(
     url: RequestInfo,
     init?: RequestInit
 ): Promise<Response> {
-    const id = generateCallId()
+    const id = new UUIDT()
     const requestTimestamp = new Date()
 
     // Clone the request init to avoid modifying the original
@@ -122,13 +123,6 @@ export async function recordedFetch(
 
         throw error
     }
-}
-
-/**
- * Generate a unique ID for a recorded HTTP call
- */
-function generateCallId(): string {
-    return `call_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
 }
 
 /**
