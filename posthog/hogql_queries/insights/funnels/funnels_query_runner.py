@@ -19,7 +19,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvert
 from posthog.hogql_queries.insights.funnels.funnel_trends import FunnelTrends
 from posthog.hogql_queries.insights.funnels.funnel_trends_udf import FunnelTrendsUDF
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class, use_udf
+from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -105,17 +105,11 @@ class FunnelsQueryRunner(QueryRunner):
         if response.timings is not None:
             timings.extend(response.timings)
 
-        return FunnelsQueryResponse(
-            isUdf=self._use_udf, results=results, timings=timings, hogql=hogql, modifiers=self.modifiers
-        )
-
-    @cached_property
-    def _use_udf(self):
-        return use_udf(self.context.funnelsFilter, self.team)
+        return FunnelsQueryResponse(isUdf=True, results=results, timings=timings, hogql=hogql, modifiers=self.modifiers)
 
     @cached_property
     def funnel_order_class(self):
-        return get_funnel_order_class(self.context.funnelsFilter, use_udf=self._use_udf)(context=self.context)
+        return get_funnel_order_class(self.context.funnelsFilter, use_udf=True)(context=self.context)
 
     @cached_property
     def funnel_class(self):
@@ -124,7 +118,7 @@ class FunnelsQueryRunner(QueryRunner):
         if funnelVizType == FunnelVizType.TRENDS:
             return (
                 FunnelTrendsUDF(context=self.context, **self.kwargs)
-                if self._use_udf and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+                if self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
                 else FunnelTrends(context=self.context, **self.kwargs)
             )
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
@@ -134,7 +128,7 @@ class FunnelsQueryRunner(QueryRunner):
 
     @cached_property
     def funnel_actor_class(self):
-        return get_funnel_actor_class(self.context.funnelsFilter, self._use_udf)(context=self.context)
+        return get_funnel_actor_class(self.context.funnelsFilter, True)(context=self.context)
 
     @cached_property
     def query_date_range(self):
