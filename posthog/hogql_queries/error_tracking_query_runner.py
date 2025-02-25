@@ -35,7 +35,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
     response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
-    sparklineConfigs: dict[str, ErrorTrackingSparklineConfig]
+    sparkLineConfigs: dict[str, ErrorTrackingSparklineConfig]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -58,23 +58,21 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ctes=self.ctes(),
             select=self.select(),
             select_from=self.from_expr(),
-            where=self.where(),
             order_by=self.order_by,
-            group_by=[ast.Field(chain=["issue_id"])],
         )
 
     def from_expr(self):
         # We want to select from all out CTEs, joining on issue_id for all of them
-        statement = "SELECT 1 FROM summary"
-        for alias, _ in self.sparklineConfigs.items():
-            statement += f"JOIN cte_{alias} ON summary.issue_id = cte_{alias}.issue_id"
+        statement = "SELECT 1 FROM summary "
+        for alias, _ in self.sparkLineConfigs.items():
+            statement += f"JOIN cte_{alias} ON summary.issue_id = cte_{alias}.issue_id "
 
         return parse_select(statement).select_from  # type: ignore
 
     def select(self):
         exprs: list[ast.Expr] = [
             ast.Alias(alias="id", expr=parse_expr("summary.issue_id")),
-            ast.Alias(alias="occurrences", expr=parse_expr("summary.issue_id")),
+            ast.Alias(alias="occurrences", expr=parse_expr("summary.occurrences")),
             ast.Alias(alias="sessions", expr=parse_expr("summary.sessions")),
             ast.Alias(alias="users", expr=parse_expr("summary.users")),
             ast.Alias(alias="last_seen", expr=parse_expr("summary.first_seen")),
@@ -378,7 +376,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         outer = ast.SelectQuery(
             ctes={"inner": inner_cte},
             select=[parse_expr("inner.issue_id"), parse_expr("groupArray(inner.count) as count")],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["inner"])),
             group_by=[ast.Field(chain=["issue_id"])],
         )
 
