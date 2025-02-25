@@ -1,3 +1,4 @@
+from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
@@ -17,6 +18,9 @@ class EventDefinition(UUIDModel):
     name = models.CharField(max_length=400)
     created_at = models.DateTimeField(default=timezone.now, null=True)
     last_seen_at = models.DateTimeField(default=None, null=True)
+
+    # Default columns to show for this event in the data table
+    default_event_columns = ArrayField(models.TextField(), null=True, blank=True)
 
     # DEPRECATED
     # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously every other blue moon)
