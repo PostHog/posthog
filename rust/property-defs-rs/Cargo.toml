@@ -26,6 +26,7 @@ ahash = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
 url =  { workspace = true }
+anyhow = { workspace = true }
 
 [lints]
 workspace = true
