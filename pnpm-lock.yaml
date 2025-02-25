@@ -30,7 +30,7 @@ importers:
         specifier: ~15.4.3
         version: 15.4.3
       turbo:
-        specifier: ^2.3.4
+        specifier: ^2.4.2
         version: 2.4.2
     optionalDependencies:
       fsevents:
@@ -313,6 +313,9 @@ importers:
       babel-preset-nano-react-app:
         specifier: ^0.1.0
         version: 0.1.0
+      buffer:
+        specifier: ^6.0.3
+        version: 6.0.3
       css-loader:
         specifier: ^3.4.2
         version: 3.6.0(webpack@5.88.2)
@@ -538,8 +541,8 @@ importers:
         specifier: workspace:*
         version: link:../common/esbuilder
       '@posthog/hogvm':
-        specifier: ^1.0.67
-        version: 1.0.67(luxon@3.5.0)
+        specifier: workspace:*
+        version: link:../common/hogvm/typescript
       '@posthog/icons':
         specifier: 0.11.1
         version: 0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -775,8 +778,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.221.1
-        version: 1.221.1
+        specifier: 1.223.3
+        version: 1.223.3(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1185,11 +1188,11 @@ importers:
         specifier: ^1.7.0
         version: 1.7.0
       '@posthog/cyclotron':
-        specifier: file:../rust/cyclotron-node
+        specifier: workspace:*
         version: link:../rust/cyclotron-node
       '@posthog/hogvm':
-        specifier: ^1.0.67
-        version: 1.0.67(luxon@3.5.0)
+        specifier: workspace:*
+        version: link:../common/hogvm/typescript
       '@posthog/plugin-scaffold':
         specifier: 1.4.4
         version: 1.4.4
@@ -1380,6 +1383,9 @@ importers:
       '@types/jest':
         specifier: ^29.5.14
         version: 29.5.14
+      '@types/kafkajs-snappy':
+        specifier: ^1.0.0
+        version: 1.0.0
       '@types/long':
         specifier: 4.x.x
         version: 4.0.2
@@ -4154,11 +4160,6 @@ packages:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
 
-  '@posthog/hogvm@1.0.67':
-    resolution: {integrity: sha512-kSAtW2rN8z16SOS7PvCfqOBFpg9E+aeuKlkLHaDbUSAG5Rf34n9Nq7t4d4iyfn9YHVTCzFvDGDPvKbbOXg5HBA==}
-    peerDependencies:
-      luxon: ^3.4.4
-
   '@posthog/icons@0.11.1':
     resolution: {integrity: sha512-usNM3nAk1EuWut577qu2enGedfhrQLcRR0nLPYt0U3wt3YV7fKR9VSFbX/J2mcbF+bqdY89lAi6OQnHj6ZJo1A==}
     peerDependencies:
@@ -4727,6 +4728,9 @@ packages:
 
   '@remirror/types@1.0.0':
     resolution: {integrity: sha512-7HQbW7k8VxrAtfzs9FxwO6XSDabn8tSFDi1wwzShOnU+cvaYpfxu0ygyTk3TpXsag1hgFKY3ZIlAfB4WVz2LkQ==}
+
+  '@rrweb/types@2.0.0-alpha.17':
+    resolution: {integrity: sha512-AfDTVUuCyCaIG0lTSqYtrZqJX39ZEYzs4fYKnexhQ+id+kbZIpIJtaut5cto6dWZbB3SEe4fW0o90Po3LvTmfg==}
 
   '@sentry-internal/feedback@7.112.1':
     resolution: {integrity: sha512-ejE4eRXLqv5emxVWudBkRQCv5Q7s21thei7gqSxGLBXe8AUrCjTiD0qA1ToJAKcleIyRRf/TQvGb/T7U6vwAAw==}
@@ -5880,6 +5884,9 @@ packages:
 
   '@types/json5@0.0.29':
     resolution: {integrity: sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ==}
+
+  '@types/kafkajs-snappy@1.0.0':
+    resolution: {integrity: sha512-P0DdLdmn5z4foYpCVTMpEGVpfrHG7C6cpzeysxw79rfyESp5/k0wiCOfI4euDKsc6N/2+BHaNoTGwmNLmxCUWw==}
 
   '@types/leaflet@0.7.40':
     resolution: {integrity: sha512-R2UwXOKwnKZi9zNm37WbPTAVuqHmysE6NVihkc5DUrovTirUxFSbZzvXrlwv0n5sibe0w8VF1bWu0ta4kZlAaA==}
@@ -12661,8 +12668,10 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.221.1:
-    resolution: {integrity: sha512-Bq4lQdm3CsM5uj5FKqWrhihIUBc235oaTfkN77HodmY7kcN6juaYQZJlhffhVpS7fWJzCY/lrixhEM8Wuv3QIQ==}
+  posthog-js@1.223.3:
+    resolution: {integrity: sha512-ZQTc17M21IzkQmECJa2Xjont4tZrvIn252uGT3sTfmahTqZoW4j+kBj4eOJt9SNR6hOheFNkg7MSiI/rA6FaDA==}
+    peerDependencies:
+      '@rrweb/types': 2.0.0-alpha.17
 
   posthog-node@4.5.2:
     resolution: {integrity: sha512-dncxqeXUDwjr4UD9pYanPWsG7jQPe01ctTm7KqKAi5a9GeH3cEICHyw5Qw2SPXfcA6MZLypuFoCTPET/NOfDzw==}
@@ -13501,6 +13510,9 @@ packages:
 
   rope-sequence@1.3.3:
     resolution: {integrity: sha512-85aZYCxweiD5J8yTEbw+E6A27zSnLPNDL0WfPdw3YYodq7WjnTKo0q4dtyQ2gz23iPT8Q9CUyJtAaUNcTxRf5Q==}
+
+  rrweb-snapshot@2.0.0-alpha.18:
+    resolution: {integrity: sha512-hBHZL/NfgQX6wO1D9mpwqFu1NJPpim+moIcKhFEjVTZVRUfCln+LOugRc4teVTCISYHN8Cw5e2iNTWCSm+SkoA==}
 
   run-async@2.4.1:
     resolution: {integrity: sha512-tvVnVv01b8c1RrA6Ep7JkStj85Guv/YrMcwqYQnwjsAS2cTmmPGBBjAjpCW7RrSodNSoE2/qg9O4bceNvUuDgQ==}
@@ -19039,10 +19051,6 @@ snapshots:
 
   '@posthog/clickhouse@1.7.0': {}
 
-  '@posthog/hogvm@1.0.67(luxon@3.5.0)':
-    dependencies:
-      luxon: 3.5.0
-
   '@posthog/icons@0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
@@ -19603,6 +19611,10 @@ snapshots:
   '@remirror/types@1.0.0':
     dependencies:
       type-fest: 2.19.0
+
+  '@rrweb/types@2.0.0-alpha.17':
+    dependencies:
+      rrweb-snapshot: 2.0.0-alpha.18
 
   '@sentry-internal/feedback@7.112.1':
     dependencies:
@@ -21528,6 +21540,10 @@ snapshots:
   '@types/json-schema@7.0.15': {}
 
   '@types/json5@0.0.29': {}
+
+  '@types/kafkajs-snappy@1.0.0':
+    dependencies:
+      '@types/node': 18.18.4
 
   '@types/leaflet@0.7.40':
     dependencies:
@@ -29973,8 +29989,9 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.221.1:
+  posthog-js@1.223.3(@rrweb/types@2.0.0-alpha.17):
     dependencies:
+      '@rrweb/types': 2.0.0-alpha.17
       core-js: 3.40.0
       fflate: 0.4.8
       preact: 10.26.2
@@ -31002,6 +31019,10 @@ snapshots:
   robust-predicates@3.0.1: {}
 
   rope-sequence@1.3.3: {}
+
+  rrweb-snapshot@2.0.0-alpha.18:
+    dependencies:
+      postcss: 8.5.2
 
   run-async@2.4.1: {}
 

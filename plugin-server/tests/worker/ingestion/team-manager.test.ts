@@ -19,8 +19,10 @@ describe('TeamManager()', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        postgres = new PostgresRouter(defaultConfig, undefined)
+        postgres = new PostgresRouter(defaultConfig)
         teamManager = new TeamManager(postgres, defaultConfig)
+
+        // @ts-expect-error TODO: Fix underlying settings, is this really working?
         Settings.defaultZoneName = 'utc'
     })
 

@@ -1,3 +1,5 @@
+import { ProjectId } from '~/src/types'
+
 import { addGroupProperties } from '../../../src/worker/ingestion/groups'
 
 describe('addGroupProperties()', () => {
@@ -15,7 +17,9 @@ describe('addGroupProperties()', () => {
     })
 
     it('does nothing if no group properties', async () => {
-        expect(await addGroupProperties(2, 2, { foo: 'bar' }, mockGroupTypeManager)).toEqual({ foo: 'bar' })
+        expect(await addGroupProperties(2, 2 as ProjectId, { foo: 'bar' }, mockGroupTypeManager)).toEqual({
+            foo: 'bar',
+        })
 
         expect(mockGroupTypeManager.fetchGroupTypeIndex).not.toHaveBeenCalled()
     })
@@ -30,7 +34,7 @@ describe('addGroupProperties()', () => {
             },
         }
 
-        expect(await addGroupProperties(2, 2, properties, mockGroupTypeManager)).toEqual({
+        expect(await addGroupProperties(2, 2 as ProjectId, properties, mockGroupTypeManager)).toEqual({
             foo: 'bar',
             $groups: {
                 organization: 'PostHog',
