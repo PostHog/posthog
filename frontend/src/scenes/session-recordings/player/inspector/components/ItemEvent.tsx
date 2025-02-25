@@ -12,12 +12,12 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/event-property-utls'
-import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 import { useState } from 'react'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
+import { AIAIEventSummary, AIEventExpanded } from './AIEventItems'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
@@ -66,6 +66,10 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
             <SummarizeWebVitals properties={item.data.properties} />
         ) : item.data.elements.length ? (
             <AutocapturePreviewImage elements={item.data.elements} />
+        ) : item.data.event === '$ai_generation' ||
+          item.data.event === '$ai_span' ||
+          item.data.event === '$ai_trace' ? (
+            <AIAIEventSummary event={item.data} />
         ) : null
 
     return (
@@ -93,6 +97,10 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
 }
 
 export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
+    // // Check if this is an LLM-related event
+    const isAIEvent =
+        item.data.event === '$ai_generation' || item.data.event === '$ai_span' || item.data.event === '$ai_trace'
+
     const [activeTab, setActiveTab] = useState<
         | 'properties'
         | 'flags'
@@ -102,7 +110,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
         | '$set_once_properties'
         | 'raw'
         | 'conversation'
-    >('properties')
+    >(isAIEvent ? 'conversation' : 'properties')
 
     const insightUrl = insightUrlForEvent(item.data)
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
@@ -127,11 +135,6 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
             }
         }
     }
-
-    // // Check if this is an LLM-related event
-    // const isLLMEvent = item.data.event === '$ai_generation' ||
-    //                    item.data.event === '$ai_span' ||
-    //                    item.data.event === '$ai_trace'
 
     // Get trace ID for linking to LLM trace view
     const traceId = item.data.properties.$ai_trace_id
@@ -223,15 +226,11 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                       }
                                     : null,
                                 // Add conversation tab for $ai_generation events
-                                item.data.event === '$ai_generation'
+                                isAIEvent
                                     ? {
                                           key: 'conversation',
                                           label: 'Conversation',
-                                          content: (
-                                              <div className="py-2">
-                                                  <ConversationDisplay eventProperties={item.data.properties} />
-                                              </div>
-                                          ),
+                                          content: <AIEventExpanded event={item.data} />,
                                       }
                                     : null,
                                 Object.keys(setProperties).length > 0
