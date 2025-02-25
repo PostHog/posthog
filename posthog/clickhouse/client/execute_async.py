@@ -289,13 +289,15 @@ def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str
             logger.info("Revoked task id %s", query_status.task_id)
     except QueryNotFoundError:
         # Continue, to attempt to cancel the query even if it's not a task
-        if dequeue_only:
-            message = "Query not found, only tried to dequeue"
-        else:
-            from posthog.clickhouse.cancel import cancel_query_on_cluster
+        pass
 
-            cancel_query_on_cluster(team_id, query_id)
-            message = "Cancelled query on clickhouse"
+    if dequeue_only:
+        message = "Query not found, only tried to dequeue"
+    else:
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
+
+        cancel_query_on_cluster(team_id, query_id)
+        message = "Cancelled query on clickhouse"
 
     manager.delete_query_status()
 
