@@ -149,7 +149,7 @@ class PropertyFilterDescriber(BaseModel):
 
     def _describe_filter_with_value(self, key: str, operator: PropertyOperator, value: Any):
         if value is None:
-            formatted_value = "null"
+            formatted_value = None
         elif isinstance(value, list):
             formatted_value = ", ".join(str(v) for v in value)
         elif isinstance(value, float) and value.is_integer():
@@ -157,7 +157,10 @@ class PropertyFilterDescriber(BaseModel):
             formatted_value = str(int(value))
         else:
             formatted_value = str(value)
-        return f"`{key}` {PROPERTY_FILTER_VERBOSE_NAME[operator]} `{formatted_value}`"
+        val = f"`{key}` {PROPERTY_FILTER_VERBOSE_NAME[operator]}"
+        if formatted_value is not None:
+            return f"{val} `{formatted_value}`"
+        return val
 
 
 class PropertyFilterCollectionDescriber(BaseModel):
@@ -191,4 +194,4 @@ class PropertyFilterCollectionDescriber(BaseModel):
                 taxonomy.add(property_taxonomy)
             descriptions.append(model.description)
 
-        return "AND".join(descriptions), taxonomy
+        return " AND ".join(descriptions), taxonomy

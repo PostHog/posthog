@@ -1,4 +1,8 @@
-from ee.hogai.summarizers.property_filters import PropertyFilterDescriber, retrieve_hardcoded_taxonomy
+from ee.hogai.summarizers.property_filters import (
+    PropertyFilterCollectionDescriber,
+    PropertyFilterDescriber,
+    retrieve_hardcoded_taxonomy,
+)
 from posthog.schema import (
     ElementPropertyFilter,
     EventPropertyFilter,
@@ -27,6 +31,13 @@ class TestPropertyFilterDescriber(BaseTest):
         self.assertEqual(prop.group, "event_properties")
         self.assertEqual(prop.key, "$current_url")
         self.assertIsNotNone(prop.description)
+
+    def test_event_property_filter_is_not_set(self):
+        # Test with is_not_set operator and null value
+        filter = EventPropertyFilter(key="property_name", operator=PropertyOperator.IS_NOT_SET, value=None)
+        descriptor = PropertyFilterDescriber(filter=filter)
+        self.assertEqual(descriptor.description, "Event property `property_name` is not set")
+        self.assertFalse(descriptor.taxonomy)
 
     def test_person_property_filter(self):
         # No taxonomy
@@ -107,3 +118,58 @@ class TestPropertyFilterDescriber(BaseTest):
             filter = EventPropertyFilter(key="prop", operator=operator, value="test")
             descriptor = PropertyFilterDescriber(filter=filter)
             self.assertIsNotNone(descriptor.description)
+
+
+class TestPropertyFilterCollectionDescriber(BaseTest):
+    def test_multiple_property_filters(self):
+        # Create filters
+        event_filter = EventPropertyFilter(key="$current_url", operator=PropertyOperator.NOT_ICONTAINS, value="url")
+        person_filter = PersonPropertyFilter(key="name", operator=PropertyOperator.IS_SET)
+
+        # Create describer with multiple filters
+        collection_describer = PropertyFilterCollectionDescriber(filters=[event_filter, person_filter])
+
+        # Get description and taxonomy
+        description, taxonomy = collection_describer.describe()
+
+        # Check description
+        self.assertEqual(
+            description, "Event property `$current_url` doesn't contain `url` AND Person property `name` is set"
+        )
+
+        # Check taxonomy
+        self.assertEqual(len(taxonomy), 1)  # Only $current_url should have taxonomy, not name
+
+        # Convert taxonomy to list for easier assertion
+        taxonomy_list = list(taxonomy)
+        self.assertEqual(taxonomy_list[0].group, "event_properties")
+        self.assertEqual(taxonomy_list[0].key, "$current_url")
+        self.assertIsNotNone(taxonomy_list[0].description)
+
+    def test_duplicate_property_filters_collapse_taxonomy(self):
+        # Create two filters with the same property key but different operators/values
+        event_filter1 = EventPropertyFilter(
+            key="$current_url", operator=PropertyOperator.ICONTAINS, value="example.com"
+        )
+        event_filter2 = EventPropertyFilter(key="$current_url", operator=PropertyOperator.NOT_ICONTAINS, value="login")
+
+        # Create describer with the duplicate filters
+        collection_describer = PropertyFilterCollectionDescriber(filters=[event_filter1, event_filter2])
+
+        # Get description and taxonomy
+        description, taxonomy = collection_describer.describe()
+
+        # Check description contains both filters
+        self.assertEqual(
+            description,
+            "Event property `$current_url` contains `example.com` AND Event property `$current_url` doesn't contain `login`",
+        )
+
+        # Check taxonomy only has one entry for $current_url despite having two filters with that key
+        self.assertEqual(len(taxonomy), 1)
+
+        # Convert taxonomy to list for easier assertion
+        taxonomy_entry = next(iter(taxonomy))
+        self.assertEqual(taxonomy_entry.group, "event_properties")
+        self.assertEqual(taxonomy_entry.key, "$current_url")
+        self.assertIsNotNone(taxonomy_entry.description)
