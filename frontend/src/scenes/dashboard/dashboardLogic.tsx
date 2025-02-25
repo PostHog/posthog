@@ -1514,7 +1514,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId } = values
             try {
-                await api.delete(`api/environments/${currentTeamId}/query/${queryId}/?dequeue_only=true`)
+                await api.delete(`api/environments/${currentTeamId}/query/${queryId}?dequeue_only=true`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

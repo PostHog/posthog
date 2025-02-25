@@ -28,6 +28,7 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
+from unittest.mock import patch
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -1564,3 +1565,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             (session_id, 600),
             (session_id, 600),
         ]
+
+    def test_db_created_once(self):
+        # This test will start failing when we cache the DB creation - that's fine, just delete or change it.
+        # In the ideal future, most queries will not need to create the DB.
+        # In the present (your past), this test was added because we were creating it twice per query.
+        query = "SELECT 1"
+        with patch("posthog.hogql.printer.create_hogql_database") as printer_create_hogql_database_mock:
+            execute_hogql_query(query, team=self.team)
+            printer_create_hogql_database_mock.assert_called_once()

@@ -17,6 +17,7 @@ from posthog.schema import (
     EventPropertyFilter,
     ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
+    ExperimentEventExposureConfig,
     ExperimentEventMetricConfig,
     ExperimentMetric,
     ExperimentMetricType,
@@ -115,6 +116,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             feature_flag=feature_flag,
             start_date=start_date,
             end_date=end_date,
+            exposure_criteria=None,
         )
 
     def create_data_warehouse_table_with_usage(self):
@@ -867,10 +869,9 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric=ExperimentMetric(
                 metric_type=ExperimentMetricType.BINOMIAL,
                 metric_config=ExperimentEventMetricConfig(event="purchase"),
-                filterTestAccounts=True,
             ),
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": True}
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
         experiment.save()
 
@@ -1104,14 +1105,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
             ),
-            filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1175,14 +1175,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 math="total",
                 math_property=None,
             ),
-            filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1246,14 +1245,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 math="sum",
                 math_property="usage",
             ),
-            filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1293,6 +1291,140 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_result.count, 2050)
         self.assertEqual(control_result.absolute_exposure, 7)
         self.assertEqual(test_result.absolute_exposure, 9)
+
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_custom_exposure(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
+        )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        for variant, purchase_count in [("control", 6), ("test", 8)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                    },
+                )
+                if i < purchase_count:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: variant, "amount": 10 if i < 2 else ""},
+                    )
+
+        # Extra exposure that should be excluded
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=f"user_extra_1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={feature_flag_property: "control", "plan": "free"},
+        )
+
+        flush_persons_and_events()
+
+        exposure_config = ExperimentEventExposureConfig(
+            event="$pageview",
+            properties=[
+                {"key": "plan", "operator": "is_not", "value": "free", "type": "event"},
+            ],
+        )
+        experiment.exposure_criteria = {
+            "exposure_config": exposure_config.model_dump(mode="json"),
+        }
+        experiment.save()
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=ExperimentMetric(
+                metric_type=ExperimentMetricType.COUNT,
+                metric_config=ExperimentEventMetricConfig(event="purchase"),
+            ),
+        )
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.count, 6)
+        self.assertEqual(test_variant.count, 8)
+        self.assertEqual(control_variant.absolute_exposure, 10)
+        self.assertEqual(test_variant.absolute_exposure, 10)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_invalid_feature_flag_property(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag, end_date=datetime(2020, 2, 1, 12, 0, 0))
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_config=ExperimentEventMetricConfig(event="purchase"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        self.create_standard_test_events(feature_flag)
+
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_invalid_id",
+            timestamp="2020-01-15T12:00:00Z",
+            properties={
+                feature_flag_property: "",  # Intentionally empty
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_variant.count, 6)
+        self.assertEqual(test_variant.count, 8)
+        self.assertEqual(control_variant.absolute_exposure, 10)
+        self.assertEqual(test_variant.absolute_exposure, 10)
 
     @parameterized.expand(
         [
@@ -1441,7 +1573,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
-            filterTestAccounts=True,
         )
 
         experiment_query = ExperimentQuery(
@@ -1450,6 +1581,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric=metric,
         )
 
+        experiment.exposure_criteria = {"filterTestAccounts": True}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1477,6 +1609,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     properties={
                         "$feature_flag_response": variant,
                         "$feature_flag": feature_flag.key,
+                        feature_flag_property: variant,
                         **extra_properties,
                     },
                 )
@@ -1542,14 +1675,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.COUNT,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
-            filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1724,7 +1856,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 math="avg",
                 math_property="usage",
             ),
-            filterTestAccounts=True,
         )
 
         experiment_query = ExperimentQuery(
@@ -1732,7 +1863,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": True}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -1870,14 +2001,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 math="sum",
                 math_property="usage",
             ),
-            filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=metric,
         )
-
+        experiment.exposure_criteria = {"filterTestAccounts": False}
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 

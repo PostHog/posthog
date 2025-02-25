@@ -34,6 +34,7 @@ import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
+    ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
@@ -1451,8 +1452,10 @@ export interface SessionRecordingSegmentType {
 
 export interface SessionRecordingType {
     id: string
-    /** Whether this recording has been viewed already. */
+    /** Whether this recording has been viewed by you already. */
     viewed: boolean
+    /** user ids of other users who have viewed this recording */
+    viewers: string[]
     /** Length of recording in seconds. */
     recording_duration: number
     active_seconds?: number
@@ -3356,6 +3359,7 @@ export interface Experiment {
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
     exposure_cohort?: number
+    exposure_criteria?: ExperimentExposureCriteria
     filters: TrendsFilterType | FunnelsFilterType
     metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
     metrics_secondary: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
@@ -4137,6 +4141,11 @@ export interface DataWarehouseViewLink {
     }
 }
 
+export interface QueryTabState {
+    id: string
+    state: Record<string, any>
+}
+
 export enum DataWarehouseSettingsTab {
     Managed = 'managed',
     SelfManaged = 'self-managed',
@@ -4218,10 +4227,17 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     sync_frequency: DataWarehouseSyncInterval
 }
 
+export enum ExternalDataJobStatus {
+    Running = 'Running',
+    Completed = 'Completed',
+    Failed = 'Failed',
+    BillingLimits = 'Billing limits',
+}
+
 export interface ExternalDataJob {
     id: string
     created_at: string
-    status: 'Running' | 'Failed' | 'Completed' | 'Billing limits'
+    status: ExternalDataJobStatus
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
     latest_error: string
@@ -4712,14 +4728,13 @@ export interface HogFunctionFilterActions extends HogFunctionFilterBase {
     type: 'actions'
 }
 
-export type HogFunctionFilterPropertyFilter = (
+export type HogFunctionFilterPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
-)[]
 
 export interface HogFunctionFiltersType {
     events?: HogFunctionFilterEvents[]

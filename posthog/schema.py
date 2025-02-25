@@ -985,6 +985,7 @@ class HogQLVariable(BaseModel):
         extra="forbid",
     )
     code_name: str
+    isNull: Optional[bool] = None
     value: Optional[Any] = None
     variableId: str
 
@@ -1134,6 +1135,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
+    EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
     EXPERIMENT_ACTION_METRIC_CONFIG = "ExperimentActionMetricConfig"
     EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
@@ -1425,6 +1427,11 @@ class StepOrderValue(StrEnum):
     STRICT = "strict"
     UNORDERED = "unordered"
     ORDERED = "ordered"
+
+
+class StickinessComputationMode(StrEnum):
+    NON_CUMULATIVE = "non_cumulative"
+    CUMULATIVE = "cumulative"
 
 
 class StickinessFilterLegacy(BaseModel):
@@ -2737,7 +2744,8 @@ class SessionRecordingType(BaseModel):
     start_url: Optional[str] = None
     storage: Optional[Storage] = Field(default=None, description="Where this recording information was loaded from")
     summary: Optional[str] = None
-    viewed: bool = Field(..., description="Whether this recording has been viewed already.")
+    viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
+    viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
 
 class SessionsTimelineQueryResponse(BaseModel):
@@ -2774,6 +2782,7 @@ class StickinessFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    computedAs: Optional[StickinessComputationMode] = None
     display: Optional[ChartDisplayType] = None
     hiddenLegendIndexes: Optional[list[int]] = None
     showLegend: Optional[bool] = None
@@ -4611,6 +4620,31 @@ class ExperimentActionMetricConfig(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
 
 
+class ExperimentEventExposureConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    properties: list[
+        Union[
+            EventPropertyFilter,
+            PersonPropertyFilter,
+            ElementPropertyFilter,
+            SessionPropertyFilter,
+            CohortPropertyFilter,
+            RecordingPropertyFilter,
+            LogEntryPropertyFilter,
+            GroupPropertyFilter,
+            FeaturePropertyFilter,
+            HogQLPropertyFilter,
+            EmptyPropertyFilter,
+            DataWarehousePropertyFilter,
+            DataWarehousePersonPropertyFilter,
+        ]
+    ]
+
+
 class ExperimentEventMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4642,6 +4676,14 @@ class ExperimentEventMetricConfig(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
 
 
+class ExperimentExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: Optional[ExperimentEventExposureConfig] = None
+    filterTestAccounts: Optional[bool] = None
+
+
 class ExperimentExposureQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4658,7 +4700,6 @@ class ExperimentMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    filterTestAccounts: Optional[bool] = None
     inverse: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]
@@ -5840,7 +5881,7 @@ class RetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = None
     showMean: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
-    totalIntervals: Optional[int] = 11
+    totalIntervals: Optional[int] = 8
 
 
 class RetentionFilterLegacy(BaseModel):
@@ -6878,6 +6919,7 @@ class VisualizationMessage(BaseModel):
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None
+    query: Optional[str] = ""
     type: Literal["ai/viz"] = "ai/viz"
 
 
