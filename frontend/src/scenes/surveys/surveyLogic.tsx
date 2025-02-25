@@ -1258,6 +1258,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     const questionIdx = Object.keys(surveyRatingResults)[0]
                     const questionResults = surveyRatingResults[questionIdx]
 
+                    // If we don't have any results, return 'No data available' instead of NaN.
                     if (!questionResults || questionResults.total === 0) {
                         return 'No data available'
                     }
