@@ -79,7 +79,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
             },
         ],
         expandedRows: [
-            [] as (string | undefined)[],
+            [] as string[],
             {
                 expandRow: (state, { eventId }: { eventId: string }) => [...state, eventId],
                 collapseRow: (state, { eventId }: { eventId: string }) => [
