@@ -21,10 +21,15 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { Fragment, useEffect, useMemo } from 'react'
-import { PropertyDefinitionStatus } from 'scenes/data-management/definition/definitionLogic'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
-import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
+import {
+    ActionType,
+    CohortType,
+    EventDefinition,
+    PropertyDefinition,
+    PropertyDefinitionVerificationStatus,
+} from '~/types'
 
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
@@ -100,7 +105,7 @@ export function PropertyStatusControl({
         hidden: <IconHide />,
     }
 
-    const currentStatus: PropertyDefinitionStatus = hidden ? 'hidden' : verified ? 'verified' : 'visible'
+    const currentStatus: PropertyDefinitionVerificationStatus = hidden ? 'hidden' : verified ? 'verified' : 'visible'
 
     return (
         <>
@@ -108,7 +113,7 @@ export function PropertyStatusControl({
                 <LemonSegmentedButton
                     value={currentStatus}
                     onChange={(value) => {
-                        const status = value as PropertyDefinitionStatus
+                        const status = value as PropertyDefinitionVerificationStatus
                         onChange({
                             verified: status === 'verified',
                             hidden: status === 'hidden',

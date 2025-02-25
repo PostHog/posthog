@@ -20,8 +20,6 @@ export interface ExtendedPropertyDefinition extends PropertyDefinition {
     hidden?: boolean
 }
 
-export type PropertyDefinitionStatus = 'verified' | 'standard' | 'hidden'
-
 export const createNewDefinition = (isEvent: boolean): Definition => ({
     id: 'new',
     name: `New ${isEvent ? 'Event' : 'Event property'}`,

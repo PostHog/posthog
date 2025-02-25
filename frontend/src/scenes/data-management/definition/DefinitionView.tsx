@@ -35,6 +35,34 @@ export const scene: SceneExport = {
     }),
 }
 
+type StatusProps = {
+    tagType: LemonTagType
+    label: string
+    icon: React.ReactNode
+    tooltip: string
+}
+
+const statusProps: Record<PropertyDefinitionVerificationStatus, StatusProps> = {
+    verified: {
+        tagType: 'success',
+        label: 'Verified',
+        icon: <IconCheckCircle />,
+        tooltip: 'This property is verified and can be used in filters and other selection components.',
+    },
+    hidden: {
+        tagType: 'caution',
+        label: 'Hidden',
+        icon: <IconHide />,
+        tooltip: 'This property is hidden and will not appear in filters and other selection components.',
+    },
+    visible: {
+        tagType: 'default',
+        label: 'Visible',
+        icon: <IconEye />,
+        tooltip: 'This property is visible and can be used in filters and other selection components.',
+    },
+}
+
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
     const { definition, definitionLoading, definitionMissing, hasTaxonomyFeatures, singular, isEvent, isProperty } =
@@ -70,34 +98,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             ? 'hidden'
             : 'visible'
         : null
-
-    type StatusProps = {
-        tagType: LemonTagType
-        label: string
-        icon: React.ReactNode
-        tooltip: string
-    }
-
-    const statusProps: Record<PropertyDefinitionVerificationStatus, StatusProps> = {
-        verified: {
-            tagType: 'success',
-            label: 'Verified',
-            icon: <IconCheckCircle />,
-            tooltip: 'This property is verified and can be used in filters and other selection components.',
-        },
-        hidden: {
-            tagType: 'caution',
-            label: 'Hidden',
-            icon: <IconHide />,
-            tooltip: 'This property is hidden and will not appear in filters and other selection components.',
-        },
-        visible: {
-            tagType: 'default',
-            label: 'Visible',
-            icon: <IconEye />,
-            tooltip: 'This property is visible and can be used in filters and other selection components.',
-        },
-    }
 
     return (
         <>
@@ -243,7 +243,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         <h5>Verification status</h5>
                         <div>
                             <Tooltip title={statusProps[definitionStatus].tooltip}>
-                                <LemonTag type={statusProps[definitionStatus].tagType as LemonTagType}>
+                                <LemonTag type={statusProps[definitionStatus].tagType}>
                                     {statusProps[definitionStatus].icon}
                                     {statusProps[definitionStatus].label}
                                 </LemonTag>

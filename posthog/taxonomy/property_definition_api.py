@@ -267,9 +267,14 @@ class QueryContext:
 
     def with_hidden_filter(self, exclude_hidden: bool, use_enterprise_taxonomy: bool) -> Self:
         if exclude_hidden and use_enterprise_taxonomy:
+            hidden_filter = " AND (hidden IS NULL OR hidden = false)"
             return dataclasses.replace(
                 self,
-                excluded_properties_filter=self.excluded_properties_filter + " AND (hidden IS NULL OR hidden = false)",
+                excluded_properties_filter=(
+                    self.excluded_properties_filter + hidden_filter
+                    if self.excluded_properties_filter
+                    else hidden_filter
+                ),
             )
         return self
 
