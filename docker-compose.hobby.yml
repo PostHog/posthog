@@ -282,7 +282,7 @@ services:
         ports:
             - '8666:8080'
         volumes:
-            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
+            - ./posthog/docker/livestream/configs-dev.yml:/configs/configs.yml
 
 volumes:
     zookeeper-data:
