@@ -5,14 +5,13 @@ import {
     LemonInput,
     LemonSnack,
     LemonTable,
-    LemonTableColumns,
+    LemonTableColumn,
     LemonTag,
     LemonTagProps,
     Link,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { Dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 
 import { LogEntryLevel } from '~/types'
@@ -38,7 +37,9 @@ const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
 }
 
 export type LogsViewerProps = LogsViewerLogicProps & {
-    renderColumns?: (columns: LemonTableColumns<GroupedLogEntry>) => LemonTableColumns<GroupedLogEntry>
+    renderColumns?: (
+        columns: LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[]
+    ) => LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[]
 }
 
 /**
@@ -112,14 +113,14 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                         width: 0,
                         sorter: (a: GroupedLogEntry, b: GroupedLogEntry) =>
                             a.maxTimestamp.unix() - b.maxTimestamp.unix(),
-                        render: (maxTimestamp: Dayjs) => <TZLabel time={maxTimestamp} />,
+                        render: (_, { maxTimestamp }) => <TZLabel time={maxTimestamp} />,
                     },
                     {
                         width: 0,
                         title: 'Invocation',
                         dataIndex: 'instanceId',
                         key: 'instanceId',
-                        render: (instanceId: string) => (
+                        render: (_, { instanceId }) => (
                             <code className="whitespace-nowrap">
                                 <Link
                                     className="font-semibold"
@@ -137,7 +138,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                         key: 'logLevel',
                         dataIndex: 'logLevel',
                         width: 0,
-                        render: (logLevel: LogEntryLevel, { instanceId }) => {
+                        render: (_, { instanceId, logLevel }) => {
                             return (
                                 <Link
                                     subtle
@@ -155,10 +156,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                         title: 'Last message',
                         key: 'entries',
                         dataIndex: 'entries',
-                        render: (
-                            entries: { message: string; level: LogEntryLevel; timestamp: string }[],
-                            { instanceId }
-                        ) => {
+                        render: (_, { instanceId, entries }) => {
                             const lastEntry = entries[entries.length - 1]
                             return (
                                 <code className="whitespace-pre-wrap">
@@ -203,13 +201,13 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                                         title: 'Timestamp',
                                         key: 'timestamp',
                                         dataIndex: 'timestamp',
-                                        render: (timestamp: Dayjs) => <TZLabel time={timestamp} />,
+                                        render: (_, { timestamp }) => <TZLabel time={timestamp} />,
                                     },
                                     {
                                         title: 'Level',
                                         key: 'level',
                                         dataIndex: 'level',
-                                        render: (level: LogEntryLevel) => (
+                                        render: (_, { level }) => (
                                             <LemonTag type={tagTypeForLevel(level)}>{level.toUpperCase()}</LemonTag>
                                         ),
                                     },
@@ -217,7 +215,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                                         title: 'Message',
                                         key: 'message',
                                         dataIndex: 'message',
-                                        render: (message: string) => (
+                                        render: (_, { message }) => (
                                             <code className="whitespace-pre-wrap">{message}</code>
                                         ),
                                     },
