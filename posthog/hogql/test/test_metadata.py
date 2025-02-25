@@ -1,3 +1,4 @@
+import json
 from typing import Optional
 
 from django.test import override_settings
@@ -57,6 +58,14 @@ explain_plan_0 = """
   }
 ]
 """
+
+
+def test_something_simple():
+    explain = json.loads(explain_plan_0)
+    for plan in explain.get(0, {}).get("Plan", {}).get("Plans", []):
+        if plan.get("Node Type", "") == "ReadFromMergeTree":
+            for index in plan.get("Indexes", []):
+                return index.get("Condition", "")
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
