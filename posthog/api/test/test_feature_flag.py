@@ -362,6 +362,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ],
         )
 
+        self.assertEqual(instance.created_by, self.user)
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_minimal_feature_flag(self, mock_capture):
         response = self.client.post(
