@@ -108,6 +108,7 @@ const NEW_FLAG: FeatureFlagType = {
     has_encrypted_payloads: false,
     status: 'ACTIVE',
     version: 0,
+    last_modified_by: null,
 }
 const NEW_VARIANT = {
     key: '',
@@ -593,7 +594,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 // Destructure all fields we want to exclude or handle specially
-                const { created_at, id, version, last_modified_by, ...flag } = updatedFlag
+                const { created_at, id, ...flag } = updatedFlag
 
                 const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
 
@@ -630,10 +631,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
-                            {
-                                ...preparedFlag,
-                                version: values.featureFlag?.version,
-                            }
+                            preparedFlag
                         )
                     }
 
@@ -664,10 +662,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
-                            {
-                                ...preparedFlag,
-                                version: values.featureFlag?.version,
-                            }
+                            preparedFlag
                         )
                     }
 
