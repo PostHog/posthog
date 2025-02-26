@@ -187,11 +187,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     apiCache = {}
                     apiCacheTimers = {}
                     const popFromResults = 'hidden' in item && item.hidden
+                    const results: TaxonomicDefinitionTypes[] = values.remoteItems.results
+                        .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
+                        .filter((i): i is TaxonomicDefinitionTypes => i !== null)
                     return {
                         ...values.remoteItems,
-                        results: values.remoteItems.results
-                            .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
-                            .filter((i) => i !== null),
+                        results,
                     }
                 },
             },
