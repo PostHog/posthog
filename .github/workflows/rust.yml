@@ -109,18 +109,18 @@ jobs:
               run: |
                   docker compose -f ../docker-compose.dev.yml down
                   docker compose -f ../docker-compose.dev.yml up -d
-                  echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Setup dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
               run: |
                   docker compose up kafka redis db echo_server objectstorage -d --wait
                   docker compose up setup_test_db
-                  echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@1.82
+              uses: dtolnay/rust-toolchain@1.82 # please keep this in sync with rust-version in rust/*/Cargo.toml
 
             - uses: actions/cache@v4
               if: needs.changes.outputs.rust == 'true'

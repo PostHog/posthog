@@ -18,7 +18,6 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     RedshiftBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -52,6 +51,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
 
@@ -398,7 +398,6 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
             max_record_batch_size_bytes=1024 * 1024 * 2,  # 2MB
-            use_latest_schema=True,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)

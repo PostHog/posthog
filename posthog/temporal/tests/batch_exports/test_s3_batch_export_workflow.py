@@ -48,10 +48,17 @@ from posthog.temporal.batch_exports.s3_batch_export import (
     insert_into_s3_activity,
     s3_default_fields,
 )
-from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, SessionsRecordBatchModel
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    SessionsRecordBatchModel,
+)
 from posthog.temporal.batch_exports.temporary_file import UnsupportedFileFormatError
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import get_record_batch_from_queue, mocked_start_batch_export_run
+from posthog.temporal.tests.batch_exports.utils import (
+    get_record_batch_from_queue,
+    mocked_start_batch_export_run,
+)
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -161,7 +168,7 @@ async def minio_client(bucket_name):
 
         yield minio_client
 
-        await delete_all_from_s3(minio_client, bucket_name, key_prefix="/")
+        await delete_all_from_s3(minio_client, bucket_name, key_prefix="")
 
         await minio_client.delete_bucket(Bucket=bucket_name)
 
@@ -255,7 +262,6 @@ async def assert_clickhouse_records_in_s3(
         json_columns=json_columns,
     )
 
-    schema_column_names = [field["alias"] for field in s3_default_fields()]
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
             model_name = batch_export_model.name
@@ -287,7 +293,14 @@ async def assert_clickhouse_records_in_s3(
             "person_distinct_id_version",
             "_inserted_at",
             "created_at",
+            "is_deleted",
         ]
+    else:
+        schema_column_names = [field["alias"] for field in s3_default_fields()]
+
+    # _inserted_at is not included in the default fields, but is also sent
+    if "_inserted_at" not in schema_column_names:
+        schema_column_names.append("_inserted_at")
 
     expected_records = []
 
@@ -310,7 +323,6 @@ async def assert_clickhouse_records_in_s3(
         is_backfill=backfill_details is not None,
         backfill_details=backfill_details,
         extra_query_parameters=extra_query_parameters,
-        use_latest_schema=True,
     )
     while not queue.empty() or not producer_task.done():
         record_batch = await get_record_batch_from_queue(queue, producer_task)
@@ -332,6 +344,10 @@ async def assert_clickhouse_records_in_s3(
 
     if "team_id" in schema_column_names:
         assert all(record["team_id"] == team_id for record in s3_data)
+
+    # check schema of first record (ignoring sessions model for now)
+    if isinstance(batch_export_model, BatchExportModel) and batch_export_model.name in ["events", "persons"]:
+        assert set(s3_data[0].keys()) == set(schema_column_names)
 
     assert s3_data[0] == expected_records[0]
     if allow_duplicates:
@@ -2223,7 +2239,6 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
     activity_environment,
     data_interval_start,
     data_interval_end,
-    generate_test_data,
     ateam,
     model: BatchExportModel,
     is_backfill: bool,

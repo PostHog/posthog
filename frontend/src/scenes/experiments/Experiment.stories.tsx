@@ -2211,7 +2211,6 @@ const EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS: CachedExperimentQueryRe
     kind: NodeKind.ExperimentQuery,
     last_refresh: '2025-02-18T09:14:37.273511Z',
     metric: {
-        filterTestAccounts: false,
         inverse: false,
         kind: NodeKind.ExperimentMetric,
         metric_config: {

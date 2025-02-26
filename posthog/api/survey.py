@@ -64,6 +64,7 @@ class SurveySerializer(serializers.ModelSerializer):
     iteration_count = serializers.IntegerField(
         required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
     )
+    schedule = serializers.CharField(required=False, allow_null=True)
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
@@ -86,6 +87,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "name",
             "description",
             "type",
+            "schedule",
             "linked_flag",
             "linked_flag_id",
             "targeting_flag",
@@ -136,6 +138,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     iteration_count = serializers.IntegerField(
         required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
     )
+    schedule = serializers.CharField(required=False, allow_null=True)
 
     class Meta:
         model = Survey
@@ -144,6 +147,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "name",
             "description",
             "type",
+            "schedule",
             "linked_flag",
             "linked_flag_id",
             "targeting_flag_id",
@@ -296,6 +300,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             cleaned_questions.append(cleaned_question)
 
         return cleaned_questions
+
+    def validate_schedule(self, value):
+        if value is not None and value not in ["once", "recurring", "always"]:
+            raise serializers.ValidationError("Schedule must be one of: once, recurring, always")
+        return value
 
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
@@ -861,6 +870,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "end_date",
             "current_iteration",
             "current_iteration_start_date",
+            "schedule",
         ]
         read_only_fields = fields
 

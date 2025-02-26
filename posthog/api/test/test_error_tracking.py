@@ -75,7 +75,7 @@ class TestErrorTracking(APIBaseTest):
 
     @freeze_time("2025-01-01")
     def test_issue_fetch(self):
-        issue = self.create_issue()
+        issue = self.create_issue(["fingerprint"])
 
         response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}")
 
@@ -91,7 +91,7 @@ class TestErrorTracking(APIBaseTest):
 
     @freeze_time("2025-01-01")
     def test_issue_update(self):
-        issue = self.create_issue()
+        issue = self.create_issue(["fingerprint"])
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}", data={"status": "resolved"}

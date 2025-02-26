@@ -15,7 +15,7 @@ brotli==1.1.0
 celery==5.3.4
 celery-redbeat==2.1.1
 clickhouse-connect==0.8.11
-clickhouse-driver==0.2.7
+clickhouse-driver==0.2.9
 clickhouse-pool==0.5.3
 conditional-cache==1.2
 cryptography==39.0.2
@@ -25,7 +25,7 @@ dagster-webserver==1.9.9
 dagster-postgres==0.25.9
 dagster-celery==0.25.9
 # dagster-cloud==1.9.8
-deltalake==0.23.2
+deltalake==0.25.2
 dj-database-url==0.5.0
 Django~=4.2.17
 django-axes==5.9.0

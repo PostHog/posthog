@@ -126,8 +126,8 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
             case "smallint":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                precision = col.numeric_precision or DEFAULT_NUMERIC_PRECISION
-                scale = col.numeric_scale or DEFAULT_NUMERIC_SCALE
+                precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
+                scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
 
                 arrow_type = build_pyarrow_decimal_type(precision, scale)
             case "real":
@@ -185,7 +185,16 @@ def postgres_source(
         raise ValueError("Table name is missing")
 
     with psycopg.connect(
-        f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}&connect_timeout=5",
+        host=host,
+        port=port,
+        dbname=database,
+        user=user,
+        password=password,
+        sslmode=sslmode,
+        connect_timeout=5,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
     ) as connection:
         with connection.cursor() as cursor:
             primary_keys = _get_primary_keys(cursor, schema, table_name)
@@ -200,7 +209,16 @@ def postgres_source(
         arrow_schema = _get_arrow_schema_from_type_name(table_structure)
 
         with psycopg.connect(
-            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}&connect_timeout=5",
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+            connect_timeout=5,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
             cursor_factory=psycopg.ServerCursor,
         ) as connection:
             with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:

@@ -15,7 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, ProductKey } from '~/types'
 
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
-import { DataWarehouseSources } from './data-warehouse/sources'
+import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
@@ -47,6 +47,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         currentOnboardingStep,
         shouldShowBillingStep,
         shouldShowReverseProxyStep,
+        shouldShowDataWarehouseStep,
         product,
         waitForBilling,
     } = useValues(onboardingLogic)
@@ -79,6 +80,16 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             steps = [children as JSX.Element]
         }
         const billingProduct = billing?.products.find((p) => p.type === productKey)
+
+        if (shouldShowDataWarehouseStep) {
+            const DataWarehouseStep = (
+                <OnboardingDataWarehouseSourcesStep
+                    usersAction="Data Warehouse"
+                    stepKey={OnboardingStepKey.LINK_DATA}
+                />
+            )
+            steps = [...steps, DataWarehouseStep]
+        }
 
         if (shouldShowReverseProxyStep) {
             const ReverseProxyStep = <OnboardingReverseProxy stepKey={OnboardingStepKey.REVERSE_PROXY} />
@@ -383,7 +394,7 @@ const SurveysOnboarding = (): JSX.Element => {
 const DataWarehouseOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <DataWarehouseSources usersAction="Data Warehouse" stepKey={OnboardingStepKey.LINK_DATA} />
+            <OnboardingDataWarehouseSourcesStep usersAction="Data Warehouse" stepKey={OnboardingStepKey.LINK_DATA} />
         </OnboardingWrapper>
     )
 }

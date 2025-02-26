@@ -1,5 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -82,6 +84,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['isCloudOrDev'],
             replayLandingPageLogic,
             ['replayLandingPage'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             billingLogic,
@@ -228,6 +232,19 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return (
                     productKey && [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS].includes(productKey as ProductKey)
                 )
+            },
+        ],
+        shouldShowDataWarehouseStep: [
+            (s) => [s.productKey, s.featureFlags],
+            (productKey, featureFlags) => {
+                const dataWarehouseStepEnabled =
+                    featureFlags[FEATURE_FLAGS.ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS] === 'test'
+
+                if (!dataWarehouseStepEnabled) {
+                    return false
+                }
+
+                return productKey === ProductKey.PRODUCT_ANALYTICS
             },
         ],
         isStepKeyInvalid: [

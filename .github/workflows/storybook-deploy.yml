@@ -30,10 +30,10 @@ jobs:
                   cache-dependency-path: posthog/pnpm-lock.yaml
 
             - name: Install dependencies (pnpm)
-              run: cd posthog && pnpm --filter=@posthog/frontend... install
+              run: cd posthog && pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Build storybook
-              run: cd posthog && pnpm --filter=@posthog/frontend build-storybook
+              run: cd posthog && bin/turbo --filter=@posthog/storybook build
 
             - name: Check out PostHog/storybook-build repo
               uses: actions/checkout@v3
@@ -45,9 +45,9 @@ jobs:
             - name: Copy built changes to PostHog/storybook-build repo
               run: |
                   # keep the CNAME file, but discard all the rest
-                  cp storybook-build/docs/CNAME posthog/frontend/storybook-static/
+                  cp storybook-build/docs/CNAME posthog/common/storybook/dist/
                   rm -rf storybook-build/docs
-                  cp -a posthog/frontend/storybook-static storybook-build/docs
+                  cp -a posthog/common/storybook/dist storybook-build/docs
 
             - name: Set commit message
               id: commit-message

@@ -24,6 +24,6 @@
         },
         "skipLibCheck": true
     },
-    "include": ["src"],
-    "exclude": ["node_modules", "dist", "bin", "**/*.test.ts"]
+    "include": ["src", "tests"],
+    "exclude": ["node_modules", "dist", "bin"]
 }

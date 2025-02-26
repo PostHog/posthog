@@ -1,7 +1,7 @@
 import operator
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Optional, Union
+from typing import Annotated, Literal, Optional, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
@@ -28,16 +28,24 @@ class _SharedAssistantState(BaseModel):
     The state of the root node.
     """
 
-    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
     start_id: Optional[str] = Field(default=None)
     """
     The ID of the message from which the conversation started.
     """
+    graph_status: Optional[Literal["resumed", "interrupted", ""]] = Field(default=None)
+    """
+    Whether the graph was interrupted or resumed.
+    """
+
+    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
+    """
+    Actions taken by the ReAct agent.
+    """
     plan: Optional[str] = Field(default=None)
-    resumed: Optional[bool] = Field(default=None)
     """
-    Whether the agent was resumed after interruption, such as a human in the loop.
+    The insight generation plan.
     """
+
     memory_updated: Optional[bool] = Field(default=None)
     """
     Whether the memory was updated in the `MemoryCollectorNode`.
@@ -45,6 +53,11 @@ class _SharedAssistantState(BaseModel):
     memory_collection_messages: Optional[Sequence[LangchainBaseMessage]] = Field(default=None)
     """
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
+    """
+
+    root_conversation_start_id: Optional[str] = Field(default=None)
+    """
+    The ID of the message to start from to keep the message window short enough.
     """
     root_tool_call_id: Optional[str] = Field(default=None)
     """
@@ -77,6 +90,21 @@ class PartialAssistantState(_SharedAssistantState):
     Messages exposed to the user.
     """
 
+    @classmethod
+    def get_reset_state(cls) -> "PartialAssistantState":
+        return cls(
+            intermediate_steps=[],
+            plan="",
+            graph_status="",
+            memory_updated=False,
+            memory_collection_messages=[],
+            root_tool_call_id="",
+            root_tool_insight_plan="",
+            root_tool_insight_type="",
+            root_tool_calls_count=0,
+            root_conversation_start_id="",
+        )
+
 
 class AssistantNodeName(StrEnum):
     START = START
@@ -101,3 +129,4 @@ class AssistantNodeName(StrEnum):
     QUERY_EXECUTOR = "query_executor"
     MEMORY_COLLECTOR = "memory_collector"
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
+    INKEEP_DOCS = "inkeep_docs"

@@ -361,6 +361,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -1687,6 +1688,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -1962,6 +1964,7 @@
          "posthog_experiment"."archived",
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
+         "posthog_experiment"."exposure_criteria",
          "posthog_experiment"."metrics",
          "posthog_experiment"."metrics_secondary",
          "posthog_experiment"."stats_config"
@@ -1999,7 +2002,8 @@
          "posthog_survey"."iteration_frequency_days",
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
-         "posthog_survey"."current_iteration_start_date"
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule"
   FROM "posthog_survey"
   WHERE "posthog_survey"."linked_flag_id" = 99999
   '''

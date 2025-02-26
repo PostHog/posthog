@@ -1,11 +1,13 @@
 import datetime
 from abc import ABC, abstractmethod
+from uuid import UUID
 
 from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
 
-from ee.models.assistant import CoreMemory
-from posthog.models.team.team import Team
+from ee.hogai.utils.exceptions import GenerationCanceled
+from ee.models import Conversation, CoreMemory
+from posthog.models import Team
 
 from .types import AssistantState, PartialAssistantState
 
@@ -15,6 +17,15 @@ class AssistantNode(ABC):
 
     def __init__(self, team: Team):
         self._team = team
+
+    def __call__(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        """
+        Run the assistant node and handle cancelled conversation before the node is run.
+        """
+        thread_id = config["configurable"]["thread_id"]
+        if self._is_conversation_cancelled(thread_id):
+            raise GenerationCanceled
+        return self.run(state, config)
 
     @abstractmethod
     def run(cls, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
@@ -57,3 +68,10 @@ class AssistantNode(ABC):
         Returns the timezone of the project, e.g. "PST" or "UTC".
         """
         return self._team.timezone_info.tzname(self._utc_now_datetime)
+
+    def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
+        try:
+            conversation = Conversation.objects.get(id=conversation_id)
+            return conversation.status == Conversation.Status.CANCELING
+        except Conversation.DoesNotExist:
+            return True
