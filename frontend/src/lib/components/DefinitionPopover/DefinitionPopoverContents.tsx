@@ -1,5 +1,5 @@
 import { hide } from '@floating-ui/react'
-import { IconCheckCircle, IconEye, IconHide, IconInfo } from '@posthog/icons'
+import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
@@ -117,7 +117,7 @@ export function PropertyStatusControl({
                         value: 'verified',
                         label: 'Verified',
                         tooltip: allowVerification ? copy.verified : undefined,
-                        icon: <IconCheckCircle />,
+                        icon: <IconBadge />,
                         disabledReason: !allowVerification ? verifiedDisabledCorePropCopy : undefined,
                     },
                     {
@@ -279,7 +279,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <div className="mb-4">
                         <Tooltip title="This property is verified by the team. It is prioritized in filters and other selection components.">
                             <LemonTag type="success">
-                                <IconCheckCircle /> Verified
+                                <IconBadge /> Verified
                             </LemonTag>
                         </Tooltip>
                     </div>

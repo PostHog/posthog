@@ -1,6 +1,5 @@
-import { IconEye } from '@posthog/icons'
+import { IconBadge, IconEye } from '@posthog/icons'
 import { IconHide } from '@posthog/icons'
-import { IconCheckCircle } from '@posthog/icons'
 import { LemonDivider, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -46,7 +45,7 @@ const STATUS_PROPS: Record<PropertyDefinitionVerificationStatus, StatusProps> = 
     verified: {
         tagType: 'success',
         label: 'Verified',
-        icon: <IconCheckCircle />,
+        icon: <IconBadge />,
         tooltip: 'This property is verified and can be used in filters and other selection components.',
     },
     hidden: {
