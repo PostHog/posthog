@@ -1,11 +1,9 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { delay } from 'lib/utils'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { hogFunctionLogsLogicType } from './hogFunctionLogsLogicType'
@@ -13,40 +11,44 @@ import { GroupedLogEntry, logsViewerLogic, LogsViewerLogicProps } from './logsVi
 
 export type RetryInvocationState = 'pending' | 'success' | 'failure'
 
-const loadClickhouseEvent = async (eventId: string): Promise<any> => {
+const eventIdMatchers = [/Event: ([A-Za-z0-9-]+)/, /\/events\/([A-Za-z0-9-]+)\//, /event ([A-Za-z0-9-]+)/]
+
+const loadClickhouseEvents = async (eventIds: string[]): Promise<any[]> => {
     const query: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
-        query: hogql`
+        query: `
             select uuid, distinct_id, event, timestamp, properties, elements_chain, person.id, person.properties, person.created_at 
             from events
-            where uuid = ${eventId}
-            limit 1`,
+            where uuid in (${eventIds.map((x) => `'${x}'`).join(',')})`,
     }
 
     const response = await api.query(query, undefined, undefined, true)
-    const [
-        uuid,
-        distinct_id,
-        event,
-        timestamp,
-        properties,
-        elements_chain,
-        person_id,
-        person_properties,
-        person_created_at,
-    ] = response.results[0]
 
-    return {
-        uuid,
-        event,
-        distinct_id,
-        person_id,
-        timestamp,
-        properties,
-        elements_chain,
-        person_created_at,
-        person_properties,
-    }
+    return response.results.map((x) => {
+        const [
+            uuid,
+            distinct_id,
+            event,
+            timestamp,
+            properties,
+            elements_chain,
+            person_id,
+            person_properties,
+            person_created_at,
+        ] = x
+
+        return {
+            uuid,
+            event,
+            distinct_id,
+            person_id,
+            timestamp,
+            properties,
+            elements_chain,
+            person_created_at,
+            person_properties,
+        }
+    })
 }
 
 export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
@@ -62,6 +64,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         setSelectedForRetry: (selectedForRetry: Record<string, boolean>) => ({ selectedForRetry }),
         selectAllForRetry: true,
         retryInvocation: (groupedLogEntry: GroupedLogEntry, eventId: string) => ({ groupedLogEntry, eventId }),
+        retryInvocations: (groupedLogEntries: GroupedLogEntry[]) => ({ groupedLogEntries }),
         retryInvocationStarted: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retryInvocationSuccess: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retryInvocationFailure: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
@@ -122,66 +125,94 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             },
         ],
     }),
+
+    selectors({
+        eventIdByInvocationId: [
+            (s) => [s.logs],
+            (logs) => {
+                const eventIdByInvocationId: Record<string, string> = {}
+
+                for (const record of logs) {
+                    // TRICKY: We have the event ID in different places in different logs. We will standardise this to be the invocation ID in the future.
+                    const entryContainingEventId = record.entries.find(
+                        (entry) =>
+                            entry.message.includes('Function completed') ||
+                            entry.message.includes('Suspending function') ||
+                            entry.message.includes('Error executing function on event')
+                    )
+
+                    if (!entryContainingEventId) {
+                        return undefined
+                    }
+
+                    for (const matcher of eventIdMatchers) {
+                        const match = entryContainingEventId.message.match(matcher)
+                        if (match) {
+                            eventIdByInvocationId[record.instanceId] = match[1]
+                            break
+                        }
+                    }
+                }
+
+                return eventIdByInvocationId
+            },
+        ],
+    }),
     listeners(({ actions, props, values }) => ({
-        retryInvocation: async ({ groupedLogEntry, eventId }, breakpoint) => {
-            await breakpoint(100)
-
-            actions.setRowExpanded(groupedLogEntry.instanceId, true)
-
-            try {
-                const res = await api.hogFunctions.createTestInvocation(props.sourceId, {
-                    clickhouse_event: await loadClickhouseEvent(eventId),
-                    mock_async_functions: false,
-                    configuration: {
-                        // For retries we don't care about filters
-                        filters: {},
-                    },
-                    invocation_id: groupedLogEntry.instanceId,
-                })
-
-                const existingLogGroup = values.logs.find((x) => x.instanceId === groupedLogEntry.instanceId)
-
-                if (!existingLogGroup) {
-                    throw new Error('No log group found')
-                }
-
-                const newLogGroup: GroupedLogEntry = {
-                    ...existingLogGroup,
-                    entries: [
-                        ...existingLogGroup.entries,
-                        ...res.logs.map((x) => ({
-                            timestamp: dayjs(x.timestamp),
-                            level: x.level.toUpperCase() as LogEntryLevel,
-                            message: x.message,
-                        })),
-                    ],
-                }
-
-                actions.addLogGroups([newLogGroup])
-
-                lemonToast.success('Retry invocation success')
-                await breakpoint(10)
-                actions.retryInvocationSuccess(groupedLogEntry)
-            } catch (e) {
-                lemonToast.error('Retry invocation failed')
-                await breakpoint(10)
-                actions.retryInvocationFailure(groupedLogEntry)
-            }
-        },
-
-        retrySelectedInvocations: async () => {
+        retryInvocations: async ({ groupedLogEntries }) => {
             await lemonToast.promise(
                 (async () => {
-                    const groupsToRetry = values.logs.filter((x) => values.selectedForRetry[x.instanceId])
-
-                    for (const groupedLogEntry of groupsToRetry) {
+                    for (const groupedLogEntry of groupedLogEntries) {
                         actions.retryInvocationStarted(groupedLogEntry)
                     }
 
-                    await delay(1000) // TODO: Remove
+                    // Load all events by ID
+                    const events = await loadClickhouseEvents(Object.values(values.eventIdByInvocationId ?? {}))
 
-                    for (const groupedLogEntry of groupsToRetry) {
-                        actions.retryInvocationFailure(groupedLogEntry)
+                    const eventsById: Record<string, any> = {}
+                    for (const event of events) {
+                        eventsById[event.uuid] = event
+                    }
+
+                    for (const groupedLogEntry of groupedLogEntries) {
+                        try {
+                            // If we have an event then retry it, otherwise fail
+                            const event = eventsById[values.eventIdByInvocationId![groupedLogEntry.instanceId]]
+
+                            if (!event) {
+                                actions.retryInvocationFailure(groupedLogEntry)
+                                continue
+                            }
+
+                            const res = await api.hogFunctions.createTestInvocation(props.sourceId, {
+                                clickhouse_event: event,
+                                mock_async_functions: false,
+                                configuration: {
+                                    // For retries we don't care about filters
+                                    filters: {},
+                                },
+                                invocation_id: groupedLogEntry.instanceId,
+                            })
+
+                            const newLogGroup: GroupedLogEntry = {
+                                ...groupedLogEntry,
+                                entries: [
+                                    ...groupedLogEntry.entries,
+                                    ...res.logs.map((x) => ({
+                                        timestamp: dayjs(x.timestamp),
+                                        level: x.level.toUpperCase() as LogEntryLevel,
+                                        message: x.message,
+                                    })),
+                                ],
+                            }
+
+                            actions.addLogGroups([newLogGroup])
+                            actions.retryInvocationSuccess(groupedLogEntry)
+                        } catch (e) {
+                            lemonToast.error('Retry invocation failed')
+                            console.error(e)
+                            actions.retryInvocationFailure(groupedLogEntry)
+                        }
                     }
 
                     actions.setSelectingMany(false)
@@ -192,6 +223,14 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     pending: 'Retrying...',
                 }
             )
+        },
+
+        retrySelectedInvocations: async () => {
+            const groupsToRetry = values.logs.filter((x) => values.selectedForRetry[x.instanceId])
+
+            console.log('RETRYING', groupsToRetry)
+
+            actions.retryInvocations(groupsToRetry)
         },
 
         selectAllForRetry: async () => {
