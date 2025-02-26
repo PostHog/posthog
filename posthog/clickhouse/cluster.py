@@ -326,9 +326,14 @@ class Query:
 class RetryPolicy:
     max_attempts: int
     delay: float
-    exceptions: tuple[type[Exception], ...] = (Exception,)
+    exceptions: tuple[type[Exception], ...] | Callable[[Exception], bool] = (Exception,)
 
     def __call__(self, callable: Callable[[Client], T]) -> Callable[[Client], T]:
+        if isinstance(self.exceptions, tuple):
+            is_retryable_exception = lambda e: isinstance(e, self.exceptions)
+        else:
+            is_retryable_exception = self.exceptions
+
         # TODO: improve __repr__ here
         def wrapped(client: Client) -> T:
             counter = itertools.count(1)
@@ -336,7 +341,7 @@ class RetryPolicy:
                 try:
                     return callable(client)
                 except Exception as e:
-                    if isinstance(e, self.exceptions) and attempt < self.max_attempts:
+                    if is_retryable_exception(e) and attempt < self.max_attempts:
                         logger.warning(
                             "Failed to invoke %r (attempt #%s), retrying in %s...", callable, attempt, self.delay
                         )
