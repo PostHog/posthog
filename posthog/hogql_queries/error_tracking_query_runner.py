@@ -98,7 +98,14 @@ class ErrorTrackingQueryRunner(QueryRunner):
             exprs.append(ast.Alias(alias=alias, expr=self.select_sparkline_array(alias, config)))
 
         if self.query.issueId:
-            exprs.append(ast.Alias(alias="earliest", expr=parse_expr("summary.earliest")))
+            exprs.append(
+                ast.Alias(
+                    alias="earliest",
+                    expr=ast.Call(
+                        name="argMin", args=[ast.Field(chain=["properties"]), ast.Field(chain=["timestamp"])]
+                    ),
+                )
+            )
 
         return exprs
 
