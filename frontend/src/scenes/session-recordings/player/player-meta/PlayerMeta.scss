@@ -44,10 +44,6 @@
     }
 
     &--fullscreen {
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-
         .PlayerMetaPersonProperties {
             position: fixed;
             top: 48px;

@@ -168,7 +168,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
         >
             <div
                 className={twMerge(
-                    'border py-2 px-3 rounded-lg bg-surface-primary',
+                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
                     type === 'human' && 'font-medium',
                     boxClassName
                 )}
@@ -284,7 +284,7 @@ function VisualizationAnswer({
         ? null
         : query && (
               <>
-                  <MessageTemplate type="ai" className="min-h-60 w-full" boxClassName="w-full">
+                  <MessageTemplate type="ai" className="w-full" boxClassName="flex flex-col min-h-60 w-full">
                       <Query query={query} readOnly embedded />
                       <div className="flex items-center justify-between mt-2">
                           <LemonButton
@@ -347,28 +347,21 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
 
     function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating) {
+        if (rating || !traceId) {
             return // Already rated
         }
         setRating(newRating)
-        posthog.capture('$ai_metric', {
-            $ai_metric_name: 'quality',
-            $ai_metric_value: newRating,
-            $ai_trace_id: traceId,
-        })
+        posthog.captureTraceMetric(traceId, 'quality', newRating)
         if (newRating === 'bad') {
             setFeedbackInputStatus('pending')
         }
     }
 
     function submitFeedback(): void {
-        if (!feedback) {
+        if (!feedback || !traceId) {
             return // Input is empty
         }
-        posthog.capture('$ai_feedback', {
-            $ai_feedback_text: feedback,
-            $ai_trace_id: traceId,
-        })
+        posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
     }
 

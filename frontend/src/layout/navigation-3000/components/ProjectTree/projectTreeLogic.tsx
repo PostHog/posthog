@@ -16,7 +16,7 @@ import { FileSystemEntry, FileSystemType } from '~/queries/schema/schema-general
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FileSystemImport, ProjectTreeAction } from './types'
-import { convertFileSystemEntryToTreeDataItem } from './utils'
+import { convertFileSystemEntryToTreeDataItem, joinPath, splitPath } from './utils'
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -170,9 +170,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (action.type === 'move-create' || action.type === 'move' || action.type === 'create') {
                         if (action.newPath) {
                             unappliedPaths[action.newPath] = true
-                            const split = action.newPath.split('/')
+                            const split = splitPath(action.newPath)
                             for (let i = 1; i < split.length; i++) {
-                                unappliedPaths[split.slice(0, i).join('/')] = true
+                                unappliedPaths[joinPath(split.slice(0, i))] = true
                             }
                         }
                     }

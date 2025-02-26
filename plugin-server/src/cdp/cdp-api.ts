@@ -263,6 +263,8 @@ export class CdpApi {
                         errors.push(invocationResult.error)
                     }
                 }
+            } else {
+                return res.status(400).json({ error: 'Invalid function type' })
             }
 
             res.json({
