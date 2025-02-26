@@ -227,6 +227,7 @@ export const billingLogic = kea<billingLogicType>([
                     try {
                         const response = await api.update('api/billing', { custom_limits_usd: limits })
                         lemonToast.success('Billing limits updated')
+                        actions.loadBilling()
                         return parseBillingResponse(response)
                     } catch (error: any) {
                         lemonToast.error(

@@ -44,18 +44,6 @@ CREATE TABLE IF NOT EXISTS posthog_eventproperty (
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_event_property_unique_team_event_property ON posthog_eventproperty (team_id, event, property);
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_event_property_unique_proj_event_property ON posthog_eventproperty (coalesce(project_id, team_id), event, property);
 
-CREATE TABLE IF NOT EXISTS posthog_hostdefinition (
-    id UUID PRIMARY KEY,
-    host VARCHAR(400) NOT NULL,
-    team_id INTEGER NOT NULL,
-    project_id BIGINT NULL,
-    last_seen_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_hostdefinition_team_project_host_idx ON posthog_hostdefinition (team_id, project_id, host);
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_hostdefinition_proj_uniq ON posthog_hostdefinition (coalesce(project_id, team_id), host);
-
 CREATE TABLE IF NOT EXISTS posthog_grouptypemapping (
     id UUID PRIMARY KEY,
     group_type VARCHAR(400) NOT NULL,

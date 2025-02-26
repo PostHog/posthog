@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
-import { playerMetaLogic } from '../playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 export function PlayerSidebarOverviewGrid(): JSX.Element {
