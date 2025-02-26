@@ -23,8 +23,8 @@ export function NavbarBottom(): JSX.Element {
     const { isAccountPopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { visibleTabs } = useValues(sidePanelLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     return (
         <div className="Navbar3000__bottom">
             <ul>
@@ -34,7 +34,11 @@ export function NavbarBottom(): JSX.Element {
                         identifier="activation-button"
                         icon={<SidePanelActivationIcon />}
                         title="Quick start"
-                        onClick={() => openSidePanel(SidePanelTab.Activation)}
+                        onClick={() =>
+                            sidePanelOpen && selectedTab === SidePanelTab.Activation
+                                ? closeSidePanel()
+                                : openSidePanel(SidePanelTab.Activation)
+                        }
                     />
                 )}
                 <NavbarButton
