@@ -69,14 +69,12 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
             AND log_source_id = '${request.sourceId}'
             AND timestamp > {filters.dateRange.from}
             AND timestamp < {filters.dateRange.to}
+            AND lower(level) IN (${request.levels.map((level) => `'${level.toLowerCase()}'`).join(',')})
+            AND message ILIKE '%${request.search}%'
             ORDER BY timestamp ${request.order}
             LIMIT ${LOG_VIEWER_LIMIT}
         )
         GROUP BY instance_id
-        HAVING countIf(
-            lower(level) IN (${request.levels.map((level) => `'${level.toLowerCase()}'`).join(',')})
-            AND message ILIKE '%${request.search}%'
-        ) > 0
         ORDER BY latest_timestamp DESC`,
     }
 
