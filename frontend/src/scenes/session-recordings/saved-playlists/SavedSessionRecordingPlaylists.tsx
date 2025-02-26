@@ -77,7 +77,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 const count = (recordings_counts.pinned_count || 0) + (recordings_counts.query_count || 0)
 
                 const tooltip = (
-                    <div className="flex flex-col space-y-1">
+                    <div className="flex flex-col space-y-1 items-center">
                         <span>Playlist counts are recalculated once a day.</span>
                         {recordings_counts.pinned_count && (
                             <span>Pinned recordings: {recordings_counts.pinned_count}</span>
@@ -92,19 +92,21 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 )
 
                 return (
-                    <Tooltip title={tooltip}>
-                        {count ? (
-                            <LemonBadge.Number
-                                status={count ? 'primary' : 'muted'}
-                                className="text-xs"
-                                count={count}
-                                maxDigits={3}
-                                forcePlus={recordings_counts.has_more}
-                            />
-                        ) : (
-                            <LemonBadge status="muted" content="?" />
-                        )}
-                    </Tooltip>
+                    <div className="flex items-center justify-center w-full h-full">
+                        <Tooltip title={tooltip}>
+                            {count ? (
+                                <LemonBadge.Number
+                                    status={count ? 'primary' : 'muted'}
+                                    className="text-xs"
+                                    count={count}
+                                    maxDigits={3}
+                                    forcePlus={recordings_counts.has_more}
+                                />
+                            ) : (
+                                <LemonBadge status="muted" content="?" />
+                            )}
+                        </Tooltip>
+                    </div>
                 )
             },
         },

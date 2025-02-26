@@ -67,10 +67,6 @@ from openai.types.chat import (
 )
 from posthog.session_recordings.utils import clean_prompt_whitespace
 
-from structlog import get_logger
-
-logger = get_logger(__name__)
-
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
     "Requests for recording snapshots per personal api key",
@@ -105,7 +101,7 @@ def filter_from_params_to_query(params: dict) -> RecordingsQuery:
     data_dict.pop("version", None)
     # we used to send `hogql_filtering` and it's not part of query, so we pop to make sure
     data_dict.pop("hogql_filtering", None)
-    logger.info(f"data_dict: {data_dict}")
+
     try:
         return RecordingsQuery.model_validate(data_dict)
     except ValidationError as pydantic_validation_error:
@@ -354,7 +350,6 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
     before (if ever) we convert this to a query runner that takes a post
     we need to convert to a valid dict from the data that arrived in query params
     """
-    logger.info(f"query_as_params_to_dict: {params_dict}")
     converted = {}
     for key in params_dict:
         try:
@@ -363,7 +358,7 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
             converted[key] = params_dict[key]
 
     converted.pop("as_query", None)
-    logger.info(f"converted: {converted}")
+
     return converted
 
 
