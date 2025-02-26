@@ -111,7 +111,7 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
 
     # Construct the RecordingsQuery
     return RecordingsQuery(
-        kind=NodeKind.RecordingsQuery,
+        kind=NodeKind.RECORDINGS_QUERY,
         order=order,
         date_from=universal_filters.get("date_from"),
         date_to=universal_filters.get("date_to"),
