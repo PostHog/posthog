@@ -30,11 +30,13 @@ import {
     ProductAnalyticsVueInstructions,
     ProductAnalyticsWebflowInstructions,
 } from '.'
+import { ProductAnalyticsReactInstructions } from './react'
 
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
     [SDKKey.ANDROID]: ProductAnalyticsAndroidInstructions,
     [SDKKey.ANGULAR]: ProductAnalyticsAngularInstructions,
+    [SDKKey.REACT]: ProductAnalyticsReactInstructions,
     [SDKKey.API]: ProductAnalyticsAPIInstructions,
     [SDKKey.ASTRO]: ProductAnalyticsAstroInstructions,
     [SDKKey.BUBBLE]: ProductAnalyticsBubbleInstructions,
