@@ -2,6 +2,7 @@ import { IconCalendar, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
+    LemonDropdown,
     LemonInput,
     LemonTable,
     LemonTableColumn,
@@ -16,13 +17,7 @@ import { pluralize } from 'lib/utils'
 
 import { LogEntryLevel } from '~/types'
 
-import {
-    ALL_LOG_LEVELS,
-    DEFAULT_LOG_LEVELS,
-    GroupedLogEntry,
-    LOG_VIEWER_LIMIT,
-    logsViewerLogic,
-} from './logsViewerLogic'
+import { ALL_LOG_LEVELS, GroupedLogEntry, LOG_VIEWER_LIMIT, logsViewerLogic } from './logsViewerLogic'
 import { LogsViewerLogicProps } from './logsViewerLogic'
 
 const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
@@ -59,47 +54,65 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
 
     return (
         <div className="flex-1 space-y-2 ph-no-capture">
-            <LemonInput
-                type="search"
-                placeholder="Search for messages containing…"
-                fullWidth
-                onChange={(value) => setFilters({ searchTerm: value })}
-                allowClear
-                prefix={
-                    <>
-                        <IconSearch />
-                    </>
-                }
-            />
-            <div className="flex items-center gap-4">
-                <DateFilter
-                    dateTo={filters.before}
-                    dateFrom={filters.after}
-                    onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
-                    allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
-                    makeLabel={(key) => (
+            <div className="flex flex-wrap items-center gap-2">
+                <LemonInput
+                    className="flex-1 min-w-120"
+                    type="search"
+                    placeholder="Search for messages containing…"
+                    fullWidth
+                    onChange={(value) => setFilters({ searchTerm: value })}
+                    allowClear
+                    prefix={
                         <>
-                            <IconCalendar /> {key}
+                            <IconSearch />
                         </>
-                    )}
+                    }
                 />
+                <div className="flex items-center gap-2">
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        matchWidth={false}
+                        placement="right-end"
+                        overlay={
+                            <div className="space-y-2 overflow-hidden max-w-100">
+                                {ALL_LOG_LEVELS.map((level) => {
+                                    return (
+                                        <LemonButton
+                                            key={level}
+                                            fullWidth
+                                            sideIcon={<LemonCheckbox checked={filters.logLevels.includes(level)} />}
+                                            onClick={() => {
+                                                setFilters({
+                                                    logLevels: filters.logLevels.includes(level)
+                                                        ? filters.logLevels.filter((t) => t != level)
+                                                        : [...filters.logLevels, level],
+                                                })
+                                            }}
+                                        >
+                                            {level}
+                                        </LemonButton>
+                                    )
+                                })}
+                            </div>
+                        }
+                    >
+                        <LemonButton size="small" type="secondary">
+                            {filters.logLevels.map((level) => level).join(', ')}
+                        </LemonButton>
+                    </LemonDropdown>
 
-                <span className="mr-1">Show logs of level:</span>
-                {ALL_LOG_LEVELS.map((level) => {
-                    return (
-                        <LemonCheckbox
-                            key={level}
-                            label={level}
-                            checked={filters.logLevels.includes(level)}
-                            onChange={(checked) => {
-                                const newLogLevels = checked
-                                    ? [...filters.logLevels, level]
-                                    : filters.logLevels.filter((t) => t != level)
-                                setFilters({ logLevels: newLogLevels.length ? newLogLevels : DEFAULT_LOG_LEVELS })
-                            }}
-                        />
-                    )
-                })}
+                    <DateFilter
+                        dateTo={filters.before}
+                        dateFrom={filters.after}
+                        onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
+                        allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                        makeLabel={(key) => (
+                            <>
+                                <IconCalendar /> {key}
+                            </>
+                        )}
+                    />
+                </div>
             </div>
             <LemonButton
                 onClick={revealBackground}
