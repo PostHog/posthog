@@ -311,10 +311,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
     configuration = HogFunctionSerializer(write_only=True)
-    globals = serializers.DictField(write_only=True)
+    globals = serializers.DictField(write_only=True, required=False)
+    clickhouse_event = serializers.DictField(write_only=True, required=False)
     mock_async_functions = serializers.BooleanField(default=True, write_only=True)
     status = serializers.CharField(read_only=True)
     logs = serializers.ListField(read_only=True)
+    invocation_id = serializers.CharField(required=False, allow_null=True)
 
 
 class HogFunctionViewSet(
@@ -406,15 +408,10 @@ class HogFunctionViewSet(
         # Remove the team from the config
         configuration.pop("team")
 
-        hog_globals = serializer.validated_data["globals"]
-        mock_async_functions = serializer.validated_data["mock_async_functions"]
-
         res = create_hog_invocation_test(
             team_id=self.team_id,
             hog_function_id=str(hog_function.id) if hog_function else "new",
-            globals=hog_globals,
-            configuration=configuration,
-            mock_async_functions=mock_async_functions,
+            payload=serializer.validated_data,
         )
 
         if res.status_code != 200:
