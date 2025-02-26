@@ -1,6 +1,7 @@
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonDivider, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useMemo } from 'react'
@@ -16,36 +17,16 @@ export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
         sourceId: props.hogFunctionId,
     }
 
-    const { selectingMany, selectedForRetry } = useValues(hogFunctionLogsLogic(logicProps))
+    const { selectingMany, selectedForRetry, retryRunning } = useValues(hogFunctionLogsLogic(logicProps))
     const { setSelectingMany, retrySelectedInvocations, selectAllForRetry } = useActions(
         hogFunctionLogsLogic(logicProps)
     )
 
     return (
-        <LogsViewer
-            {...logicProps}
-            sourceId={props.hogFunctionId}
-            renderColumns={(columns) => {
-                // Add in custom columns for handling retries
-                const newColumns: LemonTableColumns<GroupedLogEntry> = [
-                    {
-                        title: 'Status',
-                        key: 'status',
-                        width: 0,
-                        render: (_, record) => (
-                            <HogFunctionLogsStatus record={record} hogFunctionId={props.hogFunctionId} />
-                        ),
-                    },
-                    ...columns.filter((column) => column.key !== 'logLevel'),
-                ]
-
-                return newColumns
-            }}
-            renderFilters={(filters) => {
-                return (
+        <>
+            <PageHeader
+                buttons={
                     <>
-                        {filters}
-                        <LemonDivider vertical />
                         {!selectingMany ? (
                             <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(true)}>
                                 Select invocations
@@ -74,8 +55,11 @@ export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
                                             },
                                         })
                                     }}
+                                    loading={retryRunning}
                                     disabledReason={
-                                        Object.values(selectedForRetry).length === 0
+                                        retryRunning
+                                            ? 'Please wait for the current retries to complete.'
+                                            : Object.values(selectedForRetry).length === 0
                                             ? 'No invocations selected'
                                             : undefined
                                     }
@@ -85,9 +69,29 @@ export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
                             </>
                         )}
                     </>
-                )
-            }}
-        />
+                }
+            />
+            <LogsViewer
+                {...logicProps}
+                sourceId={props.hogFunctionId}
+                renderColumns={(columns) => {
+                    // Add in custom columns for handling retries
+                    const newColumns: LemonTableColumns<GroupedLogEntry> = [
+                        {
+                            title: 'Status',
+                            key: 'status',
+                            width: 0,
+                            render: (_, record) => (
+                                <HogFunctionLogsStatus record={record} hogFunctionId={props.hogFunctionId} />
+                            ),
+                        },
+                        ...columns.filter((column) => column.key !== 'logLevel'),
+                    ]
+
+                    return newColumns
+                }}
+            />
+        </>
     )
 }
 
@@ -130,7 +134,7 @@ function HogFunctionLogsStatus({
         return 'running'
     }, [record, thisRetry])
 
-    const eventId = eventIdByInvocationId[record.instanceId]
+    const eventId = eventIdByInvocationId?.[record.instanceId]
 
     return (
         <div className="flex items-center gap-2">

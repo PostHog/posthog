@@ -41,17 +41,12 @@ export type LogsViewerProps = LogsViewerLogicProps & {
     renderColumns?: (
         columns: LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[]
     ) => LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[]
-    renderFilters?: (filters: React.ReactNode) => React.ReactNode
 }
 
 /**
  * NOTE: There is a loose attempt to keeep this generic so we can use it as an abstract log component in the future.
  */
-export function LogsViewer({
-    renderColumns = (c) => c,
-    renderFilters = (filters) => filters,
-    ...props
-}: LogsViewerProps): JSX.Element {
+export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
 
     const { logs, logsLoading, backgroundLogs, isThereMoreToLoad, expandedRows, filters } = useValues(logic)
@@ -60,76 +55,68 @@ export function LogsViewer({
     return (
         <div className="flex-1 space-y-2 ph-no-capture">
             <div className="flex flex-wrap items-center gap-2">
-                {renderFilters(
-                    <>
-                        <LemonInput
-                            className="flex-1 min-w-120"
-                            type="search"
-                            placeholder="Search for messages containing…"
-                            fullWidth
-                            onChange={(value) => setFilters({ search: value })}
-                            allowClear
-                            prefix={
-                                <>
-                                    <IconSearch />
-                                </>
-                            }
-                        />
-                        <div className="flex items-center gap-2">
-                            <LemonDropdown
-                                closeOnClickInside={false}
-                                matchWidth={false}
-                                placement="right-end"
-                                overlay={
-                                    <div className="space-y-2 overflow-hidden max-w-100">
-                                        {ALL_LOG_LEVELS.map((level) => {
-                                            return (
-                                                <LemonButton
-                                                    key={level}
-                                                    fullWidth
-                                                    sideIcon={
-                                                        <LemonCheckbox checked={filters.levels.includes(level)} />
-                                                    }
-                                                    onClick={() => {
-                                                        setFilters({
-                                                            levels: filters.levels.includes(level)
-                                                                ? filters.levels.filter((t) => t != level)
-                                                                : [...filters.levels, level],
-                                                        })
-                                                    }}
-                                                >
-                                                    {level}
-                                                </LemonButton>
-                                            )
-                                        })}
-                                    </div>
-                                }
-                            >
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    tooltip="Filtering for any log groups containing any of the selected levels"
-                                >
-                                    {filters.levels.map((level) => level).join(', ')}
-                                </LemonButton>
-                            </LemonDropdown>
+                <LemonInput
+                    className="flex-1 min-w-120"
+                    type="search"
+                    placeholder="Search for messages containing…"
+                    fullWidth
+                    onChange={(value) => setFilters({ search: value })}
+                    allowClear
+                    prefix={
+                        <>
+                            <IconSearch />
+                        </>
+                    }
+                />
+                <div className="flex items-center gap-2">
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        matchWidth={false}
+                        placement="right-end"
+                        overlay={
+                            <div className="space-y-2 overflow-hidden max-w-100">
+                                {ALL_LOG_LEVELS.map((level) => {
+                                    return (
+                                        <LemonButton
+                                            key={level}
+                                            fullWidth
+                                            sideIcon={<LemonCheckbox checked={filters.levels.includes(level)} />}
+                                            onClick={() => {
+                                                setFilters({
+                                                    levels: filters.levels.includes(level)
+                                                        ? filters.levels.filter((t) => t != level)
+                                                        : [...filters.levels, level],
+                                                })
+                                            }}
+                                        >
+                                            {level}
+                                        </LemonButton>
+                                    )
+                                })}
+                            </div>
+                        }
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            tooltip="Filtering for any log groups containing any of the selected levels"
+                        >
+                            {filters.levels.map((level) => level).join(', ')}
+                        </LemonButton>
+                    </LemonDropdown>
 
-                            <DateFilter
-                                dateTo={filters.before}
-                                dateFrom={filters.after}
-                                onChange={(from, to) =>
-                                    setFilters({ after: from || undefined, before: to || undefined })
-                                }
-                                allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
-                                makeLabel={(key) => (
-                                    <>
-                                        <IconCalendar /> {key}
-                                    </>
-                                )}
-                            />
-                        </div>
-                    </>
-                )}
+                    <DateFilter
+                        dateTo={filters.before}
+                        dateFrom={filters.after}
+                        onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
+                        allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                        makeLabel={(key) => (
+                            <>
+                                <IconCalendar /> {key}
+                            </>
+                        )}
+                    />
+                </div>
             </div>
             <LemonButton
                 onClick={revealBackground}
