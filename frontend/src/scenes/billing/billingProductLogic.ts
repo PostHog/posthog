@@ -322,7 +322,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
     listeners(({ actions, values, props }) => ({
         updateBillingLimitsSuccess: () => {
             actions.billingLoaded()
-            actions.loadBilling()
         },
         billingLoaded: () => {
             function calculateDefaultBillingLimit(product: BillingProductV2Type | BillingProductV2AddonType): number {
