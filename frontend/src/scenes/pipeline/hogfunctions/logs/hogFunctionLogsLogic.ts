@@ -14,6 +14,32 @@ export type RetryInvocationState = 'pending' | 'success' | 'failure'
 
 const eventIdMatchers = [/Event: ([A-Za-z0-9-]+)/, /\/events\/([A-Za-z0-9-]+)\//, /event ([A-Za-z0-9-]+)/]
 
+async function runWithParallelism<T, R>(
+    items: T[],
+    maxParallel: number,
+    asyncFn: (item: T) => Promise<R>
+): Promise<R[]> {
+    const results: R[] = []
+    const executing = new Set<Promise<void>>()
+
+    for (const item of items) {
+        const promise = (async () => {
+            const result = await asyncFn(item)
+            results.push(result)
+        })()
+
+        executing.add(promise)
+        promise.finally(() => executing.delete(promise))
+
+        if (executing.size >= maxParallel) {
+            await Promise.race(executing)
+        }
+    }
+
+    await Promise.all(executing)
+    return results
+}
+
 const loadClickhouseEvents = async (eventIds: string[]): Promise<any[]> => {
     const query: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
@@ -182,14 +208,15 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                         eventsById[event.uuid] = event
                     }
 
-                    for (const groupedLogEntry of groupedLogEntries) {
+                    await runWithParallelism(groupedLogEntries, 10, async (groupedLogEntry) => {
+                        console.log('RUNNING!')
                         try {
                             // If we have an event then retry it, otherwise fail
                             const event = eventsById[values.eventIdByInvocationId![groupedLogEntry.instanceId]]
 
                             if (!event) {
                                 actions.retryInvocationFailure(groupedLogEntry)
-                                continue
+                                return
                             }
 
                             const res = await api.hogFunctions.createTestInvocation(props.sourceId, {
@@ -219,7 +246,8 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                         } catch (e) {
                             actions.retryInvocationFailure(groupedLogEntry)
                         }
-                    }
+                        console.log('DONE!')
+                    })
 
                     actions.setSelectingMany(false)
                 })(),
