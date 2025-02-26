@@ -2880,7 +2880,7 @@ export interface SurveyAppearance {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
-    fontFamily?: (typeof WEB_SAFE_FONTS)[number]
+    fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
 }
 
 export interface SurveyQuestionBase {
@@ -3480,6 +3480,7 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
+    livestream_host?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -4729,14 +4730,13 @@ export interface HogFunctionFilterActions extends HogFunctionFilterBase {
     type: 'actions'
 }
 
-export type HogFunctionFilterPropertyFilter = (
+export type HogFunctionFilterPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
-)[]
 
 export interface HogFunctionFiltersType {
     events?: HogFunctionFilterEvents[]

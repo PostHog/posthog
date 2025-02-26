@@ -5,9 +5,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Fragment, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { PlaylistPopoverButton } from 'scenes/session-recordings/player/playlist-popover/PlaylistPopover'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
@@ -17,16 +19,9 @@ import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic
 
 import { NotebookNodeType } from '~/types'
 
-import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
-import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
+import { PlayerMetaBreakpoints } from './PlayerMeta'
 
-function PinToPlaylistButton({
-    buttonContent,
-    ...buttonProps
-}: {
-    buttonContent: (label: string) => JSX.Element
-    buttonProps?: Partial<LemonButtonProps>
-}): JSX.Element {
+function PinToPlaylistButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
@@ -42,7 +37,7 @@ function PinToPlaylistButton({
 
     return logicProps.setPinned && !logicProps.pinned ? (
         <LemonButton
-            {...buttonProps}
+            size="xsmall"
             onClick={() => {
                 if (nodeLogic) {
                     // If we are in a node, then pinning should persist the recording
@@ -60,35 +55,18 @@ function PinToPlaylistButton({
             tooltip={tooltip}
             setPinnedInCurrentPlaylist={logicProps.setPinned}
             icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
-            {...buttonProps}
+            size="xsmall"
         >
-            {buttonContent(description)}
+            {description}
         </PlaylistPopoverButton>
     )
 }
 
-export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
+export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPause } = useActions(sessionRecordingPlayerLogic)
+    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     const nodeLogic = useNotebookNode()
-    const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
-
-    const getCurrentPlayerTime = (): number => {
-        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
-        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
-        return Math.floor(playerTime / 1000)
-    }
-
-    const commonProps: Partial<LemonButtonProps> = {
-        size: 'xsmall',
-    }
-
-    const buttonContent = (label: string): JSX.Element => {
-        return !iconsOnly ? <span>{label}</span> : <Fragment />
-    }
-
-    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     return (
         <div className="flex">
@@ -96,42 +74,16 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                 <>
                     {sessionRecordingId && (
                         <div className="flex items-center gap-0.5">
-                            {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
+                            <MenuActions size={size} />
                         </div>
                     )}
-                    <NotebookSelectButton
-                        {...commonProps}
-                        icon={<IconComment />}
-                        resource={{
-                            type: NotebookNodeType.Recording,
-                            attrs: { id: sessionRecordingId, __init: { expanded: true } },
-                        }}
-                        onClick={() => setPause()}
-                        onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
-                            const time = getCurrentPlayerTime() * 1000
+                    {size === 'normal' && <AddToNotebookButton />}
 
-                            if (theNodeLogic) {
-                                // Node already exists, we just add a comment
-                                theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
-                                return
-                            }
-                            theNotebookLogic.actions.insertReplayCommentByTimestamp({
-                                timestamp: time,
-                                sessionRecordingId,
-                            })
+                    <PlayerShareMenu />
 
-                            closeSessionPlayer()
-                            personsModalLogic.findMounted()?.actions.closeModal()
-                        }}
-                    >
-                        {buttonContent('Comment')}
-                    </NotebookSelectButton>
-
-                    <PlayerShareMenu iconsOnly={iconsOnly} />
-
-                    {nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
+                    {size === 'normal' && nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
                         <LemonButton
-                            {...commonProps}
+                            size="xsmall"
                             icon={<IconNotebook />}
                             onClick={() => {
                                 nodeLogic.actions.insertAfter({
@@ -143,19 +95,65 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                         />
                     ) : null}
 
-                    <PinToPlaylistButton buttonContent={buttonContent} {...commonProps} />
+                    <PinToPlaylistButton />
                 </>
             ) : null}
         </div>
     )
 }
 
-const MenuActions = (): JSX.Element => {
+const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'fullWidth'>): JSX.Element => {
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { setPause } = useActions(sessionRecordingPlayerLogic)
+
+    const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
+
+    const getCurrentPlayerTime = (): number => {
+        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
+        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+        return Math.floor(playerTime / 1000)
+    }
+
+    return (
+        <NotebookSelectButton
+            fullWidth={fullWidth}
+            size="xsmall"
+            icon={<IconComment />}
+            resource={{
+                type: NotebookNodeType.Recording,
+                attrs: { id: sessionRecordingId, __init: { expanded: true } },
+            }}
+            onClick={() => setPause()}
+            onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
+                const time = getCurrentPlayerTime() * 1000
+
+                if (theNodeLogic) {
+                    // Node already exists, we just add a comment
+                    theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
+                    return
+                }
+                theNotebookLogic.actions.insertReplayCommentByTimestamp({
+                    timestamp: time,
+                    sessionRecordingId,
+                })
+
+                closeSessionPlayer()
+                personsModalLogic.findMounted()?.actions.closeModal()
+            }}
+        >
+            Comment
+        </NotebookSelectButton>
+    )
+}
+
+const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile } = useActions(sessionRecordingPlayerLogic)
 
     const hasMobileExportFlag = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
     const hasMobileExport = window.IMPERSONATED_SESSION || hasMobileExportFlag
+    const isStandardMode =
+        (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
 
     const onDelete = useMemo(
         () => () => {
@@ -178,7 +176,7 @@ const MenuActions = (): JSX.Element => {
 
     const items: LemonMenuItems = useMemo(() => {
         const itemsArray: LemonMenuItems = [
-            {
+            isStandardMode && {
                 label: '.json',
                 status: 'default',
                 icon: <IconDownload />,
@@ -186,26 +184,33 @@ const MenuActions = (): JSX.Element => {
                 tooltip: 'Export recording to a JSON file. This can be loaded later into PostHog for playback.',
             },
         ]
-        if (hasMobileExport) {
-            itemsArray.push({
-                label: 'DEBUG - mobile.json',
-                status: 'default',
-                icon: <IconDownload />,
-                onClick: () => exportRecordingToFile(true),
-                tooltip:
-                    'DEBUG - ONLY VISIBLE TO POSTHOG STAFF - Export untransformed recording to a file. This can be loaded later into PostHog for playback.',
+        if (size === 'small') {
+            itemsArray.unshift({
+                label: () => <AddToNotebookButton fullWidth={true} />,
             })
+        }
+        if (hasMobileExport) {
+            isStandardMode &&
+                itemsArray.push({
+                    label: 'DEBUG - mobile.json',
+                    status: 'default',
+                    icon: <IconDownload />,
+                    onClick: () => exportRecordingToFile(true),
+                    tooltip:
+                        'DEBUG - ONLY VISIBLE TO POSTHOG STAFF - Export untransformed recording to a file. This can be loaded later into PostHog for playback.',
+                })
         }
         if (logicProps.playerKey !== 'modal') {
-            itemsArray.push({
-                label: 'Delete recording',
-                status: 'danger',
-                onClick: onDelete,
-                icon: <IconTrash />,
-            })
+            isStandardMode &&
+                itemsArray.push({
+                    label: 'Delete recording',
+                    status: 'danger',
+                    onClick: onDelete,
+                    icon: <IconTrash />,
+                })
         }
         return itemsArray
-    }, [logicProps.playerKey, onDelete, exportRecordingToFile, hasMobileExport])
+    }, [logicProps.playerKey, onDelete, exportRecordingToFile, hasMobileExport, size])
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">

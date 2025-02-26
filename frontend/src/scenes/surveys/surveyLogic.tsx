@@ -37,7 +37,14 @@ import {
 import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
-import { getSurveyResponseKey, sanitizeHTML, sanitizeSurveyAppearance, validateColor } from './utils'
+import {
+    calculateNpsBreakdown,
+    calculateNpsScore,
+    getSurveyResponseKey,
+    sanitizeHTML,
+    sanitizeSurveyAppearance,
+    validateColor,
+} from './utils'
 
 const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: PropertyOperator }> = {
     [SurveyQuestionType.Open]: {
@@ -1252,19 +1259,33 @@ export const surveyLogic = kea<surveyLogicType>([
                     const questionResults = surveyRatingResults[questionIdx]
 
                     // If we don't have any results, return 'No data available' instead of NaN.
-                    if (questionResults.total === 0) {
+                    if (!questionResults || questionResults.total === 0) {
                         return 'No data available'
                     }
 
-                    const data: number[] = questionResults.data
-                    if (data.length === 11) {
-                        const promoters = data.slice(9, 11).reduce((a, b) => a + b, 0)
-                        const passives = data.slice(7, 9).reduce((a, b) => a + b, 0)
-                        const detractors = data.slice(0, 7).reduce((a, b) => a + b, 0)
-                        const npsScore = ((promoters - detractors) / (promoters + passives + detractors)) * 100
-                        return npsScore.toFixed(1)
+                    const npsBreakdown = calculateNpsBreakdown(questionResults)
+                    if (!npsBreakdown) {
+                        return null
                     }
+
+                    return calculateNpsScore(npsBreakdown).toFixed(1)
                 }
+            },
+        ],
+        npsBreakdown: [
+            (s) => [s.surveyRatingResults],
+            (surveyRatingResults) => {
+                const surveyRatingKeys = Object.keys(surveyRatingResults ?? {})
+                if (surveyRatingKeys.length === 0) {
+                    return null
+                }
+                const questionIdx = surveyRatingKeys[0]
+                const questionResults = surveyRatingResults[questionIdx]
+                if (!questionResults) {
+                    return null
+                }
+
+                return calculateNpsBreakdown(questionResults)
             },
         ],
         getBranchingDropdownValue: [

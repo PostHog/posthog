@@ -480,6 +480,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
         showLegend: filters.show_legend,
         hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         showValuesOnSeries: filters.show_values_on_series,
+        computedAs: filters.computed_as,
     })
 }
 
