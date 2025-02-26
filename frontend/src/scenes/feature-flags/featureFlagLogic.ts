@@ -744,16 +744,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const orgId = values.currentOrganization?.id
                 const flagKey = values.featureFlag.key
 
-                const projects = await api.organizationFeatureFlags.get(orgId, flagKey)
+                const organizationFeatureFlags = await api.organizationFeatureFlags.get(orgId, flagKey)
+                const teamIdsInCurrentProject =
+                    values.currentOrganization?.teams
+                        .filter((t) => t.project_id === values.currentProjectId)
+                        .map((t) => t.id) || []
 
-                // Put current project first
-                const currentProjectIdx = projects.findIndex((p) => p.team_id === values.currentTeamId)
-                if (currentProjectIdx) {
-                    const [currentProject] = projects.splice(currentProjectIdx, 1)
-                    const sortedProjects = [currentProject, ...projects]
-                    return sortedProjects
-                }
-                return projects
+                // Put current project first. We need teamIdsInCurrentProject here, because as of Feb 2025,
+                // FeatureFlag only has `team_id`, but not `project_id`
+                return organizationFeatureFlags.sort((a, b) => {
+                    if (teamIdsInCurrentProject.includes(a.team_id)) {
+                        return -1
+                    }
+                    if (teamIdsInCurrentProject.includes(b.team_id)) {
+                        return 1
+                    }
+                    return 0
+                })
             },
         },
         featureFlagCopy: {
