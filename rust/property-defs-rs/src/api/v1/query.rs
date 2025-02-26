@@ -79,7 +79,10 @@ impl Manager {
         // begin the WHERE clause
         self.init_where_clause(qb, project_id);
         self.where_property_type(qb, params.parent_type);
-        qb.push("AND COALESCE(group_type_index, -1) = ");
+        qb.push(format!(
+            "AND COALESCE({}.\"group_type_index\", -1) = ",
+            PROPERTY_DEFS_TABLE
+        ));
         qb.push_bind(params.group_type_index);
         qb.push(" ");
 
@@ -175,7 +178,10 @@ impl Manager {
         // begin the WHERE clause
         self.init_where_clause(qb, project_id);
         self.where_property_type(qb, params.parent_type);
-        qb.push(" AND COALESCE(group_type_index, -1) = ");
+        qb.push(format!(
+            " AND COALESCE({}.\"group_type_index\", -1) = ",
+            PROPERTY_DEFS_TABLE
+        ));
         qb.push_bind(params.group_type_index);
         qb.push(" ");
 
@@ -196,9 +202,12 @@ impl Manager {
         qb.push(" ORDER BY is_seen_on_filtered_events DESC, ");
         if params.use_enterprise_taxonomy {
             // "verified" col only exists on the enterprise prop defs table!
-            qb.push(" verified DESC NULLS LAST, ");
+            qb.push(format!(
+                " {}.\"verified\" DESC NULLS LAST, ",
+                ENTERPRISE_PROP_DEFS_TABLE
+            ));
         }
-        qb.push(format!(" {}.name ASC ", PROPERTY_DEFS_TABLE));
+        qb.push(format!(" {}.\"name\" ASC ", PROPERTY_DEFS_TABLE));
         qb.push(" ");
 
         // LIMIT and OFFSET clauses
@@ -298,15 +307,15 @@ impl Manager {
 
             // close the JOIN clause and add the JOIN condition
             qb.push(format!(
-                ") {0} ON {0}.property = name ",
-                EVENT_PROPERTY_TABLE_ALIAS
+                ") {0} ON {0}.\"property\" = {1}.\"name\" ",
+                EVENT_PROPERTY_TABLE_ALIAS, PROPERTY_DEFS_TABLE
             ));
         }
     }
 
     fn init_where_clause(&self, qb: &mut QueryBuilder<Postgres>, project_id: i32) {
         qb.push(format!(
-            "WHERE COALESCE({0}.project_id, {0}.team_id) = ",
+            "WHERE COALESCE({0}.\"project_id\", {0}.\"team_id\") = ",
             PROPERTY_DEFS_TABLE
         ));
         qb.push_bind(project_id);
@@ -318,7 +327,7 @@ impl Manager {
         qb: &mut QueryBuilder<Postgres>,
         parent_type: PropertyParentType,
     ) {
-        qb.push(" AND type = ");
+        qb.push(format!(" AND {}.\"type\" = ", PROPERTY_DEFS_TABLE));
         qb.push_bind(parent_type as i32);
         qb.push(" ");
     }
@@ -334,7 +343,7 @@ impl Manager {
         // but may not matter when passed to this service. TBD. See below:
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L241
         if self.is_parent_type_event(parent_type) {
-            qb.push(format!(" AND NOT {0}.name = ANY(", PROPERTY_DEFS_TABLE));
+            qb.push(format!(" AND NOT {0}.\"name\" = ANY(", PROPERTY_DEFS_TABLE));
 
             // here we combine fixed set of "hidden" event props with a
             // possibly empty list of user-supplied excluded props to filter
@@ -357,7 +366,7 @@ impl Manager {
         properties: &'args [String],
     ) {
         if !properties.is_empty() {
-            qb.push(" AND name = ANY(");
+            qb.push(format!(" AND {}.\"name\" = ANY(", PROPERTY_DEFS_TABLE));
             qb.push_bind(properties);
             qb.push(") ");
         }
@@ -372,9 +381,10 @@ impl Manager {
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
         // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
         if is_numerical {
-            qb.push(
-                " AND is_numerical = true AND NOT name = ANY(ARRAY['distinct_id', 'timestamp']) ",
-            );
+            qb.push(format!(
+                " AND {0}.\"is_numerical\" = true AND NOT {0}.\"name\" = ANY(ARRAY['distinct_id', 'timestamp']) ",
+                PROPERTY_DEFS_TABLE,
+            ));
         }
     }
 
@@ -449,7 +459,7 @@ impl Manager {
                 // each of these clauses may be enriched with "search_extras" suffix
                 for (tndx, term) in search_terms.iter().enumerate() {
                     if tndx == 0 {
-                        qb.push(" AND (( ");
+                        qb.push(" AND ((");
                     }
                     // inner loop: nested OR clause for every search field (column; by default
                     // "name" only) performing a fuzzy match attempt (ILIKE) for the current
@@ -465,14 +475,14 @@ impl Manager {
                             qb.push(" OR ");
                         }
                         if fndx == search_fields.len() - 1 {
-                            qb.push(") ");
+                            qb.push(")");
                         }
                     }
                     if search_terms.len() > 1 && tndx < search_terms.len() - 1 {
                         qb.push(" AND ");
                     }
                     if tndx == search_terms.len() - 1 {
-                        qb.push(format!(" ) {} ) ", search_extras.clone()));
+                        qb.push(format!(") {}) ", search_extras.clone()));
                     }
                 }
             }
