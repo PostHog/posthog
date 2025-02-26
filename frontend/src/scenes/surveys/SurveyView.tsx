@@ -9,7 +9,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -49,26 +48,6 @@ import {
     SingleChoiceQuestionPieChart,
     Summary,
 } from './surveyViewViz'
-
-function SurveyResultsFilters(): JSX.Element {
-    const { propertyFilters } = useValues(surveyLogic)
-    const { setPropertyFilters } = useActions(surveyLogic)
-
-    return (
-        <div className="space-y-2">
-            <h3 className="text-base">Filter survey results</h3>
-            <SurveyAnswerFilters />
-            <div className="w-fit">
-                <PropertyFilters
-                    propertyFilters={propertyFilters}
-                    onChange={setPropertyFilters}
-                    pageKey="survey-results"
-                    buttonText="More filters"
-                />
-            </div>
-        </div>
-    )
-}
 
 function SurveySchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
@@ -528,7 +507,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
     return (
         <div className="space-y-4">
-            <SurveyResultsFilters />
+            <SurveyAnswerFilters />
             {isAnyResultsLoading && (
                 <div className="flex gap-1">
                     <span className="text-sm text-secondary">Loading results...</span>
