@@ -53,7 +53,7 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
     [SurveyQuestionType.Link]: [],
 }
 
-function _SurveyAnswerFilters(): JSX.Element | null {
+function _SurveyAnswerFilters(): JSX.Element {
     const { survey, answerFilters, propertyFilters } = useValues(surveyLogic)
     const { setAnswerFilters, setPropertyFilters } = useActions(surveyLogic)
 
