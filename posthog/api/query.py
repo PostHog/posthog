@@ -314,7 +314,8 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                             status = await sync_to_async(manager.get_clickhouse_progresses)()
 
                             if isinstance(status, BaseModel):
-                                yield f"data: {status.model_dump_json(by_alias=True)}\n\n".encode()
+                                status_update = {"complete": False, **status.model_dump(by_alias=True)}
+                                yield f"data: {json.dumps(status_update)}\n\n".encode()
                                 last_update_time = current_time
                     # Just ignore errors when getting progress, shouldn't impact users
                     except Exception as e:

@@ -3,13 +3,13 @@ import './PlayerMeta.scss'
 import { useActions, useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PersonIcon } from 'scenes/persons/PersonDisplay'
-import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
+import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-import { playerSettingsLogic } from './playerSettingsLogic'
-import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
+import { playerSettingsLogic } from '../playerSettingsLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { playerSidebarLogic } from '../sidebar/playerSidebarLogic'
 
 export function PlayerPersonMeta(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)

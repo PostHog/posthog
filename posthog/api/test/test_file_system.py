@@ -30,7 +30,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response_data["path"], "MyFolder/Document.txt")
         self.assertEqual(response_data["type"], "doc-file")
         self.assertDictEqual(response_data["meta"], {"description": "A test file"})
-        self.assertEqual(response_data["created_by"]["id"], self.user.pk)  # The user who created it
+        self.assertEqual(response_data["created_by"]["id"], self.user.pk)
 
     def test_retrieve_file(self):
         """
@@ -42,7 +42,6 @@ class TestFileSystemAPI(APIBaseTest):
             type="test-type",
             created_by=self.user,
         )
-
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
@@ -68,7 +67,6 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(updated_data["path"], "NewPath/file.txt")
         self.assertEqual(updated_data["type"], "new-type")
 
-        # Verify changes in DB
         file_obj.refresh_from_db()
         self.assertEqual(file_obj.path, "NewPath/file.txt")
         self.assertEqual(file_obj.type, "new-type")
@@ -82,25 +80,24 @@ class TestFileSystemAPI(APIBaseTest):
         )
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/")
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
-
-        # Confirm it's gone
         self.assertFalse(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
     def test_unfiled_endpoint_no_content(self):
         """
-        If there are no relevant FeatureFlags, Experiments, etc. for this team,
-        'unfiled' should return an empty list.
+        If there are no relevant items to create (e.g. no FeatureFlags, Experiments, etc.),
+        'unfiled' should return an empty list and create nothing in the DB.
         """
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         data = response.json()
         self.assertEqual(data["count"], 0)
         self.assertEqual(data["results"], [])
+        self.assertEqual(FileSystem.objects.count(), 0)
 
     def test_unfiled_endpoint_with_content(self):
         """
         If we create some FeatureFlags, Experiments, Dashboards, Insights, or Notebooks,
-        they should show up as ephemeral FileSystem items in the unfiled list.
+        the 'unfiled' endpoint should create them in FileSystem and return them.
         """
         feature_flag = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=feature_flag)
@@ -108,13 +105,13 @@ class TestFileSystemAPI(APIBaseTest):
         Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
 
-        # Now call the endpoint
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         data = response.json()
         results = data["results"]
-        self.assertGreaterEqual(len(results), 5, results)  # We expect at least 5 ephemeral items
+        self.assertEqual(len(results), 5, results)
+        self.assertEqual(FileSystem.objects.count(), 5)
 
         # Check that each type is present
         types = [item["type"] for item in results]
@@ -126,23 +123,46 @@ class TestFileSystemAPI(APIBaseTest):
 
     def test_unfiled_endpoint_with_type_filtering(self):
         """
-        Ensure that the 'type' query parameter works as expected.
+        Ensure that the 'type' query parameter filters creation to a single type.
         """
-        feature_flag = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=feature_flag)
+        flag = FeatureFlag.objects.create(team=self.team, name="Only Flag", created_by=self.user)
+        Experiment.objects.create(team=self.team, name="Experiment #1", feature_flag=flag, created_by=self.user)
 
-        # Check that the type filtering works
+        # Filter for feature_flag only
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/?type=feature_flag")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json()["count"], 1)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(FileSystem.objects.count(), 1)
+        self.assertEqual(data["results"][0]["type"], FileSystemType.FEATURE_FLAG)
+
+        # Check that no experiment was created
+        self.assertFalse(FileSystem.objects.filter(type=FileSystemType.EXPERIMENT).exists())
+
+    def test_unfiled_endpoint_is_idempotent(self):
+        """
+        Calling the unfiled endpoint multiple times should not create duplicate FileSystem rows
+        for the same objects.
+        """
+        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        first_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_response.json()["count"], 1)
+        self.assertEqual(FileSystem.objects.count(), 1)
+
+        # Second call
+        second_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.json()["count"], 0, second_response.json())  # No new items
+        self.assertEqual(FileSystem.objects.count(), 1)
 
     def test_search_files_by_path(self):
         """
         Ensure the search functionality is working on the 'path' field.
         """
-        FileSystem.objects.create(team=self.team, path="Analytics/Report 1", type="report")
-        FileSystem.objects.create(team=self.team, path="Analytics/Report 2", type="report")
-        FileSystem.objects.create(team=self.team, path="Random/Other File", type="misc")
+        FileSystem.objects.create(team=self.team, path="Analytics/Report 1", type="report", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="Analytics/Report 2", type="report", created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="Random/Other File", type="misc", created_by=self.user)
 
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=Analytics")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
