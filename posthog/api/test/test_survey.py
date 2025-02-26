@@ -1434,8 +1434,12 @@ class TestSurvey(APIBaseTest):
                                 "type": "Survey",
                                 "action": "changed",
                                 "field": "questions",
-                                "before": [{"type": "open", "question": "Initial question?"}],
-                                "after": [{"type": "open", "question": "Updated question?"}],
+                                "before": [
+                                    {"id": survey.questions[0].id, "type": "open", "question": "Initial question?"}
+                                ],
+                                "after": [
+                                    {"id": survey.questions[0].id, "type": "open", "question": "Updated question?"}
+                                ],
                             },
                         ],
                         "trigger": None,
@@ -1867,11 +1871,13 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "type": "popover",
                 "questions": [
                     {
+                        "id": basic_survey.questions[0]["id"],
                         "type": "open",
                         "question": "What up?",
                         "description": "<script>alert(0)</script>check?",
                     },
                     {
+                        "id": basic_survey.questions[1]["id"],
                         "type": "link",
                         "link": "https://bazinga.com",
                         "question": "<b>What</b> do you think of the new notebooks feature?",
