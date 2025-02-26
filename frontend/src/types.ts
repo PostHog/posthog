@@ -3012,7 +3012,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     id: number | null
     created_by: UserBasicType | null
     created_at: string | null
-    version: number
+    version: number | null
     last_modified_by: UserBasicType | null
     is_simple_flag: boolean
     rollout_percentage: number | null
