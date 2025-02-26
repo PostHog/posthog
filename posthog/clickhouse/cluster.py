@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import logging
 import re
 import time
@@ -14,7 +15,7 @@ from concurrent.futures import (
 )
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Literal, NamedTuple, TypeVar
+from typing import Any, Generic, Literal, NamedTuple, TypeVar
 from collections.abc import Iterable
 
 from clickhouse_driver import Client
@@ -24,6 +25,9 @@ from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
+
+logger = logging.getLogger(__name__)
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
@@ -318,6 +322,30 @@ class Query:
         return client.execute(self.query, self.parameters)
 
 
+@dataclass
+class RetryPolicy(Generic[T]):
+    callable: Callable[[Client], T]
+    max_attempts: int
+    delay: float
+    exceptions: tuple[type[Exception], ...] = (Exception,)
+
+    def __call__(self, client: Client) -> T:
+        counter = itertools.count(1)
+        while (attempt := next(counter)) <= self.max_attempts:
+            try:
+                return self.callable(client)
+            except Exception as e:
+                if isinstance(e, self.exceptions) and attempt < self.max_attempts:
+                    logger.warning(
+                        "Failed to invoke %r (attempt #%s), retrying in %s...", self.callable, attempt, self.delay
+                    )
+                    time.sleep(self.delay)
+                else:
+                    raise
+
+        raise RuntimeError("unexpected fallthrough")
+
+
 class MutationNotFound(Exception):
     pass
 
@@ -459,5 +487,10 @@ class MutationRunner:
         assert len(shard_mutations) == len(shard_host_mutations)
 
         cluster.map_all_hosts_in_shards(
-            {shard_num: mutation.wait for shard_num, mutation in shard_mutations.items()}
+            {
+                # during periods of elevated replication lag, it may take some time for mutations to become available on
+                # the shards, so give them a little bit of breathing room with retries
+                shard_num: RetryPolicy(mutation.wait, max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
+                for shard_num, mutation in shard_mutations.items()
+            }
         ).result()

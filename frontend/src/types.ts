@@ -520,6 +520,11 @@ export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
 
+export interface SessionRecordingMaskingConfig {
+    maskAllInputs?: boolean
+    maskTextSelector?: string
+}
+
 export enum ActivationTaskStatus {
     COMPLETED = 'completed',
     SKIPPED = 'skipped',
@@ -546,6 +551,7 @@ export interface TeamType extends TeamBasicType {
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
+    session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
@@ -1427,6 +1433,12 @@ export interface RecordingEventType
     fullyLoaded: boolean
 }
 
+export interface PlaylistRecordingsCounts {
+    query_count?: number
+    pinned_count?: number
+    has_more?: boolean
+}
+
 export interface SessionRecordingPlaylistType {
     /** The primary key in the database, used as well in API endpoints */
     id: number
@@ -1441,6 +1453,12 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: LegacyRecordingFilters
+    /**
+     * the count of recordings matching filters, calculated periodically
+     * and pinned recordings which is calculated in real-time
+     * marked as has more if the filters count onoy matched one page and there are more available
+     */
+    recordings_counts?: PlaylistRecordingsCounts
 }
 
 export interface SessionRecordingSegmentType {

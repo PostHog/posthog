@@ -187,7 +187,7 @@ export type LemonTreeProps = HTMLAttributes<HTMLDivElement> & {
     right?: (item: TreeDataItem) => React.ReactNode
 
     /** The ref of the content to focus when the tree is clicked. TODO: make non-optional. */
-    contentRef?: React.RefObject<HTMLDivElement>
+    contentRef?: React.RefObject<HTMLElement>
 }
 
 const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
@@ -297,7 +297,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         }, [contentRef])
 
         // Add helper function to find path to an item
-        const findPathToItem = (items: TreeDataItem[], targetId: string, path: string[] = []): string[] => {
+        const findPathToItem = useCallback((items: TreeDataItem[], targetId: string, path: string[] = []): string[] => {
             for (const item of items) {
                 if (item.id === targetId) {
                     return path
@@ -310,7 +310,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 }
             }
             return []
-        }
+        }, [])
 
         // Add function to handle type-ahead search
         const handleTypeAhead = useCallback(
@@ -551,17 +551,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     }
                 }
             },
-            [
-                focusedId,
-                expandedItemIds,
-                getVisibleItems,
-                handleTypeAhead,
-                data,
-                focusContent,
-                handleClick,
-                onNodeClick,
-                onFolderClick,
-            ]
+            [focusedId, expandedItemIds, getVisibleItems, handleTypeAhead, data, focusContent, handleClick, onNodeClick]
         )
 
         return (
