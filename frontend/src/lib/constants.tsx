@@ -174,7 +174,6 @@ export const FEATURE_FLAGS = {
     REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
-    PRODUCT_INTRO_PAGES: 'product-intro-pages', // owner: @raquelmsmith
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
@@ -189,7 +188,6 @@ export const FEATURE_FLAGS = {
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     ALERTS: 'alerts', // owner: @anirudhpillai #team-product-analytics
     ERROR_TRACKING: 'error-tracking', // owner: #team-error-tracking
-    ERROR_TRACKING_ALERTING: 'error-tracking-alerting', // owner: #team-error-tracking
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     ONBOARDING_DASHBOARD_TEMPLATES: 'onboarding-dashboard-templates', // owner: @raquelmsmith
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
