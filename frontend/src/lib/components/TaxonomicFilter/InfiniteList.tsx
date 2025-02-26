@@ -16,10 +16,11 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 
@@ -190,21 +191,18 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         showPopover,
         hasRemoteDataSource,
     } = useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex, expand, updateRemoteItem, loadRemoteItems } = useActions(infiniteListLogic)
+    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
 
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
-    const initialLoadAttemptedRef = useRef<boolean>(false)
 
-    // Reload data if we have a remote source but no results
-    useEffect(() => {
-        if (hasRemoteDataSource && !isLoading && results.length === 0 && !initialLoadAttemptedRef.current) {
-            initialLoadAttemptedRef.current = true
-            loadRemoteItems({ offset: 0, limit: 100 })
-        }
-    }, [hasRemoteDataSource, isLoading, loadRemoteItems, results.length])
+    // Removed useRef and useEffect, as we're relying on Kea's logic to handle loading states
 
     const isActiveTab = listGroupType === activeTab
-    const showEmptyState = totalListCount === 0 && !isLoading
+    // Only show empty state if:
+    // 1. There are no results
+    // 2. We're not currently loading
+    // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
+    const showEmptyState = totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const item = results[rowIndex]
@@ -260,7 +258,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             return (
                 <div
                     {...commonDivProps}
-                    className={clsx(commonDivProps.className, 'expand-row', isLoading && 'animate-pulse')}
+                    className={clsx(commonDivProps.className, 'expand-row')}
                     data-attr={`expand-list-${listGroupType}`}
                     onClick={expand}
                 >
@@ -279,12 +277,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         return (
             <div
                 {...commonDivProps}
-                className={clsx(commonDivProps.className, 'skeleton-row', isLoading && 'animate-pulse')}
+                className={clsx(commonDivProps.className, 'skeleton-row')}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
                 <div className="taxonomic-list-row-contents">
                     <div className="taxonomic-list-row-contents-icon">
-                        <LemonSkeleton className="h-4 w-4" />
+                        <Spinner className="h-4 w-4" speed="0.8s" />
                     </div>
                     <LemonSkeleton className="h-4 flex-1" />
                 </div>
@@ -306,6 +304,13 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                             'No results'
                         )}
                     </span>
+                </div>
+            ) : isLoading &&
+              (!results ||
+                  results.length === 0 ||
+                  (results.length === 1 && (!results[0].id || results[0].id === ''))) ? (
+                <div className="flex items-center justify-center h-full">
+                    <Spinner className="text-3xl" />
                 </div>
             ) : (
                 <AutoSizer>

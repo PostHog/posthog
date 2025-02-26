@@ -4,6 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -33,7 +34,8 @@ function CategoryPill({
 
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
     const canInteract = totalListCount > 0 || taxonomicFilterGroupTypesWithEmptyStates.includes(groupType)
-    const showLoading = isLoading && (!results || results.length === 0) && hasRemoteDataSource
+    const hasOnlyDefaultItems = results?.length === 1 && (!results[0].id || results[0].id === '')
+    const showLoading = isLoading && (!results || results.length === 0 || hasOnlyDefaultItems) && hasRemoteDataSource
 
     return (
         <LemonTag
@@ -50,7 +52,7 @@ function CategoryPill({
                     {group?.name}
                     {': '}
                     {showLoading ? (
-                        <span className="animate-pulse">Loading...</span>
+                        <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
                     ) : (
                         results?.length || totalResultCount || 0
                     )}
