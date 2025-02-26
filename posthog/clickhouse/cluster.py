@@ -307,14 +307,22 @@ class ClickhouseCluster:
 
 
 def get_cluster(
-    logger: logging.Logger | None = None, client_settings: Mapping[str, str] | None = None, cluster: str | None = None
+    logger: logging.Logger | None = None,
+    client_settings: Mapping[str, str] | None = None,
+    cluster: str | None = None,
+    retry_policy: RetryPolicy | None = None,
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
         extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
     return ClickhouseCluster(
-        default_client(), extra_hosts=extra_hosts, logger=logger, client_settings=client_settings, cluster=cluster
+        default_client(),
+        extra_hosts=extra_hosts,
+        logger=logger,
+        client_settings=client_settings,
+        cluster=cluster,
+        retry_policy=retry_policy,
     )
 
 
