@@ -75,7 +75,7 @@ def remove_duplicates_from_records(
     comparisons won't fail.
     """
     if not key:
-        dedup_key = ("uuid",)
+        dedup_key: tuple[str, ...] = ("uuid",)
     else:
         dedup_key = tuple(key)
 
