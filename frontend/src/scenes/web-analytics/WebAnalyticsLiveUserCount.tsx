@@ -1,6 +1,4 @@
-import './WebAnalyticsLiveUserCount.scss'
-
-import clsx from 'clsx'
+import { IconLive } from '@posthog/icons'
 import { useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
@@ -29,13 +27,12 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
     const tooltip = `${usersOnlineString}${inTeamString}${updatedAgoString}`
 
     return (
-        <Tooltip title={tooltip}>
-            <div className="flex flex-row items-center justify-center">
-                <div className={clsx('live-user-indicator', liveUserCount > 0 ? 'online' : 'offline')} />
+        <div className="hidden sm:flex items-center mb-2 border-b">
+            <Tooltip title={tooltip}>
                 <span className="whitespace-nowrap" data-attr="web-analytics-live-user-count">
-                    <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> online
+                    <IconLive /> <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> currently online
                 </span>
-            </div>
-        </Tooltip>
+            </Tooltip>
+        </div>
     )
 }

@@ -498,7 +498,7 @@ export const WebStatsTrendTile = ({
                 geographyTab: hasCountryFilter ? undefined : GeographyTab.REGIONS,
             })
         },
-        [togglePropertyFilter, worldMapPropertyName, hasCountryFilter]
+        [togglePropertyFilter, worldMapPropertyName]
     )
 
     const context = useMemo((): QueryContext => {
