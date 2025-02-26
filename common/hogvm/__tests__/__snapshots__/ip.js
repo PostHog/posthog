@@ -1,7 +1,5 @@
-function sha256HmacChainHex (data, options) { return 'sha256HmacChainHex not implemented' }
-function sha256Hex (str, options) { return 'SHA256 is not implemented' }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
-function md5Hex(string) { return 'MD5 is not implemented' }
+function isIPAddressInRange (address, prefix) { return 'isIPAddressInRange not implemented' }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
@@ -40,12 +38,9 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-let string = "this is a secure string";
-print("string:", string);
-print("md5Hex(string):", md5Hex(string));
-print("md5Hex(null):", md5Hex(null));
-print("sha256Hex(string):", sha256Hex(string));
-print("sha256Hex(null):", sha256Hex(null));
-let data = ["1", "string", "more", "keys"];
-print("data:", data);
-print("sha256HmacChainHex(data):", sha256HmacChainHex(data));
+print(isIPAddressInRange("192.168.0.10", "192.168.0.0/24"));
+print(isIPAddressInRange("193.168.0.10", "192.168.0.0/24"));
+print(isIPAddressInRange("2001:db8::1", "2001:db8::/32"));
+print(isIPAddressInRange("2001:db9::1", "2001:db8::/32"));
+print(isIPAddressInRange("192.168.0.10", "invalid"));
+print(isIPAddressInRange("invalid", "192.168.0.0/24"));

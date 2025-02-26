@@ -1,0 +1,10 @@
+print(isIPAddressInRange('192.168.0.10', '192.168.0.0/24')) // true
+print(isIPAddressInRange('193.168.0.10', '192.168.0.0/24')) // false
+
+print(isIPAddressInRange('2001:db8::1', '2001:db8::/32')); // true
+print(isIPAddressInRange('2001:db9::1', '2001:db8::/32')); // false
+
+print(isIPAddressInRange('192.168.0.10', 'invalid')) // false
+print(isIPAddressInRange('invalid', '192.168.0.0/24')) // false
+
+

@@ -317,6 +317,10 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         "function sha256HmacChainHex (data, options) { return 'sha256HmacChainHex not implemented' }",
         [],
     ],
+    "isIPAddressInRange": [
+        "function isIPAddressInRange (address, prefix) { return 'isIPAddressInRange not implemented' }",
+        [],
+    ],
     "keys": [
         """function keys (obj) { if (typeof obj === 'object' && obj !== null) { if (Array.isArray(obj)) { return Array.from(obj.keys()) } else if (obj instanceof Map) { return Array.from(obj.keys()) } return Object.keys(obj) } return [] }""",
         [],

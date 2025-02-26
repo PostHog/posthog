@@ -1,0 +1,5 @@
+["_H", 1, 32, "192.168.0.10", 32, "192.168.0.0/24", 2, "isIPAddressInRange", 2, 2, "print", 1, 35, 32, "193.168.0.10",
+32, "192.168.0.0/24", 2, "isIPAddressInRange", 2, 2, "print", 1, 35, 32, "2001:db8::1", 32, "2001:db8::/32", 2,
+"isIPAddressInRange", 2, 2, "print", 1, 35, 32, "2001:db9::1", 32, "2001:db8::/32", 2, "isIPAddressInRange", 2, 2,
+"print", 1, 35, 32, "192.168.0.10", 32, "invalid", 2, "isIPAddressInRange", 2, 2, "print", 1, 35, 32, "invalid", 32,
+"192.168.0.0/24", 2, "isIPAddressInRange", 2, 2, "print", 1, 35]
