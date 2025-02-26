@@ -40,10 +40,6 @@ async def get_record_batch_from_queue(queue, produce_task):
     return None
 
 
-def get_flaky_clickhouse_client(*args, fail_after_records: int, **kwargs):
-    return FlakyClickHouseClient(*args, fail_after_records=fail_after_records, **kwargs)
-
-
 class FlakyClickHouseClient(ClickHouseClient):
     """Fake ClickHouseClient that simulates a failure after reading a certain number of records.
 

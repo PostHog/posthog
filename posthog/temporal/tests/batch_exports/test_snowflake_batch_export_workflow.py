@@ -54,7 +54,7 @@ from posthog.temporal.batch_exports.spmc import (
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import (
-    get_flaky_clickhouse_client,
+    FlakyClickHouseClient,
     get_record_batch_from_queue,
     mocked_start_batch_export_run,
 )
@@ -1981,6 +1981,7 @@ def test_load_private_key_raises_error_if_key_is_invalid():
         load_private_key("invalid_key", None)
 
 
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
 @pytest.mark.parametrize(
     "model", [BatchExportModel(name="events", schema=None), BatchExportModel(name="persons", schema=None)]
 )
@@ -2024,7 +2025,7 @@ async def test_insert_into_snowflake_activity_completes_range_when_there_is_a_fa
 
     with unittest.mock.patch(
         "posthog.temporal.common.clickhouse.ClickHouseClient",
-        lambda *args, **kwargs: get_flaky_clickhouse_client(*args, **kwargs, fail_after_records=fail_after_records),
+        lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
     ):
         # We expect this to raise an exception
         with pytest.raises(RecordBatchTaskError):

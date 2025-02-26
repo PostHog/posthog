@@ -47,7 +47,7 @@ from posthog.temporal.batch_exports.spmc import (
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import (
-    get_flaky_clickhouse_client,
+    FlakyClickHouseClient,
     get_record_batch_from_queue,
     mocked_start_batch_export_run,
 )
@@ -1265,7 +1265,7 @@ async def test_insert_into_bigquery_activity_completes_range_when_there_is_a_fai
 
     with unittest.mock.patch(
         "posthog.temporal.common.clickhouse.ClickHouseClient",
-        lambda *args, **kwargs: get_flaky_clickhouse_client(*args, **kwargs, fail_after_records=fail_after_records),
+        lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
     ):
         # we expect this to raise an exception
         with pytest.raises(RecordBatchTaskError):
