@@ -11,6 +11,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 from parameterized import parameterized
+import pytest
 from rest_framework import status
 
 from posthog.api.test.test_team import create_team
@@ -1214,6 +1215,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_400_when_invalid_list_query(self) -> None:
         query_params = "&".join(
             [
@@ -1227,9 +1229,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"/api/projects/{self.team.id}/session_recordings?{query_params}",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "attr": None,
-            "code": "{'type': 'invalid', 'loc': ['invalid'], 'msg': 'invalid', 'input': 'invalid', 'url': 'invalid'}",
-            "detail": "{'type': ErrorDetail(string='list_type', code='invalid'), 'loc': [ErrorDetail(string='session_ids', code='invalid')], 'msg': ErrorDetail(string='Input should be a valid list', code='invalid'), 'input': ErrorDetail(string='invalid', code='invalid'), 'url': ErrorDetail(string='https://errors.pydantic.dev/2.9/v/list_type', code='invalid')}",
-            "type": "validation_error",
-        }
+        assert (
+            '{"type": "extra_forbidden", "loc": ["tomato"], "msg": "Extra inputs are not permitted", "input": "potato", "url": "https://errors.pydantic.dev/2.9/v/extra_forbidden"}'
+            in response.json()["detail"]
+        )
+        assert response.json() == self.snapshot
