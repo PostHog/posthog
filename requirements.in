@@ -101,7 +101,7 @@ sqlalchemy==2.0.38
 sqlalchemy-bigquery[bqstorage]==1.12.1
 sshtunnel==0.4.0
 statshog==1.0.6
-structlog==25.1.0
+structlog==23.2.0
 sqlparse==0.4.4
 temporalio==1.7.1
 token-bucket==0.3.0

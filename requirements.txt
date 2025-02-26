@@ -843,7 +843,7 @@ statshog==1.0.6
     # via -r requirements.in
 stripe==10.3.0
     # via -r requirements.in
-structlog==25.1.0
+structlog==23.2.0
     # via
     #   -r requirements.in
     #   dagster
