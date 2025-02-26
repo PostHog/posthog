@@ -27,6 +27,7 @@ from posthog.schema import (
     CachedStickinessQueryResponse,
     DataWarehouseNode,
     EventsNode,
+    StickinessComputationMode,
     StickinessQuery,
     HogQLQueryModifiers,
     StickinessQueryResponse,
@@ -229,11 +230,23 @@ class StickinessQueryRunner(QueryRunner):
 
             # Scope down to the individual day
             if interval_num is not None:
-                events_query.where = ast.CompareOperation(
-                    left=ast.Field(chain=["num_intervals"]),
-                    op=ast.CompareOperationOp.Eq if operator is None else get_count_operator_ast(operator),
-                    right=ast.Constant(value=interval_num),
-                )
+                # For cumulative mode, we want actors who were active for X or more days
+                if (
+                    self.query.stickinessFilter
+                    and self.query.stickinessFilter.computedAs == StickinessComputationMode.CUMULATIVE
+                ):
+                    events_query.where = ast.CompareOperation(
+                        left=ast.Field(chain=["num_intervals"]),
+                        op=ast.CompareOperationOp.GtEq,
+                        right=ast.Constant(value=interval_num),
+                    )
+                else:
+                    # For normal mode, use the provided operator or exact match
+                    events_query.where = ast.CompareOperation(
+                        left=ast.Field(chain=["num_intervals"]),
+                        op=ast.CompareOperationOp.Eq if operator is None else get_count_operator_ast(operator),
+                        right=ast.Constant(value=interval_num),
+                    )
 
             queries.append(events_query)
 
@@ -269,13 +282,30 @@ class StickinessQueryRunner(QueryRunner):
 
                 data = val[0]
 
+                # Calculate cumulative values if requested
+                if (
+                    self.query.stickinessFilter
+                    and self.query.stickinessFilter.computedAs == StickinessComputationMode.CUMULATIVE
+                ):
+                    cumulative_data = []
+                    for i in range(len(data)):
+                        total_for_days = sum(data[i:])
+                        cumulative_data.append(total_for_days)
+                    data = cumulative_data
+
                 series_object = {
                     "count": sum(data),
                     "data": data,
                     "days": val[1],
                     "label": "All events" if series_label is None else series_label,
                     "labels": [
-                        f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'}" for day in val[1]
+                        f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'} or more"
+                        if (
+                            self.query.stickinessFilter
+                            and self.query.stickinessFilter.computedAs == StickinessComputationMode.CUMULATIVE
+                        )
+                        else f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'}"
+                        for day in val[1]
                     ],
                 }
 

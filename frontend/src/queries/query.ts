@@ -130,7 +130,14 @@ async function executeQuery<N extends DataNode>(
                             if (data.error) {
                                 logQueryEvent('error', data, queryNode)
                                 abortController.abort()
-                                reject(new Error(data.error_message || data.error))
+                                // Create an error object that matches the API error format
+                                const error = {
+                                    message: data.error,
+                                    status: data.status_code || 500,
+                                    detail: data.error_message || data.error,
+                                    type: 'network_error',
+                                }
+                                reject(error)
                             } else if (data.complete === false) {
                                 // Progress event - no results yet
                                 logQueryEvent('progress', data, queryNode)
