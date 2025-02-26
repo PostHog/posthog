@@ -68,7 +68,7 @@ export const groupLogic = kea<groupLogicType>([
             {
                 loadGroup: async () => {
                     const params = { group_type_index: props.groupTypeIndex, group_key: props.groupKey }
-                    const url = `api/projects/${values.currentTeamId}/groups/find?${toParams(params)}`
+                    const url = `api/environments/${values.currentTeamId}/groups/find?${toParams(params)}`
                     return await api.get(url)
                 },
             },

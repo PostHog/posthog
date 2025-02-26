@@ -49,7 +49,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     }
                     url =
                         url ||
-                        `api/projects/${values.currentTeamId}/groups/?group_type_index=${props.groupTypeIndex}${
+                        `api/environments/${values.currentTeamId}/groups/?group_type_index=${props.groupTypeIndex}${
                             values.search ? '&search=' + encodeURIComponent(values.search) : ''
                         }`
                     return await api.get(url)
