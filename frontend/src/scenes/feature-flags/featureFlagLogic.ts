@@ -593,7 +593,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 // Destructure all fields we want to exclude or handle specially
-                const { created_at, id, version, ...flag } = updatedFlag
+                const { created_at, id, version, last_modified_by, ...flag } = updatedFlag
 
                 const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
 
@@ -633,7 +633,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             {
                                 ...preparedFlag,
                                 version: values.featureFlag?.version,
-                                updated_by: values.currentTeam?.id ? { id: values.currentTeam.id } : null,
                             }
                         )
                     }
@@ -668,7 +667,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             {
                                 ...preparedFlag,
                                 version: values.featureFlag?.version,
-                                updated_by: values.currentTeam?.id ? { id: values.currentTeam.id } : null,
                             }
                         )
                     }
