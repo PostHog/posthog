@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql.context import HogQLContext
@@ -19,7 +20,7 @@ def find_all_reads(explain: dict) -> list[dict]:
     return reads
 
 
-def selected_less_granules(index: dict, tiny_data_granules=100) -> bool:
+def selected_less_granules(index: dict, tiny_data_granules: int = 100) -> bool:
     """
     Each "Indexes" field contains a description of how the index impact selection of partitions and granules.
     Index is effective if the number of granules selected is smaller than before using an index. If the data is
@@ -29,7 +30,13 @@ def selected_less_granules(index: dict, tiny_data_granules=100) -> bool:
     return index.get("Selected Granules", 0) < initial_granules or initial_granules < tiny_data_granules
 
 
-def guestimate_index_use(plan_with_indexes: dict) -> dict:
+@dataclass
+class ReadIndexUsage:
+    table: str
+    use: QueryIndexUsage
+
+
+def guestimate_index_use(plan_with_indexes: dict) -> ReadIndexUsage:
     """
     For a given table read we try to indentify if an index was used. This is limited as the plan is being processed
     without a context (a table schema / index). Some tables have simple index and no real partitioning.
@@ -37,17 +44,13 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
     :return:
     """
     db_table = plan_with_indexes.get("Description", "")
-    result = {
-        "table": db_table,
-    }
+    result = ReadIndexUsage(table=db_table, use=QueryIndexUsage.NO)
     if "Indexes" not in plan_with_indexes:
-        result["use"] = QueryIndexUsage.NO
         return result
 
     indexes = plan_with_indexes.get("Indexes", [])
 
     if db_table.endswith(".person_distinct_id_overrides"):
-        result["use"] = QueryIndexUsage.NO
         if len(indexes) == 1:
             index = indexes[0]
             if (
@@ -55,11 +58,10 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
                 and "team_id" in index.get("Keys", [])
                 and selected_less_granules(index)
             ):
-                result["use"] = QueryIndexUsage.YES
+                result.use = QueryIndexUsage.YES
 
         return result
     elif db_table.endswith(".sharded_events"):
-        result["use"] = QueryIndexUsage.NO
         min_max = False
         partition = False
         primary_key = False
@@ -74,11 +76,11 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
             elif index_type == "PrimaryKey":
                 primary_key = len(index.get("Keys", [])) > 0 and selected_less_granules(index)
         if (min_max or partition) and primary_key:
-            result["use"] = QueryIndexUsage.YES
+            result.use = QueryIndexUsage.YES
 
         return result
 
-    result["use"] = QueryIndexUsage.UNDECISIVE
+    result.use = QueryIndexUsage.UNDECISIVE
     has_min_max = False
     min_max = False
     has_partition = False
@@ -98,9 +100,9 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
             primary_key = len(index.get("Keys", [])) > 0 and selected_less_granules(index)
     if primary_key:
         if (not has_min_max and not has_partition) or min_max or partition:
-            result["use"] = QueryIndexUsage.YES
+            result.use = QueryIndexUsage.YES
         else:
-            result["use"] = QueryIndexUsage.PARTIAL
+            result.use = QueryIndexUsage.PARTIAL
 
     return result
 
@@ -109,11 +111,11 @@ def extract_index_usage_from_plan(plan: str) -> QueryIndexUsage:
     try:
         explain = json.loads(plan)
         all_indices_use = [guestimate_index_use(r) for r in find_all_reads(explain[0])]
-        if all(x["use"] == QueryIndexUsage.YES for x in all_indices_use):
+        if all(x.use == QueryIndexUsage.YES for x in all_indices_use):
             return QueryIndexUsage.YES
-        elif any(x["use"] == QueryIndexUsage.YES for x in all_indices_use):
+        elif any(x.use == QueryIndexUsage.YES for x in all_indices_use):
             return QueryIndexUsage.PARTIAL
-        elif all(x["use"] == QueryIndexUsage.NO for x in all_indices_use):
+        elif all(x.use == QueryIndexUsage.NO for x in all_indices_use):
             return QueryIndexUsage.NO
     except json.decoder.JSONDecodeError:
         pass

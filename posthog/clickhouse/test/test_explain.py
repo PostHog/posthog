@@ -1,17 +1,33 @@
 import json
+from dataclasses import dataclass
 
 import pytest
 
-from posthog.clickhouse.explain import find_all_reads, guestimate_index_use, extract_index_usage_from_plan
+from posthog.clickhouse.explain import (
+    find_all_reads,
+    guestimate_index_use,
+    extract_index_usage_from_plan,
+    ReadIndexUsage,
+)
 from posthog.schema import QueryIndexUsage
 
-test_cases = [
-    {
-        "query": "a proper query with all filters on events",
-        "reads": 1,
-        "reads_use": [{"table": "posthog.sharded_events", "use": QueryIndexUsage.YES}],
-        "use": QueryIndexUsage.YES,
-        "plan": """[
+
+@dataclass
+class TestCaseData:
+    query: str
+    reads: int
+    reads_use: list[ReadIndexUsage]
+    use: QueryIndexUsage
+    plan: str
+
+
+test_cases: list[TestCaseData] = [
+    TestCaseData(
+        query="a proper query with all filters on events",
+        reads=1,
+        reads_use=[ReadIndexUsage(table="posthog.sharded_events", use=QueryIndexUsage.YES)],
+        use=QueryIndexUsage.YES,
+        plan="""[
   {
     "Plan": {
       "Node Type": "Union",
@@ -77,13 +93,13 @@ test_cases = [
   }
 ]
 """,
-    },
-    {
-        "query": "missing timestamp condition",
-        "reads": 1,
-        "reads_use": [{"table": "posthog.sharded_events", "use": QueryIndexUsage.NO}],
-        "use": QueryIndexUsage.NO,
-        "plan": """
+    ),
+    TestCaseData(
+        query="missing timestamp condition",
+        reads=1,
+        reads_use=[ReadIndexUsage(table="posthog.sharded_events", use=QueryIndexUsage.NO)],
+        use=QueryIndexUsage.NO,
+        plan="""
 [
   {
     "Plan": {
@@ -143,16 +159,16 @@ test_cases = [
   }
 ]
 """,
-    },
-    {
-        "query": "production query often failing cause ClickHouse not using index",
-        "reads": 2,
-        "reads_use": [
-            {"table": "posthog.sharded_events", "use": QueryIndexUsage.NO},
-            {"table": "posthog.person_distinct_id_overrides", "use": QueryIndexUsage.YES},
+    ),
+    TestCaseData(
+        query="production query often failing cause ClickHouse not using index",
+        reads=2,
+        reads_use=[
+            ReadIndexUsage(table="posthog.sharded_events", use=QueryIndexUsage.NO),
+            ReadIndexUsage(table="posthog.person_distinct_id_overrides", use=QueryIndexUsage.YES),
         ],
-        "use": QueryIndexUsage.PARTIAL,
-        "plan": """
+        use=QueryIndexUsage.PARTIAL,
+        plan="""
 [
   {
     "Plan": {
@@ -307,18 +323,13 @@ test_cases = [
   }
 ]
 """,
-    },
-    {
-        "query": "local query little granules",
-        "reads": 1,
-        "reads_use": [
-            {
-                "table": "default.sharded_events",
-                "use": QueryIndexUsage.NO,
-            }
-        ],
-        "use": QueryIndexUsage.NO,
-        "plan": """
+    ),
+    TestCaseData(
+        query="local query little granules",
+        reads=1,
+        reads_use=[ReadIndexUsage(table="default.sharded_events", use=QueryIndexUsage.NO)],
+        use=QueryIndexUsage.NO,
+        plan="""
 [
   {
     "Plan": {
@@ -372,13 +383,13 @@ test_cases = [
   }
 ]
 """,
-    },
-    {
-        "query": "local query little granules, using index",
-        "reads": 1,
-        "reads_use": [{"table": "default.sharded_events", "use": QueryIndexUsage.YES}],
-        "use": QueryIndexUsage.YES,
-        "plan": """
+    ),
+    TestCaseData(
+        query="local query little granules, using index",
+        reads=1,
+        reads_use=[ReadIndexUsage(table="default.sharded_events", use=QueryIndexUsage.YES)],
+        use=QueryIndexUsage.YES,
+        plan="""
 [
   {
     "Plan": {
@@ -433,14 +444,14 @@ test_cases = [
   }
 ]
 """,
-    },
+    ),
 ]
 
 
-@pytest.mark.parametrize("case", test_cases, ids=[x["query"] for x in test_cases])
+@pytest.mark.parametrize("case", test_cases, ids=[x.query for x in test_cases])
 def test_full_queries(case):
-    explain = json.loads(case["plan"])
+    explain = json.loads(case.plan)
     reads = find_all_reads(explain[0])
-    assert case["reads"] == len(reads)
-    assert case["reads_use"] == [guestimate_index_use(r) for r in reads]
-    assert case["use"] == extract_index_usage_from_plan(case["plan"])
+    assert case.reads == len(reads)
+    assert case.reads_use == [guestimate_index_use(r) for r in reads]
+    assert case.use == extract_index_usage_from_plan(case.plan)
