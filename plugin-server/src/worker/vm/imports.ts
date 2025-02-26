@@ -15,15 +15,9 @@ import { writeToFile } from './extensions/test-utils'
 
 // Create a global recorder instance
 export const globalHttpCallRecorder = new HttpCallRecorder()
-
-// Create a function that uses the global recorder
-export const recordedTrackedFetch = (url: any, init?: any) => recordedFetch(globalHttpCallRecorder, url, init)
-
-// Create a function that conditionally uses the global recorder based on config
 export const conditionalRecordedTrackedFetch = (url: any, init?: any) => {
-    // Only use HTTP call recording if destination diffing is enabled and tasks_per_worker is 10
     const shouldRecordHttpCalls =
-        defaultConfig.DESTINATION_MIGRATION_DIFFING_ENABLED === true && defaultConfig.TASKS_PER_WORKER === 10
+        defaultConfig.DESTINATION_MIGRATION_DIFFING_ENABLED === true && defaultConfig.TASKS_PER_WORKER === 1
 
     return shouldRecordHttpCalls ? recordedFetch(globalHttpCallRecorder, url, init) : trackedFetch(url, init)
 }
@@ -39,7 +33,7 @@ export const AVAILABLE_IMPORTS = {
     '@posthog/plugin-scaffold': scaffold,
     'aws-sdk': AWS,
     'generic-pool': genericPool,
-    'node-fetch': recordedTrackedFetch, // Use our recorded fetch wrapper
+    'node-fetch': conditionalRecordedTrackedFetch,
     crypto: crypto,
     stream: { PassThrough },
     url: url,
