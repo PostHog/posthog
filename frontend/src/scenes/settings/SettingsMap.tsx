@@ -78,6 +78,7 @@ import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDetails } from './user/UserDetails'
+import { UserGithubAppSettings } from './user/UserGithubAppSettings'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -612,6 +613,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: '2fa',
                 title: 'Two-factor authentication',
                 component: <TwoFactorSettings />,
+            },
+            {
+                id: 'user-github-app',
+                title: 'GitHub App',
+                component: <UserGithubAppSettings />,
             },
         ],
     },

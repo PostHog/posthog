@@ -25,7 +25,11 @@ export const userLogic = kea<userLogicType>([
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
-        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
+        updateUser: (user: Partial<UserType>, successCallback?: () => void, headers?: Record<string, string>) => ({
+            user,
+            successCallback,
+            headers,
+        }),
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
@@ -63,12 +67,12 @@ export const userLogic = kea<userLogicType>([
                     }
                     return null
                 },
-                updateUser: async ({ user, successCallback }) => {
+                updateUser: async ({ user, successCallback, headers }) => {
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
                     try {
-                        const response = await api.update<UserType>('api/users/@me/', user)
+                        const response = await api.update<UserType>('api/users/@me/', user, { headers })
                         successCallback && successCallback()
                         return response
                     } catch (error: any) {

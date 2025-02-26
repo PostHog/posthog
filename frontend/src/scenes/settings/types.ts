@@ -51,7 +51,7 @@ export type SettingSectionId =
     | 'user-profile'
     | 'user-api-keys'
     | 'user-customization'
-
+    | 'user-github-app'
 export type SettingId =
     | 'replay-triggers'
     | 'display-name'
@@ -121,6 +121,7 @@ export type SettingId =
     | 'user-groups'
     | 'web-revenue-events'
     | 'core-memory'
+    | 'user-github-app'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

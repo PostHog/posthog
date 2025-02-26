@@ -178,6 +178,7 @@ class User(AbstractUser, UUIDClassicModel):
     anonymize_data = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode = models.CharField(max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR)
     hedgehog_config = models.JSONField(null=True, blank=True)
+    github_installation_id = models.PositiveIntegerField(null=True, blank=True)
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)

@@ -134,6 +134,7 @@ class UserSerializer(serializers.ModelSerializer):
             "theme_mode",
             "hedgehog_config",
             "role_at_organization",
+            "github_installation_id",
         ]
 
         read_only_fields = [
