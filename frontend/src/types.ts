@@ -765,7 +765,7 @@ export enum PipelineStage {
 export enum PipelineNodeTab {
     Backfills = 'backfills',
     Configuration = 'configuration',
-    Replay = 'replay',
+    Testing = 'Testing',
     Runs = 'runs',
     Logs = 'logs',
     Metrics = 'metrics',

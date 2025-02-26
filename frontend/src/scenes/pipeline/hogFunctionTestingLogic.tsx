@@ -11,14 +11,14 @@ import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } f
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, DestinationRetryType, HogFunctionTestInvocationResult } from '~/types'
 
-import type { hogFunctionReplayLogicType } from './hogFunctionReplayLogicType'
 import {
     convertToHogFunctionInvocationGlobals,
     hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogfunctions/hogFunctionConfigurationLogic'
+import type { hogFunctionTestingLogicType } from './hogFunctionTestingLogicType'
 
-export interface HogFunctionReplayLogicProps {
+export interface HogFunctionTestingLogicProps {
     id: string
 }
 
@@ -29,10 +29,10 @@ export interface EventsResultType {
 
 const PAGE_ROWS = 20
 
-export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
-    path((key) => ['scenes', 'pipeline', 'hogFunctionReplayLogic', key]),
-    props({} as HogFunctionReplayLogicProps),
-    key(({ id }: HogFunctionReplayLogicProps) => id),
+export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
+    path((key) => ['scenes', 'pipeline', 'hogFunctionTestingLogic', key]),
+    props({} as HogFunctionTestingLogicProps),
+    key(({ id }: HogFunctionTestingLogicProps) => id),
     connect({
         values: [
             hogFunctionConfigurationLogic,

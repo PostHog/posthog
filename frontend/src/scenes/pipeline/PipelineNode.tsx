@@ -23,7 +23,7 @@ import { AppMetricsV2 } from './metrics/AppMetricsV2'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
-import { ReplayMenu } from './ReplayMenu'
+import { TestingMenu } from './TestingMenu'
 import { PipelineBackend } from './types'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
@@ -106,7 +106,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
 
     if (node.backend === PipelineBackend.HogFunction) {
         if (stage === PipelineStage.Destination) {
-            tabToContent[PipelineNodeTab.Replay] = <ReplayMenu id={node.id} />
+            tabToContent[PipelineNodeTab.Testing] = <TestingMenu id={node.id} />
         }
         tabToContent[PipelineNodeTab.History] = (
             <ActivityLog

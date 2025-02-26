@@ -25,18 +25,19 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, DestinationRetryType } from '~/types'
+import { AvailableFeature, DestinationRetryType, LogEntry } from '~/types'
 
-import { hogFunctionReplayLogic } from './hogFunctionReplayLogic'
 import { hogFunctionConfigurationLogic } from './hogfunctions/hogFunctionConfigurationLogic'
+import { tagTypeForLevel } from './hogfunctions/logs/LogsViewer'
+import { hogFunctionTestingLogic } from './hogFunctionTestingLogic'
 
 export interface HogFunctionConfigurationProps {
     id: string
 }
 
-export function ReplayMenu({ id }: HogFunctionConfigurationProps): JSX.Element {
-    const { eventsWithRetries, loadingRetries } = useValues(hogFunctionReplayLogic({ id }))
-    const { retryInvocation } = useActions(hogFunctionReplayLogic({ id }))
+export function TestingMenu({ id }: HogFunctionConfigurationProps): JSX.Element {
+    const { eventsWithRetries, loadingRetries } = useValues(hogFunctionTestingLogic({ id }))
+    const { retryInvocation } = useActions(hogFunctionTestingLogic({ id }))
     const { loading, loaded, showPaygate } = useValues(hogFunctionConfigurationLogic({ id }))
 
     if (loading && !loaded) {
@@ -73,40 +74,6 @@ export function ReplayMenu({ id }: HogFunctionConfigurationProps): JSX.Element {
             </LemonBanner>
             <RunsFilters id={id} />
             <ReplayEventsList id={id} />
-        </div>
-    )
-}
-
-function RetryResults({ retry }: { retry: DestinationRetryType }): JSX.Element {
-    return (
-        <div className="space-y-2" data-attr="test-results">
-            <LemonTable
-                dataSource={retry.logs ?? []}
-                columns={[
-                    {
-                        title: 'Timestamp',
-                        key: 'timestamp',
-                        dataIndex: 'timestamp',
-                        render: (timestamp) => <TZLabel time={timestamp as string} />,
-                        width: 0,
-                    },
-                    {
-                        width: 100,
-                        title: 'Level',
-                        key: 'level',
-                        dataIndex: 'level',
-                    },
-                    {
-                        title: 'Message',
-                        key: 'message',
-                        dataIndex: 'message',
-                        render: (message) => <code className="whitespace-pre-wrap">{message}</code>,
-                    },
-                ]}
-                className="ph-no-capture"
-                rowKey="timestamp"
-                pagination={{ pageSize: 200, hideOnSinglePage: true }}
-            />
         </div>
     )
 }
@@ -223,7 +190,7 @@ function EmptyColumn(): JSX.Element {
 }
 
 function RunsFilters({ id }: { id: string }): JSX.Element {
-    const logic = hogFunctionReplayLogic({ id })
+    const logic = hogFunctionTestingLogic({ id })
     const { eventsLoading, baseEventsQuery } = useValues(logic)
     const { loadEvents, changeDateRange, loadTotalEvents } = useActions(logic)
 
@@ -253,7 +220,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
 }
 
 export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
-    const logic = hogFunctionReplayLogic({ id })
+    const logic = hogFunctionTestingLogic({ id })
     const { eventsLoading, eventsWithRetries, totalEvents, pageTimestamps, expandedRows, loadingRetries } =
         useValues(logic)
     const { retryInvocation, loadNextEventsPage, loadPreviousEventsPage, expandRow, collapseRow } = useActions(logic)
@@ -280,27 +247,36 @@ export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
                 expandedRowRender: ([, , , retries]) => {
                     return (
                         <LemonTable
-                            dataSource={retries}
+                            dataSource={retries.reduce(
+                                (acc: LogEntry[], group: DestinationRetryType) => acc.concat(group.logs),
+                                []
+                            )}
                             embedded={true}
                             columns={[
                                 {
-                                    title: 'Status',
-                                    key: 'status',
+                                    key: 'spacer',
                                     width: 0,
-                                    render: (_, retry) => {
-                                        return false ? (
-                                            <LemonBanner type={retry.status === 'success' ? 'success' : 'error'}>
-                                                {retry.status === 'success' ? 'Success' : 'Error'}
-                                            </LemonBanner>
-                                        ) : (
-                                            <RetryStatusIcon retries={[retry as DestinationRetryType]} showLabel />
-                                        )
-                                    },
+                                    render: () => <div className="w-6" />,
                                 },
                                 {
-                                    title: 'Test invocation logs',
-                                    key: 'testInvocationLogs',
-                                    render: (_, retry) => <RetryResults retry={retry as DestinationRetryType} />,
+                                    title: 'Timestamp',
+                                    key: 'timestamp',
+                                    dataIndex: 'timestamp',
+                                    render: (_, { timestamp }) => <TZLabel time={timestamp} />,
+                                },
+                                {
+                                    title: 'Level',
+                                    key: 'level',
+                                    dataIndex: 'level',
+                                    render: (_, { level }) => (
+                                        <LemonTag type={tagTypeForLevel(level)}>{level.toUpperCase()}</LemonTag>
+                                    ),
+                                },
+                                {
+                                    title: 'Message',
+                                    key: 'message',
+                                    dataIndex: 'message',
+                                    render: (_, { message }) => <code className="whitespace-pre-wrap">{message}</code>,
                                 },
                             ]}
                         />
