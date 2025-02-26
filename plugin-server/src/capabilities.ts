@@ -36,10 +36,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case null:
             return {
                 ...singleProcessCapabilities,
-            }
-        case PluginServerMode.all_v2:
-            return {
-                ...singleProcessCapabilities,
                 ingestionV2Combined: true,
             }
 
