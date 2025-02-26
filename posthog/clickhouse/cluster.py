@@ -366,10 +366,10 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
         else:
             is_retryable_exception = self.policy.exceptions
 
-        if callable(self.policy.delay):
-            delay_fn = self.policy.delay
-        else:
+        if not callable(self.policy.delay):
             delay_fn = lambda _: self.policy.delay
+        else:
+            delay_fn = self.policy.delay
 
         counter = itertools.count(1)
         while (attempt := next(counter)) <= self.policy.max_attempts:
