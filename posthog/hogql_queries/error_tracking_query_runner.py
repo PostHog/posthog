@@ -55,18 +55,18 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
-            select=self.select_2(),
-            select_from=self.from_expr_2(),
+            select=self.select(),
+            select_from=self.from_expr(),
             where=self.where(),
             order_by=self.order_by,
             group_by=[ast.Field(chain=["issue_id"])],
         )
 
-    def from_expr_2(self):
+    def from_expr(self):
         # for the second iteration of this query, we just need to select from the events table
         return parse_select("SELECT 1 FROM events").select_from  # type: ignore
 
-    def select_2(self):
+    def select(self):
         # First, the easy groups - distinct uuid as occurrances, etc
         exprs: list[ast.Expr] = [
             ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
@@ -106,107 +106,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
     def select_sparkline_array(self, alias: str, config: ErrorTrackingSparklineConfig):
         toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
         intervalStr = config.interval.value
-
-        # Is the event in the time range we're looking at for this volume calculation?
-        isInTimeRangeSelected = f"timestamp > now() - interval {config.value} {intervalStr}"
-        # Inside the array of the time range volume buckets, is the bucket we're currently looking
-        # at the one the event would fall into?
         isHotIndex = f"dateDiff('{intervalStr}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now())) = x"
-        # Should we count this event in the given bucket for the given time range?
-        isLiveIndexFn = f"if(and({isHotIndex}, {isInTimeRangeSelected}), 1, 0)"
+        isLiveIndexFn = f"if({isHotIndex}, 1, 0)"
 
         constructed = f"arrayMap(x -> {isLiveIndexFn}, range({config.value}))"
         summed = f"reverse(sumForEach({constructed}))"
         return parse_expr(summed)
-
-    def to_query_old(self) -> ast.SelectQuery:
-        return ast.SelectQuery(
-            ctes=self.ctes(),
-            select=self.select(),
-            select_from=self.from_expr(),
-            order_by=self.order_by,
-        )
-
-    def from_expr(self):
-        # We want to select from all our CTEs, joining on issue_id for all of them
-        statement = "SELECT 1 FROM summary "
-        for alias, _ in self.sparkLineConfigs.items():
-            statement += f"LEFT JOIN cte_{alias} ON summary.issue_id = cte_{alias}.issue_id "
-
-        return parse_select(statement).select_from  # type: ignore
-
-    def select(self):
-        exprs: list[ast.Expr] = [
-            ast.Alias(alias="id", expr=parse_expr("summary.issue_id")),
-            ast.Alias(alias="occurrences", expr=parse_expr("summary.occurrences")),
-            ast.Alias(alias="sessions", expr=parse_expr("summary.sessions")),
-            ast.Alias(alias="users", expr=parse_expr("summary.users")),
-            ast.Alias(alias="last_seen", expr=parse_expr("summary.last_seen")),
-            ast.Alias(alias="first_seen", expr=parse_expr("summary.first_seen")),
-        ]
-
-        for alias, config in self.sparkLineConfigs.items():
-            exprs.append(ast.Alias(alias=alias, expr=self.sparkline_volume(alias, config.value)))
-
-        if self.query.issueId:
-            exprs.append(ast.Alias(alias="earliest", expr=parse_expr("summary.earliest")))
-
-        return exprs
-
-    def ctes(self):
-        res = self.sparkline_ctes()
-        res["summary"] = self.summary_cte()
-        return res
-
-    def summary_cte(self):
-        return ast.CTE(name="summary", expr=self.summary_select(), cte_type="subquery")
-
-    def summary_select(self):
-        exprs: list[ast.Expr] = [
-            ast.Alias(alias="issue_id", expr=ast.Field(chain=["issue_id"])),
-            ast.Alias(
-                alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
-            ),
-            ast.Alias(
-                alias="sessions",
-                expr=ast.Call(
-                    name="count",
-                    distinct=True,
-                    # the $session_id property can be blank if not set
-                    # we do not want that case counted so cast it to `null` which is excluded by default
-                    args=[
-                        ast.Call(
-                            name="nullIf",
-                            args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")],
-                        )
-                    ],
-                ),
-            ),
-            ast.Alias(
-                alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
-            ),
-            ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-        ]
-
-        if self.query.issueId:
-            exprs.append(
-                ast.Alias(
-                    alias="earliest",
-                    expr=ast.Call(
-                        name="argMin", args=[ast.Field(chain=["properties"]), ast.Field(chain=["timestamp"])]
-                    ),
-                )
-            )
-
-        query = ast.SelectQuery(
-            select=exprs,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=self.where(),
-            group_by=[ast.Field(chain=["issue_id"])],
-        )
-
-        return query
 
     def where(self):
         exprs: list[ast.Expr] = [
