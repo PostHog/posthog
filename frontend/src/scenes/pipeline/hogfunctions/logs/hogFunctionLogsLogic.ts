@@ -200,6 +200,11 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                         actions.retryInvocationStarted(groupedLogEntry)
                     }
 
+                    if (groupedLogEntries.length === 1) {
+                        // If we only have one log group then we can just expand it to be a little more user friendly
+                        actions.setRowExpanded(groupedLogEntries[0].instanceId, true)
+                    }
+
                     // Load all events by ID
                     const events = await loadClickhouseEvents(Object.values(values.eventIdByInvocationId ?? {}))
 
@@ -209,7 +214,6 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     }
 
                     await runWithParallelism(groupedLogEntries, 10, async (groupedLogEntry) => {
-                        console.log('RUNNING!')
                         try {
                             // If we have an event then retry it, otherwise fail
                             const event = eventsById[values.eventIdByInvocationId![groupedLogEntry.instanceId]]
@@ -246,7 +250,6 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                         } catch (e) {
                             actions.retryInvocationFailure(groupedLogEntry)
                         }
-                        console.log('DONE!')
                     })
 
                     actions.setSelectingMany(false)

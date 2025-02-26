@@ -49,8 +49,9 @@ export type LogsViewerProps = LogsViewerLogicProps & {
 export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
 
-    const { logs, logsLoading, backgroundLogs, isThereMoreToLoad, expandedRows, filters } = useValues(logic)
-    const { revealBackground, loadMoreLogs, setFilters, setRowExpanded } = useActions(logic)
+    const { logs, logsLoading, hiddenLogs, hiddenLogsLoading, isThereMoreToLoad, expandedRows, filters } =
+        useValues(logic)
+    const { revealHiddenLogs, loadMoreLogs, setFilters, setRowExpanded } = useActions(logic)
 
     return (
         <div className="flex-1 space-y-2 ph-no-capture">
@@ -106,9 +107,9 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                     </LemonDropdown>
 
                     <DateFilter
-                        dateTo={filters.before}
-                        dateFrom={filters.after}
-                        onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
+                        dateTo={filters.date_to}
+                        dateFrom={filters.date_from}
+                        onChange={(from, to) => setFilters({ date_from: from || undefined, date_to: to || undefined })}
                         allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
                         makeLabel={(key) => (
                             <>
@@ -119,15 +120,15 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                 </div>
             </div>
             <LemonButton
-                onClick={revealBackground}
-                loading={logsLoading}
+                onClick={revealHiddenLogs}
+                loading={hiddenLogsLoading}
                 type="secondary"
                 fullWidth
                 center
-                disabledReason={!backgroundLogs.length ? "There's nothing to load" : undefined}
+                disabledReason={!hiddenLogs.length ? "There's nothing to load" : undefined}
             >
-                {backgroundLogs.length
-                    ? `Load ${pluralize(backgroundLogs.length, 'newer entry', 'newer entries')}`
+                {hiddenLogs.length
+                    ? `Show ${pluralize(hiddenLogs.length, 'newer entry', 'newer entries')}`
                     : 'No new entries'}
             </LemonButton>
 
