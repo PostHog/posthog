@@ -96,7 +96,6 @@ impl Manager {
 
         self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
 
-        self.conditionally_filter_event_names(qb, &params.event_names);
         self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
         // NOTE: event_name_filter from orig Django query doesn't appear to be applied anywhere atm
@@ -195,7 +194,6 @@ impl Manager {
 
         self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
 
-        self.conditionally_filter_event_names(qb, &params.event_names);
         self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
         // ORDER BY clauses
@@ -291,23 +289,23 @@ impl Manager {
             // if a list of event_names was supplied, we want this join to narrow
             // to only those events. otherwise it's a LEFT JOIN for enrichment only
             qb.push(self.event_property_join_type(filter_by_event_names));
-            let subq = format!(
-                " (SELECT DISTINCT {0}.\"property\" FROM {0} WHERE COALESCE({0}.\"project_id\", {0}.\"team_id\") = ",
-                EVENT_PROPERTY_TABLE);
-            qb.push(subq);
+            qb.push(format!(
+                " (SELECT DISTINCT property FROM {0} WHERE COALESCE(project_id, team_id) = ",
+                EVENT_PROPERTY_TABLE
+            ));
             qb.push_bind(project_id);
             qb.push(" ");
 
             // conditionally apply filter if event_names list was supplied
             if filter_by_event_names {
-                qb.push(format!(" AND {}.\"event\" = ANY(", EVENT_PROPERTY_TABLE));
+                qb.push(" AND event = ANY(");
                 qb.push_bind(event_names);
                 qb.push(") ");
             }
 
             // close the JOIN clause and add the JOIN condition
             qb.push(format!(
-                ") {0} ON {0}.\"property\" = {1}.\"name\" ",
+                ") AS {0} ON {0}.\"property\" = {1}.\"name\" ",
                 EVENT_PROPERTY_TABLE_ALIAS, PROPERTY_DEFS_TABLE
             ));
         }
@@ -486,22 +484,6 @@ impl Manager {
                     }
                 }
             }
-        }
-    }
-
-    fn conditionally_filter_event_names<'args>(
-        &self,
-        qb: &mut QueryBuilder<'args, Postgres>,
-        event_names: &'args Vec<String>,
-    ) {
-        // NOTE: the conditional join on event props table applied
-        // above applies the same filter, but it can be an INNER or
-        // LEFT join, so this is still required in the outer query
-        let filter_by_event_names = !event_names.is_empty();
-        if filter_by_event_names {
-            qb.push(format!(" AND {}.\"event\" = ANY(", EVENT_PROPERTY_TABLE));
-            qb.push_bind(event_names);
-            qb.push(") ");
         }
     }
 
