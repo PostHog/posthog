@@ -182,7 +182,7 @@ defusedxml==0.6.0
     # via
     #   python3-openid
     #   social-auth-core
-deltalake==0.23.2
+deltalake==0.25.2
     # via -r requirements.in
 distro==1.9.0
     # via
