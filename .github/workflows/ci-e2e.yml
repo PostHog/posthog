@@ -157,17 +157,15 @@ jobs:
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - name: Get cypress cache directory path
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+            - name: Get Cypress cache dir
               id: cypress-cache-dir
-              run: echo "CYPRESS_BIN_PATH=$(npx cypress cache path)" >> $GITHUB_OUTPUT
+              run: echo "CYPRESS_BIN_PATH=~/.cache/Cypress" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@v4
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              id: pnpm-cache
+              id: pnpm-cypress-cache
               with:
                   path: |
-                      ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                      node_modules
                       ${{ steps.cypress-cache-dir.outputs.CYPRESS_BIN_PATH }}
                   key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('**/pnpm-lock.yaml') }}
                   restore-keys: |
@@ -180,7 +178,9 @@ jobs:
             - name: Prepare cypress
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: bin/turbo --filter=@posthog/cypress prepare
+              run: |
+                  pnpm --filter=@posthog/cypress exec cypress install
+                  bin/turbo --filter=@posthog/cypress prepare
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections

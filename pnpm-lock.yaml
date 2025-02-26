@@ -377,7 +377,7 @@ importers:
         specifier: '*'
         version: 3.6.0(webpack@5.88.2)
       cypress:
-        specifier: ^13.11.0
+        specifier: 13.11.0
         version: 13.11.0
       cypress-axe:
         specifier: ^1.5.0
@@ -14887,8 +14887,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.226.0:
-    resolution: {integrity: sha512-7idQSgPCFx8/IhujudcrQImPPrv4mDoYRSghN7n6aSpD57KN6ddD8M72bHMhL+CJxNN8aQekrWG6FML+125NbQ==}
+  unlayer-types@1.227.0:
+    resolution: {integrity: sha512-s12aNI6/Zy7GvWVaa7dNzjrrFSj3REwA74fi4dIqyt1hijzXXSn7+5Hby9gYAlokpZf0U4y1BIPxFgNEHM+nWA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -24807,7 +24807,7 @@ snapshots:
 
   eslint-import-resolver-node@0.3.9:
     dependencies:
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7(supports-color@5.5.0)
       is-core-module: 2.13.1
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -24815,7 +24815,7 @@ snapshots:
 
   eslint-module-utils@2.8.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint-import-resolver-node@0.3.9)(eslint@8.57.0):
     dependencies:
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7(supports-color@5.5.0)
     optionalDependencies:
       '@typescript-eslint/parser': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
       eslint: 8.57.0
@@ -24857,7 +24857,7 @@ snapshots:
       array.prototype.findlastindex: 1.2.3
       array.prototype.flat: 1.3.2
       array.prototype.flatmap: 1.3.2
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7(supports-color@5.5.0)
       doctrine: 2.1.0
       eslint: 8.57.0
       eslint-import-resolver-node: 0.3.9
@@ -30511,7 +30511,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.226.0
+      unlayer-types: 1.227.0
 
   react-error-boundary@3.1.4(react@18.2.0):
     dependencies:
@@ -32601,7 +32601,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.226.0: {}
+  unlayer-types@1.227.0: {}
 
   unpipe@1.0.0: {}
 
