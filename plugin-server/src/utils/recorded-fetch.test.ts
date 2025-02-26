@@ -8,6 +8,19 @@ jest.mock('../../src/utils/fetch', () => ({
     trackedFetch: jest.fn(),
 }))
 
+// Mock config.ts
+jest.mock('../../src/config/config', () => {
+    const originalModule = jest.requireActual('../../src/config/config')
+    return {
+        ...originalModule,
+        defaultConfig: {
+            ...originalModule.defaultConfig,
+            DESTINATION_MIGRATION_DIFFING_ENABLED: true,
+            TASKS_PER_WORKER: 1,
+        },
+    }
+})
+
 describe('HttpCallRecorder', () => {
     let recorder: HttpCallRecorder
 
