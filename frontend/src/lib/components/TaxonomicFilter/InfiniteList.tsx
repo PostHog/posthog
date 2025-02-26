@@ -19,7 +19,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 
@@ -193,10 +193,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const { onRowsRendered, setIndex, expand, updateRemoteItem, loadRemoteItems } = useActions(infiniteListLogic)
 
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
+    const initialLoadAttemptedRef = useRef<boolean>(false)
 
     // Reload data if we have a remote source but no results
     useEffect(() => {
-        if (hasRemoteDataSource && !isLoading && results.length === 0) {
+        if (hasRemoteDataSource && !isLoading && results.length === 0 && !initialLoadAttemptedRef.current) {
+            initialLoadAttemptedRef.current = true
             loadRemoteItems({ offset: 0, limit: 100 })
         }
     }, [hasRemoteDataSource, isLoading, loadRemoteItems, results.length])
