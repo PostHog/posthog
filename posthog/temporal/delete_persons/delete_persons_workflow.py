@@ -207,11 +207,11 @@ class DeletePersonsWorkflow(PostHogWorkflow):
             mogrify_delete_queries_activity,
             mogrify_delete_queries_activity_inputs,
             heartbeat_timeout=dt.timedelta(seconds=30),
-            start_to_close_timeout=dt.timedelta(hours=2),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=1,
+                maximum_attempts=0,
                 non_retryable_error_types=[],
             ),
         )
@@ -235,8 +235,8 @@ class DeletePersonsWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(hours=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=1,
+                    maximum_interval=dt.timedelta(seconds=360),
+                    maximum_attempts=0,
                     non_retryable_error_types=[],
                 ),
             )
