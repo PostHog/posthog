@@ -248,8 +248,13 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             )
         }
 
-        // If this should be the "show more" expand row
-        if (!item && rowIndex === totalListCount - 1 && isExpandable && !isLoading) {
+        // Check if this row should be the "show more" expand row:
+        // - !item: No actual item data exists at this index
+        // - rowIndex === totalListCount - 1: This is the last row in the visible list
+        // - isExpandable: There are more items available to load/show
+        // - !isLoading: We're not currently in the middle of loading data
+        const isExpandRow = !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading
+        if (isExpandRow) {
             return (
                 <div
                     {...commonDivProps}
