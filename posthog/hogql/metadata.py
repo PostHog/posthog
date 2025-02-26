@@ -1,9 +1,9 @@
-import json
 from typing import Optional, cast
 
 from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.explain import extract_index_usage_from_plan
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
@@ -30,10 +30,6 @@ from posthog.schema import (
     QueryIndexUsage,
 )
 from posthog.hogql.visitor import TraversingVisitor
-
-
-def extract_index_usage_from_plan(plan: str) -> QueryIndexUsage:
-    return QueryIndexUsage.UNDECISIVE
 
 
 def get_hogql_metadata(
@@ -98,8 +94,8 @@ def get_hogql_metadata(
                     team_id=team.pk,
                     readonly=True,
                 )
-                response.isUsingIndices = extract_index_usage_from_plan(json.loads(explain_results[0][0][0]))
-            finally:
+                response.isUsingIndices = extract_index_usage_from_plan(explain_results[0][0][0])
+            except:
                 response.isUsingIndices = QueryIndexUsage.UNDECISIVE
         else:
             raise ValueError(f"Unsupported language: {query.language}")
