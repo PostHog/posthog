@@ -324,11 +324,19 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
             actions.loadEvents()
             actions.loadTotalEvents()
             actions.resetCurrentPage()
+            actions.resetSelectedForRetry()
         },
         loadEvents: () => {
             actions.loadTotalEvents()
             actions.resetCurrentPage()
             actions.resetCollapsedRows()
+            actions.resetSelectedForRetry()
+        },
+        increaseCurrentPage: () => {
+            actions.resetSelectedForRetry()
+        },
+        decreaseCurrentPage: () => {
+            actions.resetSelectedForRetry()
         },
     })),
     subscriptions(({ actions, values }) => ({
