@@ -1,6 +1,7 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
@@ -266,6 +267,24 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         },
         beforeUnmount: () => {
             clearInterval(cache.pollingInterval)
+        },
+    })),
+
+    urlToAction(({ values, actions, cache }) => ({
+        '*': (_, searchParams) => {
+            console.log(searchParams)
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        setFilters: () => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    ...values.filters,
+                },
+            ]
         },
     })),
 ])

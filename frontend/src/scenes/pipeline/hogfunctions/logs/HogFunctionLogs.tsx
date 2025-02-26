@@ -10,7 +10,7 @@ import { hogFunctionLogsLogic } from './hogFunctionLogsLogic'
 import { LogsViewer } from './LogsViewer'
 import { GroupedLogEntry, LogsViewerLogicProps } from './logsViewerLogic'
 
-const eventIdMatchers = [/Event: ([A-Za-z0-9-]+)/, /\/events\/([A-Za-z0-9-]+)\//]
+const eventIdMatchers = [/Event: ([A-Za-z0-9-]+)/, /\/events\/([A-Za-z0-9-]+)\//, /event ([A-Za-z0-9-]+)/]
 
 export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
     return (
@@ -75,9 +75,12 @@ function HogFunctionLogsStatus({
     }, [record, thisRetry])
 
     const eventId = useMemo<string | undefined>(() => {
-        // TRICKY: We have the event ID in differnet logs. We will standardise this to be the invocation ID in the future.
+        // TRICKY: We have the event ID in different places in different logs. We will standardise this to be the invocation ID in the future.
         const entryContainingEventId = record.entries.find(
-            (entry) => entry.message.includes('Function completed') || entry.message.includes('Suspending function')
+            (entry) =>
+                entry.message.includes('Function completed') ||
+                entry.message.includes('Suspending function') ||
+                entry.message.includes('Error executing function on event')
         )
 
         if (!entryContainingEventId) {
