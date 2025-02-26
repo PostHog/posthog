@@ -57,7 +57,7 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
-const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
+const MUTATION_CHUNK_SIZE = 10000 // Maximum number of mutations per chunk
 
 let postHogEEModule: PostHogEE
 
