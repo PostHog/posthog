@@ -41,7 +41,7 @@ export function Droppable(props: { id: string; children: ReactNode }): JSX.Eleme
     return <div ref={setNodeRef}>{props.children}</div>
 }
 
-export function ProjectTree(): JSX.Element {
+export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
@@ -92,6 +92,7 @@ export function ProjectTree(): JSX.Element {
                     >
                         <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
                             <LemonTree
+                                contentRef={contentRef}
                                 className="px-0 py-1"
                                 data={treeData}
                                 renderItem={(item, children): JSX.Element => {
