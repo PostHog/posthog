@@ -56,11 +56,14 @@ class Command(BaseCommand):
         """
         Add unique IDs to each question in existing surveys.
         This ensures all questions have an ID for tracking responses.
+
         Processes surveys in small batches to minimize memory usage.
+        Uses proper row locking to prevent race conditions.
         """
         total_surveys = Survey.objects.filter(questions__isnull=False).count()
         total_modified = 0
         total_questions_updated = 0
+        skipped_surveys = 0
 
         self.stdout.write(f"Found {total_surveys} surveys to process")
 
@@ -70,13 +73,31 @@ class Command(BaseCommand):
         while True:
             # Process one batch at a time
             with transaction.atomic():
-                # Get a batch of surveys
+                # Get a batch of surveys WITH ROW LOCKING
+                # This ensures no one else can modify these rows while we're processing them
                 surveys = list(
-                    Survey.objects.filter(questions__isnull=False).order_by("pk")[offset : offset + batch_size]
+                    Survey.objects.filter(questions__isnull=False)
+                    .order_by("pk")
+                    .select_for_update(skip_locked=True)  # Add row locking
+                    .only("id", "questions")[
+                        # Only fetch fields we need
+                        offset : offset + batch_size
+                    ]
                 )
 
                 if not surveys:
-                    break  # No more surveys to process
+                    # If we got no surveys, it could be because they're all locked
+                    # or because we've processed all of them
+                    if skipped_surveys > 0:
+                        # If we've skipped surveys before, try again from the beginning
+                        # to catch any that were previously locked
+                        offset = 0
+                        skipped_surveys = 0
+                        self.stdout.write("Restarting from the beginning to process previously locked surveys")
+                        continue
+                    else:
+                        # If we haven't skipped any surveys, we're done
+                        break
 
                 batch_modified = 0
                 batch_questions_updated = 0
@@ -104,7 +125,7 @@ class Command(BaseCommand):
                         surveys_to_update.append(survey)
 
                         if verbose:
-                            self.stdout.write(f"Survey {survey.pk}: Added IDs to {questions_updated} questions")
+                            self.stdout.write(f"Survey {survey.id}: Added IDs to {questions_updated} questions")
 
                 # Update all modified surveys in this batch
                 if surveys_to_update and really_run:
@@ -113,14 +134,19 @@ class Command(BaseCommand):
                 total_modified += batch_modified
                 total_questions_updated += batch_questions_updated
 
+                # Report progress
+                processed_so_far = offset + len(surveys)
+                percent_complete = (processed_so_far / total_surveys) * 100 if total_surveys > 0 else 100
+
                 self.stdout.write(
                     f"Processed batch of {len(surveys)} surveys: "
                     f"Modified {batch_modified} surveys, "
-                    f"Updated {batch_questions_updated} questions"
+                    f"Updated {batch_questions_updated} questions. "
+                    f"Progress: {processed_so_far}/{total_surveys} ({percent_complete:.1f}%)"
                 )
 
             # Move to the next batch
-            offset += batch_size
+            offset += len(surveys)  # Use actual number of surveys processed, not batch_size
 
         if not really_run:
             self.stdout.write(
