@@ -10,7 +10,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
-from posthog.schema import RecordingsQuery, FilterLogicalOperator, NodeKind
+from posthog.schema import RecordingsQuery, FilterLogicalOperator
 
 from structlog import get_logger
 
@@ -117,7 +117,6 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
 
     # Construct the RecordingsQuery
     return RecordingsQuery(
-        kind=NodeKind.RECORDINGS_QUERY,
         order=order,
         date_from=universal_filters.get("date_from"),
         date_to=universal_filters.get("date_to"),
@@ -136,6 +135,7 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
     queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value,
     # limit how many run per worker instance - if we have 10 workers, this will run 600 times per hour
     rate_limit="60/h",
+    expires=TASK_EXPIRATION_TIME,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     try:
@@ -176,4 +176,4 @@ def enqueue_recordings_that_match_playlist_filters() -> None:
         REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc(all_playlists.count())
 
         for playlist in all_playlists:
-            count_recordings_that_match_playlist_filters.delay(playlist.id, expires=TASK_EXPIRATION_TIME)
+            count_recordings_that_match_playlist_filters.delay(playlist.id)
