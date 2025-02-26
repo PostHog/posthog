@@ -149,9 +149,12 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                 <div className="mx-3 -mt-2 mb-2 space-y-2">
                     {event.properties.$session_id ? (
                         <div className="flex flex-row items-center gap-2">
-                            <Link to={urls.replay(undefined, undefined, event.properties.$session_id)}>
+                            <Link
+                                to={urls.replay(undefined, undefined, event.properties.$session_id)}
+                                className="flex flex-row gap-1 items-center"
+                            >
                                 <IconOpenInNew />
-                                View session recording
+                                <span>View session recording</span>
                             </Link>
                         </div>
                     ) : null}
