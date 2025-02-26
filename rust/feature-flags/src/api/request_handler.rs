@@ -15,12 +15,12 @@ use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use derive_builder::Builder;
 use flate2::read::GzDecoder;
+use limiters::redis::ServiceName;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_urlencoded;
 use std::{collections::HashMap, net::IpAddr};
 use std::{io::Read, sync::Arc};
-use strum::Display;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -57,22 +57,6 @@ pub struct FlagsQueryParams {
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display)]
-pub enum ServiceName {
-    FeatureFlags,
-    Replay,
-}
-
-impl ServiceName {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ServiceName::FeatureFlags => "feature_flags",
-            ServiceName::Replay => "recordings",
-        }
-    }
-}
-
 pub struct RequestContext {
     pub state: State<router::State>,
     pub ip: IpAddr,
@@ -135,20 +119,20 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let token = request.extract_token()?;
     let verified_token = flag_service.verify_token(&token).await?;
 
-    let billing_limited = state
-        .billing_limiter
-        .is_limited(verified_token.as_str())
-        .await;
-
+    // Once we've verified the token, check if the token is billing limited (this will save us from hitting the DB if we have a quota-limited token)
+    let billing_limited = state.billing_limiter.is_limited(token.as_str()).await;
     if billing_limited {
         // return an empty FlagsResponse with a quotaLimited field called "feature_flags"
+        // TODO docs
         return Ok(FlagsResponse {
             feature_flags: HashMap::new(),
             feature_flag_payloads: HashMap::new(),
             errors_while_computing_flags: false,
-            quota_limited: Some(vec![ServiceName::FeatureFlags.to_string()]),
+            quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
         });
     }
+
+    // again, now we can start doing heavier queries, since at this point most stuff has been from redis
 
     let team = flag_service
         .get_team_from_cache_or_pg(&verified_token)

@@ -2,7 +2,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use common_redis::MockRedisClient;
-use limiters::redis::{QuotaResource, RedisLimiter, QUOTA_LIMITER_CACHE_KEY};
+use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
+use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use reqwest::header::CONTENT_TYPE;
 use time::Duration;
 use tokio::net::TcpListener;
@@ -29,19 +30,46 @@ impl ServerHandle {
         ServerHandle { addr, shutdown }
     }
 
-    pub async fn for_config_with_limited_tokens(
+    pub async fn for_config_with_mock_redis(
         config: Config,
         limited_tokens: Vec<String>,
+        valid_tokens: Vec<(String, i32)>, // (token, team_id) pairs
     ) -> ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
-        let mock_client = MockRedisClient::new().zrangebyscore_ret(
+        // Create a mock client that handles both quota limit checks and token verification
+        let mut mock_client = MockRedisClient::new().zrangebyscore_ret(
             "@posthog/quota-limits/feature_flag_requests",
             limited_tokens.clone(),
         );
+
+        // Add handling for token verification
+        for (token, team_id) in valid_tokens {
+            println!(
+                "Setting up mock for token: {} with key: {}{}",
+                token, TEAM_TOKEN_CACHE_PREFIX, token
+            );
+
+            // Create a minimal valid Team object
+            let team = Team {
+                id: team_id,
+                name: "Test Team".to_string(),
+                api_token: token.clone(),
+                project_id: team_id as i64,
+            };
+
+            // Serialize to JSON
+            let team_json = serde_json::to_string(&team).unwrap();
+            println!("Team JSON for mock: {}", team_json);
+
+            mock_client = mock_client.get_ret(
+                &format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, token),
+                Ok(team_json),
+            );
+        }
 
         tokio::spawn(async move {
             let redis_client = Arc::new(mock_client);
@@ -96,6 +124,7 @@ impl ServerHandle {
                 QUOTA_LIMITER_CACHE_KEY.to_string(),
                 None,
                 QuotaResource::FeatureFlags,
+                ServiceName::FeatureFlags,
             )
             .unwrap();
 

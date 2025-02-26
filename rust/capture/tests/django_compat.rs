@@ -12,7 +12,7 @@ use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
 use common_redis::MockRedisClient;
 use health::HealthRegistry;
-use limiters::redis::{QuotaResource, RedisLimiter, QUOTA_LIMITER_CACHE_KEY};
+use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -109,6 +109,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             None,
             QuotaResource::Events,
+            ServiceName::Capture,
         )
         .expect("failed to create billing limiter");
 

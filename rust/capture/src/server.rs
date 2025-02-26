@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use common_redis::RedisClient;
 use health::{ComponentStatus, HealthRegistry};
+use limiters::redis::ServiceName;
 use time::Duration;
 use tokio::net::TcpListener;
 
@@ -76,6 +77,7 @@ async fn create_sink(
                     OVERFLOW_LIMITER_CACHE_KEY.to_string(),
                     config.redis_key_prefix.clone(),
                     QuotaResource::Replay,
+                    ServiceName::Capture,
                 )
                 .expect("failed to start replay overflow limiter"),
             ),
@@ -140,6 +142,7 @@ where
             CaptureMode::Events => QuotaResource::Events,
             CaptureMode::Recordings => QuotaResource::Recordings,
         },
+        ServiceName::Capture,
     )
     .expect("failed to create billing limiter");
 

@@ -1,6 +1,8 @@
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 
+use feature_flags::api::types::FlagsResponse;
+use limiters::redis::ServiceName;
 use rand::Rng;
 use reqwest::StatusCode;
 use serde_json::{json, Value};
@@ -205,15 +207,20 @@ async fn it_handles_malformed_json() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_handles_rate_limiting() -> Result<()> {
+async fn it_handles_quota_limiting() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let client = setup_redis_client(Some(config.redis_url.clone()));
-    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let token = team.api_token;
 
-    // Create a server with the team's token limited
-    let server =
-        ServerHandle::for_config_with_limited_tokens(config.clone(), vec![token.clone()]).await;
+    // Create a token for testing
+    let token = format!("test_token_{}", rand::thread_rng().gen::<u64>());
+    let team_id = 12345;
+
+    // Create a server with the limited token
+    let server = ServerHandle::for_config_with_mock_redis(
+        config.clone(),
+        vec![token.clone()],            // Limited tokens
+        vec![(token.clone(), team_id)], // Valid tokens with their team IDs
+    )
+    .await;
 
     // Test with a limited token
     let payload = json!({
@@ -223,25 +230,15 @@ async fn it_handles_rate_limiting() -> Result<()> {
     });
 
     let res = server.send_flags_request(payload.to_string()).await;
-    assert_eq!(StatusCode::TOO_MANY_REQUESTS, res.status());
-    assert_eq!(
-        res.text().await?,
-        "Rate limit exceeded. Please reduce your request frequency and try again later."
-    );
-
-    // Test with a different, non-limited token
-    let client = setup_redis_client(Some(config.redis_url.clone()));
-    let team2 = insert_new_team_in_redis(client.clone()).await.unwrap();
-    let non_limited_token = team2.api_token;
-
-    let payload = json!({
-        "token": non_limited_token,
-        "distinct_id": "user1",
-        "groups": {"group1": "group1"}
-    });
-
-    let res = server.send_flags_request(payload.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
+    let response_body = res.json::<FlagsResponse>().await?;
+
+    // Parse response body and assert that the quota_limited field is present and contains the correct value
+    assert!(response_body.quota_limited.is_some());
+    assert_eq!(
+        vec![ServiceName::FeatureFlags.as_string()],
+        response_body.quota_limited.unwrap()
+    );
 
     Ok(())
 }

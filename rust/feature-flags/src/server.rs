@@ -5,7 +5,7 @@ use time::Duration;
 
 use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
-use limiters::redis::{QuotaResource, RedisLimiter, QUOTA_LIMITER_CACHE_KEY};
+use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use tokio::net::TcpListener;
 
 use crate::client::database::get_pool;
@@ -91,6 +91,7 @@ where
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
         QuotaResource::FeatureFlags,
+        ServiceName::FeatureFlags,
     ) {
         Ok(limiter) => limiter,
         Err(e) => {
