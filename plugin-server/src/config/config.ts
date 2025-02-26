@@ -40,10 +40,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
+        KAFKA_PRODUCER_HOSTS: undefined,
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
         KAFKA_TRUSTED_CERT_B64: undefined,
         KAFKA_SECURITY_PROTOCOL: undefined,
+        KAFKA_PRODUCER_SECURITY_PROTOCOL: undefined,
         KAFKA_SASL_MECHANISM: undefined,
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
@@ -194,7 +196,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_HOST: '',
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
-        CDP_CYCLOTRON_BATCH_SIZE: 500,
+        CDP_CYCLOTRON_BATCH_SIZE: 300,
 
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
 

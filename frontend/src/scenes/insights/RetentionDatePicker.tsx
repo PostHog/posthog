@@ -1,37 +1,33 @@
-import { LemonCalendarSelectInput } from '@posthog/lemon-ui'
+import { IconCalendar, IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 export function RetentionDatePicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { dateRange, retentionFilter } = useValues(insightVizDataLogic(insightProps))
-    const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
-
-    const period = retentionFilter?.period
-    const date_to = dateRange?.date_to
-
-    const yearSuffix = date_to && dayjs(date_to).year() !== dayjs().year() ? ', YYYY' : ''
+    const { dateRange, dateMappings } = useValues(retentionLogic(insightProps))
+    const { updateDateRange } = useActions(retentionLogic(insightProps))
 
     return (
-        <span className="flex inline-flex items-center pl-2">
-            <LemonCalendarSelectInput
-                value={date_to ? dayjs(date_to) : undefined}
-                onChange={(date_to) => {
-                    updateDateRange({ date_to: date_to && dayjs(date_to).toISOString() })
-                }}
-                granularity={period === 'Hour' ? 'hour' : 'day'}
-                placeholder="Today"
-                clearable
-                buttonProps={{
-                    tooltip: 'Cohorts up to this end date',
-                    type: 'secondary',
-                    sideIcon: null,
-                    size: 'small',
-                }}
-                format={period === 'Hour' ? `MMM D${yearSuffix}, h A` : `MMM D${yearSuffix}`}
-            />
-        </span>
+        <DateFilter
+            dateTo={dateRange?.date_to ?? undefined}
+            dateFrom={dateRange?.date_from ?? undefined}
+            onChange={(date_from, date_to, explicit_date) => {
+                updateDateRange({ date_from, date_to, explicitDate: explicit_date })
+            }}
+            dateOptions={dateMappings}
+            makeLabel={(key) => (
+                <>
+                    <IconCalendar /> {key}
+                    {key == 'All time' && (
+                        <Tooltip title="Only events dated after 2015 will be shown">
+                            <IconInfo className="info-indicator" />
+                        </Tooltip>
+                    )}
+                </>
+            )}
+        />
     )
 }

@@ -3,7 +3,7 @@ import { LogicWrapper } from 'kea'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 import {
     ActionType,
     CohortType,
@@ -39,6 +39,15 @@ export interface TaxonomicFilterProps {
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
     showNumericalPropsOnly?: boolean
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
+}
+
+export interface DataWarehousePopoverField {
+    key: string
+    label: string
+    allowHogQL?: boolean
+    hogQLOnly?: boolean
+    tableName?: string
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {

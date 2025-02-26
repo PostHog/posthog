@@ -408,13 +408,16 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
         1,
-        2,
+        2,  # Incorrect for parseDateTime64BestEffortOrNull but it is required because when we overload to toDateTime, we use this to figure out if timestamp is already in a function.
         tz_aware=True,
-        overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
+        overloads=[
+            ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
+            # ((ast.StringType,), "parseDateTime64"), # missing in version: 24.8.7.41
+        ],
         signatures=[
-            ((StringType(),), DateTimeType(nullable=True)),
-            ((StringType(), IntegerType()), DateTimeType(nullable=True)),
-            ((StringType(), IntegerType(), StringType()), DateTimeType(nullable=True)),
+            ((StringType(),), DateTimeType()),
+            ((StringType(), IntegerType()), DateTimeType()),
+            ((StringType(), IntegerType(), StringType()), DateTimeType()),
         ],
     ),
     "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),
@@ -978,6 +981,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
     "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True, case_sensitive=False),
+    "sumForEach": HogQLFunctionMeta("sumForEach", 1, 1, aggregate=True),
     "sumIf": HogQLFunctionMeta("sumIf", 2, 2, aggregate=True),
     "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True, case_sensitive=False),
     "avgIf": HogQLFunctionMeta("avgIf", 2, 2, aggregate=True),

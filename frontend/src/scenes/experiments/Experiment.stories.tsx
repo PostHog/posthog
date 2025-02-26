@@ -7,10 +7,13 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
+import EXPERIMENT_WITH_ASYMMETRIC_INTERVALS from '~/mocks/fixtures/api/experiments/_experiment_with_asymmetric_credible_interval.json'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
     CachedExperimentFunnelsQueryResponse,
+    CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
+    ExperimentMetricType,
     ExperimentSignificanceCode,
     NodeKind,
     ResultCustomizationBy,
@@ -1052,7 +1055,7 @@ const METRIC_TREND_CONTINUOUS_RESULT: any = {
         },
         filterTestAccounts: false,
         interval: 'day',
-        kind: 'TrendsQuery',
+        kind: NodeKind.TrendsQuery,
         modifiers: null,
         properties: [
             {
@@ -1131,7 +1134,7 @@ const METRIC_TREND_CONTINUOUS_RESULT: any = {
         },
         filterTestAccounts: false,
         interval: 'day',
-        kind: 'TrendsQuery',
+        kind: NodeKind.TrendsQuery,
         modifiers: null,
         properties: [
             {
@@ -1604,7 +1607,7 @@ const METRIC_TREND_CONTINUOUS_RESULT: any = {
         },
     ],
     is_cached: true,
-    kind: 'ExperimentTrendsQuery',
+    kind: NodeKind.ExperimentTrendsQuery,
     last_refresh: '2025-01-27T14:06:12.792473Z',
     next_allowed_client_refresh: '2025-01-27T14:07:12.792473Z',
     p_value: 0.0,
@@ -2195,6 +2198,60 @@ const EXPERIMENT_QUERY_COUNT_RESULT: CachedExperimentTrendsQueryResponse = {
     ],
 }
 
+const EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS: CachedExperimentQueryResponse = {
+    cache_key: 'cache_1aeef2b7a7acbcc4b54564ba1208a320',
+    cache_target_age: '2025-02-19T09:13:37.273511Z',
+    calculation_trigger: undefined,
+    credible_intervals: {
+        control: [0.07063151332765807, 0.1218892673220187],
+        test: [0.07681082815508776, 0.13286603552770726],
+    },
+    insight: [],
+    is_cached: true,
+    kind: NodeKind.ExperimentQuery,
+    last_refresh: '2025-02-18T09:14:37.273511Z',
+    metric: {
+        inverse: false,
+        kind: NodeKind.ExperimentMetric,
+        metric_config: {
+            event: 'experiment created',
+            kind: NodeKind.ExperimentEventMetricConfig,
+            math: BaseMathType.TotalCount,
+            math_hogql: undefined,
+            math_property: undefined,
+            name: 'experiment created',
+            properties: undefined,
+        },
+        metric_type: ExperimentMetricType.COUNT,
+        name: 'Experiments created',
+    },
+    next_allowed_client_refresh: '2025-02-18T09:14:37.273511Z',
+    p_value: 1,
+    probability: {
+        control: 0.3549,
+        test: 0.6451,
+    },
+    query_status: undefined,
+    significance_code: ExperimentSignificanceCode.LowWinProbability,
+    significant: false,
+    stats_version: 2,
+    timezone: 'US/Pacific',
+    variants: [
+        {
+            absolute_exposure: 360,
+            count: 31,
+            exposure: 360,
+            key: 'control',
+        },
+        {
+            absolute_exposure: 339,
+            count: 32,
+            exposure: 339,
+            key: 'test',
+        },
+    ],
+}
+
 const meta: Meta = {
     title: 'Scenes-App/Experiments',
     parameters: {
@@ -2208,9 +2265,11 @@ const meta: Meta = {
                 '/api/projects/:team_id/experiments/': toPaginatedResponse([
                     EXPERIMENT,
                     EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY,
+                    EXPERIMENT_WITH_ASYMMETRIC_INTERVALS,
                 ]),
                 '/api/projects/:team_id/experiments/66/': EXPERIMENT,
                 '/api/projects/:team_id/experiments/67/': EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY,
+                '/api/projects/:team_id/experiments/68/': EXPERIMENT_WITH_ASYMMETRIC_INTERVALS,
                 '/api/projects/:team_id/experiment_holdouts': [],
                 '/api/projects/:team_id/experiment_saved_metrics/': [],
                 '/api/projects/997/feature_flags/162/': {},
@@ -2222,16 +2281,18 @@ const meta: Meta = {
                 '/api/environments/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
-                    if (body.query.kind === 'ExperimentFunnelsQuery') {
+                    if (body.query.kind === NodeKind.ExperimentFunnelsQuery) {
                         return res(ctx.json(METRIC_FUNNEL_RESULT))
                     } else if (
-                        body.query.kind === 'ExperimentTrendsQuery' &&
+                        body.query.kind === NodeKind.ExperimentTrendsQuery &&
                         body.query.count_query.series[0].math === 'sum'
                     ) {
                         return res(ctx.json(METRIC_TREND_CONTINUOUS_RESULT))
-                    } else if (body.query.kind === 'ExperimentTrendsQuery') {
+                    } else if (body.query.kind === NodeKind.ExperimentTrendsQuery) {
                         return res(ctx.json(METRIC_TREND_RESULT))
-                    } else if (body.query.kind === 'ExperimentQuery') {
+                    } else if (body.query.experiment_id === EXPERIMENT_WITH_ASYMMETRIC_INTERVALS.id) {
+                        return res(ctx.json(EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS))
+                    } else if (body.query.kind === NodeKind.ExperimentQuery) {
                         return res(ctx.json(EXPERIMENT_QUERY_COUNT_RESULT))
                     }
                 },
@@ -2257,6 +2318,13 @@ export const ExperimentV3WithExperimentQuery: StoryFn = () => {
 export const ExperimentV2WithThreeMetrics: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.experiment(EXPERIMENT.id))
+    }, [])
+    return <App />
+}
+
+export const ExperimentWithAsymmetricIntervals: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.experiment(EXPERIMENT_WITH_ASYMMETRIC_INTERVALS.id))
     }, [])
     return <App />
 }

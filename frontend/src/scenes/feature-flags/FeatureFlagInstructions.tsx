@@ -13,7 +13,6 @@ import { FeatureFlagType, GroupTypeIndex, SDKKey } from '~/types'
 
 import {
     BOOTSTRAPPING_OPTIONS,
-    ENCRYPTED_PAYLOAD_LIBRARIES,
     FF_ANCHOR,
     InstructionOption,
     LibraryType,
@@ -22,6 +21,7 @@ import {
     OPTIONS,
     PAYLOAD_LIBRARIES,
     PAYLOADS_ANCHOR,
+    REMOTE_CONFIGURATION_LIBRARIES,
 } from './FeatureFlagCodeOptions'
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
@@ -58,8 +58,9 @@ export function CodeInstructions({
     showFooter = true,
 }: CodeInstructionsProps): JSX.Element {
     const encryptedPayload = featureFlag?.has_encrypted_payloads
+    const remoteConfiguration = featureFlag?.is_remote_configuration
 
-    const [defaultSelectedOption] = (encryptedPayload
+    const [defaultSelectedOption] = (remoteConfiguration
         ? options.filter((option) => option.key === SDKKey.NODE_JS)
         : options) || [options[0]]
 
@@ -192,10 +193,10 @@ export function CodeInstructions({
             })),
         },
     ]
-    const encryptedPayloadLibraries = [
+    const remoteConfigurationLibraries = [
         {
             title: 'Server libraries',
-            options: OPTIONS.filter((option) => ENCRYPTED_PAYLOAD_LIBRARIES.includes(option.key)).map((option) => ({
+            options: OPTIONS.filter((option) => REMOTE_CONFIGURATION_LIBRARIES.includes(option.key)).map((option) => ({
                 value: option.key,
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
@@ -208,7 +209,7 @@ export function CodeInstructions({
             })),
         },
     ]
-    const supportedLibraries = encryptedPayload ? encryptedPayloadLibraries : allFlagLibraries
+    const supportedLibraries = remoteConfiguration ? remoteConfigurationLibraries : allFlagLibraries
 
     return (
         <div>
@@ -282,7 +283,7 @@ export function CodeInstructions({
                                         reportFlagsCodeExampleInteraction('local evaluation')
                                     }}
                                     disabled={
-                                        encryptedPayload ||
+                                        remoteConfiguration ||
                                         !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.key) ||
                                         !!featureFlag?.ensure_experience_continuity
                                     }
@@ -320,6 +321,7 @@ export function CodeInstructions({
                             groupType={groupType}
                             localEvaluation={showLocalEvalCode}
                             payload={true}
+                            remoteConfiguration={remoteConfiguration}
                             encryptedPayload={encryptedPayload}
                         />
                     </>

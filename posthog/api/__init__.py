@@ -13,10 +13,12 @@ from posthog.warehouse.api import (
     saved_query,
     table,
     view_link,
+    query_tab_state,
 )
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
+from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
     activity_log,
@@ -32,6 +34,7 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    file_system,
     hog,
     hog_function,
     hog_function_template,
@@ -210,6 +213,8 @@ projects_router.register(
     ["project_id"],
 )
 
+projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_systen", ["project_id"])
+
 environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
     r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]
 )
@@ -306,7 +311,12 @@ projects_router.register(
     "project_warehouse_model_paths",
     ["team_id"],
 )
-
+projects_router.register(
+    r"query_tab_state",
+    query_tab_state.QueryTabStateViewSet,
+    "project_query_tab_state",
+    ["project_id"],
+)
 
 register_grandfathered_environment_nested_viewset(
     r"external_data_schemas",
@@ -425,6 +435,15 @@ environment_sessions_recordings_router, legacy_project_session_recordings_router
         ["team_id"],
     )
 )
+
+register_grandfathered_environment_nested_viewset(
+    r"session_recording_playlists",
+    SessionRecordingPlaylistViewSet,
+    "environment_session_recording_playlist",
+    ["team_id"],
+)
+
+
 register_grandfathered_environment_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 

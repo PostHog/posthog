@@ -15,7 +15,7 @@ import {
     ConditionalFormattingRule,
     DataVisualizationNode,
     HogQLVariable,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType, ItemMode } from '~/types'
 

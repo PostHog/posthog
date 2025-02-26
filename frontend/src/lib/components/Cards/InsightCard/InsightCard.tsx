@@ -16,7 +16,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
-import { HogQLVariable } from '~/queries/schema'
+import { HogQLVariable } from '~/queries/schema/schema-general'
 import {
     DashboardBasicType,
     DashboardPlacement,

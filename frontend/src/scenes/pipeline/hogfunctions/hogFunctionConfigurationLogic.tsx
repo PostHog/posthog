@@ -56,6 +56,7 @@ import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
+    logicKey?: string
     templateId?: string | null
     id?: string | null
 }
@@ -202,8 +203,9 @@ export function convertToHogFunctionInvocationGlobals(
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
-        return id ?? templateId ?? 'new'
+    key(({ id, templateId, logicKey }: HogFunctionConfigurationLogicProps) => {
+        const baseKey = id ?? templateId ?? 'new'
+        return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
     connect(({ id }: HogFunctionConfigurationLogicProps) => ({
         values: [
@@ -761,6 +763,28 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             { resultEqualityCheck: equal },
         ],
 
+        filtersContainPersonProperties: [
+            (s) => [s.configuration],
+            (configuration) => {
+                const filters = configuration.filters
+                let containsPersonProperties = false
+                if (filters?.properties && !containsPersonProperties) {
+                    containsPersonProperties = filters.properties.some((p) => p.type === 'person')
+                }
+                if (filters?.actions && !containsPersonProperties) {
+                    containsPersonProperties = filters.actions.some((a) =>
+                        a.properties?.some((p) => p.type === 'person')
+                    )
+                }
+                if (filters?.events && !containsPersonProperties) {
+                    containsPersonProperties = filters.events.some((e) =>
+                        e.properties?.some((p) => p.type === 'person')
+                    )
+                }
+                return containsPersonProperties
+            },
+        ],
+
         sparklineQuery: [
             (s) => [s.configuration, s.matchingFilters, s.type],
             (configuration, matchingFilters, type): TrendsQuery | null => {
@@ -785,6 +809,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     },
                     trendsFilter: {
                         display: ChartDisplayType.ActionsBar,
+                    },
+                    modifiers: {
+                        personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
                 }
             },
@@ -838,6 +865,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     select: ['*', 'person'],
                     after: '-7d',
                     orderBy: ['timestamp DESC'],
+                    modifiers: {
+                        // NOTE: We always want to show events with the person properties at the time the event was created as that is what the function will see
+                        personsOnEventsMode: 'person_id_no_override_properties_on_events',
+                    },
                 }
                 groupTypes.forEach((groupType) => {
                     const name = escapePropertyAsHogQlIdentifier(groupType.group_type)
@@ -1039,7 +1070,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (!values.hogFunction) {
                 return
             }
-            const { id, name, type } = values.hogFunction
+            const { id, name, type, template } = values.hogFunction
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -1048,12 +1079,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
                 callback(undo) {
                     if (undo) {
-                        router.actions.replace(hogFunctionUrl(type, id))
+                        router.actions.replace(hogFunctionUrl(type, id, template?.id))
                     }
                 },
             })
 
-            router.actions.replace(hogFunctionUrl(type))
+            router.actions.replace(hogFunctionUrl(type, undefined, template?.id))
         },
 
         persistForUnload: () => {
@@ -1088,7 +1119,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id))
+                router.actions.replace(hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template.id))
             }
         },
         sparklineQuery: async (sparklineQuery) => {
@@ -1099,11 +1130,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         personsCountQuery: async (personsCountQuery) => {
             if (personsCountQuery) {
                 actions.personsCountQueryChanged(personsCountQuery)
-            }
-        },
-        lastEventQuery: (lastEventQuery) => {
-            if (lastEventQuery) {
-                actions.loadSampleGlobals()
             }
         },
     })),

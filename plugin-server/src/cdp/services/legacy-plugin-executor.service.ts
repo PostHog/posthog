@@ -160,8 +160,6 @@ export class LegacyPluginExecutorService {
                       | LegacyDestinationPlugin)
                 : null
 
-            addLog('debug', `Executing plugin ${pluginId}`)
-
             if (!pluginId || !plugin) {
                 throw new Error(`Plugin ${pluginId} not found`)
             }
@@ -290,7 +288,6 @@ export class LegacyPluginExecutorService {
                 }
             }
 
-            addLog('debug', `Execution successful`)
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
             if (e instanceof RetryError) {

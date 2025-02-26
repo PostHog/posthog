@@ -3,7 +3,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useMemo } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode } from '~/queries/schema'
+import { DataNode } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'

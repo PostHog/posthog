@@ -107,8 +107,8 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'When a user loads a screen in a mobile app.',
         },
         $set: {
-            label: 'Set',
-            description: 'Setting person properties.',
+            label: 'Set person properties',
+            description: 'Setting person properties. Sent as `$set`',
         },
         $opt_in: {
             label: 'Opt In',
@@ -268,6 +268,36 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
     event_properties: {
+        $python_runtime: {
+            label: 'Python Runtime',
+            description: 'The Python runtime that was used to capture the event.',
+            examples: ['CPython'],
+            system: true,
+        },
+        $python_version: {
+            label: 'Python Version',
+            description: 'The Python version that was used to capture the event.',
+            examples: ['3.11.5'],
+            system: true,
+        },
+        $sdk_debug_replay_internal_buffer_length: {
+            label: 'Replay internal buffer length',
+            description: 'Useful for debugging. The internal buffer length for replay.',
+            examples: ['100'],
+            system: true,
+        },
+        $sdk_debug_replay_internal_buffer_size: {
+            label: 'Replay internal buffer size',
+            description: 'Useful for debugging. The internal buffer size for replay.',
+            examples: ['100'],
+            system: true,
+        },
+        $sdk_debug_retry_queue_size: {
+            label: 'Retry queue size',
+            description: 'Useful for debugging. The size of the retry queue.',
+            examples: ['100'],
+            system: true,
+        },
         $last_posthog_reset: {
             label: 'Timestamp of last call to `Reset` in the web sdk',
             description: 'The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.',
@@ -314,12 +344,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The content that was selected when the user copied or cut.',
         },
         $set: {
-            label: 'Set',
-            description: 'Person properties to be set',
+            label: 'Set person properties',
+            description: 'Person properties to be set. Sent as `$set`',
         },
         $set_once: {
-            label: 'Set Once',
-            description: 'Person properties to be set if not set already (i.e. first-touch)',
+            label: 'Set person properties once',
+            description: 'Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`',
         },
         $pageview_id: {
             label: 'Pageview ID',
@@ -1571,12 +1601,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['/interesting-article?parameter=true'],
         },
         $end_current_url: {
-            label: 'Entry URL',
+            label: 'End URL',
             description: 'The last URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $end_pathname: {
-            label: 'Entry pathname',
+            label: 'End pathname',
             description: 'The last pathname visited in this session.',
             examples: ['/interesting-article'],
         },
@@ -1906,6 +1936,15 @@ export function getCoreFilterDefinition(
                 description: `Whether the user has interacted with "${featureFlagKey}".`,
                 examples: ['true', 'false'],
             }
+        }
+    }
+    return null
+}
+
+export function getFirstFilterTypeFor(propertyKey: string): TaxonomicFilterGroupType | null {
+    for (const type of Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP) as TaxonomicFilterGroupType[]) {
+        if (propertyKey in CORE_FILTER_DEFINITIONS_BY_GROUP[type]) {
+            return type
         }
     }
     return null
