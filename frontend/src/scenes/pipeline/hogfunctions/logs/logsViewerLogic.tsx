@@ -140,6 +140,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         revealHiddenLogs: true,
         setRowExpanded: (instanceId: string, expanded: boolean) => ({ instanceId, expanded }),
         scheduleLoadNewerLogs: true,
+        loadLogs: true,
+        loadNewerLogs: true,
     }),
     loaders(({ props, values, actions }) => ({
         logs: [
