@@ -20,6 +20,7 @@ use serde_json::Value;
 use serde_urlencoded;
 use std::{collections::HashMap, net::IpAddr};
 use std::{io::Read, sync::Arc};
+use strum::Display;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -57,7 +58,7 @@ pub struct FlagsQueryParams {
     pub sent_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display)]
 pub enum ServiceName {
     FeatureFlags,
     Replay,
@@ -69,12 +70,6 @@ impl ServiceName {
             ServiceName::FeatureFlags => "feature_flags",
             ServiceName::Replay => "recordings",
         }
-    }
-}
-
-impl ToString for ServiceName {
-    fn to_string(&self) -> String {
-        self.as_str().to_string()
     }
 }
 
