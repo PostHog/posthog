@@ -64,6 +64,7 @@ import {
     isLifecycleQuery,
     isNodeWithSource,
     isPathsQuery,
+    isPathsV2Query,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
@@ -151,6 +152,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isFunnels: [(s) => [s.querySource], (q) => isFunnelsQuery(q)],
         isRetention: [(s) => [s.querySource], (q) => isRetentionQuery(q)],
         isPaths: [(s) => [s.querySource], (q) => isPathsQuery(q)],
+        isPathsV2: [(s) => [s.querySource], (q) => isPathsV2Query(q)],
         isStickiness: [(s) => [s.querySource], (q) => isStickinessQuery(q)],
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
@@ -210,6 +212,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
         retentionFilter: [(s) => [s.querySource], (q) => (isRetentionQuery(q) ? q.retentionFilter : null)],
         pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
+        pathsV2Filter: [(s) => [s.querySource], (q) => (isPathsV2Query(q) ? q.pathsV2Filter : null)],
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
         funnelPathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.funnelPathsFilter : null)],
@@ -650,6 +653,7 @@ const handleQuerySourceUpdateSideEffects = (
     if (
         !isRetentionQuery(currentState) &&
         !isPathsQuery(currentState) && // TODO: Apply side logic more elegantly
+        !isPathsV2Query(currentState) &&
         update.dateRange &&
         update.dateRange.date_from &&
         (update.dateRange.date_from !== currentState.dateRange?.date_from ||

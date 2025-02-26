@@ -6,10 +6,14 @@ import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { InsightType } from '~/types'
 
-export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
-    const menuEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
-        ([insightType]) => insightType !== InsightType.JSON
-    )
+export function overlayForNewInsightMenu(dataAttr: string, showPathsV2: boolean): ReactNode[] {
+    const menuEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(([insightType]) => {
+        if (insightType === InsightType.PATHS_V2) {
+            return showPathsV2
+        }
+
+        return insightType !== InsightType.JSON
+    })
 
     return menuEntries.map(
         ([listedInsightType, listedInsightTypeMetadata]) =>

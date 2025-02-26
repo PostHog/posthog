@@ -57,6 +57,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isFunnels,
         isRetention,
         isPaths,
+        isPathsV2,
         isLifecycle,
         isStickiness,
         isTrendsLike,

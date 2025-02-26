@@ -2,13 +2,15 @@ import { IconCalendar } from '@posthog/icons'
 import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { SavedInsightsTabs } from '~/types'
+import { InsightType, SavedInsightsTabs } from '~/types'
 
 export function SavedInsightsFilters({
     filters,
@@ -18,8 +20,11 @@ export function SavedInsightsFilters({
     setFilters: (filters: Partial<SavedInsightFilters>) => void
 }): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
+
+    const showPathsV2 = !!featureFlags[FEATURE_FLAGS.PATHS_V2]
 
     return (
         <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
@@ -53,7 +58,9 @@ export function SavedInsightsFilters({
                     <span>Type:</span>
                     <LemonSelect
                         size="small"
-                        options={INSIGHT_TYPE_OPTIONS}
+                        options={INSIGHT_TYPE_OPTIONS.filter((option) =>
+                            option.value === InsightType.PATHS_V2 ? showPathsV2 : true
+                        )}
                         value={insightType}
                         onChange={(v: any): void => setFilters({ insightType: v })}
                         dropdownMatchSelectWidth={false}

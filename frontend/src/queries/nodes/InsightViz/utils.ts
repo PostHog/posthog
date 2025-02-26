@@ -140,6 +140,8 @@ export const getDefaultQuery = (
             return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
         } else if (insightType === InsightType.PATHS) {
             return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.PATHS_V2) {
+            return queryFromKind(NodeKind.PathsV2Query, filterTestAccountsDefault)
         } else if (insightType === InsightType.STICKINESS) {
             return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
         } else if (insightType === InsightType.LIFECYCLE) {

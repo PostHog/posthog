@@ -384,6 +384,7 @@ export const INSIGHT_TYPE_URLS = {
     FUNNELS: urls.insightNew({ type: InsightType.FUNNELS }),
     RETENTION: urls.insightNew({ type: InsightType.RETENTION }),
     PATHS: urls.insightNew({ type: InsightType.PATHS }),
+    PATHS_V2: urls.insightNew({ type: InsightType.PATHS_V2 }),
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.insightNew({ query: examples.DataVisualization }),

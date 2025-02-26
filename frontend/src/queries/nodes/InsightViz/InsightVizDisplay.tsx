@@ -67,6 +67,7 @@ export function InsightVizDisplay({
     const {
         isFunnels,
         isPaths,
+        isPathsV2,
         hasDetailedResultsTable,
         showLegend,
         trendsFilter,
@@ -240,7 +241,7 @@ export function InsightVizDisplay({
                 {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (
                     <>
-                        {!embedded && (isFunnels || isPaths || showComputationMetadata) && (
+                        {!embedded && (isFunnels || isPaths || isPathsV2 || showComputationMetadata) && (
                             <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
                                 <div className="flex items-center gap-2">
                                     {showComputationMetadata && (

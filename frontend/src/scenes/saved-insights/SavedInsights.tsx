@@ -107,6 +107,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconUserPaths,
         inMenu: true,
     },
+    [NodeKind.PathsV2Query]: {
+        name: 'Event Journeys',
+        description: 'Trace the journeys users take within your product and where they drop off.',
+        icon: IconUserPaths,
+        inMenu: true,
+    },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions.',
@@ -394,6 +400,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.FUNNELS]: QUERY_TYPES_METADATA[NodeKind.FunnelsQuery],
     [InsightType.RETENTION]: QUERY_TYPES_METADATA[NodeKind.RetentionQuery],
     [InsightType.PATHS]: QUERY_TYPES_METADATA[NodeKind.PathsQuery],
+    [InsightType.PATHS_V2]: QUERY_TYPES_METADATA[NodeKind.PathsV2Query],
     [InsightType.STICKINESS]: QUERY_TYPES_METADATA[NodeKind.StickinessQuery],
     [InsightType.LIFECYCLE]: QUERY_TYPES_METADATA[NodeKind.LifecycleQuery],
     [InsightType.SQL]: {
@@ -449,6 +456,8 @@ export function InsightIcon({
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showPathsV2 = !!featureFlags[FEATURE_FLAGS.PATHS_V2]
     return (
         <LemonButton
             type="primary"
@@ -458,7 +467,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: overlayForNewInsightMenu(dataAttr),
+                    overlay: overlayForNewInsightMenu(dataAttr, showPathsV2),
                 },
                 'data-attr': 'saved-insights-new-insight-dropdown',
             }}

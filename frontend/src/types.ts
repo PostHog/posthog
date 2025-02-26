@@ -2207,6 +2207,7 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
+    PATHS_V2 = 'PATHS_V2',
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
@@ -2421,6 +2422,8 @@ export interface PathsFilterType extends FilterType {
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
 }
+
+export interface PathsV2FilterType {}
 
 export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
 

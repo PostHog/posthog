@@ -21,6 +21,8 @@ import {
     LifecycleQuery,
     PathsFilter,
     PathsQuery,
+    PathsV2Filter,
+    PathsV2Query,
     RetentionFilter,
     RetentionQuery,
     StickinessFilter,
@@ -64,6 +66,7 @@ export interface CommonInsightFilter
         Partial<OmitConflictingProperties<FunnelsFilter>>,
         Partial<RetentionFilter>,
         Partial<PathsFilter>,
+        Partial<PathsV2Filter>,
         Partial<StickinessFilter>,
         Partial<LifecycleFilter> {}
 
@@ -72,6 +75,7 @@ export interface QueryPropertyCache
         Omit<Partial<FunnelsQuery>, 'kind' | 'response'>,
         Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
+        Omit<Partial<PathsV2Query>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response'> {
     commonFilter: CommonInsightFilter
@@ -172,6 +176,15 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.PATHS,
                         dataAttr: 'insight-path-tab',
                     },
+                    ...(featureFlags[FEATURE_FLAGS.PATHS_V2] || activeView === InsightType.PATHS_V2
+                        ? [
+                              {
+                                  label: 'Event Journeys',
+                                  type: InsightType.PATHS_V2,
+                                  dataAttr: 'insight-path-v2-tab',
+                              },
+                          ]
+                        : []),
                     {
                         label: 'Stickiness',
                         type: InsightType.STICKINESS,
