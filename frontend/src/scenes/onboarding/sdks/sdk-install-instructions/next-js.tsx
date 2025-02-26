@@ -8,7 +8,7 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { JSInstallSnippet } from './js-web'
-import { nextJsInstructionsLogic, type NextJSRouter } from './next-js-instructions.logic'
+import { nextJsInstructionsLogic, type NextJSRouter } from './nextJsInstructionsLogic'
 
 function NextEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -110,7 +110,7 @@ import { PostHogProvider as PHProvider } from 'posthog-js/react'
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
-      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
       ${
           isPersonProfilesDisabled
               ? ``
@@ -163,7 +163,7 @@ function SuspendedPostHogPageView() {
 }
 
 export function SDKInstallNextJSInstructions(): JSX.Element {
-    const { nextjsRouter } = useValues(nextJsInstructionsLogic)
+    const { nextJsRouter } = useValues(nextJsInstructionsLogic)
     const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
     return (
         <>
@@ -182,7 +182,7 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
             <h3>Initialize</h3>
 
             <LemonTabs
-                activeKey={nextjsRouter}
+                activeKey={nextJsRouter}
                 onChange={(key) => setNextJsRouter(key as NextJSRouter)}
                 tabs={[
                     {
@@ -195,7 +195,7 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
                     },
                 ]}
             />
-            {nextjsRouter === 'app' && (
+            {nextJsRouter === 'app' && (
                 <>
                     <p>
                         If your Next.js app uses the{' '}
@@ -221,7 +221,7 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
                     <NextAppRouterLayoutSnippet />
                 </>
             )}
-            {nextjsRouter === 'pages' && (
+            {nextJsRouter === 'pages' && (
                 <>
                     <p>
                         If your Next.js app uses the{' '}
