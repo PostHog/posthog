@@ -15,6 +15,7 @@
                 "type": "string",
                 "label": "Webhook URL",
                 "secret": false,
+                "hidden": false,
                 "required": true
             },
             {
@@ -22,6 +23,7 @@
                 "type": "choice",
                 "label": "Method",
                 "secret": false,
+                "hidden": false,
                 "choices": [
                     {
                         "label": "POST",
@@ -56,6 +58,7 @@
                     "person": "{person}"
                 },
                 "secret": false,
+                "hidden": false,
                 "required": false
             },
             {
@@ -63,6 +66,7 @@
                 "type": "dictionary",
                 "label": "Headers",
                 "secret": false,
+                "hidden": false,
                 "required": false,
                 "default": {
                     "Content-Type": "application/json"
@@ -74,6 +78,7 @@
                 "label": "Log responses",
                 "description": "Logs the response of http calls for debugging.",
                 "secret": false,
+                "hidden": false,
                 "required": false,
                 "default": false
             }
