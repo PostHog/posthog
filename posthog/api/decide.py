@@ -488,6 +488,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> bool
                 "minimumDurationMilliseconds": minimum_duration,
                 "linkedFlag": linked_flag,
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
+                "masking": team.session_recording_masking_config or None,
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
