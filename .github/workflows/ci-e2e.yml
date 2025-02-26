@@ -116,7 +116,7 @@ jobs:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
 
     cypress:
-        name: Cypress E2E spot check #${{ matrix.chunk.index }}
+        name: 'Cypress E2E spot check #${{ matrix.chunk.index }}'
         runs-on: ubuntu-24.04
         timeout-minutes: 60
         needs: [chunks, changes, container]
