@@ -260,14 +260,6 @@ jobs:
                   log: true
                   resource: http://localhost:8000
 
-            - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: pnpm --filter=@posthog/cypress... install --frozen-lockfile
-
-            - name: Install Cypress binary
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: npx cypress install
-
             - name: Cypress run
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
