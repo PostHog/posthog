@@ -146,10 +146,11 @@ describe('geoip.template', () => {
         await tester.beforeEach()
 
         const actualResult = tester.geoIp?.city('12.87.118.0')
-        jest.spyOn(tester.geoIp, 'city').mockReturnValue({
+
+        jest.spyOn(tester.geoIp!, 'city').mockReturnValue({
             ...actualResult,
-            city: null,
-        })
+            city: undefined,
+        } as any)
 
         // Then create the mock globals and run the test
         mockGlobals = tester.createGlobals({
