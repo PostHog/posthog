@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
     changes:
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run E2E checks
         # Set job outputs to values from filter step
@@ -51,7 +51,7 @@ jobs:
     chunks:
         needs: changes
         name: Cypress preparation
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         outputs:
             chunks: ${{ steps.chunk.outputs.chunks }}
@@ -95,7 +95,7 @@ jobs:
 
     container:
         name: Build and cache container image
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ubuntu-24.04
         timeout-minutes: 60
         needs: [changes]
         permissions:
@@ -118,8 +118,8 @@ jobs:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
 
     cypress:
-        name: Cypress E2E (${{ matrix.spec }})
-        runs-on: depot-ubuntu-24.04-4
+        name: Cypress E2E random spot check
+        runs-on: ubuntu-24.04
         timeout-minutes: 60
         needs: [chunks, changes, container]
         permissions:
@@ -154,15 +154,17 @@ jobs:
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - name: Get Cypress cache dir
+            - name: Get cypress cache directory path
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: cypress-cache-dir
-              run: echo "CYPRESS_BIN_PATH=~/.cache/Cypress" >> $GITHUB_OUTPUT
+              run: cd cypress && echo "CYPRESS_BIN_PATH=$(npx cypress cache path)" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@v4
-              id: pnpm-cypress-cache
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              id: pnpm-cache
               with:
                   path: |
-                      node_modules
+                      ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
                       ${{ steps.cypress-cache-dir.outputs.CYPRESS_BIN_PATH }}
                   key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('**/pnpm-lock.yaml') }}
                   restore-keys: |
@@ -171,8 +173,6 @@ jobs:
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: pnpm --filter=@posthog/cypress... install --frozen-lockfile
-              env:
-                  NODE_OPTIONS: '--max-old-space-size=10240'
 
             - name: Prepare cypress
               # these are required checks so, we can't skip entire sections
@@ -314,7 +314,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ubuntu-24.04
         needs: [cypress]
         if: needs.changes.outputs.shouldTriggerCypress == 'true' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
