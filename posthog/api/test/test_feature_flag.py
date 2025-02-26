@@ -840,7 +840,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # Grab the feature flag and assert created_by is original user and updated_by is different user
             feature_flag = FeatureFlag.objects.get(id=flag_id)
             self.assertEqual(feature_flag.created_by, original_user)
-            self.assertEqual(feature_flag.updated_by, different_user)
+            self.assertEqual(feature_flag.last_modified_by, different_user)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_fails_concurrency_check_when_version_outdated(self, mock_capture):
