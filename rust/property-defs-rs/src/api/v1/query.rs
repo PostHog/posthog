@@ -1,9 +1,11 @@
 use crate::{
     api::v1::{
         constants::{
-            extract_aliases, ENTERPRISE_PROP_DEFS_TABLE, EVENTS_HIDDEN_PROPERTY_DEFINITIONS,
-            EVENT_PROPERTY_TABLE, POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS, PROPERTY_DEFS_TABLE,
-            SEARCH_SCREEN_WORD, SEARCH_TRIGGER_WORD,
+            extract_aliases, ENTERPRISE_PROP_DEFS_TABLE, ENTERPRISE_PROP_DEFS_TABLE_COLUMNS,
+            EVENTS_HIDDEN_PROPERTY_DEFINITIONS, EVENT_PROPERTY_TABLE, EVENT_PROPERTY_TABLE_ALIAS,
+            PROPERTY_DEFS_TABLE, PROPERTY_DEFS_TABLE_COLUMNS, SEARCH_SCREEN_WORD,
+            SEARCH_TRIGGER_WORD, USER_TABLE, USER_TABLE_COLUMNS, USER_TABLE_UPDATED_ALIAS,
+            USER_TABLE_VERIFIED_ALIAS,
         },
         routing::Params,
     },
@@ -67,23 +69,23 @@ impl Manager {
         qb.push("SELECT count(*) AS full_count ");
 
         self.gen_from_clause(qb, params.use_enterprise_taxonomy);
-        self.gen_conditional_join_event_props(
+        self.conditionally_join_event_properties(
             qb,
             project_id,
-            params.property_type,
+            params.parent_type,
             &params.event_names,
         );
 
         // begin the WHERE clause
         self.init_where_clause(qb, project_id);
-        self.where_property_type(qb, params.property_type);
+        self.where_property_type(qb, params.parent_type);
         qb.push("AND COALESCE(group_type_index, -1) = ");
         qb.push_bind(params.group_type_index);
         qb.push(" ");
 
         self.conditionally_filter_excluded_properties(
             qb,
-            params.property_type,
+            params.parent_type,
             &params.excluded_properties,
         );
         self.conditionally_filter_properties(qb, &params.properties);
@@ -134,19 +136,11 @@ impl Manager {
                 * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L293-L305
                 */
 
-        qb.push(" SELECT ");
-        if params.use_enterprise_taxonomy {
-            // borrowed from EnterprisePropertyDefinition from Django monolith
-            // via EnterprisePropertyDefinition._meta.get_fields()
-            qb.push(" id, project_id, team_id, name, is_numerical, property_type, type, group_type_index, property_type_format, description, updated_at, updated_by_id, verified_at, verified_by_id ");
-        } else {
-            // borrowed from Django monolith via PropertyDefinition._meta.get_fields()
-            qb.push(" id, project_id team_id, name, is_numerical, property_type, type, group_type_index, property_type_format ");
-        }
+        self.gen_prop_defs_select_clause(qb, params.use_enterprise_taxonomy, params.parent_type);
 
         // append event_property_field clause to SELECT clause
-        let is_seen_resolved = if !params.event_names.is_empty() {
-            format!("{}.property", POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS)
+        let is_seen_resolved = if self.is_parent_type_event(params.parent_type) {
+            format!("{}.\"property\"", EVENT_PROPERTY_TABLE_ALIAS)
         } else {
             "NULL".to_string()
         };
@@ -156,23 +150,38 @@ impl Manager {
         ));
 
         self.gen_from_clause(qb, params.use_enterprise_taxonomy);
-        self.gen_conditional_join_event_props(
+        self.conditionally_join_event_properties(
             qb,
             project_id,
-            params.property_type,
+            params.parent_type,
             &params.event_names,
         );
 
+        // DIVERGES FROM DJANGO: we need to manually perform this JOIN when
+        // use_enterprise_taxonomy is set to optimistically attempt to pick
+        // up the posthog_user metadata associated with each enterprise prop
+        // defs row's "updated_by_id" and "verified_by_id"
+        if params.use_enterprise_taxonomy {
+            qb.push(format!(
+                " JOIN {0} AS {1} ON {1}.\"id\" = {2}.\"updated_by_id\" ",
+                USER_TABLE, USER_TABLE_UPDATED_ALIAS, ENTERPRISE_PROP_DEFS_TABLE,
+            ));
+            qb.push(format!(
+                " JOIN {0} AS {1} ON {1}.\"id\" = {2}.\"verified_by_id\" ",
+                USER_TABLE, USER_TABLE_VERIFIED_ALIAS, ENTERPRISE_PROP_DEFS_TABLE,
+            ));
+        }
+
         // begin the WHERE clause
         self.init_where_clause(qb, project_id);
-        self.where_property_type(qb, params.property_type);
+        self.where_property_type(qb, params.parent_type);
         qb.push(" AND COALESCE(group_type_index, -1) = ");
         qb.push_bind(params.group_type_index);
         qb.push(" ");
 
         self.conditionally_filter_excluded_properties(
             qb,
-            params.property_type,
+            params.parent_type,
             &params.excluded_properties,
         );
         self.conditionally_filter_properties(qb, &params.properties);
@@ -202,13 +211,53 @@ impl Manager {
         qb.build()
     }
 
+    fn gen_prop_defs_select_clause(
+        &self,
+        qb: &mut QueryBuilder<Postgres>,
+        use_enterprise_taxonomy: bool,
+        parent_type: PropertyParentType,
+    ) {
+        let mut selections = vec![];
+
+        for col_name in PROPERTY_DEFS_TABLE_COLUMNS {
+            selections.push(format!("{}.\"{}\"", PROPERTY_DEFS_TABLE, col_name));
+        }
+
+        // if we're JOINing in the enterprise property def, select ee-specific cols too
+        if use_enterprise_taxonomy {
+            for col_name in ENTERPRISE_PROP_DEFS_TABLE_COLUMNS {
+                selections.push(format!("{}.\"{}\"", ENTERPRISE_PROP_DEFS_TABLE, col_name));
+            }
+
+            // also rope in posthog_user cols that we'll JOIN in due to availability of
+            // enterprise "updated_by_id" and "verified_by_id" cols. Since each must
+            // JOIN the row on a potentially different user, two User table name
+            // aliases must be applied to the fully-qualified selections
+            for col_name in USER_TABLE_COLUMNS {
+                selections.push(format!("{}.\"{}\"", USER_TABLE_UPDATED_ALIAS, col_name));
+            }
+            for col_name in USER_TABLE_COLUMNS {
+                selections.push(format!("{}.\"{}\"", USER_TABLE_VERIFIED_ALIAS, col_name));
+            }
+        }
+
+        // same if we're performing the JOIN on posthog_eventproperty (i.e. parent type == "event")
+        if self.is_parent_type_event(parent_type) {
+            for col_name in ENTERPRISE_PROP_DEFS_TABLE_COLUMNS {
+                selections.push(format!("{}.\"{}\"", ENTERPRISE_PROP_DEFS_TABLE, col_name));
+            }
+        }
+
+        qb.push(format!(" SELECT {}", selections.join(", ")));
+    }
+
     fn gen_from_clause(&self, qb: &mut QueryBuilder<Postgres>, use_enterprise_taxonomy: bool) {
+        // conditionally apply JOIN on enterprise prop defs if request param flag is set
+        // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L505-L506
         let from_clause = if use_enterprise_taxonomy {
-            // TODO: ensure this all behaves as it does in Django (and that we need it!) later...
-            // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L505-L506
             format!(
-                " FROM {0} FULL OUTER JOIN {1} ON {1}.id={0}.propertydefinition_ptr_id ",
-                ENTERPRISE_PROP_DEFS_TABLE, PROPERTY_DEFS_TABLE
+                " FROM {0} FULL OUTER JOIN {1} ON {0}.\"id\"={1}.\"propertydefinition_ptr_id\" ",
+                PROPERTY_DEFS_TABLE, ENTERPRISE_PROP_DEFS_TABLE,
             )
         } else {
             // this is the default if enterprise taxonomy is not requested
@@ -218,18 +267,20 @@ impl Manager {
         qb.push(" ");
     }
 
-    fn gen_conditional_join_event_props<'args>(
+    fn conditionally_join_event_properties<'args>(
         &self,
         qb: &mut QueryBuilder<'args, Postgres>,
         project_id: i32,
-        property_type: PropertyParentType,
-        event_names: &'args Vec<String>,
+        parent_type: PropertyParentType,
+        event_names: &'args [String],
     ) {
         // conditionally join on event properties table
         // this join is only applied if the query is scoped to type "event"
-        if self.is_prop_type_event(property_type) {
+        if self.is_parent_type_event(parent_type) {
             let filter_by_event_names = !event_names.is_empty();
 
+            // if a list of event_names was supplied, we want this join to narrow
+            // to only those events. otherwise it's a LEFT JOIN for enrichment only
             qb.push(self.event_property_join_type(filter_by_event_names));
             qb.push(format!(
                 " (SELECT DISTINCT property FROM {} WHERE COALESCE(project_id, team_id) = ",
@@ -238,7 +289,7 @@ impl Manager {
             qb.push_bind(project_id);
             qb.push(" ");
 
-            // conditionally apply event_names filter
+            // conditionally apply filter if event_names list was supplied
             if filter_by_event_names {
                 qb.push(" AND event = ANY(");
                 qb.push_bind(event_names);
@@ -248,7 +299,7 @@ impl Manager {
             // close the JOIN clause and add the JOIN condition
             qb.push(format!(
                 ") {0} ON {0}.property = name ",
-                POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS
+                EVENT_PROPERTY_TABLE_ALIAS
             ));
         }
     }
@@ -265,24 +316,24 @@ impl Manager {
     fn where_property_type(
         &self,
         qb: &mut QueryBuilder<Postgres>,
-        property_type: PropertyParentType,
+        parent_type: PropertyParentType,
     ) {
         qb.push(" AND type = ");
-        qb.push_bind(property_type as i32);
+        qb.push_bind(parent_type as i32);
         qb.push(" ");
     }
 
     fn conditionally_filter_excluded_properties<'args>(
         &self,
         qb: &mut QueryBuilder<'args, Postgres>,
-        property_type: PropertyParentType,
+        parent_type: PropertyParentType,
         excluded_properties: &'args [String],
     ) {
         // conditionally filter on excluded_properties
         // NOTE: excluded_properties is also passed to the Django API as JSON,
         // but may not matter when passed to this service. TBD. See below:
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L241
-        if self.is_prop_type_event(property_type) {
+        if self.is_parent_type_event(parent_type) {
             qb.push(format!(" AND NOT {0}.name = ANY(", PROPERTY_DEFS_TABLE));
 
             // here we combine fixed set of "hidden" event props with a
@@ -299,12 +350,12 @@ impl Manager {
         }
     }
 
+    // conditionally filter on property names against prop defs "name" column
     fn conditionally_filter_properties<'args>(
         &self,
         qb: &mut QueryBuilder<'args, Postgres>,
-        properties: &'args Vec<String>,
+        properties: &'args [String],
     ) {
-        // conditionally filter on property names ("name" col)
         if !properties.is_empty() {
             qb.push(" AND name = ANY(");
             qb.push_bind(properties);
@@ -438,7 +489,7 @@ impl Manager {
         // LEFT join, so this is still required in the outer query
         let filter_by_event_names = !event_names.is_empty();
         if filter_by_event_names {
-            qb.push(" AND event = ANY(");
+            qb.push(format!(" AND {}.\"event\" = ANY(", EVENT_PROPERTY_TABLE));
             qb.push_bind(event_names);
             qb.push(") ");
         }
@@ -452,13 +503,22 @@ impl Manager {
         // conditionally apply feature flag property filters
         if is_feature_flag.is_some() {
             if is_feature_flag.unwrap() {
-                qb.push(" AND (name LIKE '$feature/%') ");
+                qb.push(format!(
+                    " AND ({}.\"name\" LIKE '$feature/%') ",
+                    PROPERTY_DEFS_TABLE
+                ));
             } else {
-                qb.push(" AND (name NOT LIKE '$feature/%') ");
+                qb.push(format!(
+                    " AND ({}.\"name\" NOT LIKE '$feature/%') ",
+                    PROPERTY_DEFS_TABLE
+                ));
             }
         }
     }
 
+    // if the parent_type is "event" for this request, we will join on the
+    // posthog_eventproperty table. BUT if the req also includes an event_names
+    // list, we change the JOIN type to narrow to only those event props
     fn event_property_join_type(&self, filter_by_event_names: bool) -> &str {
         if filter_by_event_names {
             " INNER JOIN "
@@ -467,7 +527,9 @@ impl Manager {
         }
     }
 
-    fn is_prop_type_event(&self, property_type: PropertyParentType) -> bool {
-        property_type == PropertyParentType::Event
+    // is the "parent type" of this request (and prop defs query) the default "event" type?
+    // this controls whether the base query should include a JOIN on posthog_eventproperty
+    fn is_parent_type_event(&self, parent_type: PropertyParentType) -> bool {
+        parent_type == PropertyParentType::Event
     }
 }

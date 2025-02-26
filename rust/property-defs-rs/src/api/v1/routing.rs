@@ -109,8 +109,9 @@ async fn project_property_definitions_handler(
 }
 
 fn parse_request(params: HashMap<String, String>) -> Params {
-    // space-separated list of search terms: fragments to fuzzy-match
-    // in "search_fields" (postgres columns) by value
+    // search terms: optional - each term is a fragment that will be
+    // fuzzy-searched in Postgres against the specified search fields
+    // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
     let search_terms: Vec<String> = params
         .get("search")
         .map(|raw| {
@@ -120,8 +121,9 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         })
         .unwrap();
 
-    // NOTE: this can be parameterized in the orig Django query but
-    // I didn't see any evidence of that happening in the code yet
+    // which columns should we fuzzy-search for each of the user-supplied search terms?
+    // defaults to "posthog_propertydefinition.name" column, but user can supply more
+    // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
     let search_fields: HashSet<String> = HashSet::from([
         "name".to_string(), // this is the default value, always include it
         params
@@ -134,22 +136,21 @@ fn parse_request(params: HashMap<String, String>) -> Params {
             .unwrap_or_default(),
     ]);
 
-    // default value is "event" type, so we set that here if the input is bad or missing
-    let property_type =
-        params
-            .get("type")
-            .map_or(PropertyParentType::Event, |s| match s.as_str() {
-                "event" => PropertyParentType::Event,
-                "person" => PropertyParentType::Person,
-                "group" => PropertyParentType::Group,
-                "session" => PropertyParentType::Session,
-                _ => PropertyParentType::Event,
-            });
+    // which category of properties do we filter for? default is "event"
+    let parent_type = params
+        .get("type")
+        .map_or(PropertyParentType::Event, |s| match s.as_str() {
+            "event" => PropertyParentType::Event,
+            "person" => PropertyParentType::Person,
+            "group" => PropertyParentType::Group,
+            "session" => PropertyParentType::Session,
+            _ => PropertyParentType::Event,
+        });
 
-    // default to -1 if this is missing or present but invalid
+    // defaults to "-1" if the caller didn't supply the group_type_index, or the parent_type != "group"
     let group_type_index: i32 = params.get("group_type_index").map_or(-1, |s| {
         s.parse::<i32>().ok().map_or(-1, |gti| {
-            if property_type == PropertyParentType::Group && (1..GROUP_TYPE_LIMIT).contains(&gti) {
+            if parent_type == PropertyParentType::Group && (1..GROUP_TYPE_LIMIT).contains(&gti) {
                 gti
             } else {
                 -1
@@ -157,7 +158,7 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         })
     });
 
-    // another query param the Rust app (so far!) expects as space-separated list value
+    // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
     let properties: Vec<String> = params
         .get("properties")
         .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect())
@@ -173,6 +174,7 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         .get("is_feature_flag")
         .and_then(|s| s.parse::<bool>().ok());
 
+    // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
     let excluded_properties = params
         .get("excluded_properties")
         .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect())
@@ -189,9 +191,7 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         .and_then(|s| s.parse::<bool>().ok())
         .unwrap_or(false);
 
-    // IMPORTANT: this list is passed to the Django API as JSON but probably doesn't
-    // matter how we pass it to the Rust app, so we use space-separated terms. is
-    // this a mistake? TBD, revisit and see below:
+    // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L214
     let event_names = params
         .get("event_names")
@@ -209,7 +209,7 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     Params {
         search_terms,
         search_fields,
-        property_type,
+        parent_type,
         group_type_index,
         properties,
         excluded_properties,
@@ -282,7 +282,7 @@ fn gen_url(uri: Uri, total_count: i64, new_offset: i64) -> Option<String> {
 pub struct Params {
     pub search_terms: Vec<String>,
     pub search_fields: HashSet<String>,
-    pub property_type: PropertyParentType,
+    pub parent_type: PropertyParentType,
     pub group_type_index: i32,
     pub properties: Vec<String>,
     pub excluded_properties: Vec<String>,
@@ -297,20 +297,20 @@ pub struct Params {
 impl Params {
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L81-L96
     pub fn valid(&self) -> Result<(), ApiError> {
-        if self.property_type == PropertyParentType::Group && self.group_type_index <= 0 {
+        if self.parent_type == PropertyParentType::Group && self.group_type_index <= 0 {
             return Err(ApiError::InvalidRequestParam(
                 "property_type 'group' requires 'group_type_index' parameter".to_string(),
             ));
         }
 
-        if self.property_type != PropertyParentType::Group && self.group_type_index != -1 {
+        if self.parent_type != PropertyParentType::Group && self.group_type_index != -1 {
             return Err(ApiError::InvalidRequestParam(
                 "parameter 'group_type_index' is only allowed with property_type 'group'"
                     .to_string(),
             ));
         }
 
-        if !self.event_names.is_empty() && self.property_type != PropertyParentType::Event {
+        if !self.event_names.is_empty() && self.parent_type != PropertyParentType::Event {
             return Err(ApiError::InvalidRequestParam(
                 "parameter 'event_names' is only allowed with property_type 'event'".to_string(),
             ));
