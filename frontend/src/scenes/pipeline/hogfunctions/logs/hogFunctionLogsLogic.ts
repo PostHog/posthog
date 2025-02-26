@@ -6,42 +6,46 @@ import { delay } from 'lib/utils'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { HogFunctionInvocationGlobals, LogEntryLevel } from '~/types'
+import { LogEntryLevel } from '~/types'
 
 import type { hogFunctionLogsLogicType } from './hogFunctionLogsLogicType'
 import { GroupedLogEntry, logsViewerLogic, LogsViewerLogicProps } from './logsViewerLogic'
 
 export type RetryInvocationState = 'pending' | 'success' | 'failure'
 
-const loadEventGlobals = async (eventId: string): Promise<Pick<HogFunctionInvocationGlobals, 'event' | 'person'>> => {
+const loadClickhouseEvent = async (eventId: string): Promise<any> => {
     const query: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: hogql`
-            select uuid, distinct_id, event, timestamp, properties, person.id, person.properties 
+            select uuid, distinct_id, event, timestamp, properties, elements_chain, person.id, person.properties, person.created_at 
             from events
             where uuid = ${eventId}
             limit 1`,
     }
 
     const response = await api.query(query, undefined, undefined, true)
-    const [uuid, distinct_id, event, timestamp, properties, person_id, person_properties] = response.results[0]
+    const [
+        uuid,
+        distinct_id,
+        event,
+        timestamp,
+        properties,
+        elements_chain,
+        person_id,
+        person_properties,
+        person_created_at,
+    ] = response.results[0]
 
     return {
-        event: {
-            uuid,
-            distinct_id,
-            event,
-            properties: JSON.parse(properties),
-            timestamp,
-            url: '',
-            elements_chain: '',
-        },
-        person: {
-            id: person_id,
-            properties: JSON.parse(person_properties),
-            url: '',
-            name: '',
-        },
+        uuid,
+        event,
+        distinct_id,
+        person_id,
+        timestamp,
+        properties,
+        elements_chain,
+        person_created_at,
+        person_properties,
     }
 }
 
@@ -93,12 +97,14 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             await delay(1000)
 
             try {
-                const globals = await loadEventGlobals(eventId)
-
                 const res = await api.hogFunctions.createTestInvocation(props.sourceId, {
-                    globals,
+                    clickhouse_event: await loadClickhouseEvent(eventId),
                     mock_async_functions: false,
-                    configuration: {},
+                    configuration: {
+                        // For retries we don't care about filters
+                        filters: {},
+                    },
+                    invocation_id: groupedLogEntry.instanceId,
                 })
 
                 const existingLogGroup = values.logs.find((x) => x.instanceId === groupedLogEntry.instanceId)
