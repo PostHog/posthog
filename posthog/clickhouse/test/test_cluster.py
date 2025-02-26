@@ -2,7 +2,7 @@ import re
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, sentinel
 
 import pytest
 from clickhouse_driver import Client
@@ -11,9 +11,12 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     HostInfo,
+    Mutation,
+    MutationNotFound,
     MutationRunner,
     T,
     Query,
+    RetryPolicy,
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -52,6 +55,38 @@ def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
         cluster.map_all_hosts(explode).result()
 
     assert replace_memory_addresses_and_ips(e.value.message) == snapshot
+
+
+def test_retry_policy():
+    # happy function, should not be retried
+    happy_function = Mock(side_effect=[sentinel.RESULT])
+    task = RetryPolicy(happy_function, max_attempts=2, delay=0)
+    assert task(Mock()) is sentinel.RESULT
+    assert happy_function.call_count == 1
+
+    # flaky function, should be retried
+    flaky_function = Mock(side_effect=[Exception(), sentinel.RESULT])
+    task = RetryPolicy(flaky_function, max_attempts=2, delay=0)
+    assert task(Mock()) is sentinel.RESULT
+    assert flaky_function.call_count == 2
+
+    # angry function, always fails and should retry up to max
+    angry_function = Mock(side_effect=Exception(sentinel.ERROR))
+    task = RetryPolicy(angry_function, max_attempts=2, delay=0)
+    with pytest.raises(Exception) as e:
+        task(Mock())
+
+    assert e.value.args == (sentinel.ERROR,)
+    assert angry_function.call_count == 2
+
+    # surprising function should not be retried
+    surprising_function = Mock(side_effect=Exception(sentinel.ERROR))
+    task = RetryPolicy(surprising_function, max_attempts=2, delay=0, exceptions=(ValueError,))
+    with pytest.raises(Exception) as e:
+        task(Mock())
+
+    assert e.value.args == (sentinel.ERROR,)
+    assert surprising_function.call_count == 1
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:
@@ -112,6 +147,9 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     assert shard_mutations == duplicate_mutations
 
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
+
+    with pytest.raises(MutationNotFound):
+        assert cluster.any_host(Mutation("x", "y").is_done).result()
 
 
 def test_map_hosts_by_role() -> None:

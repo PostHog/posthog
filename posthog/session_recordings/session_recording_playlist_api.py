@@ -1,11 +1,16 @@
-from typing import Any, Optional
+import json
+from typing import Any, Optional, cast
 
+import posthoganalytics
 import structlog
+from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
 from rest_framework import request, response, serializers, viewsets
+from rest_framework.exceptions import ValidationError
+from posthog.api.documentation import extend_schema
 from posthog.api.utils import action
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -29,14 +34,18 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.schema import RecordingsQuery
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
     list_recordings_response,
     query_as_params_to_dict,
     list_recordings_from_query,
 )
+from posthog.redis import get_client
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
+
+PLAYLIST_COUNT_REDIS_PREFIX = "@posthog/replay/playlist_filters_match_count/"
 
 
 def log_playlist_activity(
@@ -71,6 +80,8 @@ def log_playlist_activity(
 
 
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
+    recordings_counts = serializers.SerializerMethodField()
+
     class Meta:
         model = SessionRecordingPlaylist
         fields = [
@@ -86,6 +97,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "filters",
             "last_modified_at",
             "last_modified_by",
+            "recordings_counts",
         ]
         read_only_fields = [
             "id",
@@ -95,10 +107,33 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "recordings_counts",
         ]
 
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+
+    def get_recordings_counts(self, playlist: SessionRecordingPlaylist) -> dict[str, int | bool | None]:
+        recordings_counts: dict[str, int | bool | None] = {
+            "query_count": None,
+            "pinned_count": None,
+            "has_more": None,
+        }
+
+        try:
+            redis_client = get_client()
+            counts = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+            if counts:
+                count_data = json.loads(counts)
+                id_list = count_data.get("session_ids", None)
+                recordings_counts["query_count"] = len(id_list) if id_list else 0
+                recordings_counts["has_more"] = count_data.get("has_more", False)
+
+            recordings_counts["pinned_count"] = playlist.playlist_items.count()
+        except Exception as e:
+            posthoganalytics.capture_exception(e)
+
+        return recordings_counts
 
     def create(self, validated_data: dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
@@ -215,11 +250,15 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             .values_list("recording_id", flat=True)
         )
 
+        # this is slightly misleading... we don't pass the filters here,
+        # so this only loads the pinned recordings metadata
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
         query.session_ids = playlist_items
+
         return list_recordings_response(
-            list_recordings_from_query(query, request, context=self.get_serializer_context())
+            list_recordings_from_query(query, cast(User, request.user), team=self.team),
+            context=self.get_serializer_context(),
         )
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
@@ -259,3 +298,24 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             return response.Response({"success": True})
 
         raise NotImplementedError()
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=True)
+    def playlist_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        playlist = self.get_object()
+        user = request.user
+        team = self.team
+
+        if not playlist.filters:
+            raise ValidationError("Playlist filters are required to mark a playlist as viewed.")
+        if user.is_anonymous:
+            raise ValidationError("Only authenticated users can mark a playlist as viewed.")
+
+        # only create if it doesn't exist
+        try:
+            SessionRecordingPlaylistViewed.objects.create(user=user, playlist=playlist, team=team)
+        except IntegrityError:
+            # that's okay... if the viewed at clashes then we're ok skipping creation
+            pass
+
+        return response.Response({"success": True})

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import logging
 import re
 import time
@@ -14,7 +15,7 @@ from concurrent.futures import (
 )
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Literal, NamedTuple, TypeVar
+from typing import Any, Generic, Literal, NamedTuple, TypeVar
 from collections.abc import Iterable
 
 from clickhouse_driver import Client
@@ -24,6 +25,9 @@ from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
+
+logger = logging.getLogger(__name__)
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
@@ -79,11 +83,11 @@ class FuturesMap(dict[K, Future[V]]):
 
 
 class ConnectionInfo(NamedTuple):
-    address: str
+    host: str
     port: int | None
 
     def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
-        return _make_ch_pool(host=self.address, port=self.port, settings=client_settings)
+        return _make_ch_pool(host=self.host, port=self.port, settings=client_settings)
 
 
 class HostInfo(NamedTuple):
@@ -114,7 +118,7 @@ class ClickhouseCluster:
 
         cluster_hosts = bootstrap_client.execute(
             """
-            SELECT host_address, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
             FROM clusterAllReplicas(%(name)s, system.clusters)
             WHERE name = %(name)s and is_local
             ORDER BY shard_num, replica_num
@@ -123,10 +127,10 @@ class ClickhouseCluster:
         )
 
         for row in cluster_hosts:
-            (host_address, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
+            (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
             host_info = HostInfo(
                 ConnectionInfo(
-                    host_address,
+                    host_name,
                     # We only use the port from system.clusters if we're running in E2E tests or debug mode,
                     # otherwise, we will use the default port.
                     port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
@@ -319,12 +323,40 @@ class Query:
 
 
 @dataclass
+class RetryPolicy(Generic[T]):
+    callable: Callable[[Client], T]
+    max_attempts: int
+    delay: float
+    exceptions: tuple[type[Exception], ...] = (Exception,)
+
+    def __call__(self, client: Client) -> T:
+        counter = itertools.count(1)
+        while (attempt := next(counter)) <= self.max_attempts:
+            try:
+                return self.callable(client)
+            except Exception as e:
+                if isinstance(e, self.exceptions) and attempt < self.max_attempts:
+                    logger.warning(
+                        "Failed to invoke %r (attempt #%s), retrying in %s...", self.callable, attempt, self.delay
+                    )
+                    time.sleep(self.delay)
+                else:
+                    raise
+
+        raise RuntimeError("unexpected fallthrough")
+
+
+class MutationNotFound(Exception):
+    pass
+
+
+@dataclass
 class Mutation:
     table: str
     mutation_id: str
 
     def is_done(self, client: Client) -> bool:
-        [[is_done]] = client.execute(
+        rows = client.execute(
             f"""
             SELECT is_done
             FROM system.mutations
@@ -333,7 +365,14 @@ class Mutation:
             """,
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
         )
-        return is_done
+
+        if len(rows) == 1:
+            [[is_done]] = rows
+            return is_done
+        elif len(rows) == 0:
+            raise MutationNotFound(f"could not find mutation matching {self!r}")
+        else:
+            raise ValueError(f"expected zero or one mutations, found {len(rows)}")
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
@@ -448,5 +487,10 @@ class MutationRunner:
         assert len(shard_mutations) == len(shard_host_mutations)
 
         cluster.map_all_hosts_in_shards(
-            {shard_num: mutation.wait for shard_num, mutation in shard_mutations.items()}
+            {
+                # during periods of elevated replication lag, it may take some time for mutations to become available on
+                # the shards, so give them a little bit of breathing room with retries
+                shard_num: RetryPolicy(mutation.wait, max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
+                for shard_num, mutation in shard_mutations.items()
+            }
         ).result()

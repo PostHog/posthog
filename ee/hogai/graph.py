@@ -32,6 +32,7 @@ from ee.hogai.trends.nodes import (
     TrendsPlannerNode,
     TrendsPlannerToolsNode,
 )
+from ee.hogai.inkeep_docs.nodes import InkeepDocsNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 
@@ -71,6 +72,7 @@ class AssistantGraph:
             "trends": AssistantNodeName.TRENDS_PLANNER,
             "funnel": AssistantNodeName.FUNNEL_PLANNER,
             "retention": AssistantNodeName.RETENTION_PLANNER,
+            "docs": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
         }
@@ -93,13 +95,7 @@ class AssistantGraph:
 
         create_trends_plan_node = TrendsPlannerNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_PLANNER, create_trends_plan_node)
-        builder.add_conditional_edges(
-            AssistantNodeName.TRENDS_PLANNER,
-            create_trends_plan_node.router,
-            path_map={
-                "tools": AssistantNodeName.TRENDS_PLANNER_TOOLS,
-            },
-        )
+        builder.add_edge(AssistantNodeName.TRENDS_PLANNER, AssistantNodeName.TRENDS_PLANNER_TOOLS)
 
         create_trends_plan_tools_node = TrendsPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_PLANNER_TOOLS, create_trends_plan_tools_node)
@@ -145,13 +141,7 @@ class AssistantGraph:
 
         funnel_planner = FunnelPlannerNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_PLANNER, funnel_planner)
-        builder.add_conditional_edges(
-            AssistantNodeName.FUNNEL_PLANNER,
-            funnel_planner.router,
-            path_map={
-                "tools": AssistantNodeName.FUNNEL_PLANNER_TOOLS,
-            },
-        )
+        builder.add_edge(AssistantNodeName.FUNNEL_PLANNER, AssistantNodeName.FUNNEL_PLANNER_TOOLS)
 
         funnel_planner_tools = FunnelPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_PLANNER_TOOLS, funnel_planner_tools)
@@ -197,13 +187,7 @@ class AssistantGraph:
 
         retention_planner = RetentionPlannerNode(self._team)
         builder.add_node(AssistantNodeName.RETENTION_PLANNER, retention_planner)
-        builder.add_conditional_edges(
-            AssistantNodeName.RETENTION_PLANNER,
-            retention_planner.router,
-            path_map={
-                "tools": AssistantNodeName.RETENTION_PLANNER_TOOLS,
-            },
-        )
+        builder.add_edge(AssistantNodeName.RETENTION_PLANNER, AssistantNodeName.RETENTION_PLANNER_TOOLS)
 
         retention_planner_tools = RetentionPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.RETENTION_PLANNER_TOOLS, retention_planner_tools)
@@ -303,12 +287,29 @@ class AssistantGraph:
         builder.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
 
+    def add_inkeep_docs(self, path_map: Optional[dict[Hashable, AssistantNodeName]] = None):
+        """Add the Inkeep docs search node to the graph."""
+        builder = self._graph
+        path_map = path_map or {
+            "end": AssistantNodeName.END,
+            "root": AssistantNodeName.ROOT,
+        }
+        inkeep_docs_node = InkeepDocsNode(self._team)
+        builder.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node)
+        builder.add_conditional_edges(
+            AssistantNodeName.INKEEP_DOCS,
+            inkeep_docs_node.router,
+            path_map=cast(dict[Hashable, str], path_map),
+        )
+        return self
+
     def compile_full_graph(self):
         return (
             self.add_memory_initializer()
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()
+            .add_inkeep_docs()
             .add_trends_planner()
             .add_trends_generator()
             .add_funnel_planner()

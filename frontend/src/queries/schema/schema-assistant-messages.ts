@@ -52,6 +52,8 @@ export interface ReasoningMessage extends BaseAssistantMessage {
 
 export interface VisualizationMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Visualization
+    /** @default '' */
+    query: string
     plan?: string
     answer?: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery
     initiator?: string

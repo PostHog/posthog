@@ -8,6 +8,7 @@ use crate::{
     error::UnhandledError,
     langs::{js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame},
     metric_consts::PER_FRAME_TIME,
+    sanitize_string,
     symbol_store::Catalog,
 };
 
@@ -168,7 +169,7 @@ impl ContextLine {
 
         Self {
             number,
-            line: constrained,
+            line: sanitize_string(constrained),
         }
     }
 }
