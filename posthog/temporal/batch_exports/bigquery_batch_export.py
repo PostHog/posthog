@@ -781,6 +781,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                             multiple_files=True,
                         )
 
+                    # ensure we always write data to final table, even if we fail halfway through, as if we resume from
+                    # a heartbeat, we can continue without losing data
                     finally:
                         if can_perform_merge:
                             await bq_client.amerge_tables(
