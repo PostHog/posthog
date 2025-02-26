@@ -272,6 +272,20 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "$python_runtime": {
+            "label": "Python Runtime",
+            "description": "The Python runtime that was used to capture the event.",
+            "examples": ["CPython"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$python_version": {
+            "label": "Python Version",
+            "description": "The Python version that was used to capture the event.",
+            "examples": ["3.11.5"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
         "$last_posthog_reset": {
             "label": "Timestamp of last call to `Reset` in the web sdk",
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
