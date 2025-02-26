@@ -14,7 +14,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::{Executor, Row};
+use sqlx::{Executor, FromRow, Row};
 use tracing::debug;
 use url::form_urlencoded;
 
@@ -77,20 +77,8 @@ async fn project_property_definitions_handler(
         Ok(result) => {
             for row in result {
                 // TODO: iterate on this! populate all fields, err check, etc.
-                let pd = PropDef {
-                    id: row.try_get("id").unwrap(),
-                    name: row.try_get("name").unwrap(),
-                    is_numeric: row.try_get("is_numerical").unwrap(),
-                    property_type: row.try_get("type").unwrap(),
-                    is_seen_on_filtered_events: None,
-                    verified: None,
-                    updated_by: None,
-                    updated_at: None,
-                    verified_at: None,
-                    verified_by: None,
-                    description: None,
-                    tags: vec![],
-                };
+                let pd = PropDef::from_row(&row)
+                    .map_err(|e| ApiError::QueryError(format!("deserializing row: {}", e)))?;
                 prop_defs.push(pd);
             }
         }
@@ -339,29 +327,36 @@ pub struct PropDefResponse {
     results: Vec<PropDef>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, FromRow)]
 pub struct PropDef {
     // required fields
-    id: String,
+    id: uuid::Uuid,
     name: String,
-    property_type: i32,
-    is_numeric: bool,
-    is_seen_on_filtered_events: Option<String>, // VALIDATE THIS!
+    property_type: String,
+    is_numerical: bool,
+    is_seen_on_filtered_events: bool,
 
     // enterprise prop defs only fields below
+    #[serde(default)]
     updated_at: Option<DateTime<Utc>>,
-    updated_by: Option<Person>,
+    //#[serde(default)]
+    //updated_by: User,
+    #[serde(default)]
     verified: Option<bool>,
+    #[serde(default)]
     verified_at: Option<DateTime<Utc>>,
-    verified_by: Option<Person>,
+    //#[serde(default)]
+    //verified_by: User,
+    #[serde(default)]
     description: Option<String>,
+    #[serde(default)]
     tags: Vec<String>,
 }
 
-#[derive(Serialize)]
-pub struct Person {
+#[derive(Serialize, FromRow)]
+pub struct User {
     id: u32,
-    uuid: String,
+    uuid: uuid::Uuid,
     distinct_id: String,
     first_name: String,
     last_name: String,
@@ -370,7 +365,7 @@ pub struct Person {
     hedgehog_config: HedgehogConfig,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, FromRow)]
 pub struct HedgehogConfig {
     use_as_profile: bool,
     color: String,
