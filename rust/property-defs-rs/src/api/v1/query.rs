@@ -135,7 +135,7 @@ impl Manager {
         if params.use_enterprise_taxonomy {
             // borrowed from EnterprisePropertyDefinition from Django monolith
             // via EnterprisePropertyDefinition._meta.get_fields()
-            qb.push(" id, project_id, team_id, name, is_numerical, property_type, type, group_type_index, property_type_format, description, updated_at, updated_by, verified_at, verified_by ");
+            qb.push(" id, project_id, team_id, name, is_numerical, property_type, type, group_type_index, property_type_format, description, updated_at, updated_by_id, verified_at, verified_by_id ");
         } else {
             // borrowed from Django monolith via PropertyDefinition._meta.get_fields()
             qb.push(" id, project_id team_id, name, is_numerical, property_type, type, group_type_index, property_type_format ");

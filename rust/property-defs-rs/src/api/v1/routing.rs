@@ -339,20 +339,21 @@ pub struct PropDef {
     // enterprise prop defs only fields below
     #[serde(default)]
     updated_at: Option<DateTime<Utc>>,
-    //#[serde(default)]
-    //updated_by: User,
+    #[serde(default)]
+    updated_by_id: Option<i64>, // TODO: when available, JOIN in the User record instead!
     #[serde(default)]
     verified: Option<bool>,
     #[serde(default)]
     verified_at: Option<DateTime<Utc>>,
-    //#[serde(default)]
-    //verified_by: User,
+    #[serde(default)]
+    verified_by_id: Option<i64>, // TODO: when available, JOIN in the User record instead!
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
 }
 
+// TODO: hydrate User(s) JOINed into prop defs query into this
 #[derive(Serialize, FromRow)]
 pub struct User {
     id: u32,
@@ -365,6 +366,7 @@ pub struct User {
     hedgehog_config: HedgehogConfig,
 }
 
+// TODO: optionally include when prop defs query JOINs in User records
 #[derive(Serialize, FromRow)]
 pub struct HedgehogConfig {
     use_as_profile: bool,
