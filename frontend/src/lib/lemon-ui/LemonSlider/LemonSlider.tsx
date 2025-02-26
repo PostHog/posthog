@@ -132,6 +132,7 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                     left: `calc(${proportion * 100}% - ${proportion}rem)`,
                 }}
                 role="slider"
+                type="button"
                 aria-valuemin={min}
                 aria-valuemax={max}
                 aria-valuenow={constrainedValue}

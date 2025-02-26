@@ -3,7 +3,7 @@ import { Consumer, Kafka, KafkaMessage } from 'kafkajs'
 import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
-import { Hub, ISOTimestamp, Person, PreIngestionEvent } from '../../../src/types'
+import { Hub, ISOTimestamp, Person, PreIngestionEvent, ProjectId } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
@@ -49,7 +49,7 @@ describe('EventsProcessor#createEvent()', () => {
         timestamp,
         distinctId: 'my_id',
         teamId: 2,
-        projectId: 1,
+        projectId: 1 as ProjectId,
         event: '$pageview',
         properties: { event: 'property', $set: { foo: 'onEvent' } },
     }
