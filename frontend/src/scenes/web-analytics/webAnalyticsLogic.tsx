@@ -2054,8 +2054,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     actionToUrl(({ values }) => {
         const stateToUrl = (): string => {
+            const urlParams = new URLSearchParams()
+
             const {
-                webAnalyticsFilters,
+                rawWebAnalyticsFilters,
                 conversionGoal,
                 dateFilter: { dateTo, dateFrom, interval },
                 _sourceTab,
@@ -2072,9 +2074,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTypeFilter,
             } = values
 
-            const urlParams = new URLSearchParams()
-            if (webAnalyticsFilters.length > 0) {
-                urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
+            // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
+            // spreading from their individual dropdowns to the global filters list
+            if (rawWebAnalyticsFilters.length > 0) {
+                urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
             }
             if (conversionGoal) {
                 if ('actionId' in conversionGoal) {
