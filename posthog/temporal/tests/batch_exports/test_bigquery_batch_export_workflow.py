@@ -45,9 +45,9 @@ from posthog.temporal.batch_exports.spmc import (
     RecordBatchTaskError,
     SessionsRecordBatchModel,
 )
-from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import (
+    FlakyClickHouseClient,
     get_record_batch_from_queue,
     mocked_start_batch_export_run,
 )
@@ -1240,23 +1240,7 @@ async def test_insert_into_bigquery_activity_completes_range_when_there_is_a_fai
 
     batch_export_model = BatchExportModel(name="events", schema=None)
     now = dt.datetime.now(tz=dt.UTC)
-
-    fail_after_batches = 2
-    clickhouse_max_block_size = 100
-
-    class FakeClickHouseClient(ClickHouseClient):
-        """Fake ClickHouseClient that simulates a failure after reading `fail_after_batches` batches.
-
-        Raises a `InvalidMessageFormat` exception after reading `fail_after_batches` batches. This is an error we've seen in production.
-        """
-
-        async def astream_query_as_arrow(self, *args, **kwargs):
-            count = 0
-            async for batch in super().astream_query_as_arrow(*args, **kwargs):
-                count += 1
-                if count > fail_after_batches:
-                    raise InvalidMessageFormat("Simulated failure")
-                yield batch
+    fail_after_records = 200
 
     heartbeat_details: list[BigQueryHeartbeatDetails] = []
 
@@ -1279,22 +1263,18 @@ async def test_insert_into_bigquery_activity_completes_range_when_there_is_a_fai
         **bigquery_config,
     )
 
-    with (
-        override_settings(
-            BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=100,
-            CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=clickhouse_max_block_size,
-        ),
-        unittest.mock.patch("posthog.temporal.common.clickhouse.ClickHouseClient", FakeClickHouseClient),
+    with unittest.mock.patch(
+        "posthog.temporal.common.clickhouse.ClickHouseClient",
+        lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
     ):
         # we expect this to raise an exception
-
         with pytest.raises(RecordBatchTaskError):
             await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
     assert len(heartbeat_details) > 0
     detail = heartbeat_details[-1]
     assert len(detail.done_ranges) > 0
-    assert detail.records_completed == fail_after_batches * clickhouse_max_block_size
+    assert detail.records_completed == fail_after_records
 
     # now we resume from the heartbeat
     previous_info = dataclasses.asdict(activity_environment.info)
