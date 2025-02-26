@@ -140,6 +140,7 @@ class UsageReportCounters:
     ruby_events_count_in_period: int
     python_events_count_in_period: int
     php_events_count_in_period: int
+    dotnet_events_count_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -439,6 +440,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 {lib_expression} = 'posthog-ruby', 'ruby_events',
                 {lib_expression} = 'posthog-python', 'python_events',
                 {lib_expression} = 'posthog-php', 'php_events',
+                {lib_expression} = 'posthog-dotnet', 'dotnet_events',
                 'other'
             ) AS metric,
             count(1) as count
@@ -469,6 +471,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         "ruby_events": [],
         "python_events": [],
         "php_events": [],
+        "dotnet_events": [],
     }
 
     for team_id, metric, count in results:
@@ -841,6 +844,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_ruby_events_count_in_period": all_metrics["ruby_events"],
         "teams_with_python_events_count_in_period": all_metrics["python_events"],
         "teams_with_php_events_count_in_period": all_metrics["php_events"],
+        "teams_with_dotnet_events_count_in_period": all_metrics["dotnet_events"],
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
@@ -1079,6 +1083,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ruby_events_count_in_period=all_data["teams_with_ruby_events_count_in_period"].get(team.id, 0),
         python_events_count_in_period=all_data["teams_with_python_events_count_in_period"].get(team.id, 0),
         php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
+        dotnet_events_count_in_period=all_data["teams_with_dotnet_events_count_in_period"].get(team.id, 0),
         exceptions_captured_in_period=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
     )
