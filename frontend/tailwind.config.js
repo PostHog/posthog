@@ -153,6 +153,7 @@ const deprecatedColors = {
     'lifecycle-dormant-hover': 'var(--lifecycle-dormant-hover)',
 
     // Z-indexes
+    'z-top': 'var(--z-top)',
     'z-bottom-notice': 'var(--z-bottom-notice)',
     'z-command-palette': 'var(--z-command-palette)',
     'z-force-modal-above-popovers': 'var(--z-force-modal-above-popovers)',

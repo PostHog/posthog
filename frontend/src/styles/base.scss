@@ -558,6 +558,7 @@
     --lifecycle-dormant-hover: rgb(120.15929 30.17699 3.84071);
 
     // Z-indexes
+    --z-top: 9999; // This is used for accessibility elements like the skip-link, should be above all other elements
     --z-bottom-notice: 1450;
     --z-command-palette: 1400;
     --z-force-modal-above-popovers: 1350;
