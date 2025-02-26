@@ -53,6 +53,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             (s) => [s.results, s.retentionFilter, s.hideSizeColumn],
             (results, retentionFilter, hideSizeColumn) => {
                 const { period } = retentionFilter || {}
+                const referencePeriod = retentionFilter?.retentionReference
 
                 return results.map((currentResult: RetentionTablePayload) => {
                     const currentDate = dayjs.utc(currentResult.date)
@@ -80,7 +81,12 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
 
                     const otherColumns = currentResult.values.map((value, index) => {
                         const totalCount = currentResult.values[0]['count']
-                        const percentage = totalCount > 0 ? (value['count'] / totalCount) * 100 : 0
+                        const previousCount = index > 0 ? currentResult.values[index - 1]['count'] : totalCount
+                        // when reference period is total, we use the starting count,
+                        // otherwise we use the previous count, get % change based on previous period
+                        const referenceCount = referencePeriod === 'total' ? totalCount : previousCount
+
+                        const percentage = referenceCount > 0 ? (value['count'] / referenceCount) * 100 : 0
                         const periodUnit = (period ?? RetentionPeriod.Month).toLowerCase() as dayjs.UnitTypeLong
                         const cellDate = currentDate.add(index, periodUnit)
                         const now = dayjs()
