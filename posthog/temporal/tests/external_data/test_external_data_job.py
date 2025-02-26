@@ -94,7 +94,7 @@ def minio_client(bucket_name):
 
     yield minio_client
 
-    delete_all_from_s3(minio_client, bucket_name, key_prefix="/")
+    delete_all_from_s3(minio_client, bucket_name, key_prefix="")
 
     minio_client.delete_bucket(Bucket=bucket_name)
 

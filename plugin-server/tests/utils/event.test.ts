@@ -1,7 +1,7 @@
 import { KafkaMessage } from 'kafkajs'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp, RawKafkaEvent } from '../../src/types'
+import { ClickHouseTimestamp, ProjectId, RawKafkaEvent } from '../../src/types'
 import { formPipelineEvent, normalizeEvent, parseRawClickHouseEvent } from '../../src/utils/event'
 
 describe('normalizeEvent()', () => {
@@ -48,6 +48,7 @@ describe('normalizeEvent()', () => {
 
 describe('parseRawClickHouseEvent()', () => {
     it('parses a random event', () => {
+        // @ts-expect-error TODO: Add missing `person_mode` field
         const kafkaEvent: RawKafkaEvent = {
             event: '$pageview',
             properties: JSON.stringify({
@@ -57,7 +58,7 @@ describe('parseRawClickHouseEvent()', () => {
             elements_chain: '',
             timestamp: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
             team_id: 2,
-            project_id: 1,
+            project_id: 1 as ProjectId,
             distinct_id: 'my_id',
             created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
             person_created_at: '2020-02-23 02:10:00.00' as ClickHouseTimestamp,
@@ -119,6 +120,7 @@ describe('formPipelineEvent()', () => {
             ),
         } as any as KafkaMessage
 
+        // @ts-expect-error TODO: Fix type mismatches
         expect(formPipelineEvent(message)).toEqual({
             uuid: '01823e89-f75d-0000-0d4d-3d43e54f6de5',
             distinct_id: 'some_distinct_id',
@@ -170,6 +172,7 @@ describe('formPipelineEvent()', () => {
             ),
         } as any as KafkaMessage
 
+        // @ts-expect-error TODO: Fix type mismatches
         expect(formPipelineEvent(message)).toEqual({
             uuid: '01823e89-f75d-0000-0d4d-3d43e54f6de5',
             distinct_id: 'some_distinct_id',
