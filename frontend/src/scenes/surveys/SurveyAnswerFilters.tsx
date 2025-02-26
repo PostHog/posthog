@@ -114,10 +114,6 @@ function _SurveyAnswerFilters(): JSX.Element | null {
                             const currentFilter = getFilterForQuestion(question.originalQuestionIndex)
                             const operators = OPERATOR_OPTIONS[question.type] || []
 
-                            if (operators.length === 0) {
-                                return null // Skip questions that don't support filtering (like Link type)
-                            }
-
                             return (
                                 <React.Fragment key={question.originalQuestionIndex}>
                                     {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
