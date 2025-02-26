@@ -22,14 +22,15 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
     }
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
-        retry_policy = RetryPolicy(
-            max_attempts=3,
-            delay=30,
-            exceptions=lambda e: isinstance(e, Error)
-            and e.code
-            in (
-                ErrorCodes.NETWORK_ERROR,
-                ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
+        return get_cluster(
+            context.log,
+            client_settings=self.client_settings,
+            retry_policy=RetryPolicy(
+                max_attempts=3,
+                delay=30,
+                exceptions=lambda e: (
+                    isinstance(e, Error)
+                    and e.code in (ErrorCodes.NETWORK_ERROR, ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES)
+                ),
             ),
         )
-        return get_cluster(context.log, client_settings=self.client_settings, retry_policy=retry_policy)
