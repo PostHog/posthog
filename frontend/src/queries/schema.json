@@ -13221,7 +13221,7 @@
             "required": ["assignmentBy", "color"],
             "type": "object"
         },
-        "RetentionDisplayType": {
+        "RetentionDashboardDisplayType": {
             "enum": ["table_only", "graph_only", "all"],
             "type": "string"
         },
@@ -13269,8 +13269,8 @@
                 "cumulative": {
                     "type": "boolean"
                 },
-                "dashboard_display": {
-                    "$ref": "#/definitions/RetentionDisplayType"
+                "dashboardDisplay": {
+                    "$ref": "#/definitions/RetentionDashboardDisplayType"
                 },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType",

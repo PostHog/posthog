@@ -1358,7 +1358,7 @@ class ResultCustomizationByValue(BaseModel):
     color: DataColorToken
 
 
-class RetentionDisplayType(StrEnum):
+class RetentionDashboardDisplayType(StrEnum):
     TABLE_ONLY = "table_only"
     GRAPH_ONLY = "graph_only"
     ALL = "all"
@@ -5878,7 +5878,7 @@ class RetentionFilter(BaseModel):
         extra="forbid",
     )
     cumulative: Optional[bool] = None
-    dashboard_display: Optional[RetentionDisplayType] = None
+    dashboardDisplay: Optional[RetentionDashboardDisplayType] = None
     display: Optional[ChartDisplayType] = Field(default=None, description="controls the display of the retention graph")
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = Field(

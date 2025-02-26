@@ -1103,7 +1103,7 @@ export type RetentionFilter = {
     showMean?: RetentionFilterLegacy['show_mean']
     /** controls the display of the retention graph */
     display?: ChartDisplayType
-    dashboard_display?: RetentionDashboardDisplayType
+    dashboardDisplay?: RetentionDashboardDisplayType
 }
 
 export interface RetentionValue {

@@ -10,7 +10,7 @@ export function RetentionDashboardDisplayPicker(): JSX.Element | null {
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const displayType = retentionFilter?.dashboard_display || RetentionDashboardDisplayType.TableOnly
+    const displayType = retentionFilter?.dashboardDisplay || RetentionDashboardDisplayType.TableOnly
 
     if (!canEditInsight) {
         return null
@@ -20,7 +20,7 @@ export function RetentionDashboardDisplayPicker(): JSX.Element | null {
         <LemonSelect
             value={displayType}
             onChange={(value) => {
-                updateInsightFilter({ dashboard_display: value })
+                updateInsightFilter({ dashboardDisplay: value })
             }}
             options={[
                 {
