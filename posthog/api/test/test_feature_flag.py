@@ -782,6 +782,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     ]
                                 },
                             },
+                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -1097,6 +1098,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                         }
                                     ]
                                 },
+                            },
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "version",
+                                "before": 0,
+                                "after": 1,
                             },
                         ],
                         "trigger": None,
@@ -1477,7 +1485,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "field": "filters",
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
-                            }
+                            },
+                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -1582,7 +1591,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "field": "filters",
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
-                            }
+                            },
+                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
