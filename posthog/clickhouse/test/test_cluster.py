@@ -2,7 +2,7 @@ import re
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, sentinel
 
 import pytest
 from clickhouse_driver import Client
@@ -16,6 +16,7 @@ from posthog.clickhouse.cluster import (
     MutationRunner,
     T,
     Query,
+    RetryPolicy,
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -54,6 +55,34 @@ def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
         cluster.map_all_hosts(explode).result()
 
     assert replace_memory_addresses_and_ips(e.value.message) == snapshot
+
+
+def test_retry_policy():
+    # happy function, should not be retried
+    task = RetryPolicy(Mock(side_effect=[sentinel.RESULT]), max_attempts=2, delay=0)
+    assert task(Mock()) is sentinel.RESULT
+    assert task.callable.call_count == 1
+
+    # flaky function, should be retried
+    task = RetryPolicy(Mock(side_effect=[Exception(), sentinel.RESULT]), max_attempts=2, delay=0)
+    assert task(Mock()) is sentinel.RESULT
+    assert task.callable.call_count == 2
+
+    # always fails, up to max allowed
+    task = RetryPolicy(Mock(side_effect=Exception(sentinel.ERROR)), max_attempts=2, delay=0)
+    with pytest.raises(Exception) as e:
+        task(Mock())
+
+    assert e.value.args == (sentinel.ERROR,)
+    assert task.callable.call_count == 2
+
+    # unexpected error, should not be retried
+    task = RetryPolicy(Mock(side_effect=Exception(sentinel.ERROR)), max_attempts=2, delay=0, exceptions=(ValueError,))
+    with pytest.raises(Exception) as e:
+        task(Mock())
+
+    assert e.value.args == (sentinel.ERROR,)
+    assert task.callable.call_count == 1
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:
