@@ -14,7 +14,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::{Executor, FromRow, Row};
+use sqlx::{Execute, Executor, FromRow, Postgres, QueryBuilder, Row};
 use tracing::debug;
 use url::form_urlencoded;
 
@@ -49,25 +49,23 @@ async fn project_property_definitions_handler(
     let qmgr: &Manager = &app_ctx.query_manager;
 
     // construct the count query
-    let mut count_query_bldr = qmgr.count_query(project_id, &params);
-    let count_dbg: String = count_query_bldr.sql().into();
-    let count_query = count_query_bldr.build();
+    let mut count_bldr = QueryBuilder::<Postgres>::new("");
+    let count_query = qmgr.count_query(&mut count_bldr, project_id, &params);
+    let count_dbg: String = count_query.sql().into();
+    debug!("Count query: {:?}", &count_dbg);
 
     // construct the property definitions query
-    let mut props_query_bldr = qmgr.property_definitions_query(project_id, &params);
-    let props_dbg: String = props_query_bldr.sql().into();
-    let props_query = props_query_bldr.build();
-
-    // TODO: temporary, for quick debug in dev as we hone the queries
-    debug!("Count query: {:?}", &count_dbg);
+    let mut props_bldr = QueryBuilder::<Postgres>::new("");
+    let props_query = qmgr.property_definitions_query(&mut props_bldr, project_id, &params);
+    let props_dbg: String = props_query.sql().into();
     debug!("Prop defs query: {:?}", &props_dbg);
 
     let total_count: i64 = match qmgr.pool.fetch_one(count_query).await {
         Ok(row) => row.get(0),
         Err(e) => {
             return Err(ApiError::QueryError(format!(
-                "in count query: {}",
-                e.to_string()
+                "executing count query: {}",
+                e
             )))
         }
     };
@@ -76,16 +74,19 @@ async fn project_property_definitions_handler(
     match qmgr.pool.fetch_all(props_query).await {
         Ok(result) => {
             for row in result {
-                // TODO: iterate on this! populate all fields, err check, etc.
-                let pd = PropDef::from_row(&row)
-                    .map_err(|e| ApiError::QueryError(format!("deserializing row: {}", e)))?;
+                debug!("PgRow: {:?}", row);
+
+                // TODO: iterate on this! populate ee & User fields when available etc.
+                let pd = PropDef::from_row(&row).map_err(|e| {
+                    ApiError::QueryError(format!("deserializing prop defs row: {}", e))
+                })?;
                 prop_defs.push(pd);
             }
         }
         Err(e) => {
             return Err(ApiError::QueryError(format!(
-                "in prop defs query: {}",
-                e.to_string()
+                "executing prop defs query: {}",
+                e
             )))
         }
     }

@@ -12,7 +12,9 @@ use crate::{
     types::PropertyParentType,
 };
 
-use sqlx::{postgres::PgPoolOptions, PgPool, Postgres, QueryBuilder};
+use sqlx::{
+    postgres::PgArguments, postgres::PgPoolOptions, query::Query, PgPool, Postgres, QueryBuilder,
+};
 
 use std::collections::{HashMap, HashSet};
 
@@ -33,11 +35,12 @@ impl Manager {
         })
     }
 
-    pub fn count_query<'a>(
+    pub fn count_query<'args, 'builder: 'args>(
         &self,
+        qb: &'builder mut QueryBuilder<'args, Postgres>,
         project_id: i32,
-        params: &'a Params,
-    ) -> QueryBuilder<'a, Postgres> {
+        params: &'args Params,
+    ) -> Query<'args, Postgres, PgArguments> {
         /* The original Django query formulation we're duplicating
                  * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L279-L289
 
@@ -61,10 +64,10 @@ impl Manager {
                 */
 
         // build & render the query
-        let mut qb = QueryBuilder::<Postgres>::new("SELECT count(*) AS full_count ");
+        qb.push("SELECT count(*) AS full_count ");
 
-        qb = self.gen_from_clause(qb, params.use_enterprise_taxonomy);
-        qb = self.gen_conditional_join_event_props(
+        self.gen_from_clause(qb, params.use_enterprise_taxonomy);
+        self.gen_conditional_join_event_props(
             qb,
             project_id,
             params.property_type,
@@ -72,38 +75,38 @@ impl Manager {
         );
 
         // begin the WHERE clause
-        qb = self.init_where_clause(qb, project_id);
-        qb = self.where_property_type(qb, params.property_type);
+        self.init_where_clause(qb, project_id);
+        self.where_property_type(qb, params.property_type);
         qb.push("AND COALESCE(group_type_index, -1) = ");
         qb.push_bind(params.group_type_index);
         qb.push(" ");
 
-        qb = self.conditionally_filter_excluded_properties(
+        self.conditionally_filter_excluded_properties(
             qb,
             params.property_type,
             &params.excluded_properties,
         );
-        qb = self.conditionally_filter_properties(qb, &params.properties);
-        qb = self.conditionally_filter_numerical_properties(qb, params.is_numerical);
+        self.conditionally_filter_properties(qb, &params.properties);
+        self.conditionally_filter_numerical_properties(qb, params.is_numerical);
 
-        qb =
-            self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
+        self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
 
-        qb = self.conditionally_filter_event_names(qb, &params.event_names);
-        qb = self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
+        self.conditionally_filter_event_names(qb, &params.event_names);
+        self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
         // NOTE: event_name_filter from orig Django query doesn't appear to be applied anywhere atm
 
         // NOTE: count query is global per project_id, so no LIMIT/OFFSET handling is applied
 
-        qb
+        qb.build()
     }
 
-    pub fn property_definitions_query<'a>(
+    pub fn property_definitions_query<'args, 'builder: 'args>(
         &self,
+        qb: &'builder mut QueryBuilder<'args, Postgres>,
         project_id: i32,
-        params: &'a Params,
-    ) -> QueryBuilder<'a, Postgres> {
+        params: &'args Params,
+    ) -> Query<'args, Postgres, PgArguments> {
         /* The original Django query we're duplicating
                  * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L262-L275
 
@@ -131,7 +134,7 @@ impl Manager {
                 * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L293-L305
                 */
 
-        let mut qb = QueryBuilder::<Postgres>::new(" SELECT ");
+        qb.push(" SELECT ");
         if params.use_enterprise_taxonomy {
             // borrowed from EnterprisePropertyDefinition from Django monolith
             // via EnterprisePropertyDefinition._meta.get_fields()
@@ -152,8 +155,8 @@ impl Manager {
             is_seen_resolved
         ));
 
-        qb = self.gen_from_clause(qb, params.use_enterprise_taxonomy);
-        qb = self.gen_conditional_join_event_props(
+        self.gen_from_clause(qb, params.use_enterprise_taxonomy);
+        self.gen_conditional_join_event_props(
             qb,
             project_id,
             params.property_type,
@@ -161,25 +164,24 @@ impl Manager {
         );
 
         // begin the WHERE clause
-        qb = self.init_where_clause(qb, project_id);
-        qb = self.where_property_type(qb, params.property_type);
+        self.init_where_clause(qb, project_id);
+        self.where_property_type(qb, params.property_type);
         qb.push(" AND COALESCE(group_type_index, -1) = ");
         qb.push_bind(params.group_type_index);
         qb.push(" ");
 
-        qb = self.conditionally_filter_excluded_properties(
+        self.conditionally_filter_excluded_properties(
             qb,
             params.property_type,
             &params.excluded_properties,
         );
-        qb = self.conditionally_filter_properties(qb, &params.properties);
-        qb = self.conditionally_filter_numerical_properties(qb, params.is_numerical);
+        self.conditionally_filter_properties(qb, &params.properties);
+        self.conditionally_filter_numerical_properties(qb, params.is_numerical);
 
-        qb =
-            self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
+        self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
 
-        qb = self.conditionally_filter_event_names(qb, &params.event_names);
-        qb = self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
+        self.conditionally_filter_event_names(qb, &params.event_names);
+        self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
         // ORDER BY clauses
         qb.push(" ORDER BY is_seen_on_filtered_events DESC, ");
@@ -197,14 +199,10 @@ impl Manager {
         qb.push_bind(params.offset);
         qb.push(" ");
 
-        qb
+        qb.build()
     }
 
-    fn gen_from_clause<'a>(
-        &self,
-        mut qb: QueryBuilder<'a, Postgres>,
-        use_enterprise_taxonomy: bool,
-    ) -> QueryBuilder<'a, Postgres> {
+    fn gen_from_clause(&self, qb: &mut QueryBuilder<Postgres>, use_enterprise_taxonomy: bool) {
         let from_clause = if use_enterprise_taxonomy {
             // TODO: ensure this all behaves as it does in Django (and that we need it!) later...
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L505-L506
@@ -218,17 +216,15 @@ impl Manager {
         };
         qb.push(from_clause);
         qb.push(" ");
-
-        qb
     }
 
     fn gen_conditional_join_event_props<'a>(
         &self,
-        mut qb: QueryBuilder<'a, Postgres>,
+        qb: &mut QueryBuilder<'a, Postgres>,
         project_id: i32,
         property_type: PropertyParentType,
         event_names: &'a Vec<String>,
-    ) -> QueryBuilder<'a, Postgres> {
+    ) {
         // conditionally join on event properties table
         // this join is only applied if the query is scoped to type "event"
         if self.is_prop_type_event(property_type) {
@@ -244,11 +240,9 @@ impl Manager {
 
             // conditionally apply event_names filter
             if filter_by_event_names {
-                if !event_names.is_empty() {
-                    qb.push(" AND event = ANY(");
-                    qb.push_bind(event_names);
-                    qb.push(") ");
-                }
+                qb.push(" AND event = ANY(");
+                qb.push_bind(event_names);
+                qb.push(") ");
             }
 
             // close the JOIN clause and add the JOIN condition
@@ -257,43 +251,33 @@ impl Manager {
                 POSTHOG_EVENT_PROPERTY_TABLE_NAME_ALIAS
             ));
         }
-
-        qb
     }
 
-    fn init_where_clause<'a>(
-        &self,
-        mut qb: QueryBuilder<'a, Postgres>,
-        project_id: i32,
-    ) -> QueryBuilder<'a, Postgres> {
+    fn init_where_clause(&self, qb: &mut QueryBuilder<Postgres>, project_id: i32) {
         qb.push(format!(
             "WHERE COALESCE({0}.project_id, {0}.team_id) = ",
             PROPERTY_DEFS_TABLE
         ));
         qb.push_bind(project_id);
         qb.push(" ");
-
-        qb
     }
 
-    fn where_property_type<'a>(
+    fn where_property_type(
         &self,
-        mut qb: QueryBuilder<'a, Postgres>,
+        qb: &mut QueryBuilder<Postgres>,
         property_type: PropertyParentType,
-    ) -> QueryBuilder<'a, Postgres> {
+    ) {
         qb.push(" AND type = ");
         qb.push_bind(property_type as i32);
         qb.push(" ");
-
-        qb
     }
 
-    fn conditionally_filter_excluded_properties<'a>(
+    fn conditionally_filter_excluded_properties<'args>(
         &self,
-        mut qb: QueryBuilder<'a, Postgres>,
+        qb: &mut QueryBuilder<'args, Postgres>,
         property_type: PropertyParentType,
-        excluded_properties: &'a Vec<String>,
-    ) -> QueryBuilder<'a, Postgres> {
+        excluded_properties: &'args [String],
+    ) {
         // conditionally filter on excluded_properties
         // NOTE: excluded_properties is also passed to the Django API as JSON,
         // but may not matter when passed to this service. TBD. See below:
@@ -313,30 +297,26 @@ impl Manager {
             qb.push_bind(buf);
             qb.push(") ");
         }
-
-        qb
     }
 
-    fn conditionally_filter_properties<'a>(
+    fn conditionally_filter_properties<'args>(
         &self,
-        mut qb: QueryBuilder<'a, Postgres>,
-        properties: &'a Vec<String>,
-    ) -> QueryBuilder<'a, Postgres> {
+        qb: &mut QueryBuilder<'args, Postgres>,
+        properties: &'args Vec<String>,
+    ) {
         // conditionally filter on property names ("name" col)
         if !properties.is_empty() {
             qb.push(" AND name = ANY(");
             qb.push_bind(properties);
             qb.push(") ");
         }
-
-        qb
     }
 
-    fn conditionally_filter_numerical_properties<'a>(
+    fn conditionally_filter_numerical_properties(
         &self,
-        mut qb: QueryBuilder<'a, Postgres>,
+        qb: &mut QueryBuilder<Postgres>,
         is_numerical: bool,
-    ) -> QueryBuilder<'a, Postgres> {
+    ) {
         // conditionally filter for numerical-valued properties:
         // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
         // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
@@ -345,16 +325,14 @@ impl Manager {
                 " AND is_numerical = true AND NOT name = ANY(ARRAY['distinct_id', 'timestamp']) ",
             );
         }
-
-        qb
     }
 
-    fn conditionally_apply_search_clause<'a>(
+    fn conditionally_apply_search_clause<'args>(
         &self,
-        mut qb: QueryBuilder<'a, Postgres>,
-        search_terms: &'a Vec<String>,
-        search_fields: &'a HashSet<String>,
-    ) -> QueryBuilder<'a, Postgres> {
+        qb: &mut QueryBuilder<'args, Postgres>,
+        search_terms: &'args [String],
+        search_fields: &'args HashSet<String>,
+    ) {
         // conditionally apply search term matching; skip this if possible, it's not cheap!
         // logic: https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
         if !search_terms.is_empty() {
@@ -448,15 +426,13 @@ impl Manager {
                 }
             }
         }
-
-        qb
     }
 
-    fn conditionally_filter_event_names<'a>(
+    fn conditionally_filter_event_names<'args>(
         &self,
-        mut qb: QueryBuilder<'a, Postgres>,
-        event_names: &'a Vec<String>,
-    ) -> QueryBuilder<'a, Postgres> {
+        qb: &mut QueryBuilder<'args, Postgres>,
+        event_names: &'args Vec<String>,
+    ) {
         // NOTE: the conditional join on event props table applied
         // above applies the same filter, but it can be an INNER or
         // LEFT join, so this is still required in the outer query
@@ -466,15 +442,13 @@ impl Manager {
             qb.push_bind(event_names);
             qb.push(") ");
         }
-
-        qb
     }
 
-    fn conditionally_filter_feature_flags<'a>(
+    fn conditionally_filter_feature_flags(
         &self,
-        mut qb: QueryBuilder<'a, Postgres>,
+        qb: &mut QueryBuilder<Postgres>,
         is_feature_flag: &Option<bool>,
-    ) -> QueryBuilder<'a, Postgres> {
+    ) {
         // conditionally apply feature flag property filters
         if is_feature_flag.is_some() {
             if is_feature_flag.unwrap() {
@@ -483,8 +457,6 @@ impl Manager {
                 qb.push(" AND (name NOT LIKE '$feature/%') ");
             }
         }
-
-        qb
     }
 
     fn event_property_join_type(&self, filter_by_event_names: bool) -> &str {
