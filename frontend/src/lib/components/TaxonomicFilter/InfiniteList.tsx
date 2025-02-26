@@ -253,7 +253,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             return (
                 <div
                     {...commonDivProps}
-                    className={`${commonDivProps.className} expand-row`}
+                    className={clsx(commonDivProps.className, 'expand-row', isLoading && 'animate-pulse')}
                     data-attr={`expand-list-${listGroupType}`}
                     onClick={expand}
                 >
@@ -272,7 +272,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         return (
             <div
                 {...commonDivProps}
-                className={`${commonDivProps.className} skeleton-row`}
+                className={clsx(commonDivProps.className, 'skeleton-row', isLoading && 'animate-pulse')}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
                 <div className="taxonomic-list-row-contents">
