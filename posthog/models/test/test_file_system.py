@@ -1,6 +1,6 @@
 from django.test import TestCase
 from posthog.models import FeatureFlag, Experiment, Dashboard, Insight, Notebook, Team, User, Organization
-from posthog.models.file_system import FileSystem, save_unfiled_files, FileSystemType
+from posthog.models.file_system import FileSystem, save_unfiled_files, FileSystemType, sanitize_filename
 
 
 class TestFileSystemModel(TestCase):
@@ -139,3 +139,10 @@ class TestFileSystemModel(TestCase):
                 "Unfiled/Feature Flags/Same Name (1)",
             ],
         )
+
+    def test_sanitize_filename(self):
+        self.assertEqual(sanitize_filename("Hello, World!"), "Hello, World!")
+        self.assertEqual(sanitize_filename("Hello/World"), "Hello\\/World")
+        self.assertEqual(sanitize_filename("Hello: World"), "Hello: World")
+        self.assertEqual(sanitize_filename("Hello\\World"), "Hello\\\\World")
+        self.assertEqual(sanitize_filename("Hello\\/World"), "Hello\\\\\\/World")

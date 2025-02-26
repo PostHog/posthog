@@ -259,7 +259,7 @@ class UnfiledFileSaver:
         Also checks self._in_memory_paths for collisions
         among newly generated paths in this run.
         """
-        desired = f"{base_folder}/{name}"
+        desired = f"{base_folder}/{sanitize_filename(name)}"
         path = desired
         index = 1
 
@@ -309,3 +309,12 @@ def save_unfiled_files(team: Team, user: User, file_type: Optional[FileSystemTyp
 
     # If it's an unknown/unsupported file type, return empty
     return []
+
+
+def sanitize_filename(file: str) -> str:
+    """
+    Replaces \\ with \\ and / with \\/
+    """
+    sanitized = file.replace("\\", "\\\\")
+    sanitized = sanitized.replace("/", "\\/")
+    return sanitized
