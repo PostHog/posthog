@@ -1,7 +1,6 @@
 pub mod api;
 pub mod config;
 pub mod prometheus;
-pub mod redis;
 pub mod router;
 pub mod server;
 pub mod sinks;
