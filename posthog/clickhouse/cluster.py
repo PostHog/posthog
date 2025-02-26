@@ -330,9 +330,10 @@ def get_cluster(
 class Query:
     query: str
     parameters: Any | None = None
+    settings: dict[str, str] | None = None
 
     def __call__(self, client: Client):
-        return client.execute(self.query, self.parameters)
+        return client.execute(self.query, self.parameters, settings=self.settings)
 
 
 @dataclass
