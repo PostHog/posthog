@@ -520,6 +520,11 @@ export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
 
+export interface SessionRecordingMaskingConfig {
+    maskAllInputs?: boolean
+    maskTextSelector?: string
+}
+
 export enum ActivationTaskStatus {
     COMPLETED = 'completed',
     SKIPPED = 'skipped',
@@ -546,6 +551,7 @@ export interface TeamType extends TeamBasicType {
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
+    session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
@@ -2879,7 +2885,7 @@ export interface SurveyAppearance {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
-    fontFamily?: (typeof WEB_SAFE_FONTS)[number]
+    fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
 }
 
 export interface SurveyQuestionBase {
@@ -3479,6 +3485,7 @@ export interface AppContext {
     year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
+    livestream_host?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

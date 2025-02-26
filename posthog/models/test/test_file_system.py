@@ -1,28 +1,28 @@
 from django.test import TestCase
 from posthog.models import FeatureFlag, Experiment, Dashboard, Insight, Notebook, Team, User, Organization
-from posthog.models.file_system import FileSystem, get_unfiled_files, FileSystemType
-from posthog.models.utils import uuid7
+from posthog.models.file_system import FileSystem, save_unfiled_files, FileSystemType, sanitize_filename
 
 
 class TestFileSystemModel(TestCase):
     def setUp(self):
-        # Create a Team and a User (simplest approach for model tests)
+        # Create a Team and a User
         self.user = User.objects.create_user("test@posthog.com", "testpassword", first_name="Bob")
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(name="Test Team", organization=self.organization)
 
-    def test_get_unfiled_files_with_no_objects(self):
+    def test_save_unfiled_files_with_no_objects(self):
         """
         If no FeatureFlags, Experiments, Dashboards, Insights, or Notebooks exist,
-        get_unfiled_files should return an empty list.
+        save_unfiled_files should create no FileSystem rows.
         """
-        unfiled = get_unfiled_files(self.team, self.user)
-        self.assertEqual(len(unfiled), 0)
+        created = save_unfiled_files(self.team, self.user)
+        self.assertEqual(len(created), 0)
+        self.assertEqual(FileSystem.objects.count(), 0)
 
-    def test_get_unfiled_files_with_various_objects(self):
+    def test_save_unfiled_files_with_various_objects(self):
         """
         Test that FeatureFlags, Experiments, Dashboards, Insights, and Notebooks
-        appear as ephemeral FileSystem objects in get_unfiled_files.
+        are created as FileSystem objects in the DB by save_unfiled_files.
         """
         # Create some objects
         ff = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
@@ -31,28 +31,22 @@ class TestFileSystemModel(TestCase):
         Insight.objects.create(team=self.team, name="Traffic Insight", created_by=self.user, saved=True)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
 
-        unfiled = get_unfiled_files(self.team, self.user)
-        # We expect 5 ephemeral items
-        self.assertEqual(len(unfiled), 5)
+        # Call the saver
+        created = save_unfiled_files(self.team, self.user)
+        self.assertEqual(len(created), 5)  # One FileSystem row per object
 
-        # Check that each type is present
-        types = {item.type for item in unfiled}
-        self.assertIn(FileSystemType.FEATURE_FLAG, types)
-        self.assertIn(FileSystemType.EXPERIMENT, types)
-        self.assertIn(FileSystemType.DASHBOARD, types)
-        self.assertIn(FileSystemType.INSIGHT, types)
-        self.assertIn(FileSystemType.NOTEBOOK, types)
+        # Verify DB state
+        self.assertEqual(FileSystem.objects.count(), 5)
+        types_in_db = set(FileSystem.objects.values_list("type", flat=True))
+        self.assertIn(FileSystemType.FEATURE_FLAG, types_in_db)
+        self.assertIn(FileSystemType.EXPERIMENT, types_in_db)
+        self.assertIn(FileSystemType.DASHBOARD, types_in_db)
+        self.assertIn(FileSystemType.INSIGHT, types_in_db)
+        self.assertIn(FileSystemType.NOTEBOOK, types_in_db)
 
-        # Check a sample item matches expected data
-        ff_item = next(item for item in unfiled if item.type == FileSystemType.FEATURE_FLAG)
-        self.assertEqual(ff_item.path, f"Unfiled/Feature Flags/{ff.name}")
-        self.assertEqual(ff_item.ref, str(ff.id))
-        self.assertEqual(ff_item.href, f"/feature_flags/{ff.id}")
-        # Not saved to DB, so no actual FileSystem row with pk=ff_item.id
-
-    def test_get_unfiled_files_excludes_deleted_flags(self):
+    def test_save_unfiled_files_excludes_deleted_flags(self):
         """
-        FeatureFlags with deleted=True should NOT appear as unfiled.
+        FeatureFlags with deleted=True should NOT create FileSystem rows.
         """
         FeatureFlag.objects.create(
             team=self.team, name="Active Flag", created_by=self.user, deleted=False, key="flaggy1"
@@ -60,65 +54,95 @@ class TestFileSystemModel(TestCase):
         FeatureFlag.objects.create(
             team=self.team, name="Deleted Flag", created_by=self.user, deleted=True, key="flaggy2"
         )
-        unfiled = get_unfiled_files(self.team, self.user)
-        # Only the Active Flag is returned
-        self.assertEqual(len(unfiled), 1)
-        self.assertEqual(unfiled[0].path, "Unfiled/Feature Flags/Active Flag")
+        created = save_unfiled_files(self.team, self.user)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(FileSystem.objects.count(), 1)
+        self.assertEqual(FileSystem.objects.first().path, "Unfiled/Feature Flags/Active Flag")  # type: ignore
 
-    def test_get_unfiled_files_excludes_deleted_insights(self):
+    def test_save_unfiled_files_excludes_deleted_insights(self):
         """
-        Insights with deleted=True should NOT appear as unfiled.
+        Insights with deleted=True should NOT create FileSystem rows.
         """
         Insight.objects.create(team=self.team, name="Active Insight", created_by=self.user, deleted=False, saved=True)
         Insight.objects.create(team=self.team, name="Deleted Insight", created_by=self.user, deleted=True, saved=True)
-        unfiled = get_unfiled_files(self.team, self.user)
-        # Only the active insight is returned
-        self.assertEqual(len(unfiled), 1)
-        self.assertEqual(unfiled[0].path, "Unfiled/Insights/Active Insight")
+        created = save_unfiled_files(self.team, self.user)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(FileSystem.objects.count(), 1)
+        self.assertEqual(FileSystem.objects.first().path, "Unfiled/Insights/Active Insight")  # type: ignore
 
-    def test_get_unfiled_files_includes_all_experiments(self):
+    def test_save_unfiled_files_includes_all_experiments(self):
         """
-        There's no 'deleted=False' in Experiment, so all
-        experiments (for the team) should appear in the unfiled list.
+        There's no 'deleted=False' field in Experiment, so all
+        experiments should create FileSystem rows.
         """
-        flag = FeatureFlag.objects.create(
-            team=self.team, name="Active Flag", created_by=self.user, deleted=False, key="flaggy1"
-        )
-        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=flag)
-        unfiled = get_unfiled_files(self.team, self.user)
-        names = {item.path for item in unfiled if item.type == FileSystemType.EXPERIMENT}
-        self.assertEqual(names, {"Unfiled/Experiments/Experiment #1"})
+        ff = FeatureFlag.objects.create(team=self.team, name="Some Flag", created_by=self.user, key="flaggy1")
+        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
+        created = save_unfiled_files(self.team, self.user)
+        self.assertEqual(len(created), 2)  # 1 FeatureFlag, 1 Experiment
+        exp_item = FileSystem.objects.filter(type=FileSystemType.EXPERIMENT).first()
+        assert exp_item.path is not None  # type: ignore
+        self.assertEqual(exp_item.path, "Unfiled/Experiments/Experiment #1")  # type: ignore
 
-    def test_file_system_db_objects_are_separate_from_unfiled_results(self):
+    def test_save_unfiled_files_does_not_duplicate_existing(self):
         """
-        Creating an actual FileSystem DB row doesn't remove that object
-        from the ephemeral unfiled list. The unfiled items are
-        still returned if they exist in the FeatureFlag, Experiment, etc. tables.
+        If save_unfiled_files is called multiple times, existing items in FileSystem
+        should NOT be recreated.
         """
-        # Let's create a real FileSystem object referencing a random 'ref'
-        file_obj = FileSystem.objects.create(
+        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
+
+        first_created = save_unfiled_files(self.team, self.user)
+        self.assertEqual(len(first_created), 1)
+        self.assertEqual(FileSystem.objects.count(), 1)
+
+        second_created = save_unfiled_files(self.team, self.user)
+        self.assertEqual(len(second_created), 0)
+        self.assertEqual(FileSystem.objects.count(), 1)
+
+        self.assertEqual(FileSystem.objects.first().path, "Unfiled/Feature Flags/Beta Feature")  # type: ignore
+
+    def test_naming_collision_with_existing_db_object(self):
+        """
+        If we already have a FileSystem row named 'Unfiled/Feature Flags/Duplicate Name',
+        then creating a new FeatureFlag with that same name should result in a FileSystem
+        path of '... (1)'.
+        """
+        FileSystem.objects.create(
             team=self.team,
-            id=uuid7(),
-            path="Custom/My Dashboard",
-            type=FileSystemType.DASHBOARD,
-            ref="9999",
-            href="/dashboard/9999",
+            path="Unfiled/Feature Flags/Duplicate Name",
+            type=FileSystemType.FEATURE_FLAG,
+            ref="999",
             created_by=self.user,
         )
 
-        # Also create a real Dashboard row to see in unfiled
-        dash = Dashboard.objects.create(team=self.team, name="Real Dashboard", created_by=self.user)
-        unfiled = get_unfiled_files(self.team, self.user)
+        FeatureFlag.objects.create(team=self.team, name="Duplicate Name", created_by=self.user)
+        created = save_unfiled_files(self.team, self.user)
 
-        # We do see the ephemeral item for the Dashboard we created
-        dash_item = next(item for item in unfiled if item.type == FileSystemType.DASHBOARD)
-        self.assertEqual(dash_item.ref, str(dash.id))
-        self.assertEqual(dash_item.path, f"Unfiled/Dashboards/{dash.name}")
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0].path, "Unfiled/Feature Flags/Duplicate Name (1)")
+        self.assertTrue(FileSystem.objects.filter(path="Unfiled/Feature Flags/Duplicate Name (1)").exists())
 
-        # Meanwhile, our actual DB-based FileSystem item is unrelated:
-        self.assertTrue(FileSystem.objects.filter(pk=file_obj.pk).exists())
-        # We expect just 1 ephemeral unfiled item for the real Dashboard
-        self.assertEqual(sum(i.type == FileSystemType.DASHBOARD for i in unfiled), 1)
+    def test_naming_collisions_among_multiple_new_items_same_run(self):
+        """
+        If multiple new FeatureFlags are created with the same name, they should
+        be saved with unique paths in FileSystem.
+        """
+        FeatureFlag.objects.create(team=self.team, name="Same Name", key="name-1", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, name="Same Name", key="name-2", created_by=self.user)
+        created = save_unfiled_files(self.team, self.user)
 
-        # The ephemeral object is not the same ID as the DB FileSystem object
-        self.assertNotEqual(dash_item.id, str(file_obj.id))
+        self.assertEqual(len(created), 2)
+        paths = [obj.path for obj in created]
+        self.assertEqual(
+            paths,
+            [
+                "Unfiled/Feature Flags/Same Name",
+                "Unfiled/Feature Flags/Same Name (1)",
+            ],
+        )
+
+    def test_sanitize_filename(self):
+        self.assertEqual(sanitize_filename("Hello, World!"), "Hello, World!")
+        self.assertEqual(sanitize_filename("Hello/World"), "Hello\\/World")
+        self.assertEqual(sanitize_filename("Hello: World"), "Hello: World")
+        self.assertEqual(sanitize_filename("Hello\\World"), "Hello\\\\World")
+        self.assertEqual(sanitize_filename("Hello\\/World"), "Hello\\\\\\/World")

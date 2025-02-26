@@ -426,3 +426,6 @@ CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_
 
 # temporary setting to control if a cluster has person_properties_map_custom column optimization
 USE_PERSON_PROPERTIES_MAP_CUSTOM = get_from_env("USE_PERSON_PROPERTIES_MAP_CUSTOM", False, type_cast=bool)
+
+# Passed to the frontend for the web app to know where to connect to
+LIVESTREAM_HOST = get_from_env("LIVESTREAM_HOST", "")

@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import datetime as dt
 import json
 import operator
@@ -41,8 +42,10 @@ from posthog.temporal.batch_exports.bigquery_batch_export import (
 from posthog.temporal.batch_exports.spmc import (
     Producer,
     RecordBatchQueue,
+    RecordBatchTaskError,
     SessionsRecordBatchModel,
 )
+from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import (
     get_record_batch_from_queue,
@@ -1201,6 +1204,116 @@ async def test_insert_into_bigquery_activity_completes_range(
     )
 
     await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_bigquery(
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        team_id=ateam.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        include_events=None,
+        batch_export_model=batch_export_model,
+        use_json_type=True,
+        min_ingested_timestamp=now,
+        sort_key="event",
+        expect_duplicates=True,
+    )
+
+
+async def test_insert_into_bigquery_activity_completes_range_when_there_is_a_failure(
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    bigquery_dataset,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that if the insert_into_bigquery_activity activity fails, it can resume from a heartbeat.
+
+    We simulate a failure in the SPMC producer halfway through streaming records, then resume from the heartbeat.
+    We're particularly interested in ensuring all records are exported into the final BigQuery table.
+    """
+
+    batch_export_model = BatchExportModel(name="events", schema=None)
+    now = dt.datetime.now(tz=dt.UTC)
+
+    fail_after_batches = 2
+    clickhouse_max_block_size = 100
+
+    class FakeClickHouseClient(ClickHouseClient):
+        """Fake ClickHouseClient that simulates a failure after reading `fail_after_batches` batches.
+
+        Raises a `InvalidMessageFormat` exception after reading `fail_after_batches` batches. This is an error we've seen in production.
+        """
+
+        async def astream_query_as_arrow(self, *args, **kwargs):
+            count = 0
+            async for batch in super().astream_query_as_arrow(*args, **kwargs):
+                count += 1
+                if count > fail_after_batches:
+                    raise InvalidMessageFormat("Simulated failure")
+                yield batch
+
+    heartbeat_details: list[BigQueryHeartbeatDetails] = []
+
+    def track_hearbeat_details(*details):
+        """Record heartbeat details received."""
+        nonlocal heartbeat_details
+        bigquery_details = BigQueryHeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(bigquery_details)
+
+    activity_environment.on_heartbeat = track_hearbeat_details
+
+    insert_inputs = BigQueryInsertInputs(
+        team_id=ateam.pk,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        use_json_type=True,
+        batch_export_model=batch_export_model,
+        **bigquery_config,
+    )
+
+    with (
+        override_settings(
+            BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=100,
+            CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=clickhouse_max_block_size,
+        ),
+        unittest.mock.patch("posthog.temporal.common.clickhouse.ClickHouseClient", FakeClickHouseClient),
+    ):
+        # we expect this to raise an exception
+
+        with pytest.raises(RecordBatchTaskError):
+            await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) > 0
+    assert detail.records_completed == fail_after_batches * clickhouse_max_block_size
+
+    # now we resume from the heartbeat
+    previous_info = dataclasses.asdict(activity_environment.info)
+    previous_info["heartbeat_details"] = detail.serialize_details()
+    new_info = activity.Info(
+        **previous_info,
+    )
+
+    activity_environment.info = new_info
+
+    await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) == 1
+    assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
+
+    # records_completed is actually larger than num_expected_records because of duplicates
+    # assert detail.records_completed == num_expected_records
 
     await assert_clickhouse_records_in_bigquery(
         bigquery_client=bigquery_client,
