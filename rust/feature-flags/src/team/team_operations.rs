@@ -1,12 +1,11 @@
-use std::sync::Arc;
-use tracing::instrument;
-
 use crate::{
     api::errors::FlagError,
     client::database::Client as DatabaseClient,
-    client::redis::Client as RedisClient,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
+use common_redis::Client as RedisClient;
+use std::sync::Arc;
+use tracing::instrument;
 
 impl Team {
     /// Validates a token, and returns a team if it exists.

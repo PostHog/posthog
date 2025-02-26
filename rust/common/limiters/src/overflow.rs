@@ -72,7 +72,7 @@ impl OverflowLimiter {
 
 #[cfg(test)]
 mod tests {
-    use crate::limiters::overflow::OverflowLimiter;
+    use super::OverflowLimiter;
     use std::num::NonZeroU32;
 
     #[tokio::test]

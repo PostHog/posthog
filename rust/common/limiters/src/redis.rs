@@ -1,3 +1,4 @@
+use common_redis::Client;
 use metrics::gauge;
 use std::time::Duration as StdDuration;
 use std::{collections::HashSet, sync::Arc};
@@ -6,8 +7,6 @@ use tokio::sync::RwLock;
 use tokio::task;
 use tokio::time::interval;
 use tracing::instrument;
-
-use crate::redis::Client;
 
 /// Limit events by checking if a value is present in Redis
 ///
@@ -147,14 +146,11 @@ impl RedisLimiter {
 
 #[cfg(test)]
 mod tests {
-    use crate::limiters::redis::{OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
+    use super::{OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
+    use crate::redis::{QuotaResource, RedisLimiter};
+    use common_redis::MockRedisClient;
     use std::sync::Arc;
     use time::Duration;
-
-    use crate::{
-        limiters::redis::{QuotaResource, RedisLimiter},
-        redis::MockRedisClient,
-    };
 
     #[tokio::test]
     async fn test_dynamic_limited() {

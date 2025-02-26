@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use redis::{AsyncCommands, RedisError};
 use thiserror::Error;
@@ -10,19 +10,34 @@ use tokio::time::timeout;
 // average for all commands is <10ms, check grafana
 const REDIS_TIMEOUT_MILLISECS: u64 = 10;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum CustomRedisError {
     #[error("Not found in redis")]
     NotFound,
-
     #[error("Pickle error: {0}")]
-    PickleError(#[from] serde_pickle::Error),
-
+    PickleError(String),
     #[error("Redis error: {0}")]
-    Other(#[from] RedisError),
-
+    Other(String),
     #[error("Timeout error")]
-    Timeout(#[from] tokio::time::error::Elapsed),
+    Timeout,
+}
+
+impl From<serde_pickle::Error> for CustomRedisError {
+    fn from(err: serde_pickle::Error) -> Self {
+        CustomRedisError::PickleError(err.to_string())
+    }
+}
+
+impl From<RedisError> for CustomRedisError {
+    fn from(err: RedisError) -> Self {
+        CustomRedisError::Other(err.to_string())
+    }
+}
+
+impl From<tokio::time::error::Elapsed> for CustomRedisError {
+    fn from(_: tokio::time::error::Elapsed) -> Self {
+        CustomRedisError::Timeout
+    }
 }
 
 /// A unified Redis client that supports quota and rate limiting operations
@@ -30,9 +45,14 @@ pub enum CustomRedisError {
 #[async_trait]
 pub trait Client {
     async fn zrangebyscore(&self, k: String, min: String, max: String) -> Result<Vec<String>>;
-    async fn hincrby(&self, k: String, v: String, count: Option<i32>) -> Result<(), CustomRedisError>;
+    async fn hincrby(
+        &self,
+        k: String,
+        v: String,
+        count: Option<i32>,
+    ) -> Result<(), CustomRedisError>;
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;
-    async fn set(&self, k: String, v: String) -> Result<()>;
+    async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError>;
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
 }
@@ -67,7 +87,7 @@ impl Client for RedisClient {
         let count = count.unwrap_or(1);
         let results = conn.hincr(k, v, count);
         let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
-        fut.map_err(CustomRedisError::from)
+        fut.map_err(|e| CustomRedisError::Other(e.to_string()))
     }
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError> {
@@ -94,7 +114,7 @@ impl Client for RedisClient {
         Ok(string_response)
     }
 
-    async fn set(&self, k: String, v: String) -> Result<()> {
+    async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
         // TRICKY: We serialise data to json, then django pickles it.
         // Here we serialize the json string to bytes using serde_pickle.
         let bytes = serde_pickle::to_vec(&v, Default::default())?;
@@ -113,7 +133,7 @@ impl Client for RedisClient {
         let results = conn.del(k);
         let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
-        fut.map_err(CustomRedisError::from)
+        fut.map_err(|e| CustomRedisError::Other(e.to_string()))
     }
 
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError> {
@@ -136,7 +156,7 @@ pub struct MockRedisClient {
     zrangebyscore_ret: HashMap<String, Vec<String>>,
     hincrby_ret: HashMap<String, Result<(), CustomRedisError>>,
     get_ret: HashMap<String, Result<String, CustomRedisError>>,
-    set_ret: HashMap<String, Result<()>>,
+    set_ret: HashMap<String, Result<(), CustomRedisError>>,
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
 }
@@ -161,7 +181,7 @@ impl MockRedisClient {
         self.clone()
     }
 
-    pub fn set_ret(&mut self, key: &str, ret: Result<()>) -> Self {
+    pub fn set_ret(&mut self, key: &str, ret: Result<(), CustomRedisError>) -> Self {
         self.set_ret.insert(key.to_owned(), ret);
         self.clone()
     }
@@ -182,7 +202,7 @@ impl Client for MockRedisClient {
     async fn zrangebyscore(&self, key: String, _min: String, _max: String) -> Result<Vec<String>> {
         match self.zrangebyscore_ret.get(&key) {
             Some(val) => Ok(val.clone()),
-            None => Err(anyhow!("unknown key")),
+            None => Err(anyhow::anyhow!("Not found")),
         }
     }
 
@@ -205,10 +225,12 @@ impl Client for MockRedisClient {
         }
     }
 
-    async fn set(&self, key: String, _value: String) -> Result<()> {
+    async fn set(&self, key: String, _value: String) -> Result<(), CustomRedisError> {
         match self.set_ret.get(&key) {
-            Some(result) => result.clone(),
-            None => Err(anyhow!("unknown key")),
+            Some(result) => result
+                .clone()
+                .map_err(|e| CustomRedisError::Other(e.to_string())),
+            None => Err(CustomRedisError::NotFound),
         }
     }
 

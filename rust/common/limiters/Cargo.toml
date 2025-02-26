@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+common-redis = { path = "../redis" }
 governor = { workspace = true }
 metrics = { workspace = true }
 rand = { workspace = true}

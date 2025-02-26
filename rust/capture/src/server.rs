@@ -2,6 +2,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use common_redis::RedisClient;
 use health::{ComponentStatus, HealthRegistry};
 use time::Duration;
 use tokio::net::TcpListener;
@@ -9,13 +10,11 @@ use tokio::net::TcpListener;
 use crate::config::CaptureMode;
 use crate::config::Config;
 
-use crate::limiters::overflow::OverflowLimiter;
-use crate::limiters::redis::{
+use limiters::overflow::OverflowLimiter;
+use limiters::redis::{
     QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
 };
 
-use crate::limiters::token_dropper::TokenDropper;
-use crate::redis::RedisClient;
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::fallback::FallbackSink;
@@ -23,6 +22,7 @@ use crate::sinks::kafka::KafkaSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
+use limiters::token_dropper::TokenDropper;
 
 async fn create_sink(
     config: &Config,
