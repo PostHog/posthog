@@ -18,6 +18,42 @@ import { getHttpCallRecorder } from '../vm/imports'
 const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
 
 /**
+ * Logs HTTP calls made by a plugin
+ */
+function logHttpCalls(
+    recordedCalls: RecordedHttpCall[],
+    eventUuid: string | undefined,
+    pluginConfig: PluginConfig,
+    failed: boolean = false
+): void {
+    if (recordedCalls.length > 0) {
+        const actionText = failed ? 'before failing' : 'during operation'
+
+        status.info(
+            '🌐',
+            `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
+                recordedCalls.length
+            } HTTP calls ${actionText} for event ${eventUuid || 'unknown'}`
+        )
+
+        // Log details about each call
+        recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
+            status.info(
+                '🌐',
+                `Event ${eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
+                    call.request.url
+                } - Status: ${call.response.status}`
+            )
+
+            // Log errors if any
+            if (call.error) {
+                status.error('🌐', `Event ${eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`)
+            }
+        })
+    }
+}
+
+/**
  * Executes an operation while recording HTTP calls if enabled.
  * This function encapsulates the logic for recording HTTP calls during plugin operations.
  */
@@ -42,34 +78,7 @@ async function withHttpCallRecording<T>(
         if (recordHttpCalls) {
             // Get recorded HTTP calls
             const recordedCalls = getHttpCallRecorder().getCalls()
-
-            // Log information about recorded HTTP calls
-            if (recordedCalls.length > 0) {
-                status.info(
-                    '🌐',
-                    `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
-                        recordedCalls.length
-                    } HTTP calls during operation for event ${eventUuid || 'unknown'}`
-                )
-
-                // Log details about each call
-                recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
-                    status.info(
-                        '🌐',
-                        `Event ${eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
-                            call.request.url
-                        } - Status: ${call.response.status}`
-                    )
-
-                    // Log errors if any
-                    if (call.error) {
-                        status.error(
-                            '🌐',
-                            `Event ${eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`
-                        )
-                    }
-                })
-            }
+            logHttpCalls(recordedCalls, eventUuid, pluginConfig)
         }
 
         return result
@@ -77,33 +86,7 @@ async function withHttpCallRecording<T>(
         if (recordHttpCalls) {
             // Get recorded HTTP calls even if the operation failed
             const recordedCalls = getHttpCallRecorder().getCalls()
-
-            if (recordedCalls.length > 0) {
-                status.info(
-                    '🌐',
-                    `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
-                        recordedCalls.length
-                    } HTTP calls before failing for event ${eventUuid || 'unknown'}`
-                )
-
-                // Log details about each call
-                recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
-                    status.info(
-                        '🌐',
-                        `Event ${eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
-                            call.request.url
-                        } - Status: ${call.response.status}`
-                    )
-
-                    // Log errors if any
-                    if (call.error) {
-                        status.error(
-                            '🌐',
-                            `Event ${eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`
-                        )
-                    }
-                })
-            }
+            logHttpCalls(recordedCalls, eventUuid, pluginConfig, true)
         }
 
         throw error // Re-throw the error to be handled by the caller
