@@ -1,6 +1,6 @@
 import dagster
+from clickhouse_driver.errors import Error, ErrorCodes
 
-from clickhouse_driver.errors import ErrorCodes, Error
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     ExponentialBackoff,
