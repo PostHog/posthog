@@ -137,6 +137,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             (recordings, more_recordings_available, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )
+
             redis_client = get_client()
             value_to_set = json.dumps(
                 {"session_ids": [r.session_id for r in recordings], "has_more": more_recordings_available}
@@ -144,7 +145,11 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             redis_client.setex(
                 f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", THIRTY_SIX_HOURS_IN_SECONDS, value_to_set
             )
+
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
+    except SessionRecordingPlaylist.DoesNotExist:
+        logger.info("Playlist does not exist", playlist_id=playlist_id)
+        REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
     except Exception as e:
         posthoganalytics.capture_exception(e)
         logger.exception("Failed to count recordings that match playlist filters", playlist_id=playlist_id, error=e)

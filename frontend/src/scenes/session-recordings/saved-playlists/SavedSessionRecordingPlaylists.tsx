@@ -79,32 +79,34 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 const tooltip = (
                     <div className="flex flex-col space-y-1 items-center">
                         <span>Playlist counts are recalculated once a day.</span>
-                        {recordings_counts.pinned_count && (
-                            <span>Pinned recordings: {recordings_counts.pinned_count}</span>
-                        )}
-                        {recordings_counts.query_count && (
+                        {recordings_counts.pinned_count ? (
+                            <span>Collection has {recordings_counts.pinned_count} pinned recordings</span>
+                        ) : null}
+                        {recordings_counts.query_count ? (
                             <span>
-                                Query recordings: {recordings_counts.query_count}
-                                {recordings_counts.has_more && '+'}
+                                Saved filters match {recordings_counts.query_count}
+                                {recordings_counts.has_more && '+'} recordings
                             </span>
-                        )}
+                        ) : null}
                     </div>
                 )
 
                 return (
                     <div className="flex items-center justify-center w-full h-full">
                         <Tooltip title={tooltip}>
-                            {count ? (
-                                <LemonBadge.Number
-                                    status={count ? 'primary' : 'muted'}
-                                    className="text-xs"
-                                    count={count}
-                                    maxDigits={3}
-                                    forcePlus={recordings_counts.has_more}
-                                />
-                            ) : (
-                                <LemonBadge status="muted" content="?" />
-                            )}
+                            <span>
+                                {count ? (
+                                    <LemonBadge.Number
+                                        status={count ? 'primary' : 'muted'}
+                                        className="text-xs cursor-pointer"
+                                        count={count}
+                                        maxDigits={3}
+                                        forcePlus={recordings_counts.has_more}
+                                    />
+                                ) : (
+                                    <LemonBadge status="muted" content="?" className="cursor-pointer" />
+                                )}
+                            </span>
                         </Tooltip>
                     </div>
                 )
