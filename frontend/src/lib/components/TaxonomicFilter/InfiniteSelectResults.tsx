@@ -27,12 +27,13 @@ function CategoryPill({
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount } = useValues(logic)
+    const { totalResultCount, totalListCount, isLoading, results, hasRemoteDataSource } = useValues(logic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
     const canInteract = totalListCount > 0 || taxonomicFilterGroupTypesWithEmptyStates.includes(groupType)
+    const showLoading = isLoading && (!results || results.length === 0) && hasRemoteDataSource
 
     return (
         <LemonTag
@@ -48,7 +49,11 @@ function CategoryPill({
                 <>
                     {group?.name}
                     {': '}
-                    {totalResultCount ?? '...'}
+                    {showLoading ? (
+                        <span className="animate-pulse">Loading...</span>
+                    ) : (
+                        results?.length || totalResultCount || 0
+                    )}
                 </>
             )}
         </LemonTag>

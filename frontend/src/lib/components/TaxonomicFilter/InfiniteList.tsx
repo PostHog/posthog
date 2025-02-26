@@ -19,7 +19,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 
@@ -188,10 +188,18 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         totalListCount,
         expandedCount,
         showPopover,
+        hasRemoteDataSource,
     } = useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
+    const { onRowsRendered, setIndex, expand, updateRemoteItem, loadRemoteItems } = useActions(infiniteListLogic)
 
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
+
+    // Reload data if we have a remote source but no results
+    useEffect(() => {
+        if (hasRemoteDataSource && !isLoading && results.length === 0) {
+            loadRemoteItems({ offset: 0, limit: 100 })
+        }
+    }, [hasRemoteDataSource, isLoading, loadRemoteItems, results.length])
 
     const isActiveTab = listGroupType === activeTab
     const showEmptyState = totalListCount === 0 && !isLoading
@@ -220,43 +228,59 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 : null,
         }
 
-        return item && group ? (
+        // If there's an item to render
+        if (item && group) {
+            return (
+                <div
+                    {...commonDivProps}
+                    data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
+                    onClick={() => {
+                        return canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)
+                    }}
+                >
+                    {renderItemContents({
+                        item,
+                        listGroupType,
+                        group,
+                        eventNames,
+                    })}
+                </div>
+            )
+        }
+
+        // If this should be the "show more" expand row
+        if (!item && rowIndex === totalListCount - 1 && isExpandable && !isLoading) {
+            return (
+                <div
+                    {...commonDivProps}
+                    className={`${commonDivProps.className} expand-row`}
+                    data-attr={`expand-list-${listGroupType}`}
+                    onClick={expand}
+                >
+                    {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
+                        `See ${expandedCount - totalResultCount} more ${pluralize(
+                            expandedCount - totalResultCount,
+                            'row',
+                            'rows',
+                            false
+                        )}`}
+                </div>
+            )
+        }
+
+        // Otherwise show a skeleton loader
+        return (
             <div
                 {...commonDivProps}
-                data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                onClick={() => {
-                    return canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)
-                }}
-            >
-                {renderItemContents({
-                    item,
-                    listGroupType,
-                    group,
-                    eventNames,
-                })}
-            </div>
-        ) : !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading ? (
-            <div
-                {...commonDivProps}
-                className={`${commonDivProps.className} expand-row`}
-                data-attr={`expand-list-${listGroupType}`}
-                onClick={expand}
-            >
-                {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
-                    `See ${expandedCount - totalResultCount} more ${pluralize(
-                        expandedCount - totalResultCount,
-                        'row',
-                        'rows',
-                        false
-                    )}`}
-            </div>
-        ) : (
-            <div
-                {...commonDivProps}
-                className={commonDivProps.className}
+                className={`${commonDivProps.className} skeleton-row`}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
-                <LemonSkeleton />
+                <div className="taxonomic-list-row-contents">
+                    <div className="taxonomic-list-row-contents-icon">
+                        <LemonSkeleton className="h-4 w-4" />
+                    </div>
+                    <LemonSkeleton className="h-4 flex-1" />
+                </div>
             </div>
         )
     }
@@ -282,7 +306,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         <List
                             width={width}
                             height={height}
-                            rowCount={isLoading && totalListCount === 0 ? 7 : totalListCount}
+                            rowCount={Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)}
                             overscanRowCount={100}
                             rowHeight={36} // LemonRow heights
                             rowRenderer={renderItem}
