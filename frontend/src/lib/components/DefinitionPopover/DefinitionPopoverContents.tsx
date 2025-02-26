@@ -97,7 +97,8 @@ export function PropertyStatusControl({
         hidden: 'Hide this property from filters and other selection components by default. Use this for deprecated or irrelevant properties.',
     }
 
-    const verifiedDisabledCorePropCopy = 'Core PostHog properties cannot be verified, but they can be hidden.'
+    const verifiedDisabledCorePropCopy =
+        'Core PostHog properties are inherently treated as if verified, but they can still be hidden.'
 
     const currentStatus: PropertyDefinitionVerificationStatus = hidden ? 'hidden' : verified ? 'verified' : 'visible'
 
