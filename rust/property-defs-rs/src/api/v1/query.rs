@@ -291,16 +291,16 @@ impl Manager {
             // if a list of event_names was supplied, we want this join to narrow
             // to only those events. otherwise it's a LEFT JOIN for enrichment only
             qb.push(self.event_property_join_type(filter_by_event_names));
-            qb.push(format!(
-                " (SELECT DISTINCT property FROM {} WHERE COALESCE(project_id, team_id) = ",
-                EVENT_PROPERTY_TABLE
-            ));
+            let subq = format!(
+                " (SELECT DISTINCT {0}.\"property\" FROM {0} WHERE COALESCE({0}.\"project_id\", {0}.\"team_id\") = ",
+                EVENT_PROPERTY_TABLE);
+            qb.push(subq);
             qb.push_bind(project_id);
             qb.push(" ");
 
             // conditionally apply filter if event_names list was supplied
             if filter_by_event_names {
-                qb.push(" AND event = ANY(");
+                qb.push(format!(" AND {}.\"event\" = ANY(", EVENT_PROPERTY_TABLE));
                 qb.push_bind(event_names);
                 qb.push(") ");
             }
