@@ -22,6 +22,7 @@ import {
     ProductAnalyticsNuxtJSInstructions,
     ProductAnalyticsPHPInstructions,
     ProductAnalyticsPythonInstructions,
+    ProductAnalyticsReactInstructions,
     ProductAnalyticsRemixJSInstructions,
     ProductAnalyticsRNInstructions,
     ProductAnalyticsRubyInstructions,
@@ -30,7 +31,6 @@ import {
     ProductAnalyticsVueInstructions,
     ProductAnalyticsWebflowInstructions,
 } from '.'
-import { ProductAnalyticsReactInstructions } from './react'
 
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
