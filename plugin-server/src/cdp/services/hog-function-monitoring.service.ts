@@ -115,7 +115,7 @@ export class HogFunctionMonitoringService {
                             this.messagesToProduce.push({
                                 topic: KAFKA_EVENTS_PLUGIN_INGESTION,
                                 value: convertToCaptureEvent(event, team),
-                                key: `${team!.api_token}:${event.distinct_id}`,
+                                key: `${team.api_token}:${event.distinct_id}`,
                             })
                         }
                     })
