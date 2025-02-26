@@ -129,63 +129,78 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                         </>
                                     )
                                 }}
-                                right={({ record }) =>
-                                    record?.created_at || record?.type ? (
+                                itemSideAction={(item) => ({
+                                    icon: (
                                         <More
                                             size="xsmall"
                                             onClick={(e) => e.stopPropagation()}
                                             overlay={
                                                 <>
-                                                    {record?.type === 'folder' || record?.type === 'project' ? (
+                                                    {item.record?.type === 'folder' ||
+                                                    item.record?.type === 'project' ? (
                                                         <LemonButton
-                                                            onClick={() => {
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
                                                                 const folder = prompt(
-                                                                    record.path
-                                                                        ? `Create a folder under "${record.path}":`
+                                                                    item.record?.path
+                                                                        ? `Create a folder under "${item.record?.path}":`
                                                                         : 'Create a new folder:',
                                                                     ''
                                                                 )
                                                                 if (folder) {
                                                                     addFolder(
-                                                                        record.path
-                                                                            ? record.path + '/' + folder
+                                                                        item.record?.path
+                                                                            ? item.record?.path + '/' + folder
                                                                             : folder
                                                                     )
                                                                 }
                                                             }}
                                                             fullWidth
+                                                            size="small"
                                                         >
                                                             New Folder
                                                         </LemonButton>
                                                     ) : null}
-                                                    {record.path ? (
+                                                    {item.record?.path ? (
                                                         <LemonButton
-                                                            onClick={() => {
-                                                                const oldPath = record.path
-                                                                const folder = prompt('New name?', oldPath)
-                                                                if (folder) {
-                                                                    moveItem(oldPath, folder)
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                const oldFilePath = item.record?.path
+                                                                const folder = prompt('New name?', oldFilePath)
+                                                                if (folder && oldFilePath) {
+                                                                    moveItem(oldFilePath, folder)
                                                                 }
                                                             }}
                                                             fullWidth
+                                                            size="small"
                                                         >
                                                             Rename
                                                         </LemonButton>
                                                     ) : null}
-                                                    {record.path ? (
+                                                    {item.record?.path ? (
                                                         <LemonButton
-                                                            onClick={() => {
-                                                                void navigator.clipboard.writeText(record.path)
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                if (item.record?.path) {
+                                                                    void navigator.clipboard.writeText(
+                                                                        item.record?.path
+                                                                    )
+                                                                }
                                                             }}
                                                             fullWidth
+                                                            size="small"
                                                         >
                                                             Copy Path
                                                         </LemonButton>
                                                     ) : null}
-                                                    {record?.created_at ? (
+                                                    {item.record?.created_at ? (
                                                         <LemonButton
-                                                            onClick={() => deleteItem(record as FileSystemEntry)}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                deleteItem(item as unknown as FileSystemEntry)
+                                                            }}
                                                             fullWidth
+                                                            size="small"
                                                         >
                                                             Delete
                                                         </LemonButton>
@@ -193,8 +208,9 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                                 </>
                                             }
                                         />
-                                    ) : undefined
-                                }
+                                    ),
+                                    identifier: item.record?.path || 'more',
+                                })}
                             />
                         </ScrollableShadows>
                     </DndContext>

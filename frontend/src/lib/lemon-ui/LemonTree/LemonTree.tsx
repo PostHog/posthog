@@ -3,7 +3,7 @@ import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { cn } from 'lib/utils/css-classes'
 import { forwardRef, HTMLAttributes, useCallback, useRef, useState } from 'react'
 
-import { LemonButton } from '../LemonButton'
+import { LemonButton, SideAction } from '../LemonButton'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -12,8 +12,8 @@ export type TreeDataItem = {
     name: string
     /** Passthrough metadata */
     record?: Record<string, any>
-    /** Content to display to the right of the item. */
-    right?: React.ReactNode
+    /** The side action to render for the item. */
+    itemSideAction?: (item: TreeDataItem) => SideAction
     /** The icon to use for the item. */
     icon?: React.ReactNode
     /** The children of the item. */
@@ -55,7 +55,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             setExpandedItemIds,
             defaultNodeIcon,
             showFolderActiveState,
-            right,
+            itemSideAction,
         },
         ref
     ): JSX.Element => {
@@ -122,6 +122,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     icon={getIcon(item, expandedItemIds)}
                                     disabledReason={item.disabledReason}
                                     tooltipPlacement="right"
+                                    sideAction={itemSideAction ? itemSideAction(item) : undefined}
                                 >
                                     <span
                                         className={cn('', {
@@ -131,9 +132,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     >
                                         {renderItem ? renderItem(item, item.name) : item.name}
                                     </span>
-                                    {item.right || right ? (
-                                        <span className="ml-auto pl-1">{item.right || right?.(item)}</span>
-                                    ) : null}
                                 </LemonButton>
                             </AccordionPrimitive.Trigger>
 
@@ -148,7 +146,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         setExpandedItemIds={setExpandedItemIds}
                                         defaultNodeIcon={defaultNodeIcon}
                                         showFolderActiveState={showFolderActiveState}
-                                        right={right}
+                                        itemSideAction={itemSideAction}
                                         renderItem={renderItem}
                                         className="ml-4 space-y-px"
                                     />
@@ -184,7 +182,8 @@ export type LemonTreeProps = HTMLAttributes<HTMLDivElement> & {
      * @param node - the node that was clicked
      */
     onNodeClick?: (node: TreeDataItem | undefined) => void
-    right?: (item: TreeDataItem) => React.ReactNode
+    /** The side action to render for the item. */
+    itemSideAction?: (item: TreeDataItem) => SideAction
 
     /** The ref of the content to focus when the tree is clicked. TODO: make non-optional. */
     contentRef?: React.RefObject<HTMLElement>
@@ -202,7 +201,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             className,
             showFolderActiveState = false,
             contentRef,
-            right,
+            itemSideAction,
             ...props
         },
         ref
@@ -573,7 +572,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     setExpandedItemIds={setExpandedItemIds}
                     defaultNodeIcon={defaultNodeIcon}
                     showFolderActiveState={showFolderActiveState}
-                    right={right}
+                    itemSideAction={itemSideAction}
                     className="space-y-px"
                     {...props}
                 />
