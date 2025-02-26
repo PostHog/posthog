@@ -520,11 +520,6 @@ export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
 
-export interface SessionRecordingMaskingConfig {
-    maskAllInputs?: boolean
-    maskTextSelector?: string
-}
-
 export enum ActivationTaskStatus {
     COMPLETED = 'completed',
     SKIPPED = 'skipped',
@@ -551,7 +546,6 @@ export interface TeamType extends TeamBasicType {
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
-    session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
