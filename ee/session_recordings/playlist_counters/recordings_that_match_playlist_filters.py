@@ -33,6 +33,11 @@ REPLAY_TEAM_PLAYLIST_COUNT_FAILED = Counter(
     "when a count task for a playlist fails",
 )
 
+REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN = Counter(
+    "replay_playlist_count_unknown",
+    "when a count task for a playlist is unknown",
+)
+
 REPLAY_PLAYLIST_COUNT_TIMER = Histogram(
     "replay_playlist_with_filters_count_timer_seconds",
     "Time spent loading session recordings that match filters in a playlist in seconds",
@@ -149,7 +154,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
     except SessionRecordingPlaylist.DoesNotExist:
         logger.info("Playlist does not exist", playlist_id=playlist_id)
-        REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
+        REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
         posthoganalytics.capture_exception(e)
         logger.exception("Failed to count recordings that match playlist filters", playlist_id=playlist_id, error=e)
