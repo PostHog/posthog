@@ -36,7 +36,7 @@ async function runSingleTeamPluginOnEvent(
 
     try {
         // Check if we should record HTTP calls
-        const recordHttpCalls = hub.DESTINATION_MIGRATION_DIFFING_ENABLED === true && hub.TASKS_PER_WORKER === 10
+        const recordHttpCalls = hub.DESTINATION_MIGRATION_DIFFING_ENABLED === true && hub.TASKS_PER_WORKER === 1
 
         if (recordHttpCalls) {
             // Clear the HTTP call recorder before running the plugin
