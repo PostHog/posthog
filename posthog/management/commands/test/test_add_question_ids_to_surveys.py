@@ -4,6 +4,7 @@ from django.db.models.signals import pre_save
 from posthog.models import Survey
 from posthog.models.feedback.survey import pre_save_survey
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 
 class TestAddQuestionIdsToSurveys(BaseTest):
@@ -96,3 +97,42 @@ class TestAddQuestionIdsToSurveys(BaseTest):
         # Check that no changes were made in dry-run mode
         for question in self.survey2.questions:
             self.assertNotIn("id", question)
+
+    def test_batch_processing(self):
+        """
+        Test that the command processes surveys in batches as expected.
+
+        This test verifies that the command works correctly with a very small batch size,
+        which indirectly confirms that batch processing is working.
+        """
+        # Create additional surveys for this test
+        pre_save.disconnect(pre_save_survey, sender=Survey)
+
+        # Create 10 surveys without question IDs for this test
+        for i in range(10):
+            Survey.objects.create(
+                team=self.team,
+                name=f"Batch Test Survey {i}",
+                questions=[
+                    {"type": "open", "question": f"Question {i}"},
+                ],
+            )
+
+        pre_save.connect(pre_save_survey, sender=Survey)
+
+        # Set a very small batch size to ensure multiple batches
+        batch_size = 1
+
+        # Run the command with a small batch size
+        with patch("sys.stdout"):
+            call_command("add_question_ids_to_surveys", batch_size=batch_size, really_run=True)
+
+        # Verify that all surveys have question IDs now
+        for survey in Survey.objects.filter(name__startswith="Batch Test Survey"):
+            survey.refresh_from_db()
+            for question in survey.questions:
+                self.assertIn("id", question)
+                self.assertTrue(len(question["id"]) > 0)
+
+        # The fact that all surveys were processed with a batch size of 1
+        # indirectly confirms that the batch processing logic works correctly
