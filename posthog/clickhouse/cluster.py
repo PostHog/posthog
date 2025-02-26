@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, NamedTuple, TypeVar
 from collections.abc import Iterable
 
+import dagster
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
@@ -27,7 +28,7 @@ from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 
-logger = logging.getLogger(__name__)
+logger = dagster.get_dagster_logger("clickhouse")
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
