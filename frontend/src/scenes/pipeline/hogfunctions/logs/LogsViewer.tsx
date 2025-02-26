@@ -60,7 +60,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                     type="search"
                     placeholder="Search for messages containing…"
                     fullWidth
-                    onChange={(value) => setFilters({ searchTerm: value })}
+                    onChange={(value) => setFilters({ search: value })}
                     allowClear
                     prefix={
                         <>
@@ -80,12 +80,12 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                                         <LemonButton
                                             key={level}
                                             fullWidth
-                                            sideIcon={<LemonCheckbox checked={filters.logLevels.includes(level)} />}
+                                            sideIcon={<LemonCheckbox checked={filters.levels.includes(level)} />}
                                             onClick={() => {
                                                 setFilters({
-                                                    logLevels: filters.logLevels.includes(level)
-                                                        ? filters.logLevels.filter((t) => t != level)
-                                                        : [...filters.logLevels, level],
+                                                    levels: filters.levels.includes(level)
+                                                        ? filters.levels.filter((t) => t != level)
+                                                        : [...filters.levels, level],
                                                 })
                                             }}
                                         >
@@ -97,7 +97,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                         }
                     >
                         <LemonButton size="small" type="secondary">
-                            {filters.logLevels.map((level) => level).join(', ')}
+                            {filters.levels.map((level) => level).join(', ')}
                         </LemonButton>
                     </LemonDropdown>
 

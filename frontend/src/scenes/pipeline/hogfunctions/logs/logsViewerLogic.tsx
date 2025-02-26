@@ -1,7 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
@@ -19,8 +18,8 @@ export type LogsViewerLogicProps = {
 }
 
 export type LogsViewerFilters = {
-    logLevels: LogEntryLevel[]
-    searchTerm: string
+    levels: LogEntryLevel[]
+    search: string
     after?: string
     before?: string
 }
@@ -131,8 +130,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     actions.clearBackgroundLogs()
 
                     const logParams: GroupedLogEntryRequest = {
-                        levels: values.filters.logLevels,
-                        searchTerm: values.filters.searchTerm,
+                        levels: values.filters.levels,
+                        searchTerm: values.filters.search,
                         sourceType: props.sourceType,
                         sourceId: props.sourceId,
                         before: values.filters.before,
@@ -147,8 +146,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         return values.logs
                     }
                     const logParams: GroupedLogEntryRequest = {
-                        levels: values.filters.logLevels,
-                        searchTerm: values.filters.searchTerm,
+                        levels: values.filters.levels,
+                        searchTerm: values.filters.search,
                         sourceType: props.sourceType,
                         sourceId: props.sourceId,
                         before: values.trailingEntryTimestamp.toISOString(),
@@ -176,8 +175,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         return []
                     }
                     const logParams: GroupedLogEntryRequest = {
-                        searchTerm: values.filters.searchTerm,
-                        levels: values.filters.logLevels,
+                        searchTerm: values.filters.search,
+                        levels: values.filters.levels,
                         after: values.leadingEntryTimestamp.toISOString(),
                         before: values.filters.before,
                         sourceType: props.sourceType,
@@ -194,8 +193,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     reducers({
         filters: [
             {
-                searchTerm: '',
-                logLevels: DEFAULT_LOG_LEVELS,
+                search: '',
+                levels: DEFAULT_LOG_LEVELS,
                 after: '-7d',
                 before: undefined,
             } as LogsViewerFilters,
@@ -267,24 +266,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         },
         beforeUnmount: () => {
             clearInterval(cache.pollingInterval)
-        },
-    })),
-
-    urlToAction(({ values, actions, cache }) => ({
-        '*': (_, searchParams) => {
-            console.log(searchParams)
-        },
-    })),
-
-    actionToUrl(({ values }) => ({
-        setFilters: () => {
-            return [
-                router.values.location.pathname,
-                {
-                    ...router.values.searchParams,
-                    ...values.filters,
-                },
-            ]
         },
     })),
 ])
