@@ -3,6 +3,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.constants import FUNNEL_TO_STEP
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
@@ -16,8 +17,9 @@ class FunnelTimeToConvertUDF(FunnelBase):
     ):
         super().__init__(context)
 
-        # Haven't implemented calls for time_to_convert in UDF yet
-        self.funnel_order = get_funnel_order_class(self.context.funnelsFilter, use_udf=False)(context=self.context)
+        self.funnel_order: FunnelUDF = get_funnel_order_class(self.context.funnelsFilter, use_udf=True)(
+            context=self.context
+        )
 
     def _format_results(self, results: list) -> FunnelTimeToConvertResults:
         return FunnelTimeToConvertResults(
@@ -26,6 +28,48 @@ class FunnelTimeToConvertUDF(FunnelBase):
         )
 
     def get_query(self) -> ast.SelectQuery:
+        funnelsFilter = self.context.funnelsFilter
+
+        bin_count = funnelsFilter.binCount or 5
+        inner_select = self.funnel_order._inner_aggregation_query()
+
+        # for everybody with steps at max steps,
+        # funnelsFilter.funnel from step (0 indexed)
+        # funnelsFilter.funnel_to_step (0 indexed)
+        timings = parse_select(
+            f"""
+            SELECT
+                groupArray(arraySum(arraySlice(timings, {funnelsFilter.funnelFromStep+1}, {funnelsFilter.funnelToStep - funnelsFilter.funnelFromStep}))) as timings,
+                floor(arrayMin(timings)) as min_timing,
+                ceil(arrayMax(timings)) as max_timing,
+                (max_timing - min_timing) / {bin_count} as bucket_size,
+                arrayMap(n -> toInt(round(min_timing + n * bucket_size)), range(0,{bin_count})) as buckets,
+                arrayMap(timing -> toInt(floor((timing - min_timing) / bucket_size)), timings) as indices,
+                arrayMap(x -> countEqual(indices, x-1), range(1, {bin_count + 1})) as counts
+            FROM {{inner_select}}
+            WHERE step_reached >= {funnelsFilter.funnelToStep} """,
+            {"inner_select": inner_select},
+        )
+
+        return parse_select(
+            f"""
+            SELECT
+                bin_from_seconds,
+                person_count,
+                arrayAvg(timings) as averageConversionTime
+            FROM {{timings}}
+            ARRAY JOIN
+            counts as person_count,
+            buckets as bin_from_seconds
+            """,
+            {"timings": timings},
+        )
+
+        # self.funnelsFilter = funnelsFilter
+
+        # steps_per_person_query = self.funnel_order.get_step_counts_query()
+
+    def get_query_old(self) -> ast.SelectQuery:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
 
         steps_per_person_query = self.funnel_order.get_step_counts_query()
