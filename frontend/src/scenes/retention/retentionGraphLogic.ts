@@ -16,7 +16,7 @@ const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 export const retentionGraphLogic = kea<retentionGraphLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
-    path((key) => ['scenes', 'retention', 'retentionLineGraphLogic', key]),
+    path((key) => ['scenes', 'retention', 'retentionGraphLogic', key]),
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
@@ -76,7 +76,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         data:
                             retentionReference === 'previous'
                                 ? retentionPercentages
-                                      // Zip together the current a previous values, filling
+                                      // Zip together the current and previous values, filling
                                       // in with 100 for the first index
                                       .map((value, index) => [value, paddedValues[index]])
                                       // map values to percentage of previous
