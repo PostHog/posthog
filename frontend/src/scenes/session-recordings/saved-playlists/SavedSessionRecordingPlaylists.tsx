@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -46,6 +47,8 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
     const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
     const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(logic)
 
+    const showCountColumn = useFeatureFlag('SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN')
+
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         {
             width: 0,
@@ -62,6 +65,9 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
         },
         {
             dataIndex: 'recordings_counts',
+            title: 'Count',
+            tooltip: 'Count of recordings in the playlist',
+            isHidden: !showCountColumn,
             width: 0,
             render: function Render(recordings_counts) {
                 if (!isPlaylistRecordingsCounts(recordings_counts)) {
