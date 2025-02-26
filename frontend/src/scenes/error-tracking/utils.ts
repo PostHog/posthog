@@ -4,6 +4,8 @@ import { range } from 'lib/utils'
 
 import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
 
+const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
+
 const volumePeriods: ('customVolume' | 'volumeDay' | 'volumeMonth')[] = ['customVolume', 'volumeDay', 'volumeMonth']
 const sumVolumes = (...arrays: number[][]): number[] =>
     arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))
@@ -112,6 +114,10 @@ export function getExceptionAttributes(
 
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList?.length > 0 && exceptionList.some((e) => !!e.stacktrace)
+}
+
+export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
+    return value === THIRD_PARTY_SCRIPT_ERROR
 }
 
 export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
