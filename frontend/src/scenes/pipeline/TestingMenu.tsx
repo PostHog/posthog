@@ -27,15 +27,16 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, DestinationRetryType, LogEntry } from '~/types'
 
+import { HogFunctionFilters } from './hogfunctions/filters/HogFunctionFilters'
 import { hogFunctionConfigurationLogic } from './hogfunctions/hogFunctionConfigurationLogic'
 import { tagTypeForLevel } from './hogfunctions/logs/LogsViewer'
 import { hogFunctionTestingLogic } from './hogFunctionTestingLogic'
 
-export interface HogFunctionConfigurationProps {
+export interface HogFunctionTestingProps {
     id: string
 }
 
-export function TestingMenu({ id }: HogFunctionConfigurationProps): JSX.Element {
+export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
     const { eventsWithRetries, loadingRetries } = useValues(hogFunctionTestingLogic({ id }))
     const { retryInvocation } = useActions(hogFunctionTestingLogic({ id }))
     const { loading, loaded, showPaygate } = useValues(hogFunctionConfigurationLogic({ id }))
@@ -73,7 +74,7 @@ export function TestingMenu({ id }: HogFunctionConfigurationProps): JSX.Element 
                 </span>
             </LemonBanner>
             <RunsFilters id={id} />
-            <ReplayEventsList id={id} />
+            <TestingEventsList id={id} />
         </div>
     )
 }
@@ -91,15 +92,15 @@ function RetryButton({
 }): JSX.Element {
     const handleRetry = (): void => {
         LemonDialog.open({
-            title: 'Replay event?',
+            title: 'Test events?',
             description: (
                 <>
                     <p>
-                        This will execute the hog function using {rows.length > 1 ? 'all visible events' : 'this event'}
-                        . Consider the impact of this function on your destination.
+                        This will invoke the hog function for all visible events. Consider the impact of this function
+                        on your destination.
                     </p>
                     <p>
-                        <b>Note -</b> do not close this page until the replay is complete.
+                        <b>Note -</b> do not close this page until all events have been tested.
                     </p>
                 </>
             ),
@@ -125,7 +126,7 @@ function RetryButton({
             disabledReason={loadingRetries.some((retry) => eventIds.includes(retry)) ? 'Retrying...' : undefined}
             onClick={handleRetry}
         >
-            {rows.length > 1 ? <span>Replay all visible events</span> : null}
+            {rows.length > 1 ? <span>Test all visible events</span> : null}
         </LemonButton>
     )
 }
@@ -215,11 +216,12 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                 dateTo={baseEventsQuery?.before ?? undefined}
                 onChange={changeDateRange}
             />
+            <HogFunctionFilters />
         </div>
     )
 }
 
-export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
+export function TestingEventsList({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionTestingLogic({ id })
     const { eventsLoading, eventsWithRetries, totalEvents, pageTimestamps, expandedRows, loadingRetries } =
         useValues(logic)
@@ -328,7 +330,7 @@ export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
                                         eventId
                                             ? {
                                                   label: 'View event',
-                                                  to: urls.event(eventId, ''),
+                                                  to: urls.event(eventId, row[0].timestamp),
                                               }
                                             : null,
                                         {
