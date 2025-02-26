@@ -1,4 +1,5 @@
 import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
+import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig, PluginMethodsConcrete, PluginTaskType, PostIngestionEvent } from '../../types'
 import { processError } from '../../utils/db/error'
@@ -71,29 +72,28 @@ async function withHttpCallRecording<T>(
         getHttpCallRecorder().clearCalls()
     }
 
+    let failed = false
     try {
         // Execute the operation
-        const result = await operation()
-
-        if (recordHttpCalls) {
-            // Get recorded HTTP calls
-            const recordedCalls = getHttpCallRecorder().getCalls()
-            logHttpCalls(recordedCalls, eventUuid, pluginConfig)
-        }
-
-        return result
+        return operation()
     } catch (error) {
-        if (recordHttpCalls) {
-            // Get recorded HTTP calls even if the operation failed
-            const recordedCalls = getHttpCallRecorder().getCalls()
-            logHttpCalls(recordedCalls, eventUuid, pluginConfig, true)
-        }
-
+        failed = true
         throw error // Re-throw the error to be handled by the caller
     } finally {
-        if (recordHttpCalls) {
-            // Clear the recorder to prevent memory leaks
-            getHttpCallRecorder().clearCalls()
+        try {
+            if (recordHttpCalls) {
+                // Get recorded HTTP calls even if the operation failed
+                const recordedCalls = getHttpCallRecorder().getCalls()
+                logHttpCalls(recordedCalls, eventUuid, pluginConfig, failed)
+            }
+        } catch (e) {
+            status.error('🌐', `Error checking record logs...`)
+            captureException(e)
+        } finally {
+            if (recordHttpCalls) {
+                // Clear the recorder to prevent memory leaks
+                getHttpCallRecorder().clearCalls()
+            }
         }
     }
 }
