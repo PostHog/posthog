@@ -338,27 +338,31 @@ class Query:
 @dataclass
 class RetryPolicy:
     max_attempts: int
-    delay: float
+    delay: float | Callable[[int], float]
     exceptions: tuple[type[Exception], ...] | Callable[[Exception], bool] = (Exception,)
 
-    def __call__(self, callable: Callable[[Client], T]) -> Callable[[Client], T]:
+    def __call__(self, fn: Callable[[Client], T]) -> Callable[[Client], T]:
         if isinstance(self.exceptions, tuple):
             is_retryable_exception = lambda e: isinstance(e, self.exceptions)
         else:
             is_retryable_exception = self.exceptions
+
+        if callable(self.delay):
+            delay_fn = self.delay
+        else:
+            delay_fn = lambda _: self.delay
 
         # TODO: improve __repr__ here
         def wrapped(client: Client) -> T:
             counter = itertools.count(1)
             while (attempt := next(counter)) <= self.max_attempts:
                 try:
-                    return callable(client)
+                    return fn(client)
                 except Exception as e:
                     if is_retryable_exception(e) and attempt < self.max_attempts:
-                        logger.warning(
-                            "Failed to invoke %r (attempt #%s), retrying in %s...", callable, attempt, self.delay
-                        )
-                        time.sleep(self.delay)
+                        delay = delay_fn(attempt)
+                        logger.warning("Failed to invoke %r (attempt #%s), retrying in %0.2fs...", fn, attempt, delay)
+                        time.sleep(delay)
                     else:
                         raise
 
