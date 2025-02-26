@@ -488,6 +488,8 @@ class MutationRunner:
 
         cluster.map_all_hosts_in_shards(
             {
+                # during periods of elevated replication lag, it may take some time for mutations to become available on
+                # the shards, so give them a little bit of breathing room with retries
                 shard_num: RetryPolicy(mutation.wait, max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
                 for shard_num, mutation in shard_mutations.items()
             }
