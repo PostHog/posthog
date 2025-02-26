@@ -13,6 +13,19 @@ jest.mock('../../src/utils/fetch', () => ({
     trackedFetch: jest.fn(),
 }))
 
+// Mock config.ts
+jest.mock('../../src/config/config', () => {
+    const originalModule = jest.requireActual('../../src/config/config')
+    return {
+        ...originalModule,
+        defaultConfig: {
+            ...originalModule.defaultConfig,
+            DESTINATION_MIGRATION_DIFFING_ENABLED: true,
+            TASKS_PER_WORKER: 1,
+        },
+    }
+})
+
 const mockResponse = {
     status: 200,
     statusText: 'OK',
@@ -84,10 +97,6 @@ describe('VM with recorded fetch', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-
-        // Set it to record HTTP calls
-        hub.TASKS_PER_WORKER = 1
-        hub.DESTINATION_MIGRATION_DIFFING_ENABLED = true
 
         pluginConfig = { ...pluginConfig39 }
 
