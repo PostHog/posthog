@@ -9,12 +9,11 @@ import {
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
-import { RecordedHttpCall } from '../../utils/recorded-fetch'
+import { getHttpCallRecorder, RecordedHttpCall } from '../../utils/recorded-fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
 import { WebhookFormatter } from '../ingestion/webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
-import { getHttpCallRecorder } from '../vm/imports'
 
 const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
 

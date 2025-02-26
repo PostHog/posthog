@@ -1,7 +1,7 @@
 import { Response } from 'node-fetch'
 
 import { trackedFetch } from './fetch'
-import { HttpCallRecorder, recordedFetch } from './recorded-fetch'
+import { globalHttpCallRecorder, recordedFetch } from './recorded-fetch'
 
 // Mock the trackedFetch function
 jest.mock('../../src/utils/fetch', () => ({
@@ -22,15 +22,13 @@ jest.mock('../../src/config/config', () => {
 })
 
 describe('HttpCallRecorder', () => {
-    let recorder: HttpCallRecorder
-
     beforeEach(() => {
-        recorder = new HttpCallRecorder()
+        globalHttpCallRecorder.clearCalls()
         jest.clearAllMocks()
     })
 
     it('should initialize with empty calls array', () => {
-        expect(recorder.getCalls()).toEqual([])
+        expect(globalHttpCallRecorder.getCalls()).toEqual([])
     })
 
     it('should add and retrieve calls', () => {
@@ -51,9 +49,9 @@ describe('HttpCallRecorder', () => {
             },
         }
 
-        recorder.addCall(mockCall)
-        expect(recorder.getCalls()).toHaveLength(1)
-        expect(recorder.getCalls()[0]).toEqual(mockCall)
+        globalHttpCallRecorder.addCall(mockCall)
+        expect(globalHttpCallRecorder.getCalls()).toHaveLength(1)
+        expect(globalHttpCallRecorder.getCalls()[0]).toEqual(mockCall)
     })
 
     it('should clear all calls', () => {
@@ -74,16 +72,15 @@ describe('HttpCallRecorder', () => {
             },
         }
 
-        recorder.addCall(mockCall)
-        expect(recorder.getCalls()).toHaveLength(1)
+        globalHttpCallRecorder.addCall(mockCall)
+        expect(globalHttpCallRecorder.getCalls()).toHaveLength(1)
 
-        recorder.clearCalls()
-        expect(recorder.getCalls()).toHaveLength(0)
+        globalHttpCallRecorder.clearCalls()
+        expect(globalHttpCallRecorder.getCalls()).toHaveLength(0)
     })
 })
 
 describe('recordedFetch', () => {
-    let recorder: HttpCallRecorder
     const mockResponseBody = '{"success": true}'
     const mockResponse = {
         status: 200,
@@ -100,7 +97,7 @@ describe('recordedFetch', () => {
     } as unknown as Response
 
     beforeEach(() => {
-        recorder = new HttpCallRecorder()
+        globalHttpCallRecorder.clearCalls()
         jest.clearAllMocks()
         jest.mocked(trackedFetch).mockResolvedValue(mockResponse)
     })
@@ -113,7 +110,7 @@ describe('recordedFetch', () => {
             body: JSON.stringify({ data: 'test' }),
         }
 
-        const response = await recordedFetch(recorder, url, init)
+        const response = await recordedFetch(url, init)
 
         // Verify trackedFetch was called with the right parameters
         expect(trackedFetch).toHaveBeenCalledWith(url, init)
@@ -122,7 +119,7 @@ describe('recordedFetch', () => {
         expect(response).toBe(mockResponse)
 
         // Verify call was recorded
-        const calls = recorder.getCalls()
+        const calls = globalHttpCallRecorder.getCalls()
         expect(calls).toHaveLength(1)
 
         const recordedCall = calls[0]
@@ -145,10 +142,10 @@ describe('recordedFetch', () => {
 
         jest.mocked(trackedFetch).mockRejectedValueOnce(error)
 
-        await expect(recordedFetch(recorder, url)).rejects.toThrow('Network error')
+        await expect(recordedFetch(url)).rejects.toThrow('Network error')
 
         // Verify call was recorded with error
-        const calls = recorder.getCalls()
+        const calls = globalHttpCallRecorder.getCalls()
         expect(calls).toHaveLength(1)
 
         const recordedCall = calls[0]
@@ -164,19 +161,19 @@ describe('recordedFetch', () => {
 
     it('should handle different types of request bodies', async () => {
         // String body
-        await recordedFetch(recorder, 'https://example.com', {
+        await recordedFetch('https://example.com', {
             method: 'POST',
             body: 'plain text body',
         })
 
         // JSON body as string
-        await recordedFetch(recorder, 'https://example.com', {
+        await recordedFetch('https://example.com', {
             method: 'POST',
             body: JSON.stringify({ key: 'value' }),
         })
 
         // JSON body as object (should be automatically stringified)
-        await recordedFetch(recorder, 'https://example.com', {
+        await recordedFetch('https://example.com', {
             method: 'POST',
             body: JSON.stringify({ key: 'value', nested: { prop: true } }),
         })
@@ -184,12 +181,12 @@ describe('recordedFetch', () => {
         // URLSearchParams body
         const params = new URLSearchParams()
         params.append('key', 'value')
-        await recordedFetch(recorder, 'https://example.com', {
+        await recordedFetch('https://example.com', {
             method: 'POST',
             body: params,
         })
 
-        const calls = recorder.getCalls()
+        const calls = globalHttpCallRecorder.getCalls()
         expect(calls).toHaveLength(4)
 
         expect(calls[0].request.body).toBe('plain text body')
@@ -220,16 +217,16 @@ describe('recordedFetch', () => {
             } as unknown as Response)
         })
 
-        await recordedFetch(recorder, 'https://example.com/headers-test-1', {
+        await recordedFetch('https://example.com/headers-test-1', {
             headers: { 'x-custom-header': 'value1' },
         })
 
         // Plain object headers
-        await recordedFetch(recorder, 'https://example.com/headers-test-2', {
+        await recordedFetch('https://example.com/headers-test-2', {
             headers: { 'x-custom-header': 'value2' },
         })
 
-        const calls = recorder.getCalls()
+        const calls = globalHttpCallRecorder.getCalls()
         expect(calls).toHaveLength(2)
 
         // For the first call, we're checking if the request headers are properly recorded
@@ -289,7 +286,7 @@ describe('recordedFetch', () => {
 
         // First request - get user data
         const userUrl = 'https://example.com/api/users/user123'
-        const userDataResponse = await recordedFetch(recorder, userUrl)
+        const userDataResponse = await recordedFetch(userUrl)
         const userData = await userDataResponse.json()
 
         // Second request - post analytics data using user data from first response
@@ -308,10 +305,10 @@ describe('recordedFetch', () => {
             }),
         }
 
-        await recordedFetch(recorder, analyticsUrl, analyticsInit)
+        await recordedFetch(analyticsUrl, analyticsInit)
 
         // Verify calls were recorded
-        const calls = recorder.getCalls()
+        const calls = globalHttpCallRecorder.getCalls()
         expect(calls).toHaveLength(2)
 
         // Verify the first call (GET user data)
