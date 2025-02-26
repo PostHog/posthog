@@ -218,12 +218,12 @@ impl Manager {
         qb.push(" ");
     }
 
-    fn gen_conditional_join_event_props<'a>(
+    fn gen_conditional_join_event_props<'args>(
         &self,
-        qb: &mut QueryBuilder<'a, Postgres>,
+        qb: &mut QueryBuilder<'args, Postgres>,
         project_id: i32,
         property_type: PropertyParentType,
-        event_names: &'a Vec<String>,
+        event_names: &'args Vec<String>,
     ) {
         // conditionally join on event properties table
         // this join is only applied if the query is scoped to type "event"
