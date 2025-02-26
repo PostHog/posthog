@@ -336,6 +336,14 @@ class Query:
 
 
 @dataclass
+class ExponentialBackoff:
+    delay: float
+
+    def __call__(self, attempt: int) -> float:
+        return self.delay * (attempt**2)
+
+
+@dataclass
 class RetryPolicy:
     max_attempts: int
     delay: float | Callable[[int], float]

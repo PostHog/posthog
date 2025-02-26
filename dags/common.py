@@ -3,6 +3,7 @@ import dagster
 from clickhouse_driver.errors import ErrorCodes, Error
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
+    ExponentialBackoff,
     RetryPolicy,
     get_cluster,
 )
@@ -27,7 +28,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=3,
-                delay=30,
+                delay=ExponentialBackoff(15),
                 exceptions=lambda e: (
                     isinstance(e, Error)
                     and e.code in (ErrorCodes.NETWORK_ERROR, ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES)
