@@ -761,7 +761,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 team=team,
             )
 
-        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)    
 
     @cached_property
     def user_permissions(self):

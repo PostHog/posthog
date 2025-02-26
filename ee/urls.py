@@ -6,7 +6,7 @@ from django.urls import include
 from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
 
-from ee.api import integration
+from ee.api import integration, pull_request
 from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import (
@@ -96,6 +96,10 @@ def extend_api_router() -> None:
 
     environments_router.register(
         r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
+    )
+
+    environments_router.register(
+        r"pull_requests", pull_request.PullRequestViewSet, "environment_pull_requests", ["team_id"]
     )
 
 
