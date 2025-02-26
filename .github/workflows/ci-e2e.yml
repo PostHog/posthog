@@ -95,7 +95,7 @@ jobs:
 
     container:
         name: Build and cache container image
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 60
         needs: [changes]
         permissions:
