@@ -810,6 +810,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     trendsFilter: {
                         display: ChartDisplayType.ActionsBar,
                     },
+                    modifiers: {
+                        personsOnEventsMode: 'person_id_no_override_properties_on_events',
+                    },
                 }
             },
             { resultEqualityCheck: equal },
