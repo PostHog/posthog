@@ -77,7 +77,9 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
         return result
 
     result["use"] = QueryIndexUsage.UNDECISIVE
+    hasMinMax = False
     minMax = False
+    hasPartition = False
     partition = False
     primary_key = False
     for index in indexes:
@@ -85,12 +87,14 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
             continue
         index_type = index.get("Type", "")
         if index_type == "MinMax":
+            hasMinMax = True
             minMax = selected_less_granules(index)
         elif index_type == "Partition":
+            hasPartition = True
             partition = selected_less_granules(index)
         elif index_type == "PrimaryKey":
             primary_key = len(index.get("Keys", [])) > 1 and selected_less_granules(index)
-    if (minMax or partition) and primary_key:
+    if ((not hasMinMax and not hasPartition) or minMax or partition) and primary_key:
         result["use"] = QueryIndexUsage.YES
 
     return result
