@@ -99,53 +99,45 @@ export function PropertyStatusControl({
 
     const verifiedDisabledCorePropCopy = 'Core PostHog properties cannot be verified, but they can be hidden.'
 
-    const icon = {
-        verified: <IconCheckCircle />,
-        visible: <IconEye />,
-        hidden: <IconHide />,
-    }
-
     const currentStatus: PropertyDefinitionVerificationStatus = hidden ? 'hidden' : verified ? 'verified' : 'visible'
 
     return (
         <>
-            <div>
-                <LemonSegmentedButton
-                    value={currentStatus}
-                    onChange={(value) => {
-                        const status = value as PropertyDefinitionVerificationStatus
-                        onChange({
-                            verified: status === 'verified',
-                            hidden: status === 'hidden',
-                        })
-                    }}
-                    options={[
-                        {
-                            value: 'verified',
-                            label: 'Verified',
-                            tooltip: allowVerification ? copy.verified : undefined,
-                            icon: icon.verified,
-                            disabledReason: !allowVerification ? verifiedDisabledCorePropCopy : undefined,
-                        },
-                        {
-                            value: 'visible',
-                            label: 'Visible',
-                            tooltip: copy.visible,
-                            icon: icon.visible,
-                        },
-                        ...(showHiddenOption
-                            ? [
-                                  {
-                                      value: 'hidden',
-                                      label: 'Hidden',
-                                      tooltip: copy.hidden,
-                                      icon: icon.hidden,
-                                  },
-                              ]
-                            : []),
-                    ]}
-                />
-            </div>
+            <LemonSegmentedButton
+                value={currentStatus}
+                onChange={(value) => {
+                    const status = value as PropertyDefinitionVerificationStatus
+                    onChange({
+                        verified: status === 'verified',
+                        hidden: status === 'hidden',
+                    })
+                }}
+                options={[
+                    {
+                        value: 'verified',
+                        label: 'Verified',
+                        tooltip: allowVerification ? copy.verified : undefined,
+                        icon: <IconCheckCircle />,
+                        disabledReason: !allowVerification ? verifiedDisabledCorePropCopy : undefined,
+                    },
+                    {
+                        value: 'visible',
+                        label: 'Visible',
+                        tooltip: copy.visible,
+                        icon: <IconEye />,
+                    },
+                    ...(showHiddenOption
+                        ? [
+                              {
+                                  value: 'hidden',
+                                  label: 'Hidden',
+                                  tooltip: copy.hidden,
+                                  icon: <IconHide />,
+                              },
+                          ]
+                        : []),
+                ]}
+            />
             {!compact && <p className="italic">{copy[currentStatus]}</p>}
         </>
     )

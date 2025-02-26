@@ -42,7 +42,7 @@ type StatusProps = {
     tooltip: string
 }
 
-const statusProps: Record<PropertyDefinitionVerificationStatus, StatusProps> = {
+const STATUS_PROPS: Record<PropertyDefinitionVerificationStatus, StatusProps> = {
     verified: {
         tagType: 'success',
         label: 'Verified',
@@ -242,10 +242,10 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <div className="flex-1 flex flex-col">
                         <h5>Verification status</h5>
                         <div>
-                            <Tooltip title={statusProps[definitionStatus].tooltip}>
-                                <LemonTag type={statusProps[definitionStatus].tagType}>
-                                    {statusProps[definitionStatus].icon}
-                                    {statusProps[definitionStatus].label}
+                            <Tooltip title={STATUS_PROPS[definitionStatus].tooltip}>
+                                <LemonTag type={STATUS_PROPS[definitionStatus].tagType}>
+                                    {STATUS_PROPS[definitionStatus].icon}
+                                    {STATUS_PROPS[definitionStatus].label}
                                 </LemonTag>
                             </Tooltip>
                         </div>

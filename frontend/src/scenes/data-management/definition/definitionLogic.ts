@@ -16,10 +16,6 @@ import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic
 import { propertyDefinitionsTableLogic } from '../properties/propertyDefinitionsTableLogic'
 import type { definitionLogicType } from './definitionLogicType'
 
-export interface ExtendedPropertyDefinition extends PropertyDefinition {
-    hidden?: boolean
-}
-
 export const createNewDefinition = (isEvent: boolean): Definition => ({
     id: 'new',
     name: `New ${isEvent ? 'Event' : 'Event property'}`,
