@@ -46,7 +46,6 @@ export function TaxonomicPropertyFilter({
     hasRowOperator,
     metadataSource,
     propertyAllowList,
-    excludedProperties,
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
     exactMatchFeatureFlagCohortOperators,
@@ -81,7 +80,6 @@ export function TaxonomicPropertyFilter({
         taxonomicOnChange,
         eventNames,
         propertyAllowList,
-        excludedProperties,
     })
     const { filter, dropdownOpen, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
@@ -116,7 +114,6 @@ export function TaxonomicPropertyFilter({
             eventNames={eventNames}
             schemaColumns={schemaColumns}
             propertyAllowList={propertyAllowList}
-            excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
         />

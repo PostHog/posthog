@@ -1,3 +1,4 @@
+import Fuse from 'fuse.js'
 import {
     actions,
     afterMount,
@@ -36,13 +37,13 @@ export interface ProposeNewUrlFormType {
 export enum AuthorizedUrlListType {
     TOOLBAR_URLS = 'TOOLBAR_URLS',
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
-    WEB_ANALYTICS = 'WEB_ANALYTICS',
     WEB_EXPERIMENTS = 'WEB_EXPERIMENTS',
 }
 
 /**
  * Firefox does not allow you construct a new URL with e.g. https://*.example.com (which is to be fair more standards compliant than Chrome)
  * when used to probe for e.g. for authorized urls we only care if the proposed URL has a path so we can safely replace the wildcard with a character
+ * NB this changes its input and shouldn't be used for general purpose URL parsing
  */
 export function sanitizePossibleWildCardedURL(url: string): URL {
     const deWildCardedURL = url.replace(/\*/g, 'x')
@@ -52,7 +53,7 @@ export function sanitizePossibleWildCardedURL(url: string): URL {
 /**
  * Checks if the URL has a wildcard (*) in the port position e.g. http://localhost:*
  */
-export function hasWildcardInPort(input: unknown): boolean {
+export function hasPortWildcard(input: unknown): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
@@ -71,7 +72,7 @@ export const validateProposedUrl = (
         return 'Please enter a valid URL'
     }
 
-    if (hasWildcardInPort(proposedUrl)) {
+    if (hasPortWildcard(proposedUrl)) {
         return 'Wildcards are not allowed in the port position'
     }
 
@@ -128,7 +129,7 @@ export function appEditorUrl(
         generateOnly?: boolean
     }
 ): string {
-    const params = buildToolbarParams(options) as Record<string, unknown>
+    const params = buildToolbarParams(options)
     // See https://github.com/PostHog/posthog-js/blob/f7119c/src/extensions/toolbar.ts#L52 for where these params
     // are passed. `appUrl` is an extra `redirect_to_site` param.
     params['appUrl'] = appUrl
@@ -228,6 +229,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         removeUrl: (index: number) => ({ index }),
         updateUrl: (index: number, url: string) => ({ index, url }),
         launchAtUrl: (url: string) => ({ url }),
+        setSearchTerm: (term: string) => ({ term }),
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
         cancelProposingUrl: true,
         copyLaunchCode: (url: string) => ({ url }),
@@ -347,6 +349,12 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 addUrl: (state, { url }) => [...state].filter((sd) => url !== sd.url),
             },
         ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { term }) => term,
+            },
+        ],
         editUrlIndex: [
             null as number | null,
             {
@@ -427,8 +435,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
         urlsKeyed: [
-            (s) => [s.authorizedUrls, s.suggestions],
-            (authorizedUrls, suggestions): KeyedAppUrl[] => {
+            (s) => [s.authorizedUrls, s.suggestions, s.searchTerm],
+            (authorizedUrls, suggestions, searchTerm): KeyedAppUrl[] => {
                 const keyedUrls = authorizedUrls
                     .map((url, index) => ({
                         url,
@@ -444,7 +452,16 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                         }))
                     ) as KeyedAppUrl[]
 
-                return keyedUrls
+                if (!searchTerm) {
+                    return keyedUrls
+                }
+
+                return new Fuse(keyedUrls, {
+                    keys: ['url'],
+                    threshold: 0.3,
+                })
+                    .search(searchTerm)
+                    .map((result) => result.item)
             },
         ],
         launchUrl: [
