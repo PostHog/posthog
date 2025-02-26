@@ -1435,10 +1435,18 @@ class TestSurvey(APIBaseTest):
                                 "action": "changed",
                                 "field": "questions",
                                 "before": [
-                                    {"id": survey.questions[0].id, "type": "open", "question": "Initial question?"}
+                                    {
+                                        "id": str(survey.questions[0]["id"]),
+                                        "type": "open",
+                                        "question": "Initial question?",
+                                    }
                                 ],
                                 "after": [
-                                    {"id": survey.questions[0].id, "type": "open", "question": "Updated question?"}
+                                    {
+                                        "id": str(survey.questions[0]["id"]),
+                                        "type": "open",
+                                        "question": "Updated question?",
+                                    }
                                 ],
                             },
                         ],
@@ -1871,13 +1879,13 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "type": "popover",
                 "questions": [
                     {
-                        "id": basic_survey.questions[0]["id"],
+                        "id": str(basic_survey.questions[0]["id"]),
                         "type": "open",
                         "question": "What up?",
                         "description": "<script>alert(0)</script>check?",
                     },
                     {
-                        "id": basic_survey.questions[1]["id"],
+                        "id": str(basic_survey.questions[1]["id"]),
                         "type": "link",
                         "link": "https://bazinga.com",
                         "question": "<b>What</b> do you think of the new notebooks feature?",
@@ -3001,7 +3009,13 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "id": str(survey_with_actions.id),
                         "name": "survey with actions",
                         "type": "popover",
-                        "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                        "questions": [
+                            {
+                                "id": str(survey_with_actions.questions[0]["id"]),
+                                "type": "open",
+                                "question": "Why's a hedgehog?",
+                            }
+                        ],
                         "conditions": {
                             "actions": {
                                 "values": [
