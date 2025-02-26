@@ -1,5 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { beforeUnload } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
@@ -127,6 +128,13 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
     }),
 
     selectors({
+        retryRunning: [
+            (s) => [s.retries],
+            (retries) => {
+                return Object.values(retries).some((x) => x === 'pending')
+            },
+        ],
+
         eventIdByInvocationId: [
             (s) => [s.logs],
             (logs) => {
@@ -209,8 +217,6 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                             actions.addLogGroups([newLogGroup])
                             actions.retryInvocationSuccess(groupedLogEntry)
                         } catch (e) {
-                            lemonToast.error('Retry invocation failed')
-                            console.error(e)
                             actions.retryInvocationFailure(groupedLogEntry)
                         }
                     }
@@ -228,8 +234,6 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         retrySelectedInvocations: async () => {
             const groupsToRetry = values.logs.filter((x) => values.selectedForRetry[x.instanceId])
 
-            console.log('RETRYING', groupsToRetry)
-
             actions.retryInvocations(groupsToRetry)
         },
 
@@ -241,6 +245,14 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     [groupedLogEntry.instanceId]: true,
                 })
             }
+        },
+    })),
+
+    beforeUnload(({ values, cache }) => ({
+        enabled: () => !cache.disabledBeforeUnload && values.retryRunning,
+        message: 'You have running retries that will be discarded if you leave. Are you sure?',
+        onConfirm: () => {
+            cache.disabledBeforeUnload = true
         },
     })),
 ])
