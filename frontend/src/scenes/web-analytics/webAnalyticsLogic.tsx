@@ -621,14 +621,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 let filters = rawWebAnalyticsFilters
 
                 // Add domain filter if set
-                if (domainFilter) {
+                if (domainFilter && domainFilter !== 'all') {
                     filters = [
                         ...filters,
                         {
-                            type: PropertyFilterType.Event,
                             key: '$host',
                             value: domainFilter,
                             operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
                         },
                     ]
                 }
@@ -638,11 +638,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     filters = [
                         ...filters,
                         {
-                            type: PropertyFilterType.Event,
                             key: '$device_type',
                             // Extra handling for device type to include mobile+tablet as a single filter
                             value: deviceTypeFilter === 'Desktop' ? 'Desktop' : ['Mobile', 'Tablet'],
                             operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
                         },
                     ]
                 }
