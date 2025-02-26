@@ -64,7 +64,9 @@ jobs:
               run: |
                   cd cypress
                   # Grab all .cy.ts files in e2e/
-                  files=$(ls e2e/*.cy.ts 2>/dev/null || true)
+                  cd e2e
+                  files=$(ls *.cy.ts 2>/dev/null || true)
+                  cd ..
 
                   # If no files exist, handle that gracefully
                   if [ -z "$files" ]; then
@@ -132,7 +134,7 @@ jobs:
                 spec: ${{ fromJson(needs.chunks.outputs.chunks) }}
 
         env:
-          NODE_OPTIONS: "--max-old-space-size=10240"
+            NODE_OPTIONS: '--max-old-space-size=10240'
 
         steps:
             - name: Checkout
@@ -258,13 +260,21 @@ jobs:
                   log: true
                   resource: http://localhost:8000
 
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              run: pnpm --filter=@posthog/cypress... install --frozen-lockfile
+
+            - name: Install Cypress binary
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              run: npx cypress install
+
             - name: Cypress run
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: cypress-io/github-action@v6
               with:
                   install-command: 'pnpm --filter=@posthog/cypress... install --frozen-lockfile'
-                  command: 'pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec ${{ matrix.spec }} --headed'
+                  command: 'pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec e2e/${{ matrix.spec }} --headed'
                   # We were seeing suprising crashes in headless mode
                   # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
               env:
