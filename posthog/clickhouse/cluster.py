@@ -109,6 +109,7 @@ class ClickhouseCluster:
         logger: logging.Logger | None = None,
         client_settings: Mapping[str, str] | None = None,
         cluster: str | None = None,
+        retry_policy: RetryPolicy | None = None,
     ) -> None:
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -159,11 +160,15 @@ class ClickhouseCluster:
         self.__pools: dict[HostInfo, ChPool] = {}
         self.__logger = logger
         self.__client_settings = client_settings
+        self.__retry_policy = retry_policy
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
             pool = self.__pools[host] = host.connection_info.make_pool(self.__client_settings)
+
+        if self.__retry_policy is not None:
+            fn = self.__retry_policy(fn)
 
         def task():
             with pool.get_client() as client:
