@@ -81,6 +81,11 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "filters": {},
             "last_modified_at": mock.ANY,
             "last_modified_by": response.json()["last_modified_by"],
+            "recordings_counts": {
+                "query_count": None,
+                "pinned_count": 0,
+                "has_more": None,
+            },
         }
 
     def test_can_create_many_playlists(self):
