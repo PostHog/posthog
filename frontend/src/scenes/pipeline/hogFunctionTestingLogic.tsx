@@ -2,6 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { beforeUnload } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 
@@ -51,6 +52,10 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
         expandRow: (eventId: string) => ({ eventId }),
         collapseRow: (eventId: string) => ({ eventId }),
         resetCollapsedRows: true,
+        selectForRetry: (eventIds: string[]) => ({ eventIds }),
+        deselectForRetry: (eventIds: string[]) => ({ eventIds }),
+        resetSelectedForRetry: true,
+        setSelectingMany: (selectingMany: boolean) => ({ selectingMany }),
     }),
     reducers({
         dateRange: [
@@ -86,6 +91,22 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                     ...state.filter((id: string) => id !== eventId),
                 ],
                 resetCollapsedRows: () => [],
+            },
+        ],
+        selectingMany: [
+            false as boolean,
+            {
+                setSelectingMany: (_, { selectingMany }: { selectingMany: boolean }) => selectingMany,
+            },
+        ],
+        selectedForRetry: [
+            [] as string[],
+            {
+                selectForRetry: (state, { eventIds }: { eventIds: string[] }) => [...new Set([...state, ...eventIds])],
+                deselectForRetry: (state, { eventIds }: { eventIds: string[] }) => [
+                    ...state.filter((id: string) => !eventIds.includes(id)),
+                ],
+                resetSelectedForRetry: () => [],
             },
         ],
     }),
@@ -316,6 +337,13 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                 actions.loadEvents()
                 actions.loadTotalEvents()
             }
+        },
+    })),
+    beforeUnload(({ values, cache }) => ({
+        enabled: () => !cache.disabledBeforeUnload && values.loadingRetries.length > 0,
+        message: 'You have running tests that will be discarded if you leave. Are you sure?',
+        onConfirm: () => {
+            cache.disabledBeforeUnload = true
         },
     })),
 ])

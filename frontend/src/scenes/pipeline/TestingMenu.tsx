@@ -2,7 +2,9 @@ import { IconEllipsis } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCheckbox,
     LemonDialog,
+    LemonDropdown,
     LemonMenu,
     LemonTable,
     LemonTag,
@@ -12,6 +14,7 @@ import {
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -37,8 +40,12 @@ export interface HogFunctionTestingProps {
 }
 
 export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
-    const { eventsWithRetries, loadingRetries } = useValues(hogFunctionTestingLogic({ id }))
-    const { retryInvocation } = useActions(hogFunctionTestingLogic({ id }))
+    const { selectingMany, eventsWithRetries, loadingRetries, selectedForRetry } = useValues(
+        hogFunctionTestingLogic({ id })
+    )
+    const { setSelectingMany, retryInvocation, selectForRetry, deselectForRetry, resetSelectedForRetry } = useActions(
+        hogFunctionTestingLogic({ id })
+    )
     const { loading, loaded, showPaygate } = useValues(hogFunctionConfigurationLogic({ id }))
 
     if (loading && !loaded) {
@@ -58,12 +65,65 @@ export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
             <PageHeader
                 buttons={
                     <>
-                        <RetryButton
-                            loadingRetries={loadingRetries}
-                            rows={eventsWithRetries}
-                            retryHogFunction={retryInvocation}
-                            eventIds={eventsWithRetries.map((row) => row[0].uuid)}
-                        />
+                        {!selectingMany ? (
+                            <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(true)}>
+                                Select invocations
+                            </LemonButton>
+                        ) : (
+                            <>
+                                <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(false)}>
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() =>
+                                        selectedForRetry.length === eventsWithRetries.length
+                                            ? deselectForRetry(eventsWithRetries.map((row) => row[0].uuid))
+                                            : selectForRetry(eventsWithRetries.map((row) => row[0].uuid))
+                                    }
+                                >
+                                    <span>
+                                        {selectedForRetry.length === eventsWithRetries.length
+                                            ? 'Deselect all'
+                                            : 'Select all'}
+                                    </span>
+                                </LemonButton>
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Test selected events',
+                                            content: `Are you sure you want to test the selected events? Please don't close the window until the invocations have completed.`,
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                            primaryButton: {
+                                                children: 'Test selected events',
+                                                onClick: () => {
+                                                    eventsWithRetries
+                                                        .filter((row) => selectedForRetry.includes(row[0].uuid))
+                                                        .forEach((row) => retryInvocation(row))
+                                                    resetSelectedForRetry()
+                                                    setSelectingMany(false)
+                                                },
+                                            },
+                                        })
+                                    }}
+                                    loading={loadingRetries.length > 0}
+                                    disabledReason={
+                                        loadingRetries.length > 0
+                                            ? 'Please wait for the current tests to complete.'
+                                            : selectedForRetry.length === 0
+                                            ? 'No invocations selected'
+                                            : undefined
+                                    }
+                                >
+                                    Test selected
+                                </LemonButton>
+                            </>
+                        )}
                     </>
                 }
             />
@@ -76,58 +136,6 @@ export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
             <RunsFilters id={id} />
             <TestingEventsList id={id} />
         </div>
-    )
-}
-
-function RetryButton({
-    loadingRetries,
-    rows,
-    retryHogFunction,
-    eventIds,
-}: {
-    loadingRetries: string[]
-    rows: any[]
-    retryHogFunction: (row: any) => void
-    eventIds: string[]
-}): JSX.Element {
-    const handleRetry = (): void => {
-        LemonDialog.open({
-            title: 'Test events?',
-            description: (
-                <>
-                    <p>
-                        This will invoke the hog function for all visible events. Consider the impact of this function
-                        on your destination.
-                    </p>
-                    <p>
-                        <b>Note -</b> do not close this page until all events have been tested.
-                    </p>
-                </>
-            ),
-            width: '20rem',
-            primaryButton: {
-                children: 'Retry',
-                onClick: () => {
-                    rows.map((row) => retryHogFunction(row))
-                },
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
-    }
-
-    return (
-        <LemonButton
-            size="small"
-            type={rows.length > 1 ? 'primary' : 'secondary'}
-            icon={rows.length > 1 ? null : <IconRefresh />}
-            loading={loadingRetries.some((retry) => eventIds.includes(retry))}
-            disabledReason={loadingRetries.some((retry) => eventIds.includes(retry)) ? 'Retrying...' : undefined}
-            onClick={handleRetry}
-        >
-            {rows.length > 1 ? <span>Test all visible events</span> : null}
-        </LemonButton>
     )
 }
 
@@ -216,16 +224,50 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                 dateTo={baseEventsQuery?.before ?? undefined}
                 onChange={changeDateRange}
             />
-            <HogFunctionFilters />
+            <LemonDropdown
+                closeOnClickInside={false}
+                matchWidth={false}
+                placement="right-end"
+                overlay={
+                    <Form
+                        logic={hogFunctionConfigurationLogic}
+                        props={{ id }}
+                        formKey="configuration"
+                        className="space-y-3"
+                    >
+                        <HogFunctionFilters />
+                    </Form>
+                }
+            >
+                <LemonButton size="small" type="secondary">
+                    Filters
+                </LemonButton>
+            </LemonDropdown>
         </div>
     )
 }
 
 export function TestingEventsList({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionTestingLogic({ id })
-    const { eventsLoading, eventsWithRetries, totalEvents, pageTimestamps, expandedRows, loadingRetries } =
-        useValues(logic)
-    const { retryInvocation, loadNextEventsPage, loadPreviousEventsPage, expandRow, collapseRow } = useActions(logic)
+    const {
+        eventsLoading,
+        eventsWithRetries,
+        totalEvents,
+        pageTimestamps,
+        expandedRows,
+        loadingRetries,
+        selectingMany,
+        selectedForRetry,
+    } = useValues(logic)
+    const {
+        retryInvocation,
+        loadNextEventsPage,
+        loadPreviousEventsPage,
+        expandRow,
+        collapseRow,
+        selectForRetry,
+        deselectForRetry,
+    } = useActions(logic)
 
     return (
         <LemonTable
@@ -323,6 +365,19 @@ export function TestingEventsList({ id }: { id: string }): JSX.Element | null {
 
                         return (
                             <div className="flex items-center gap-2">
+                                {selectingMany ? (
+                                    <LemonCheckbox
+                                        checked={selectedForRetry.includes(eventId)}
+                                        onChange={(checked) => {
+                                            if (checked) {
+                                                selectForRetry([eventId])
+                                            } else {
+                                                deselectForRetry([eventId])
+                                            }
+                                        }}
+                                    />
+                                ) : null}
+
                                 <LemonTag type={getStatus().type}>{capitalizeFirstLetter(getStatus().text)}</LemonTag>
 
                                 <LemonMenu
