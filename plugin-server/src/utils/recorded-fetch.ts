@@ -66,36 +66,22 @@ export async function recordedFetch(
 
     try {
         // Make the actual request using the original trackedFetch
-        // Pass init exactly as received to maintain compatibility with tests
         const response = await trackedFetch(url, init)
 
-        // Handle the case where the response might be mocked in tests
-        // In tests, the response might not have all the methods of a real Response
-        let responseBody: string | null = null
+        // Clone the response to read the body without consuming it
+        const clonedResponse = response.clone()
+        const responseBody = await clonedResponse.text()
+
+        // Extract headers from response
         const responseHeaders: Record<string, string> = {}
-
-        try {
-            // Try to clone and read the response body
-            if (response.clone && typeof response.clone === 'function') {
-                const clonedResponse = response.clone()
-                responseBody = await clonedResponse.text()
-            }
-
-            // Try to read the headers
-            if (response.headers && typeof response.headers.forEach === 'function') {
-                response.headers.forEach((value, key) => {
-                    responseHeaders[key.toLowerCase()] = value
-                })
-            }
-        } catch (e) {
-            // If we can't clone or read the response, just continue
-            // This might happen in tests where the response is mocked
-        }
+        response.headers.forEach((value, key) => {
+            responseHeaders[key.toLowerCase()] = value
+        })
 
         // Record response details
         const recordedResponse: RecordedResponse = {
-            status: response.status || 200,
-            statusText: response.statusText || 'OK',
+            status: response.status,
+            statusText: response.statusText,
             headers: responseHeaders,
             body: responseBody,
             timestamp: new Date(),
