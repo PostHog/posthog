@@ -34,7 +34,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
     response: ErrorTrackingQueryResponse
     cached_response: CachedErrorTrackingQueryResponse
     paginator: HogQLHasMorePaginator
-    sparkLineConfigs: dict[str, ErrorTrackingSparklineConfig]
+    sparklineConfigs: dict[str, ErrorTrackingSparklineConfig]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -44,13 +44,13 @@ class ErrorTrackingQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
 
-        self.sparkLineConfigs = {
+        self.sparklineConfigs = {
             "volumeDay": ErrorTrackingSparklineConfig(interval=Interval.HOUR, value=24),
             "volumeMonth": ErrorTrackingSparklineConfig(interval=Interval.DAY, value=31),
         }
 
         if self.query.customVolume:
-            self.sparkLineConfigs["customVolume"] = self.query.customVolume
+            self.sparklineConfigs["customVolume"] = self.query.customVolume
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -94,7 +94,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
         ]
 
-        for alias, config in self.sparkLineConfigs.items():
+        for alias, config in self.sparklineConfigs.items():
             exprs.append(ast.Alias(alias=alias, expr=self.select_sparkline_array(alias, config)))
 
         if self.query.issueId:
