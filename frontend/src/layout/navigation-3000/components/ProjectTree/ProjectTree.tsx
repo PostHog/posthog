@@ -153,10 +153,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                                                 if (folder) {
                                                                     addFolder(
                                                                         item.record?.path
-                                                                            ? joinPath([
-                                                                                  ...splitPath(item.record?.path),
-                                                                                  folder,
-                                                                              ])
+                                                                            ? item.record?.path + '/' + folder
                                                                             : folder
                                                                     )
                                                                 }
@@ -169,20 +166,12 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                                     ) : null}
                                                     {item.record?.path ? (
                                                         <LemonButton
-                                                            onClick={() => {
-                                                                const oldPath = item.record?.path
-                                                                const splits = splitPath(oldPath)
-                                                                if (splits.length > 0) {
-                                                                    const folder = prompt(
-                                                                        'New name?',
-                                                                        splits[splits.length - 1]
-                                                                    )
-                                                                    if (folder) {
-                                                                        moveItem(
-                                                                            oldPath,
-                                                                            joinPath([...splits.slice(0, -1), folder])
-                                                                        )
-                                                                    }
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                const oldFilePath = item.record?.path
+                                                                const folder = prompt('New name?', oldFilePath)
+                                                                if (folder && oldFilePath) {
+                                                                    moveItem(oldFilePath, folder)
                                                                 }
                                                             }}
                                                             fullWidth
