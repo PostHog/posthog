@@ -28,12 +28,13 @@ export function Reload(): JSX.Element {
     )
 }
 
-export function ReloadAll({ iconOnly }: { iconOnly?: boolean }): JSX.Element {
+export function ReloadAll(): JSX.Element {
     const { areAnyLoading } = useValues(dataNodeCollectionLogic)
     const { reloadAll } = useActions(dataNodeCollectionLogic)
 
     return (
         <LemonButton
+            className="w-full"
             type="secondary"
             size="small"
             onClick={reloadAll}
@@ -41,7 +42,7 @@ export function ReloadAll({ iconOnly }: { iconOnly?: boolean }): JSX.Element {
             icon={areAnyLoading ? <Spinner textColored /> : <IconRefresh />}
             disabledReason={areAnyLoading ? 'Loading' : undefined}
         >
-            {!iconOnly ? 'Reload' : ''}
+            Reload
         </LemonButton>
     )
 }
