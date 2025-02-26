@@ -139,8 +139,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                             onClick={(e) => e.stopPropagation()}
                                             overlay={
                                                 <>
-                                                    {item.record?.type === 'folder' ||
-                                                    item.record?.type === 'project' ? (
+                                                    {item.record?.type === 'folder' || item.record?.type === 'project' ? (
                                                         <LemonButton
                                                             onClick={(e) => {
                                                                 e.stopPropagation()
