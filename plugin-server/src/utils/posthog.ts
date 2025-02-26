@@ -2,31 +2,36 @@ import { captureException as captureSentryException, captureMessage as captureSe
 import { PostHog } from 'posthog-node'
 import { SeverityLevel } from 'posthog-node/src/extensions/error-tracking/types'
 
+import { defaultConfig } from '../config/config'
 import { Team } from '../types'
 
-export const posthog = new PostHog('sTMFPsFhdP1Ssg', {
-    host: 'https://us.i.posthog.com',
-    enableExceptionAutocapture: false, // TODO - disabled while data volume is a problem, PS seems /extremely/ chatty exceptions wise
-})
+export const posthog = defaultConfig.POSTHOG_API_KEY
+    ? new PostHog(defaultConfig.POSTHOG_API_KEY, {
+          host: defaultConfig.POSTHOG_HOST_URL,
+          enableExceptionAutocapture: false, // TODO - disabled while data volume is a problem, PS seems /extremely/ chatty exceptions wise
+      })
+    : null
 
-if (process.env.NODE_ENV === 'test') {
+if (process.env.NODE_ENV === 'test' && posthog) {
     void posthog.disable()
 }
 
 export const captureTeamEvent = (team: Team, event: string, properties: Record<string, any> = {}): void => {
-    posthog.capture({
-        distinctId: team.uuid,
-        event,
-        properties: {
-            team: team.uuid,
-            ...properties,
-        },
-        groups: {
-            project: team.uuid,
-            organization: team.organization_id,
-            instance: process.env.SITE_URL ?? 'unknown',
-        },
-    })
+    if (posthog) {
+        posthog.capture({
+            distinctId: team.uuid,
+            event,
+            properties: {
+                team: team.uuid,
+                ...properties,
+            },
+            groups: {
+                project: team.uuid,
+                organization: team.organization_id,
+                instance: process.env.SITE_URL ?? 'unknown',
+            },
+        })
+    }
 }
 
 // We use sentry-style hints rather than our flat property list all over the place,
@@ -47,8 +52,7 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
         sentryId = captureSentryException(exception, hint)
     }
 
-    // TODO - this sampling is a hack while we work on our data consumption in error tracking
-    if (process.env.NODE_ENV === 'production' && Math.random() < 0.1) {
+    if (posthog) {
         let additionalProperties = {}
         if (hint) {
             additionalProperties = {
