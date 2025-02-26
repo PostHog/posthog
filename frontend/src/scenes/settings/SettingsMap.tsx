@@ -130,12 +130,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <HeatmapsSettings />,
             },
             {
-                id: 'exception-autocapture',
-                title: 'Exception autocapture',
-                component: <ExceptionAutocaptureSettings />,
-                flag: 'ERROR_TRACKING',
-            },
-            {
                 id: 'web-vitals-autocapture',
                 title: 'Web vitals autocapture',
                 component: <WebVitalsAutocaptureSettings />,
@@ -327,7 +321,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'ERROR_TRACKING',
         settings: [
             {
-                id: 'exception-autocapture',
+                id: 'error-tracking-exception-autocapture',
                 title: 'Exception autocapture',
                 component: <ExceptionAutocaptureSettings />,
             },
