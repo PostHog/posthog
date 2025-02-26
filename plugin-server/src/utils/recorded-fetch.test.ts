@@ -1,7 +1,7 @@
 import { Response } from 'node-fetch'
 
-import { trackedFetch } from '../../src/utils/fetch'
-import { HttpCallRecorder, recordedFetch } from '../../src/utils/recorded-fetch'
+import { trackedFetch } from './fetch'
+import { HttpCallRecorder, recordedFetch } from './recorded-fetch'
 
 // Mock the trackedFetch function
 jest.mock('../../src/utils/fetch', () => ({
