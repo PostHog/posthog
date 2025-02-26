@@ -109,7 +109,7 @@ def filter_from_params_to_query(params: dict) -> RecordingsQuery:
     try:
         return RecordingsQuery.model_validate(data_dict)
     except ValidationError as pydantic_validation_error:
-        raise exceptions.ValidationError(pydantic_validation_error.errors())
+        raise exceptions.ValidationError(json.dumps(pydantic_validation_error.errors()))
 
 
 class ChatMessage(BaseModel):
@@ -1076,7 +1076,10 @@ def list_recordings_from_query(
     return recordings, more_recordings_available, _generate_timings(hogql_timings, timer)
 
 
-def _other_users_viewed(recording_ids_in_list: list[str], user: User, team: Team) -> dict[str, list[str]]:
+def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:
+    if not user:
+        return {}
+
     # we're looping in python
     # but since we limit the number of session recordings in the results set
     # it shouldn't be too bad
@@ -1092,7 +1095,10 @@ def _other_users_viewed(recording_ids_in_list: list[str], user: User, team: Team
     return other_viewers
 
 
-def _current_user_viewed(recording_ids_in_list: list[str], user: User, team: Team) -> set[str]:
+def _current_user_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> set[str]:
+    if not user:
+        return set()
+
     viewed_session_recordings = set(
         SessionRecordingViewed.objects.filter(team=team, user=user)
         .filter(session_id__in=recording_ids_in_list)
