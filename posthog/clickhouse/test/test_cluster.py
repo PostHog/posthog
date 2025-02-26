@@ -59,30 +59,34 @@ def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
 
 def test_retry_policy():
     # happy function, should not be retried
-    task = RetryPolicy(Mock(side_effect=[sentinel.RESULT]), max_attempts=2, delay=0)
+    happy_function = Mock(side_effect=[sentinel.RESULT])
+    task = RetryPolicy(happy_function, max_attempts=2, delay=0)
     assert task(Mock()) is sentinel.RESULT
-    assert task.callable.call_count == 1
+    assert happy_function.call_count == 1
 
     # flaky function, should be retried
-    task = RetryPolicy(Mock(side_effect=[Exception(), sentinel.RESULT]), max_attempts=2, delay=0)
+    flaky_function = Mock(side_effect=[Exception(), sentinel.RESULT])
+    task = RetryPolicy(flaky_function, max_attempts=2, delay=0)
     assert task(Mock()) is sentinel.RESULT
-    assert task.callable.call_count == 2
+    assert flaky_function.call_count == 2
 
-    # always fails, up to max allowed
-    task = RetryPolicy(Mock(side_effect=Exception(sentinel.ERROR)), max_attempts=2, delay=0)
+    # angry function, always fails and should retry up to max
+    angry_function = Mock(side_effect=Exception(sentinel.ERROR))
+    task = RetryPolicy(angry_function, max_attempts=2, delay=0)
     with pytest.raises(Exception) as e:
         task(Mock())
 
     assert e.value.args == (sentinel.ERROR,)
-    assert task.callable.call_count == 2
+    assert angry_function.call_count == 2
 
-    # unexpected error, should not be retried
-    task = RetryPolicy(Mock(side_effect=Exception(sentinel.ERROR)), max_attempts=2, delay=0, exceptions=(ValueError,))
+    # surprising function should not be retried
+    surprising_function = Mock(side_effect=Exception(sentinel.ERROR))
+    task = RetryPolicy(surprising_function, max_attempts=2, delay=0, exceptions=(ValueError,))
     with pytest.raises(Exception) as e:
         task(Mock())
 
     assert e.value.args == (sentinel.ERROR,)
-    assert task.callable.call_count == 1
+    assert surprising_function.call_count == 1
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:
