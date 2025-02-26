@@ -58,15 +58,48 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         actions: [logsViewerLogic(props), ['addLogGroups', 'setRowExpanded']],
     })),
     actions({
+        setSelectingMany: (selectingMany: boolean) => ({ selectingMany }),
+        setSelectedForRetry: (selectedForRetry: Record<string, boolean>) => ({ selectedForRetry }),
+        selectAllForRetry: true,
         retryInvocation: (groupedLogEntry: GroupedLogEntry, eventId: string) => ({ groupedLogEntry, eventId }),
+        retryInvocationStarted: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retryInvocationSuccess: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retryInvocationFailure: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
+        retrySelectedInvocations: true,
     }),
     reducers({
+        selectingMany: [
+            false,
+            {
+                setSelectingMany: (_, { selectingMany }) => selectingMany,
+            },
+        ],
+
+        selectedForRetry: [
+            {} as Record<string, boolean>,
+            {
+                setSelectedForRetry: (state, { selectedForRetry }) => {
+                    const newState = { ...state }
+                    Object.keys(selectedForRetry).forEach((key) => {
+                        newState[key] = selectedForRetry[key]
+
+                        if (!selectedForRetry[key]) {
+                            delete newState[key]
+                        }
+                    })
+                    return newState
+                },
+
+                setSelectingMany: (state, { selectingMany }) => {
+                    return selectingMany ? state : {}
+                },
+            },
+        ],
+
         retries: [
             {} as Record<string, RetryInvocationState>,
             {
-                retryInvocation: (state, { groupedLogEntry }) => {
+                retryInvocationStarted: (state, { groupedLogEntry }) => {
                     return {
                         ...state,
                         [groupedLogEntry.instanceId]: 'pending',
@@ -94,7 +127,6 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             await breakpoint(100)
 
             actions.setRowExpanded(groupedLogEntry.instanceId, true)
-            await delay(1000)
 
             try {
                 const res = await api.hogFunctions.createTestInvocation(props.sourceId, {
@@ -134,6 +166,41 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                 lemonToast.error('Retry invocation failed')
                 await breakpoint(10)
                 actions.retryInvocationFailure(groupedLogEntry)
+            }
+        },
+
+        retrySelectedInvocations: async () => {
+            await lemonToast.promise(
+                (async () => {
+                    const groupsToRetry = values.logs.filter((x) => values.selectedForRetry[x.instanceId])
+
+                    for (const groupedLogEntry of groupsToRetry) {
+                        actions.retryInvocationStarted(groupedLogEntry)
+                    }
+
+                    await delay(1000) // TODO: Remove
+
+                    for (const groupedLogEntry of groupsToRetry) {
+                        actions.retryInvocationFailure(groupedLogEntry)
+                    }
+
+                    actions.setSelectingMany(false)
+                })(),
+                {
+                    success: 'Retries complete!',
+                    error: 'Retry failed!',
+                    pending: 'Retrying...',
+                }
+            )
+        },
+
+        selectAllForRetry: async () => {
+            actions.setSelectingMany(true)
+
+            for (const groupedLogEntry of values.logs) {
+                actions.setSelectedForRetry({
+                    [groupedLogEntry.instanceId]: true,
+                })
             }
         },
     })),
