@@ -58,21 +58,23 @@ def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
 
 
 def test_retry_policy():
+    policy = RetryPolicy(max_attempts=2, delay=0)
+
     # happy function, should not be retried
     happy_function = Mock(side_effect=[sentinel.RESULT])
-    task = RetryPolicy(happy_function, max_attempts=2, delay=0)
+    task = policy(happy_function)
     assert task(Mock()) is sentinel.RESULT
     assert happy_function.call_count == 1
 
     # flaky function, should be retried
     flaky_function = Mock(side_effect=[Exception(), sentinel.RESULT])
-    task = RetryPolicy(flaky_function, max_attempts=2, delay=0)
+    task = policy(flaky_function)
     assert task(Mock()) is sentinel.RESULT
     assert flaky_function.call_count == 2
 
     # angry function, always fails and should retry up to max
     angry_function = Mock(side_effect=Exception(sentinel.ERROR))
-    task = RetryPolicy(angry_function, max_attempts=2, delay=0)
+    task = policy(angry_function)
     with pytest.raises(Exception) as e:
         task(Mock())
 
@@ -81,7 +83,7 @@ def test_retry_policy():
 
     # surprising function should not be retried
     surprising_function = Mock(side_effect=Exception(sentinel.ERROR))
-    task = RetryPolicy(surprising_function, max_attempts=2, delay=0, exceptions=(ValueError,))
+    task = RetryPolicy(max_attempts=2, delay=0, exceptions=(ValueError,))(surprising_function)
     with pytest.raises(Exception) as e:
         task(Mock())
 
