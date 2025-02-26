@@ -62,36 +62,34 @@ jobs:
             - name: Pick 4 random spec files
               id: chunk
               run: |
-                  cd cypress
-                  # Grab all .cy.ts files in e2e/
-                  cd e2e
+                  cd cypress/e2e
                   files=$(ls *.cy.ts 2>/dev/null || true)
-                  cd ..
-
-                  # If no files exist, handle that gracefully
                   if [ -z "$files" ]; then
                     echo "chunks=[]" >> "$GITHUB_OUTPUT"
                     exit 0
                   fi
-
-                  # Use the commit's SHA as a seeded random source. -n = no newline
+                  # Seed the shuffle with the GitHub commit SHA
                   echo -n "${{ github.sha }}" | xxd -r -p > /tmp/random_source
 
-                  # Shuffle (seeded by the random_source) and pick up to 4
+                  # Shuffle & pick 4
                   selected=$(echo "$files" | shuf --random-source=/tmp/random_source -n 4)
 
-                  # We want a JSON array like ["testA.cy.ts","testB.cy.ts"]
-                  #   1. Each filename -> JSON string
-                  #   2. Collect into a JSON array
-                  chunk_array=$(echo "$selected" | jq -R . | jq -s -c .)
+                  # Build a JSON array of objects, e.g.
+                  # [
+                  #   {"index":1,"spec":"fileA.cy.ts"},
+                  #   {"index":2,"spec":"fileB.cy.ts"},
+                  #   ...
+                  # ]
+                  idx=0
+                  result="[]"
+                  for file in $selected; do
+                    idx=$((idx + 1))
+                    obj=$(jq -n --arg i "$idx" --arg f "$file" '{index:$i|tonumber, spec:$f}')
+                    result=$(echo "$result" | jq --argjson o "$obj" '. + [$o]')
+                  done
 
-                  # Escape % / newlines for GITHUB_OUTPUT
-                  chunk_array="${chunk_array//'%'/'%25'}"
-                  chunk_array="${chunk_array//$'\n'/'%0A'}"
-                  chunk_array="${chunk_array//$'\r'/'%0D'}"
-
-                  # Finally, store as 'chunks' output
-                  echo "chunks=$chunk_array" >> "$GITHUB_OUTPUT"
+                  # Store it in step output
+                  echo "chunks=$(echo "$result" | jq -c)" >> "$GITHUB_OUTPUT"
 
     container:
         name: Build and cache container image
@@ -118,7 +116,7 @@ jobs:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
 
     cypress:
-        name: Cypress E2E random spot check
+        name: Cypress E2E spot check #${{ matrix.chunk.index }}
         runs-on: ubuntu-24.04
         timeout-minutes: 60
         needs: [chunks, changes, container]
@@ -131,7 +129,7 @@ jobs:
             # we want to know about.
             fail-fast: false
             matrix:
-                spec: ${{ fromJson(needs.chunks.outputs.chunks) }}
+                chunk: ${{ fromJson(needs.chunks.outputs.chunks) }}
 
         steps:
             - name: Checkout
@@ -267,7 +265,7 @@ jobs:
               uses: cypress-io/github-action@v6
               with:
                   install-command: 'pnpm --filter=@posthog/cypress... install --frozen-lockfile'
-                  command: 'pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec e2e/${{ matrix.spec }} --headed'
+                  command: 'pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec e2e/${{ matrix.chunk.spec }} --headed'
                   # We were seeing suprising crashes in headless mode
                   # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
               env:
@@ -278,21 +276,21 @@ jobs:
             - name: Archive test screenshots
               uses: actions/upload-artifact@v4
               with:
-                  name: screenshots-${{ matrix.spec }}
+                  name: screenshots-${{ matrix.chunk.spec }}
                   path: cypress/screenshots
               if: ${{ failure() }}
 
             - name: Archive test downloads
               uses: actions/upload-artifact@v4
               with:
-                  name: downloads-${{ matrix.spec }}
+                  name: downloads-${{ matrix.chunk.spec }}
                   path: cypress/downloads
               if: ${{ failure() }}
 
             - name: Archive test videos
               uses: actions/upload-artifact@v4
               with:
-                  name: videos-${{ matrix.spec }}
+                  name: videos-${{ matrix.chunk.spec }}
                   path: cypress/videos
               if: ${{ failure() }}
 
@@ -300,7 +298,7 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: actions/upload-artifact@v4
               with:
-                  name: accessibility-violations-${{ matrix.spec }}
+                  name: accessibility-violations-${{ matrix.chunk.spec }}
                   path: '**/a11y/'
                   if-no-files-found: 'ignore'
 
@@ -308,7 +306,7 @@ jobs:
               # use artefact here, as I think the output will be too large for display in an action
               uses: actions/upload-artifact@v4
               with:
-                  name: logs-${{ matrix.spec }}
+                  name: logs-${{ matrix.chunk.spec }}
                   path: /tmp/logs
               if: ${{ failure() }}
 
