@@ -8,7 +8,7 @@ import { PassThrough } from 'stream'
 import * as url from 'url'
 
 import { isTestEnv } from '../../utils/env-utils'
-import { globalHttpCallRecorder, HttpCallRecorder, recordedFetch } from '../../utils/recorded-fetch'
+import { recordedFetch } from '../../utils/recorded-fetch'
 import { writeToFile } from './extensions/test-utils'
 
 export const AVAILABLE_IMPORTS = {
@@ -22,13 +22,8 @@ export const AVAILABLE_IMPORTS = {
     '@posthog/plugin-scaffold': scaffold,
     'aws-sdk': AWS,
     'generic-pool': genericPool,
-    'node-fetch': (url: any, init?: any) => recordedFetch(globalHttpCallRecorder, url, init),
+    'node-fetch': recordedFetch,
     crypto: crypto,
     stream: { PassThrough },
     url: url,
-}
-
-// Export the recorder to make it accessible for inspection
-export function getHttpCallRecorder(): HttpCallRecorder {
-    return globalHttpCallRecorder
 }

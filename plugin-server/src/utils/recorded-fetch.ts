@@ -47,15 +47,16 @@ export class HttpCallRecorder {
 // Global recorder instance
 export const globalHttpCallRecorder = new HttpCallRecorder()
 
+// Export the recorder to make it accessible for inspection
+export function getHttpCallRecorder(): HttpCallRecorder {
+    return globalHttpCallRecorder
+}
+
 /**
  * A wrapper around trackedFetch that conditionally records HTTP requests and responses
  * based on config flags. If recording is disabled, it simply passes through to trackedFetch.
  */
-export async function recordedFetch(
-    recorder: HttpCallRecorder,
-    url: RequestInfo,
-    init?: RequestInit
-): Promise<Response> {
+export async function recordedFetch(url: RequestInfo, init?: RequestInit): Promise<Response> {
     // Check if recording should be enabled based on config flags
     const shouldRecordHttpCalls =
         defaultConfig.DESTINATION_MIGRATION_DIFFING_ENABLED === true && defaultConfig.TASKS_PER_WORKER === 1
@@ -100,8 +101,8 @@ export async function recordedFetch(
             timestamp: new Date(),
         }
 
-        // Add the recorded call to the recorder
-        recorder.addCall({
+        // Add the recorded call to the global recorder
+        globalHttpCallRecorder.addCall({
             id,
             request,
             response: recordedResponse,
@@ -120,8 +121,8 @@ export async function recordedFetch(
             timestamp: new Date(),
         }
 
-        // Add the recorded call to the recorder
-        recorder.addCall({
+        // Add the recorded call to the global recorder
+        globalHttpCallRecorder.addCall({
             id,
             request,
             response: recordedResponse,
