@@ -20,12 +20,6 @@ const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-acti
 /**
  * Executes an operation while recording HTTP calls if enabled.
  * This function encapsulates the logic for recording HTTP calls during plugin operations.
- *
- * @param hub - The Hub instance
- * @param eventUuid - UUID of the event being processed
- * @param pluginConfig - Plugin configuration
- * @param operation - The async operation to execute while recording HTTP calls
- * @returns The result of the operation
  */
 async function withHttpCallRecording<T>(
     hub: Hub,
