@@ -1268,7 +1268,7 @@ async def test_insert_into_postgres_activity_completes_range_when_there_is_a_fai
     postgres_config,
     model,
 ):
-    """Test that the insert_into_snowflake_activity can resume from a failure using heartbeat details."""
+    """Test that the insert_into_postgres_activity can resume from a failure using heartbeat details."""
     table_name = f"test_insert_activity_table_{ateam.pk}"
 
     events_to_create, persons_to_create = generate_test_data
@@ -1278,13 +1278,13 @@ async def test_insert_into_postgres_activity_completes_range_when_there_is_a_fai
 
     heartbeat_details: list[PostgreSQLHeartbeatDetails] = []
 
-    def track_hearbeat_details(*details):
+    def track_heartbeat_details(*details):
         """Record heartbeat details received."""
         nonlocal heartbeat_details
-        snowflake_details = PostgreSQLHeartbeatDetails.from_activity_details(details)
-        heartbeat_details.append(snowflake_details)
+        postgres_details = PostgreSQLHeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(postgres_details)
 
-    activity_environment.on_heartbeat = track_hearbeat_details
+    activity_environment.on_heartbeat = track_heartbeat_details
 
     insert_inputs = PostgresInsertInputs(
         team_id=ateam.pk,

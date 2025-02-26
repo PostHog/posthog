@@ -1237,7 +1237,7 @@ async def test_insert_into_redshift_activity_completes_range_when_there_is_a_fai
     ateam,
     model,
 ):
-    """Test that the insert_into_snowflake_activity can resume from a failure using heartbeat details."""
+    """Test that the insert_into_redshift_activity can resume from a failure using heartbeat details."""
     if MISSING_REQUIRED_ENV_VARS and model.name == "persons":
         pytest.skip("Persons batch export cannot be tested in PostgreSQL")
 
@@ -1250,13 +1250,13 @@ async def test_insert_into_redshift_activity_completes_range_when_there_is_a_fai
 
     heartbeat_details: list[RedshiftHeartbeatDetails] = []
 
-    def track_hearbeat_details(*details):
+    def track_heartbeat_details(*details):
         """Record heartbeat details received."""
         nonlocal heartbeat_details
-        snowflake_details = RedshiftHeartbeatDetails.from_activity_details(details)
-        heartbeat_details.append(snowflake_details)
+        redshift_details = RedshiftHeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(redshift_details)
 
-    activity_environment.on_heartbeat = track_hearbeat_details
+    activity_environment.on_heartbeat = track_heartbeat_details
 
     insert_inputs = RedshiftInsertInputs(
         team_id=ateam.pk,

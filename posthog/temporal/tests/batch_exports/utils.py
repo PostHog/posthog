@@ -75,16 +75,16 @@ def remove_duplicates_from_records(
     comparisons won't fail.
     """
     if not key:
-        dedup_key = ["uuid"]
+        dedup_key = ("uuid",)
     else:
-        dedup_key = key
+        dedup_key = tuple(key)
 
     seen = set()
 
     def is_record_seen(record: dict[str, typing.Any]) -> bool:
         nonlocal seen
 
-        pk = tuple(record[key] for key in dedup_key)
+        pk = tuple(record[k] for k in dedup_key)
 
         if pk in seen:
             return True
