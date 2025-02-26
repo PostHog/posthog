@@ -229,15 +229,11 @@ export const variablesLogic = kea<variablesLogicType>([
                 return
             }
 
-            const queryVariableMatches = getVariablesFromQuery(query.source.query)
-
             const variables = Object.values(query.source.variables ?? {})
 
             if (variables.length) {
                 variables.forEach((variable) => {
-                    if (queryVariableMatches.includes(variable.code_name)) {
-                        actions.addVariable(variable)
-                    }
+                    actions.addVariable(variable)
                 })
             }
         },
