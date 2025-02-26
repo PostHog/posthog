@@ -29,7 +29,7 @@ async function runWithParallelism<T, R>(
         })()
 
         executing.add(promise)
-        promise.finally(() => executing.delete(promise))
+        void promise.finally(() => executing.delete(promise))
 
         if (executing.size >= maxParallel) {
             await Promise.race(executing)

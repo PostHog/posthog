@@ -42,7 +42,7 @@ type GroupedLogEntryRequest = {
     sourceType: 'hog_function'
     sourceId: string
     levels: LogEntryLevel[]
-    searchTerm: string
+    search: string
     before?: string
     after?: string
 }
@@ -60,12 +60,12 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
         FROM log_entries
         WHERE log_source = '${request.sourceType}'
         AND log_source_id = '${request.sourceId}'
+        AND timestamp >= {filters.dateRange.from}
+        AND timestamp <= {filters.dateRange.to}
         GROUP BY instance_id
         HAVING countIf(
             lower(level) IN (${request.levels.map((level) => `'${level.toLowerCase()}'`).join(',')})
-            AND message ILIKE '%${request.searchTerm}%'
-            AND timestamp >= {filters.dateRange.from}
-            AND timestamp <= {filters.dateRange.to}
+            AND message ILIKE '%${request.search}%'
         ) > 0
         ORDER BY latest_timestamp DESC
         LIMIT ${LOG_VIEWER_LIMIT}`,
@@ -131,7 +131,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
                     const logParams: GroupedLogEntryRequest = {
                         levels: values.filters.levels,
-                        searchTerm: values.filters.search,
+                        search: values.filters.search,
                         sourceType: props.sourceType,
                         sourceId: props.sourceId,
                         before: values.filters.before,
@@ -147,7 +147,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     }
                     const logParams: GroupedLogEntryRequest = {
                         levels: values.filters.levels,
-                        searchTerm: values.filters.search,
+                        search: values.filters.search,
                         sourceType: props.sourceType,
                         sourceId: props.sourceId,
                         before: values.trailingEntryTimestamp.toISOString(),
@@ -175,7 +175,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         return []
                     }
                     const logParams: GroupedLogEntryRequest = {
-                        searchTerm: values.filters.search,
+                        search: values.filters.search,
                         levels: values.filters.levels,
                         after: values.leadingEntryTimestamp.toISOString(),
                         before: values.filters.before,
