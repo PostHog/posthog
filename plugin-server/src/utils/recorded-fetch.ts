@@ -1,5 +1,6 @@
 import { Headers, RequestInfo, RequestInit, Response } from 'node-fetch'
 
+import { defaultConfig } from '../config/config'
 import { trackedFetch } from './fetch'
 import { UUIDT } from './utils'
 
@@ -43,15 +44,27 @@ export class HttpCallRecorder {
     }
 }
 
+// Global recorder instance
+export const globalHttpCallRecorder = new HttpCallRecorder()
+
 /**
- * A wrapper around trackedFetch that records HTTP requests and responses
- * without altering the original functionality.
+ * A wrapper around trackedFetch that conditionally records HTTP requests and responses
+ * based on config flags. If recording is disabled, it simply passes through to trackedFetch.
  */
 export async function recordedFetch(
     recorder: HttpCallRecorder,
     url: RequestInfo,
     init?: RequestInit
 ): Promise<Response> {
+    // Check if recording should be enabled based on config flags
+    const shouldRecordHttpCalls =
+        defaultConfig.DESTINATION_MIGRATION_DIFFING_ENABLED === true && defaultConfig.TASKS_PER_WORKER === 1
+
+    // If recording is disabled, just use trackedFetch directly
+    if (!shouldRecordHttpCalls) {
+        return trackedFetch(url, init)
+    }
+
     const id = new UUIDT().toString()
     const requestTimestamp = new Date()
 

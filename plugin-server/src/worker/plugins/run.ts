@@ -64,18 +64,18 @@ async function withHttpCallRecording<T>(
     pluginConfig: PluginConfig,
     operation: () => Promise<T>
 ): Promise<T> {
-    // Check if we should record HTTP calls
+    // Check if we should record HTTP calls - using the same condition as in recorded-fetch.ts
     const recordHttpCalls = hub.DESTINATION_MIGRATION_DIFFING_ENABLED === true && hub.TASKS_PER_WORKER === 1
 
+    // Clear the recorder before running the operation if recording is enabled
     if (recordHttpCalls) {
-        // Clear the HTTP call recorder before running the operation
         getHttpCallRecorder().clearCalls()
     }
 
     let failed = false
     try {
         // Execute the operation
-        return operation()
+        return await operation()
     } catch (error) {
         failed = true
         throw error // Re-throw the error to be handled by the caller
