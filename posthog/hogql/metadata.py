@@ -2,8 +2,7 @@ from typing import Optional, cast
 
 from django.conf import settings
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.explain import extract_index_usage_from_plan
+from posthog.clickhouse.explain import execute_explain_get_index_use
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
@@ -85,18 +84,10 @@ def get_hogql_metadata(
                 dialect="clickhouse",
             )
 
-            try:
-                explain_results = sync_execute(
-                    f"EXPLAIN PLAN indexes=1,json=1 {clickhouse_sql}",
-                    context.values,
-                    with_column_types=True,
-                    # workload=workload,
-                    team_id=team.pk,
-                    readonly=True,
-                )
-                response.isUsingIndices = extract_index_usage_from_plan(explain_results[0][0][0])
-            except:
+            if context.errors:
                 response.isUsingIndices = QueryIndexUsage.UNDECISIVE
+            else:
+                response.isUsingIndices = execute_explain_get_index_use(clickhouse_sql, context)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
         response.warnings = context.warnings

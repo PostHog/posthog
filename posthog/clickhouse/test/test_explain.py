@@ -308,6 +308,132 @@ test_cases = [
 ]
 """,
     },
+    {
+        "query": "local query little granules",
+        "reads": 1,
+        "reads_use": [
+            {
+                "table": "default.sharded_events",
+                "use": QueryIndexUsage.NO,
+            }
+        ],
+        "use": QueryIndexUsage.NO,
+        "plan": """
+[
+  {
+    "Plan": {
+      "Node Type": "Expression",
+      "Description": "(Project names + Projection)",
+      "Plans": [
+        {
+          "Node Type": "Limit",
+          "Description": "preliminary LIMIT (without OFFSET)",
+          "Plans": [
+            {
+              "Node Type": "Expression",
+              "Plans": [
+                {
+                  "Node Type": "ReadFromMergeTree",
+                  "Description": "default.sharded_events",
+                  "Indexes": [
+                    {
+                      "Type": "MinMax",
+                      "Condition": "true",
+                      "Initial Parts": 12,
+                      "Selected Parts": 12,
+                      "Initial Granules": 39,
+                      "Selected Granules": 39
+                    },
+                    {
+                      "Type": "Partition",
+                      "Condition": "true",
+                      "Initial Parts": 12,
+                      "Selected Parts": 12,
+                      "Initial Granules": 39,
+                      "Selected Granules": 39
+                    },
+                    {
+                      "Type": "PrimaryKey",
+                      "Keys": ["team_id"],
+                      "Condition": "(team_id in [1, 1])",
+                      "Initial Parts": 12,
+                      "Selected Parts": 9,
+                      "Initial Granules": 39,
+                      "Selected Granules": 32
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
+""",
+    },
+    {
+        "query": "local query little granules, using index",
+        "reads": 1,
+        "reads_use": [{"table": "default.sharded_events", "use": QueryIndexUsage.YES}],
+        "use": QueryIndexUsage.YES,
+        "plan": """
+[
+  {
+    "Plan": {
+      "Node Type": "Expression",
+      "Description": "(Project names + Projection)",
+      "Plans": [
+        {
+          "Node Type": "Limit",
+          "Description": "preliminary LIMIT (without OFFSET)",
+          "Plans": [
+            {
+              "Node Type": "Expression",
+              "Plans": [
+                {
+                  "Node Type": "ReadFromMergeTree",
+                  "Description": "default.sharded_events",
+                  "Indexes": [
+                    {
+                      "Type": "MinMax",
+                      "Keys": ["timestamp"],
+                      "Condition": "(toTimezone(timestamp, 'UTC') in ('1735831217', +Inf))",
+                      "Initial Parts": 11,
+                      "Selected Parts": 6,
+                      "Initial Granules": 38,
+                      "Selected Granules": 32
+                    },
+                    {
+                      "Type": "Partition",
+                      "Condition": "true",
+                      "Initial Parts": 6,
+                      "Selected Parts": 6,
+                      "Initial Granules": 32,
+                      "Selected Granules": 32
+                    },
+                    {
+                      "Type": "PrimaryKey",
+                      "Keys": ["team_id"],
+                      "Condition": "(team_id in [1, 1])",
+                      "Initial Parts": 6,
+                      "Selected Parts": 5,
+                      "Initial Granules": 32,
+                      "Selected Granules": 27
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
+""",
+    },
 ]
 
 

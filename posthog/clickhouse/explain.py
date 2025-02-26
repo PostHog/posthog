@@ -1,5 +1,7 @@
 import json
 
+from posthog.clickhouse.client import sync_execute
+from posthog.hogql.context import HogQLContext
 from posthog.schema import QueryIndexUsage
 
 
@@ -58,7 +60,7 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
         return result
     elif db_table.endswith(".sharded_events"):
         result["use"] = QueryIndexUsage.NO
-        minMax = False
+        min_max = False
         partition = False
         primary_key = False
         for index in indexes:
@@ -66,20 +68,20 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
                 continue
             index_type = index.get("Type", "")
             if index_type == "MinMax":
-                minMax = selected_less_granules(index)
+                min_max = selected_less_granules(index)
             elif index_type == "Partition":
                 partition = selected_less_granules(index)
             elif index_type == "PrimaryKey":
-                primary_key = len(index.get("Keys", [])) > 1 and selected_less_granules(index)
-        if (minMax or partition) and primary_key:
+                primary_key = len(index.get("Keys", [])) > 0 and selected_less_granules(index)
+        if (min_max or partition) and primary_key:
             result["use"] = QueryIndexUsage.YES
 
         return result
 
     result["use"] = QueryIndexUsage.UNDECISIVE
-    hasMinMax = False
-    minMax = False
-    hasPartition = False
+    has_min_max = False
+    min_max = False
+    has_partition = False
     partition = False
     primary_key = False
     for index in indexes:
@@ -87,14 +89,14 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
             continue
         index_type = index.get("Type", "")
         if index_type == "MinMax":
-            hasMinMax = True
-            minMax = selected_less_granules(index)
+            has_min_max = True
+            min_max = selected_less_granules(index)
         elif index_type == "Partition":
-            hasPartition = True
+            has_partition = True
             partition = selected_less_granules(index)
         elif index_type == "PrimaryKey":
-            primary_key = len(index.get("Keys", [])) > 1 and selected_less_granules(index)
-    if ((not hasMinMax and not hasPartition) or minMax or partition) and primary_key:
+            primary_key = len(index.get("Keys", [])) > 0 and selected_less_granules(index)
+    if ((not has_min_max and not has_partition) or min_max or partition) and primary_key:
         result["use"] = QueryIndexUsage.YES
 
     return result
@@ -114,3 +116,19 @@ def extract_index_usage_from_plan(plan: str) -> QueryIndexUsage:
         pass
 
     return QueryIndexUsage.UNDECISIVE
+
+
+def execute_explain_get_index_use(clickhouse_sql: str, context: HogQLContext) -> QueryIndexUsage:
+    # try:
+    explain_results = sync_execute(
+        f"EXPLAIN PLAN indexes=1,json=1 {clickhouse_sql}",
+        context.values,
+        with_column_types=True,
+        team_id=context.team_id,
+        readonly=True,
+    )
+    return extract_index_usage_from_plan(explain_results[0][0][0])
+
+
+# except:
+#     return QueryIndexUsage.UNDECISIVE
