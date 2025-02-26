@@ -142,7 +142,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
         retries: [
             [] as DestinationRetryType[],
             {
-                retryHogFunction: async (row: any) => {
+                retryInvocation: async (row: any) => {
                     actions.addLoadingRetry(row[0].uuid)
                     const globals = convertToHogFunctionInvocationGlobals(row[0], row[1])
                     globals.groups = {}
@@ -187,7 +187,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
                             ...res,
                         }
 
-                        return [...(retry ? [retry] : []), ...values.retries]
+                        return [...values.retries, retry]
                     } catch (e) {
                         lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
                     }
@@ -311,7 +311,7 @@ export const hogFunctionReplayLogic = kea<hogFunctionReplayLogicType>([
         },
     })),
     subscriptions(({ actions, values }) => ({
-        matchingFilters: () => {
+        configuration: () => {
             if (values.configuration?.name) {
                 actions.loadEvents()
                 actions.loadTotalEvents()

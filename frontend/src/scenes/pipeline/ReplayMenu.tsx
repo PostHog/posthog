@@ -1,4 +1,15 @@
-import { LemonBanner, LemonButton, LemonDialog, LemonTable, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { IconEllipsis } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonMenu,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -9,8 +20,10 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { urls } from 'scenes/urls'
 
 import { AvailableFeature, DestinationRetryType } from '~/types'
 
@@ -23,7 +36,7 @@ export interface HogFunctionConfigurationProps {
 
 export function ReplayMenu({ id }: HogFunctionConfigurationProps): JSX.Element {
     const { eventsWithRetries, loadingRetries } = useValues(hogFunctionReplayLogic({ id }))
-    const { retryHogFunction } = useActions(hogFunctionReplayLogic({ id }))
+    const { retryInvocation } = useActions(hogFunctionReplayLogic({ id }))
     const { loading, loaded, showPaygate } = useValues(hogFunctionConfigurationLogic({ id }))
 
     if (loading && !loaded) {
@@ -46,7 +59,7 @@ export function ReplayMenu({ id }: HogFunctionConfigurationProps): JSX.Element {
                         <RetryButton
                             loadingRetries={loadingRetries}
                             rows={eventsWithRetries}
-                            retryHogFunction={retryHogFunction}
+                            retryHogFunction={retryInvocation}
                             eventIds={eventsWithRetries.map((row) => row[0].uuid)}
                         />
                     </>
@@ -241,9 +254,9 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
 
 export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionReplayLogic({ id })
-    const { eventsLoading, eventsWithRetries, loadingRetries, totalEvents, pageTimestamps, expandedRows } =
+    const { eventsLoading, eventsWithRetries, totalEvents, pageTimestamps, expandedRows, loadingRetries } =
         useValues(logic)
-    const { retryHogFunction, loadNextEventsPage, loadPreviousEventsPage, expandRow, collapseRow } = useActions(logic)
+    const { retryInvocation, loadNextEventsPage, loadPreviousEventsPage, expandRow, collapseRow } = useActions(logic)
 
     return (
         <LemonTable
@@ -296,6 +309,70 @@ export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
             }}
             columns={[
                 {
+                    title: 'Status',
+                    key: 'status',
+                    width: 0,
+                    render: (_, row) => {
+                        const eventId = row[0].uuid
+
+                        const getStatus = (): { text: string; type: LemonTagType } => {
+                            if (loadingRetries.includes(eventId)) {
+                                return {
+                                    text: 'Running',
+                                    type: 'warning',
+                                }
+                            } else if (row[3].length === 0) {
+                                return {
+                                    text: 'Not tested',
+                                    type: 'muted',
+                                }
+                            } else if (row[3][row[3].length - 1].status === 'error') {
+                                return {
+                                    text: 'Failure',
+                                    type: 'danger',
+                                }
+                            } else if (row[3][row[3].length - 1].status === 'success') {
+                                return {
+                                    text: 'Success',
+                                    type: 'success',
+                                }
+                            }
+                            return {
+                                text: 'Unknown',
+                                type: 'muted',
+                            }
+                        }
+
+                        return (
+                            <div className="flex items-center gap-2">
+                                <LemonTag type={getStatus().type}>{capitalizeFirstLetter(getStatus().text)}</LemonTag>
+
+                                <LemonMenu
+                                    items={[
+                                        eventId
+                                            ? {
+                                                  label: 'View event',
+                                                  to: urls.event(eventId, ''),
+                                              }
+                                            : null,
+                                        {
+                                            label: 'Test event',
+                                            disabledReason: !eventId ? 'Could not find the source event' : undefined,
+                                            onClick: () => retryInvocation(row),
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconEllipsis className="rotate-90" />}
+                                        loading={loadingRetries.includes(eventId) ? true : undefined}
+                                    />
+                                </LemonMenu>
+                            </div>
+                        )
+                    },
+                },
+                {
                     title: 'Event',
                     key: 'event',
                     className: 'max-w-80',
@@ -339,22 +416,6 @@ export function ReplayEventsList({ id }: { id: string }): JSX.Element | null {
                     className: 'max-w-80',
                     render: (_, [event]) => {
                         return event.timestamp ? <TZLabel time={event.timestamp} /> : <EmptyColumn />
-                    },
-                },
-                {
-                    key: 'actions',
-                    width: 0,
-                    render: function RenderActions(_, row) {
-                        return (
-                            <div className="flex gap-1">
-                                <RetryButton
-                                    loadingRetries={loadingRetries}
-                                    rows={[row]}
-                                    retryHogFunction={retryHogFunction}
-                                    eventIds={[row[0].uuid]}
-                                />
-                            </div>
-                        )
                     },
                 },
             ]}
