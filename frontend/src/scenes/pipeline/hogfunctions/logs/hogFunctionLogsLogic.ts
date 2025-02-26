@@ -13,7 +13,6 @@ import { GroupedLogEntry, logsViewerLogic, LogsViewerLogicProps } from './logsVi
 
 export type RetryInvocationState = 'pending' | 'success' | 'failure'
 
-// TODO: Do we have a better type?
 const loadClickhouseEvent = async (eventId: string): Promise<any> => {
     const query: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
@@ -98,10 +97,8 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             await delay(1000)
 
             try {
-                const clickhouseEvent = await loadClickhouseEvent(eventId)
-
                 const res = await api.hogFunctions.createTestInvocation(props.sourceId, {
-                    clickhouse_event: clickhouseEvent,
+                    clickhouse_event: await loadClickhouseEvent(eventId),
                     mock_async_functions: false,
                     configuration: {
                         // For retries we don't care about filters
