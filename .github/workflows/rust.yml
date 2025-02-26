@@ -168,11 +168,7 @@ jobs:
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               run: |
-                  pwd 
-                  ls -al
-                  cd ..
-                  ls -al
-                  ./bin/download-mmdb
+                  cd ../ && ./bin/download-mmdb
 
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
