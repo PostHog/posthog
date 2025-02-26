@@ -92,7 +92,7 @@ export const OnboardingProductConfiguration = ({
     ]
 
     return combinedList.length > 0 ? (
-        <OnboardingStep title="Set up your configuration" stepKey={stepKey} continueAction={saveConfiguration}>
+        <OnboardingStep title="Set up your configuration" stepKey={stepKey} onContinue={saveConfiguration}>
             <div className="mt-6">
                 <h2 className="pt-2">Options</h2>
                 {combinedList.map((item, idx) => (
