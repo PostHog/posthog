@@ -96,8 +96,11 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
             partition = selected_less_granules(index)
         elif index_type == "PrimaryKey":
             primary_key = len(index.get("Keys", [])) > 0 and selected_less_granules(index)
-    if ((not has_min_max and not has_partition) or min_max or partition) and primary_key:
-        result["use"] = QueryIndexUsage.YES
+    if primary_key:
+        if (not has_min_max and not has_partition) or min_max or partition:
+            result["use"] = QueryIndexUsage.YES
+        else:
+            result["use"] = QueryIndexUsage.PARTIAL
 
     return result
 
