@@ -339,7 +339,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
-                flag: 'ERROR_TRACKING_ALERTING',
                 component: <ErrorTrackingAlerting />,
             },
         ],
