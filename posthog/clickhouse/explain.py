@@ -4,21 +4,36 @@ from posthog.schema import QueryIndexUsage
 
 
 def find_all_reads(explain: dict) -> list[dict]:
+    """
+    Looks for a Plan/Subplan with "Indexes" element. ClickHouse' MergeTree engine uses "ReadFromMergeTree"
+    plan Node Type to describe reading from a table and if defined with index it will contain "Indexes" field.
+    """
     reads = []
     plan = explain.get("Plan", explain)
     if "Indexes" in plan:
         reads.append(plan)
     for subplan in plan.get("Plans", []):
-        reads = reads + find_all_reads(subplan)
+        reads += find_all_reads(subplan)
     return reads
 
 
-def selected_less_granules(index, tiny_data_granules=100) -> bool:
+def selected_less_granules(index: dict, tiny_data_granules=100) -> bool:
+    """
+    Each "Indexes" field contains a description of how the index impact selection of partitions and granules.
+    Index is effective if the number of granules selected is smaller than before using an index. If the data is
+    small enough, the index won't limit what we read.
+    """
     initial_granules = index.get("Initial Granules", 0)
     return index.get("Selected Granules", 0) < initial_granules or initial_granules < tiny_data_granules
 
 
 def guestimate_index_use(plan_with_indexes: dict) -> dict:
+    """
+    For a given table read we try to indentify if an index was used. This is limited as the plan is being processed
+    without a context (a table schema / index). Some tables have simple index and no real partitioning.
+    :param plan_with_indexes:
+    :return:
+    """
     db_table = plan_with_indexes.get("Description", "")
     result = {
         "table": db_table,
@@ -47,7 +62,7 @@ def guestimate_index_use(plan_with_indexes: dict) -> dict:
         partition = False
         primary_key = False
         for index in indexes:
-            if index.get("Condition", "") == "true":
+            if index.get("Condition", "") == "true":  # if the condition for index was not set
                 continue
             index_type = index.get("Type", "")
             if index_type == "MinMax":
