@@ -55,6 +55,72 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
+            select=self.select_2(),
+            select_from=self.from_expr_2(),
+            where=self.where(),
+            order_by=self.order_by,
+            group_by=[ast.Field(chain=["issue_id"])],
+        )
+
+    def from_expr_2(self):
+        # for the second iteration of this query, we just need to select from the events table
+        return parse_select("SELECT 1 FROM events").select_from  # type: ignore
+
+    def select_2(self):
+        # First, the easy groups - distinct uuid as occurrances, etc
+        exprs: list[ast.Expr] = [
+            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
+            ast.Alias(
+                alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
+            ),
+            ast.Alias(
+                alias="sessions",
+                expr=ast.Call(
+                    name="count",
+                    distinct=True,
+                    # the $session_id property can be blank if not set
+                    # we do not want that case counted so cast it to `null` which is excluded by default
+                    args=[
+                        ast.Call(
+                            name="nullIf",
+                            args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")],
+                        )
+                    ],
+                ),
+            ),
+            ast.Alias(
+                alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
+            ),
+            ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+        ]
+
+        for alias, config in self.sparkLineConfigs.items():
+            exprs.append(ast.Alias(alias=alias, expr=self.select_sparkline_array(alias, config)))
+
+        if self.query.issueId:
+            exprs.append(ast.Alias(alias="earliest", expr=parse_expr("summary.earliest")))
+
+        return exprs
+
+    def select_sparkline_array(self, alias: str, config: ErrorTrackingSparklineConfig):
+        toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
+        intervalStr = config.interval.value
+
+        # Is the event in the time range we're looking at for this volume calculation?
+        isInTimeRangeSelected = f"timestamp > now() - interval {config.value} {intervalStr}"
+        # Inside the array of the time range volume buckets, is the bucket we're currently looking
+        # at the one the event would fall into?
+        isHotIndex = f"dateDiff('{intervalStr}', {toStartOfInterval}(timestamp), {toStartOfInterval}(now())) = x"
+        # Should we count this event in the given bucket for the given time range?
+        isLiveIndexFn = f"if(and({isHotIndex}, {isInTimeRangeSelected}), 1, 0)"
+
+        constructed = f"arrayMap(x -> {isLiveIndexFn}, range({config.value}))"
+        summed = f"reverse(sumForEach({constructed}))"
+        return parse_expr(summed)
+
+    def to_query_old(self) -> ast.SelectQuery:
+        return ast.SelectQuery(
             ctes=self.ctes(),
             select=self.select(),
             select_from=self.from_expr(),
