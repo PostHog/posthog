@@ -1,4 +1,4 @@
-import { LemonButton, LemonCheckbox, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonModal, LemonSelect, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
@@ -50,7 +50,33 @@ export default function SchemaForm(): JSX.Element {
                                     return schema.rows != null ? schema.rows : 'Unknown'
                                 },
                             },
-
+                            {
+                                title: 'Sync Time of Day (UTC)',
+                                key: 'sync_time_of_day',
+                                render: function RenderSyncTimeOfDay(_, schema) {
+                                    return (
+                                        <LemonSelect
+                                            className="my-1"
+                                            disabled={!schema.should_sync}
+                                            value={(schema.sync_time_of_day || '00:00:00').substring(0, 5)}
+                                            onChange={(value) => {
+                                                const updatedSchema = { ...schema, sync_time_of_day: `${value}:00` }
+                                                toggleSchemaShouldSync(updatedSchema, updatedSchema.should_sync)
+                                            }}
+                                            options={[
+                                                { value: '00:00', label: '12:00 AM (Midnight)' },
+                                                { value: '03:00', label: '3:00 AM' },
+                                                { value: '06:00', label: '6:00 AM' },
+                                                { value: '09:00', label: '9:00 AM' },
+                                                { value: '12:00', label: '12:00 PM (Noon)' },
+                                                { value: '15:00', label: '3:00 PM' },
+                                                { value: '18:00', label: '6:00 PM' },
+                                                { value: '21:00', label: '9:00 PM' },
+                                            ]}
+                                        />
+                                    )
+                                },
+                            },
                             {
                                 key: 'sync_type',
                                 title: 'Sync method',
