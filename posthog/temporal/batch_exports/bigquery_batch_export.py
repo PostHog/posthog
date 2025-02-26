@@ -33,6 +33,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
     DateRange,
+    should_resume_from_activity_heartbeat,
 )
 from posthog.temporal.batch_exports.spmc import (
     Consumer,
@@ -635,9 +636,9 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
     ):
-        # For now we don't resume from a heartbeat as this is causing events to be missed due to the way we're merging
-        # data into the destination table
-        details = BigQueryHeartbeatDetails()
+        _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
+        if details is None:
+            details = BigQueryHeartbeatDetails()
 
         done_ranges: list[DateRange] = details.done_ranges
 
