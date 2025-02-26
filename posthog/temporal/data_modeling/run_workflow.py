@@ -30,10 +30,11 @@ from posthog.models import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.warehouse.util import database_sync_to_async
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.warehouse.models.data_modeling_job import DataModelingJob
 
 logger = structlog.get_logger()
 
@@ -262,9 +263,18 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
     try:
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
-            await materialize_model(model.label, team)
+            # Get the workflow ID from the activity info
+            workflow_id = temporalio.activity.info().workflow_id
+            key, delta_table, job_id = await materialize_model(model.label, team, workflow_id)
     except Exception as err:
         await logger.aexception("Failed to materialize model %s due to error: %s", model.label, str(err))
+
+        if job_id:
+            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
+            job.status = DataModelingJob.Status.FAILED
+            job.error = str(err)
+            await database_sync_to_async(job.save)()
+
         await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label))
     else:
         await logger.ainfo("Materialized model %s", model.label)
@@ -273,7 +283,7 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         queue.task_done()
 
 
-async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTable]:
+async def materialize_model(model_label: str, team: Team, workflow_id: str) -> tuple[str, DeltaTable, uuid.UUID]:
     """Materialize a given model by running its query in a dlt pipeline.
 
     Arguments:
@@ -281,6 +291,7 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
             If it's a valid UUID, then we will assume it's the ID, otherwise we'll assume
             it is the model's name.
         team: The team the model belongs to.
+        workflow_id: The ID of the workflow running the materialization.
     """
     filter_params: dict[str, str | uuid.UUID] = {}
     try:
@@ -293,6 +304,18 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
     saved_query = await database_sync_to_async(
         DataWarehouseSavedQuery.objects.prefetch_related("team").filter(team=team, **filter_params).get
     )()
+
+    if saved_query.created_by_id is not None:
+        created_by_id = saved_query.created_by_id
+
+    # Create a job record for this materialization event
+    job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=team,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id=workflow_id,
+        created_by_id=created_by_id,
+    )
 
     query_columns = saved_query.columns
     if not query_columns:
@@ -337,7 +360,45 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris)
 
     key, delta_table = tables.popitem()
-    return (key, delta_table)
+
+    # Count rows and update both DataWarehouseTable and DataModelingJob
+    row_count = await asyncio.to_thread(count_delta_table_rows, delta_table)
+    await update_table_row_count(saved_query, row_count)
+
+    # Update the job record with the row count and completed status
+    job.rows_materialized = row_count
+    job.status = DataModelingJob.Status.COMPLETED
+    job.last_run_at = dt.datetime.now(dt.UTC)
+    await database_sync_to_async(job.save)()
+
+    return (key, delta_table, job.id)
+
+
+def count_delta_table_rows(delta_table: DeltaTable) -> int:
+    """
+    Count the number of rows in a Delta table using metadata.
+    """
+    count = 0
+    for batch in delta_table.to_pyarrow_dataset().to_batches():
+        count += len(batch)
+    return count
+
+
+async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count: int) -> None:
+    """Update the row count in the DataWarehouseTable record. `saved_query` name is unique per team."""
+    try:
+        table = await database_sync_to_async(
+            DataWarehouseTable.objects.filter(team_id=saved_query.team_id, name=saved_query.name).first
+        )()
+
+        if table:
+            table.row_count = row_count
+            await database_sync_to_async(table.save)()
+            await logger.ainfo("Updated row count for table %s to %d", saved_query.name, row_count)
+        else:
+            await logger.awarning("Could not find DataWarehouseTable record for saved query %s", saved_query.name)
+    except Exception as e:
+        await logger.aexception("Failed to update row count for table %s: %s", saved_query.name, str(e))
 
 
 @dlt.source(max_table_nesting=0)
