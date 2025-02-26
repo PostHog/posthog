@@ -28,10 +28,10 @@ import {
     SDKKey,
 } from '~/types'
 
-import { BillingSectionId } from './billing/types'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
-import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
-import { SurveysTabs } from './surveys/surveysLogic'
+import type { BillingSectionId } from './billing/types'
+import type { OnboardingStepKey } from './onboarding/onboardingLogic'
+import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
+import type { SurveysTabs } from './surveys/surveysLogic'
 
 /**
  * To add a new URL to the front end:
