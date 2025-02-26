@@ -1,4 +1,7 @@
+import './PanelSettings.scss'
+
 import clsx from 'clsx'
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import {
     LemonButton,
     LemonButtonWithoutSideActionProps,
@@ -6,7 +9,7 @@ import {
 } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PropsWithChildren } from 'react'
+import { PropsWithChildren, useRef } from 'react'
 
 /**
  * TODO the lemon button font only has 700 and 800 weights available.
@@ -37,19 +40,23 @@ export function SettingsBar({
     border: 'bottom' | 'top' | 'all' | 'none'
     className?: string
 }>): JSX.Element {
+    const containerRef = useRef<HTMLDivElement>(null)
     return (
-        <div
-            className={clsx(
-                'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
-                className,
-                {
-                    'border-b': ['bottom', 'all'].includes(border),
-                    'border-t': ['top', 'all'].includes(border),
-                }
-            )}
-        >
-            {children}
-        </div>
+        <FloatingContainerContext.Provider value={containerRef}>
+            <div
+                ref={containerRef}
+                className={clsx(
+                    'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
+                    className,
+                    {
+                        'border-b': ['bottom', 'all'].includes(border),
+                        'border-t': ['top', 'all'].includes(border),
+                    }
+                )}
+            >
+                {children}
+            </div>
+        </FloatingContainerContext.Provider>
     )
 }
 
@@ -116,5 +123,9 @@ export function SettingsToggle({ title, icon, label, active, rounded, ...props }
     )
 
     // otherwise the tooltip shows instead of the disabled reason
-    return props.disabledReason ? button : <Tooltip title={title}>{button}</Tooltip>
+    return (
+        <div className={clsx(rounded ? 'SettingsBar--button--rounded' : 'SettingsBar--button--square')}>
+            {props.disabledReason ? button : <Tooltip title={title}>{button}</Tooltip>}
+        </div>
+    )
 }
