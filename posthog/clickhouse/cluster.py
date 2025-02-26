@@ -379,7 +379,7 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
                 if is_retryable_exception(e) and attempt < self.policy.max_attempts:
                     delay = delay_fn(attempt)
                     logger.warning(
-                        "Failed to invoke %r (attempt #%s), retrying in %0.2fs...", self.callable, attempt, delay
+                        "Failed to execute %r (attempt #%s, retry in %0.2fs): %s", self.callable, attempt, delay, e
                     )
                     time.sleep(delay)
                 else:
