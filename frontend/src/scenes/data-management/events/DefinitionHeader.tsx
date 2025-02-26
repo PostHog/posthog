@@ -20,7 +20,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     if (definition.verified) {
         return (
             <Tooltip title="Verified event property">
-                <IconList className="taxonomy-icon taxonomy-icon-muted" />
+                <IconBadge className="taxonomy-icon taxonomy-icon-muted" />
             </Tooltip>
         )
     }
