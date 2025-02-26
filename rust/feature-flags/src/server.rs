@@ -85,14 +85,19 @@ where
         .await;
     tokio::spawn(liveness_loop(simple_loop));
 
-    let billing_limiter = RedisLimiter::new(
+    let billing_limiter = match RedisLimiter::new(
         Duration::seconds(5),
         redis_client.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
         QuotaResource::FeatureFlags,
-    )
-    .expect("failed to create billing limiter");
+    ) {
+        Ok(limiter) => limiter,
+        Err(e) => {
+            tracing::error!("Failed to create billing limiter: {}", e);
+            return;
+        }
+    };
 
     // You can decide which client to pass to the router, or pass both if needed
     let app = router::router(

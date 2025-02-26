@@ -204,39 +204,47 @@ async fn it_handles_malformed_json() -> Result<()> {
     Ok(())
 }
 
-// TODO: we haven't implemented rate limiting in the new endpoint yet
-// #[tokio::test]
-// async fn it_handles_rate_limiting() -> Result<()> {
-//     let config = DEFAULT_TEST_CONFIG.clone();
-//     let client = setup_redis_client(Some(config.redis_url.clone()));
-//     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
-//     let token = team.api_token;
-//     let server = ServerHandle::for_config(config).await;
+#[tokio::test]
+async fn it_handles_rate_limiting() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
 
-//     // Simulate multiple requests to trigger rate limiting
-//     for _ in 0..100 {
-//         let payload = json!({
-//             "token": token,
-//             "distinct_id": "user1",
-//             "groups": {"group1": "group1"}
-//         });
-//         server.send_flags_request(payload.to_string()).await;
-//     }
+    // Create a server with the team's token limited
+    let server =
+        ServerHandle::for_config_with_limited_tokens(config.clone(), vec![token.clone()]).await;
 
-//     // The next request should be rate limited
-//     let payload = json!({
-//         "token": token,
-//         "distinct_id": "user1",
-//         "groups": {"group1": "group1"}
-//     });
-//     let res = server.send_flags_request(payload.to_string()).await;
-//     assert_eq!(StatusCode::TOO_MANY_REQUESTS, res.status());
-//     assert_eq!(
-//         res.text().await?,
-//         "Rate limit exceeded. Please reduce your request frequency and try again later."
-//     );
-//     Ok(())
-// }
+    // Test with a limited token
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user1",
+        "groups": {"group1": "group1"}
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::TOO_MANY_REQUESTS, res.status());
+    assert_eq!(
+        res.text().await?,
+        "Rate limit exceeded. Please reduce your request frequency and try again later."
+    );
+
+    // Test with a different, non-limited token
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let team2 = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let non_limited_token = team2.api_token;
+
+    let payload = json!({
+        "token": non_limited_token,
+        "distinct_id": "user1",
+        "groups": {"group1": "group1"}
+    });
+
+    let res = server.send_flags_request(payload.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    Ok(())
+}
 
 #[tokio::test]
 async fn it_handles_multivariate_flags() -> Result<()> {

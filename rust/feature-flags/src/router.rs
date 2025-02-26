@@ -34,6 +34,7 @@ pub struct State {
     pub billing_limiter: RedisLimiter,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn router<R, D>(
     redis: Arc<R>,
     reader: Arc<D>,

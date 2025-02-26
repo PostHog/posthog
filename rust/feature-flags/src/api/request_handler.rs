@@ -57,6 +57,27 @@ pub struct FlagsQueryParams {
     pub sent_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ServiceName {
+    FeatureFlags,
+    Replay,
+}
+
+impl ServiceName {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ServiceName::FeatureFlags => "feature_flags",
+            ServiceName::Replay => "recordings",
+        }
+    }
+}
+
+impl ToString for ServiceName {
+    fn to_string(&self) -> String {
+        self.as_str().to_string()
+    }
+}
+
 pub struct RequestContext {
     pub state: State<router::State>,
     pub ip: IpAddr,
@@ -117,8 +138,23 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     // NB: this method will fail before hitting any of the services if the token is not correctly set in the request,
     // saving us from hitting the services with an invalid token
     let token = request.extract_token()?;
-
     let verified_token = flag_service.verify_token(&token).await?;
+
+    let billing_limited = state
+        .billing_limiter
+        .is_limited(verified_token.as_str())
+        .await;
+
+    if billing_limited {
+        // return an empty FlagsResponse with a quotaLimited field called "feature_flags"
+        return Ok(FlagsResponse {
+            feature_flags: HashMap::new(),
+            feature_flag_payloads: HashMap::new(),
+            errors_while_computing_flags: false,
+            quota_limited: Some(vec![ServiceName::FeatureFlags.to_string()]),
+        });
+    }
+
     let team = flag_service
         .get_team_from_cache_or_pg(&verified_token)
         .await?;

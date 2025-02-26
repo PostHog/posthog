@@ -202,7 +202,7 @@ impl Client for MockRedisClient {
     async fn zrangebyscore(&self, key: String, _min: String, _max: String) -> Result<Vec<String>> {
         match self.zrangebyscore_ret.get(&key) {
             Some(val) => Ok(val.clone()),
-            None => Err(anyhow::anyhow!("Not found")),
+            None => Err(CustomRedisError::NotFound.into()),
         }
     }
 
