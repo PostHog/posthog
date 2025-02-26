@@ -15,7 +15,7 @@ from concurrent.futures import (
 )
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Literal, NamedTuple, TypeVar
+from typing import Any, Generic, Literal, NamedTuple, TypeVar
 from collections.abc import Iterable
 
 from clickhouse_driver import Client
@@ -350,34 +350,41 @@ class RetryPolicy:
     delay: float | Callable[[int], float]
     exceptions: tuple[type[Exception], ...] | Callable[[Exception], bool] = (Exception,)
 
-    def __call__(self, fn: Callable[[Client], T]) -> Callable[[Client], T]:
-        if isinstance(self.exceptions, tuple):
-            is_retryable_exception = lambda e: isinstance(e, self.exceptions)
+    def __call__(self, fn: Callable[[Client], T]) -> Retryable[T]:
+        return Retryable(fn, self)
+
+
+@dataclass
+class Retryable(Generic[T]):  # note: this class exists primarily to allow a readable __repr__
+    callable: Callable[[Client], T]
+    policy: RetryPolicy
+
+    def __call__(self, client: Client) -> T:
+        if isinstance(self.policy.exceptions, tuple):
+            is_retryable_exception = lambda e: isinstance(e, self.policy.exceptions)
         else:
-            is_retryable_exception = self.exceptions
+            is_retryable_exception = self.policy.exceptions
 
-        if callable(self.delay):
-            delay_fn = self.delay
+        if callable(self.policy.delay):
+            delay_fn = self.policy.delay
         else:
-            delay_fn = lambda _: self.delay
+            delay_fn = lambda _: self.policy.delay
 
-        # TODO: improve __repr__ here
-        def wrapped(client: Client) -> T:
-            counter = itertools.count(1)
-            while (attempt := next(counter)) <= self.max_attempts:
-                try:
-                    return fn(client)
-                except Exception as e:
-                    if is_retryable_exception(e) and attempt < self.max_attempts:
-                        delay = delay_fn(attempt)
-                        logger.warning("Failed to invoke %r (attempt #%s), retrying in %0.2fs...", fn, attempt, delay)
-                        time.sleep(delay)
-                    else:
-                        raise
+        counter = itertools.count(1)
+        while (attempt := next(counter)) <= self.policy.max_attempts:
+            try:
+                return self.callable(client)
+            except Exception as e:
+                if is_retryable_exception(e) and attempt < self.policy.max_attempts:
+                    delay = delay_fn(attempt)
+                    logger.warning(
+                        "Failed to invoke %r (attempt #%s), retrying in %0.2fs...", self.callable, attempt, delay
+                    )
+                    time.sleep(delay)
+                else:
+                    raise
 
-            raise RuntimeError("unexpected fallthrough")
-
-        return wrapped
+        raise RuntimeError("unexpected fallthrough")
 
 
 class MutationNotFound(Exception):
