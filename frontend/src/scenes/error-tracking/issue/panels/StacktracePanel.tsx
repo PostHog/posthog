@@ -36,6 +36,7 @@ const Content = ({ hasStack, isThirdPartyScript }: ErrorTrackingIssueEventConten
 
 const Header = ({
     active,
+    hasStack,
     isThirdPartyScript,
 }: { active: boolean } & ErrorTrackingIssueEventContent): JSX.Element | null => {
     const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
@@ -48,7 +49,7 @@ const Header = ({
     return (
         <div className="flex justify-between items-center w-full">
             <span>Stack trace</span>
-            {active && hasAnyInApp && !isThirdPartyScript ? (
+            {active && hasAnyInApp && (hasStack || !isThirdPartyScript) ? (
                 <LemonSegmentedButton
                     onChange={(value, e) => {
                         setShowAllFrames(value === 'full')
