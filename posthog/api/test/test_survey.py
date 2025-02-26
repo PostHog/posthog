@@ -1410,7 +1410,10 @@ class TestSurvey(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
-            data={"name": "Updated Survey", "questions": [{"type": "open", "question": "Updated question?"}]},
+            data={
+                "name": "Updated Survey",
+                "questions": [{"type": "open", "question": "Updated question?", "id": str(survey.questions[0]["id"])}],
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
