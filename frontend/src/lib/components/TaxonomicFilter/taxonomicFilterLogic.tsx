@@ -313,7 +313,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventProperties],
+                        excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.EventProperties],
                         propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
                         ...propertyTaxonomicGroupProps(),
                     },
