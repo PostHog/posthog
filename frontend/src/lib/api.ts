@@ -1070,6 +1070,10 @@ class ApiRequest {
         return this.environments().current().addPathComponent('add_product_intent')
     }
 
+    public authenticateWizard(): ApiRequest {
+        return this.environments().current().addPathComponent('authenticate_wizard')
+    }
+
     // Max Core Memory
     public coreMemory(): ApiRequest {
         return this.environmentsDetail().addPathComponent('core_memory')

@@ -8,10 +8,11 @@ from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
-
+from rest_framework import status
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
+from .wizard import SETUP_WIZARD_CACHE_PREFIX
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -53,6 +54,7 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
+from django.core.cache import cache
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -767,6 +769,28 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     def user_permissions(self):
         team = self.get_object() if self.action == "reset_token" else None
         return UserPermissions(cast(User, self.request.user), team)
+
+    @action(methods=["POST"], detail=False, required_scopes=["team:read"])
+    def authenticate_wizard(self, request, **kwargs):
+        hash = request.data.get("hash")
+
+        if not hash:
+            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
+
+        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
+
+        valid_hash = cache.has_key(cache_key)
+
+        if not valid_hash:
+            raise serializers.ValidationError(
+                {"hash": ["This wizard hash is invalid or has expired."]}, code="invalid_hash"
+            )
+
+        wizard_data = {"project_api_key": "test_key"}
+
+        cache.set(cache_key, wizard_data)
+
+        return response.Response({"success": True}, status=status.HTTP_200_OK)
 
 
 class RootTeamViewSet(TeamViewSet):

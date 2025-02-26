@@ -57,6 +57,10 @@ from posthog.utils import (
 )
 from posthog.api.team import TEAM_CONFIG_FIELDS_SET
 
+from django.core.cache import cache
+from .wizard import SETUP_WIZARD_CACHE_PREFIX
+from rest_framework import status
+
 
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
@@ -759,6 +763,32 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         return response.Response(
             ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data, status=200
         )
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["team:read"],
+    )
+    def authenticate_wizard(self, request: request.Request, *args, **kwargs):
+        hash = request.data.get("hash")
+
+        if not hash:
+            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
+
+        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
+
+        valid_hash = cache.has_key(cache_key)
+
+        if not valid_hash:
+            raise serializers.ValidationError(
+                {"hash": ["This wizard hash is invalid or has expired."]}, code="invalid_hash"
+            )
+
+        wizard_data = {"project_api_key": "test_key"}
+
+        cache.set(cache_key, wizard_data)
+
+        return response.Response({"success": True}, status=status.HTTP_200_OK)
 
     @cached_property
     def user_permissions(self):
