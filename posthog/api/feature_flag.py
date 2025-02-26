@@ -431,17 +431,18 @@ class FeatureFlagSerializer(
         with transaction.atomic():
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = FeatureFlag.objects.select_for_update().get(pk=instance.pk)
+            locked_version = locked_instance.version or 0
 
             version = validated_data.get("version", -1)
 
             # If version is not provided, we don't check for conflicts. This is just in case there's a place
             # that's using the feature flag that doesn't know about the version field yet.
-            if version != -1 and version != locked_instance.version:
+            if version != -1 and version != locked_version:
                 raise Conflict(
                     f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
                 )
 
-            validated_data["version"] = locked_instance.version + 1
+            validated_data["version"] = locked_version + 1
 
             validated_key = validated_data.get("key", None)
             if validated_key:

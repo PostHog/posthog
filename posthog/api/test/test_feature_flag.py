@@ -949,6 +949,32 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.name, "Yet another updated name")
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_treats_null_version_as_zero(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            feature_flag.version = None
+            feature_flag.save()
+            frozen_datetime.tick(delta=timedelta(minutes=10))
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                data={"name": "Updated name", "version": 0},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["version"], 1)
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            self.assertEqual(feature_flag.version, 1)
+            self.assertEqual(feature_flag.name, "Updated name")
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key(self, mock_capture):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
