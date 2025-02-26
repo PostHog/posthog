@@ -683,7 +683,7 @@ class FeatureFlagViewSet(
         else:
             queryset = queryset.order_by("-created_at")
 
-        return queryset.select_related("created_by")
+        return queryset.select_related("created_by", "last_modified_by")
 
     @extend_schema(
         parameters=[
