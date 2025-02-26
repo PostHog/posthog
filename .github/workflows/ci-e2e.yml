@@ -133,9 +133,6 @@ jobs:
             matrix:
                 spec: ${{ fromJson(needs.chunks.outputs.chunks) }}
 
-        env:
-            NODE_OPTIONS: '--max-old-space-size=10240'
-
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -174,6 +171,8 @@ jobs:
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: pnpm --filter=@posthog/cypress... install --frozen-lockfile
+              env:
+                  NODE_OPTIONS: '--max-old-space-size=10240'
 
             - name: Prepare cypress
               # these are required checks so, we can't skip entire sections
@@ -181,6 +180,8 @@ jobs:
               run: |
                   pnpm --filter=@posthog/cypress exec cypress install
                   bin/turbo --filter=@posthog/cypress prepare
+              env:
+                  NODE_OPTIONS: '--max-old-space-size=10240'
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
