@@ -57,6 +57,7 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
+const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
 
 let postHogEEModule: PostHogEE
 
@@ -207,10 +208,72 @@ function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean): even
         : (currentEvent as eventWithTime)
 }
 
+function chunkMutationSnapshot(
+    snapshot: RecordingSnapshot,
+    nextSnapshot: RecordingSnapshot | null
+): RecordingSnapshot[] {
+    if (
+        snapshot.type !== EventType.IncrementalSnapshot ||
+        !('data' in snapshot) ||
+        !snapshot.data ||
+        typeof snapshot.data !== 'object' ||
+        !('source' in snapshot.data) ||
+        snapshot.data.source !== IncrementalSource.Mutation ||
+        !('adds' in snapshot.data) ||
+        !Array.isArray(snapshot.data.adds) ||
+        snapshot.data.adds.length <= MUTATION_CHUNK_SIZE
+    ) {
+        return [snapshot]
+    }
+
+    const chunks: RecordingSnapshot[] = []
+    const { adds, removes, texts, attributes } = snapshot.data
+    const totalAdds = adds.length
+    const chunksCount = Math.ceil(totalAdds / MUTATION_CHUNK_SIZE)
+
+    // Calculate the time gap to the next snapshot
+    // If there's no next snapshot, use a small increment (1ms) per chunk
+    const timeGap = nextSnapshot ? nextSnapshot.timestamp - snapshot.timestamp : chunksCount
+    const timeIncrement = timeGap / chunksCount
+
+    // Calculate the delay gap if both snapshots have delays
+    const delayGap = (nextSnapshot?.delay ?? (snapshot.delay ?? 0) + chunksCount) - (snapshot.delay ?? 0)
+    const delayIncrement = delayGap / chunksCount
+
+    for (let i = 0; i < chunksCount; i++) {
+        const startIdx = i * MUTATION_CHUNK_SIZE
+        const endIdx = Math.min((i + 1) * MUTATION_CHUNK_SIZE, totalAdds)
+        const isFirstChunk = i === 0
+        const isLastChunk = i === chunksCount - 1
+
+        const chunkSnapshot: RecordingSnapshot = {
+            ...snapshot,
+            timestamp: Math.floor(snapshot.timestamp + i * timeIncrement),
+            data: {
+                ...snapshot.data,
+                adds: adds.slice(startIdx, endIdx),
+                // Keep removes in the first chunk only
+                removes: isFirstChunk ? removes : [],
+                // Keep texts and attributes in the last chunk only
+                texts: isLastChunk ? texts : [],
+                attributes: isLastChunk ? attributes : [],
+            },
+        }
+
+        // If delay was present in the original snapshot, increment it proportionally
+        if ('delay' in snapshot) {
+            chunkSnapshot.delay = Math.floor((snapshot.delay || 0) + i * delayIncrement)
+        }
+
+        chunks.push(chunkSnapshot)
+    }
+
+    return chunks
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
-    // this is only kept so that we can export the untransformed data for debugging
     withMobileTransformer: boolean = true
 ): Promise<RecordingSnapshot[]> => {
     if (!postHogEEModule) {
@@ -221,7 +284,7 @@ export const parseEncodedSnapshots = async (
     const unparseableLines: string[] = []
     let isMobileSnapshots = false
 
-    const parsedLines: RecordingSnapshot[] = items.flatMap((l) => {
+    const parsedLines: RecordingSnapshot[] = items.flatMap((l, index) => {
         if (!l) {
             // blob files have an empty line at the end
             return []
@@ -248,17 +311,38 @@ export const parseEncodedSnapshots = async (
                 isMobileSnapshots = hasAnyWireframes(snapshotData)
             }
 
-            return snapshotData.map((d: unknown) => {
+            return snapshotData.flatMap((d: unknown, snapshotIndex) => {
                 const snap = coerceToEventWithTime(d, withMobileTransformer)
 
-                return {
-                    // this handles parsing data that was loaded from blob storage "window_id"
-                    // and data that was exported from the front-end "windowId"
-                    // we have more than one format of data that we store/pass around
-                    // but only one that we play back
+                const baseSnapshot: RecordingSnapshot = {
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
                     ...snap,
                 }
+
+                // Find the next snapshot if possible
+                let nextSnapshot: RecordingSnapshot | null = null
+                if (index < items.length - 1 && snapshotIndex === snapshotData.length - 1) {
+                    try {
+                        const nextItem = items[index + 1]
+                        if (typeof nextItem === 'string') {
+                            const parsed = JSON.parse(nextItem)
+                            const nextData = parsed['data']?.[0]
+                            if (nextData) {
+                                nextSnapshot = coerceToEventWithTime(
+                                    nextData,
+                                    withMobileTransformer
+                                ) as RecordingSnapshot
+                            }
+                        } else if (isRecordingSnapshot(nextItem)) {
+                            nextSnapshot = nextItem
+                        }
+                    } catch {
+                        // If we can't parse the next snapshot, just continue without it
+                    }
+                }
+
+                // Apply chunking to the snapshot if needed
+                return chunkMutationSnapshot(baseSnapshot, nextSnapshot)
             })
         } catch (e) {
             if (typeof l === 'string') {
