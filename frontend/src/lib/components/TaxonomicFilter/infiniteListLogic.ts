@@ -186,9 +186,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // On updating item, invalidate cache
                     apiCache = {}
                     apiCacheTimers = {}
+                    const popFromResults = 'hidden' in item && item.hidden
                     return {
                         ...values.remoteItems,
-                        results: values.remoteItems.results.map((i) => (i.name === item.name ? item : i)),
+                        results: values.remoteItems.results
+                            .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
+                            .filter((i) => i !== null),
                     }
                 },
             },
