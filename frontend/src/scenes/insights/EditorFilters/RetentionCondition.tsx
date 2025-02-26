@@ -1,7 +1,6 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { toast } from 'react-toastify'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
@@ -27,7 +26,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
     const { targetEntity, returningEntity, retentionType, totalIntervals, period } = retentionFilter || {}
 
     return (
-        <div className="space-y-3" data-attr="retention-summary">
+        <div className="space-y-3 mb-4" data-attr="retention-condition">
             <div className="flex items-center">
                 For
                 {showGroupsOptions ? (
@@ -139,18 +138,6 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                     }))}
                     dropdownMatchSelectWidth={false}
                 />
-            </div>
-            <div>
-                <p className="text-secondary mt-4">
-                    Want to learn more about retention?{' '}
-                    <Link
-                        to="https://posthog.com/docs/product-analytics/retention?utm_campaign=learn-more-horizontal&utm_medium=in-product"
-                        target="_blank"
-                        className="inline-flex items-center"
-                    >
-                        Go to docs
-                    </Link>
-                </p>
             </div>
         </div>
     )

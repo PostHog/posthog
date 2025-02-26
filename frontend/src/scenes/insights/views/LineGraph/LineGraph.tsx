@@ -264,6 +264,7 @@ export interface LineGraphProps {
     yAxisScaleType?: string | null
     showMultipleYAxes?: boolean | null
     goalLines?: GoalLine[]
+    isStacked?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -305,6 +306,7 @@ export function LineGraph_({
     showMultipleYAxes = false,
     legend = { display: false },
     goalLines: _goalLines,
+    isStacked = true,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -807,7 +809,7 @@ export function LineGraph_({
                 x: {
                     display: !hideXAxis,
                     beginAtZero: true,
-                    stacked: true,
+                    stacked: isStacked,
                     ticks: {
                         ...tickOptions,
                         precision,
@@ -826,7 +828,7 @@ export function LineGraph_({
                 y: {
                     display: !hideYAxis,
                     beginAtZero: true,
-                    stacked: true,
+                    stacked: isStacked,
                     ticks: {
                         ...tickOptions,
                         display: !hideYAxis,

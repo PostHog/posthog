@@ -3,21 +3,31 @@ import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { TrendsFilter } from '~/queries/schema/schema-general'
-import { GraphDataset, GraphType } from '~/types'
+import { ChartDisplayType, GraphDataset, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
-import { retentionLineGraphLogic } from './retentionLineGraphLogic'
+import { retentionGraphLogic } from './retentionGraphLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 
-interface RetentionLineGraphProps {
+interface RetentionGraphProps {
     inSharedMode?: boolean
+    chartType?: 'line' | 'bar'
 }
 
-export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
+function displayTypeToGraphType(displayType: ChartDisplayType): GraphType {
+    switch (displayType) {
+        case ChartDisplayType.ActionsBar:
+            return GraphType.Bar
+        default:
+            return GraphType.Line
+    }
+}
+
+export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { trendSeries, incompletenessOffsetFromEnd, aggregationGroupTypeIndex } = useValues(
-        retentionLineGraphLogic(insightProps)
+    const { retentionFilter, trendSeries, incompletenessOffsetFromEnd, aggregationGroupTypeIndex } = useValues(
+        retentionGraphLogic(insightProps)
     )
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
@@ -28,23 +38,21 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
     return trendSeries ? (
         <LineGraph
             data-attr="trend-line-graph"
-            type={GraphType.Line}
+            type={displayTypeToGraphType(retentionFilter?.display || ChartDisplayType.ActionsLineGraph)}
             datasets={trendSeries as GraphDataset[]}
             labels={(trendSeries[0] && trendSeries[0].labels) || []}
             isInProgress={incompletenessOffsetFromEnd < 0}
             inSharedMode={!!inSharedMode}
             showPersonsModal={false}
             labelGroupType={aggregationGroupTypeIndex}
+            // in retention graph, we want the bars side by side so it's easier
+            // to see the retention trend change for each cohort
+            isStacked={retentionFilter?.display !== ChartDisplayType.ActionsBar}
             trendsFilter={{ aggregationAxisFormat: 'percentage' } as TrendsFilter}
             tooltip={{
                 rowCutoff: 11, // 11 time units is hardcoded into retention insights
                 renderSeries: function _renderCohortPrefix(value) {
-                    return (
-                        <>
-                            {value}
-                            <span className="ml-1">Cohort</span>
-                        </>
-                    )
+                    return <>Cohort {value}</>
                 },
                 showHeader: false,
                 renderCount: (count) => {

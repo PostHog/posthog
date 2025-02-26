@@ -4,7 +4,7 @@ import { VizSpecificOptions } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { InsightType } from '~/types'
 
-import { RetentionLineGraph } from './RetentionLineGraph'
+import { RetentionGraph } from './RetentionGraph'
 import { RetentionModal } from './RetentionModal'
 import { RetentionTable } from './RetentionTable'
 
@@ -29,7 +29,7 @@ export function RetentionContainer({
             ) : (
                 <>
                     <div className="RetentionContainer__graph">
-                        <RetentionLineGraph inSharedMode={inSharedMode} />
+                        <RetentionGraph inSharedMode={inSharedMode} />
                     </div>
                     <LemonDivider />
                     <div className="RetentionContainer__table overflow-x-auto">

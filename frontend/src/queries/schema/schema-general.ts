@@ -31,6 +31,7 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
+    RetentionDashboardDisplayType,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -1096,8 +1097,13 @@ export type RetentionFilter = {
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */
     period?: RetentionFilterLegacy['period']
-    showMean?: RetentionFilterLegacy['show_mean']
     cumulative?: RetentionFilterLegacy['cumulative']
+
+    //frontend only
+    showMean?: RetentionFilterLegacy['show_mean']
+    /** controls the display of the retention graph */
+    display?: ChartDisplayType
+    dashboard_display?: RetentionDashboardDisplayType
 }
 
 export interface RetentionValue {

@@ -8,7 +8,7 @@ import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 
 import { dateOptionToTimeIntervalMap } from './constants'
-import type { retentionGraphLogicType } from './retentionLineGraphLogicType'
+import type { retentionGraphLogicType } from './retentionGraphLogicType'
 import { retentionLogic } from './retentionLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'

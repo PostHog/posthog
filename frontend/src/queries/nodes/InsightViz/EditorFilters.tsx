@@ -17,6 +17,7 @@ import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
+import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -89,13 +90,20 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         {
             title: 'General',
             editorFilters: filterFalsy([
-                isRetention
-                    ? {
-                          key: 'retention-condition',
-                          label: 'Retention Condition',
-                          component: RetentionCondition,
-                      }
-                    : null,
+                ...(isRetention
+                    ? [
+                          {
+                              key: 'retention-condition',
+                              label: 'Retention condition',
+                              component: RetentionCondition,
+                          },
+                          {
+                              key: 'retention-options',
+                              label: 'Retention calculation options',
+                              component: RetentionOptions,
+                          },
+                      ]
+                    : []),
                 isFunnels
                     ? {
                           key: 'query-steps',

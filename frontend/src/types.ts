@@ -2437,6 +2437,12 @@ export interface RetentionEntity {
     properties?: AnyPropertyFilter[]
 }
 
+export enum RetentionDashboardDisplayType {
+    TableOnly = 'table_only',
+    GraphOnly = 'graph_only',
+    All = 'all',
+}
+
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     /** Whether retention is with regard to initial cohort size, or that of the previous period. */
