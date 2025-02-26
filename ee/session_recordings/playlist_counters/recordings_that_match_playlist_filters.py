@@ -17,6 +17,7 @@ from structlog import get_logger
 logger = get_logger(__name__)
 
 THIRTY_SIX_HOURS_IN_SECONDS = 36 * 60 * 60
+TASK_EXPIRATION_TIME = settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS or THIRTY_SIX_HOURS_IN_SECONDS
 
 REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT = Counter(
     "replay_playlist_with_filters_in_team_count",
@@ -133,6 +134,8 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value,
+    # limit how many run per worker instance - if we have 10 workers, this will run 600 times per hour
+    rate_limit="60/h",
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     try:
@@ -173,4 +176,4 @@ def enqueue_recordings_that_match_playlist_filters() -> None:
         REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc(all_playlists.count())
 
         for playlist in all_playlists:
-            count_recordings_that_match_playlist_filters.delay(playlist.id)
+            count_recordings_that_match_playlist_filters.delay(playlist.id, expires=TASK_EXPIRATION_TIME)
