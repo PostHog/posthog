@@ -71,6 +71,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--staff",
+            type=bool,
             action="store_true",
             default=False,
             help="Create a staff user",
@@ -129,7 +130,7 @@ class Command(BaseCommand):
                         email,
                         "Employee 427",
                         "Hedgebox Inc.",
-                        is_staff=options.get("staff"),
+                        is_staff=bool(options.get("staff")),
                         password=password,
                         disallow_collision=True,
                     )
