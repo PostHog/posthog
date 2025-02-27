@@ -57,11 +57,11 @@ fn try_parse_to_num(value: Value) -> Value {
     match value {
         Value::String(s) => {
             // The options for a Number are u64m i64 or f64
-            if let Ok(n) = s.parse::<f64>() {
+            if let Ok(n) = s.parse::<u64>() {
                 Value::from(n)
             } else if let Ok(n) = s.parse::<i64>() {
                 Value::from(n)
-            } else if let Ok(n) = s.parse::<u64>() {
+            } else if let Ok(n) = s.parse::<f64>() {
                 Value::from(n)
             } else {
                 Value::from(s)
