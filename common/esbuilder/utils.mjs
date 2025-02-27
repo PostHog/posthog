@@ -93,14 +93,6 @@ export function copyIndexHtml(
         document.head.appendChild(link)
     `
 
-    const tailwindLoader = `
-        const twLink = document.createElement("link");
-        twLink.rel = "stylesheet";
-        twLink.crossOrigin = "anonymous";
-        twLink.href = (window.JS_URL || '') + "/static/aaa-tailwind.css";
-        document.head.appendChild(twLink)
-    `
-
     fse.writeFileSync(
         path.resolve(absWorkingDir, to),
         fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
@@ -115,7 +107,6 @@ export function copyIndexHtml(
                     // load such that it's in place when react starts
                     // adding elements to the DOM
                     ${cssFile ? cssLoader : ''}
-                    ${tailwindLoader}
                     ${scriptCode}
                     ${Object.keys(chunks).length > 0 ? chunkCode : ''}
                 </script>
@@ -369,8 +360,6 @@ export async function buildOrWatch(config) {
     }
 
     if (isDev) {
-        const tailwindConfigJsPath = path.resolve(absWorkingDir, '../tailwind.config.js')
-
         chokidar
             .watch(
                 [
@@ -379,8 +368,6 @@ export async function buildOrWatch(config) {
                     path.resolve(absWorkingDir, '../common'),
                     path.resolve(absWorkingDir, '../products/*/manifest.json'),
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
-                    // path.resolve(absWorkingDir, 'dist/tailwind.css'),
-                    // tailwindConfigJsPath,
                 ],
                 {
                     ignored: /.*(Type|\.test\.stories)\.[tj]sx?$/,

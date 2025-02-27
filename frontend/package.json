@@ -19,9 +19,11 @@
     "scripts": {
         "copy-scripts": "mkdir -p dist/ && ./bin/copy-posthog-js",
         "clean": "rm -rf dist && mkdir dist",
-        "build": "pnpm copy-scripts && pnpm build:esbuild",
+        "build": "pnpm copy-scripts && pnpm build:tailwind && pnpm build:esbuild",
         "build:esbuild": "DEBUG=0 node ./build.mjs",
-        "start": "concurrently -n ESBUILD,TYPEGEN,TAILWIND -c yellow,green,blue \"pnpm start-http\" \"pnpm run typegen:watch\" \"pnpm watch:tailwind\"",
+        "build:tailwind": "pnpm dlx @tailwindcss/cli -i ./src/styles/tailwind.css -o ./dist/tailwind-dist.css",
+        "watch:tailwind": "pnpm dlx @tailwindcss/cli -i ./src/styles/tailwind.css -o ./dist/tailwind-dist.css --watch",
+        "start": "pnpm build:tailwind && concurrently -n ESBUILD,TYPEGEN,TAILWIND -c yellow,green,blue \"pnpm start-http\" \"pnpm run typegen:watch\" \"pnpm watch:tailwind\"",
         "start-http": "pnpm clean && pnpm copy-scripts && pnpm build:esbuild --dev",
         "start-docker": "pnpm start-http --host 0.0.0.0",
         "typegen:write": "cd .. && kea-typegen write --delete --show-ts-errors",
@@ -37,11 +39,7 @@
         "lint:js": "eslint --cache src ../cypress ../products ../common",
         "lint:css": "stylelint \"../(frontend|products|common)/**/*.{css,scss}\"",
         "format": "pnpm lint:js --fix && pnpm lint:css --fix && pnpm prettier",
-        "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
-        "build:tailwind-old": "tailwindcss -i ./src/styles/tailwind.css -o ./dist/aaa-tailwind.css pnpm run build:tailwind --verbose",
-        "watch:tailwind-old": "tailwindcss -i ./src/styles/tailwind.css -o ./dist/aaa-tailwind.css --watch",
-        "watch:tailwind": "pnpm dlx @tailwindcss/cli -i ./src/styles/tailwind.css -o ./dist/aaa-tailwind.css --watch",
-        "build:tailwind": "pnpm dlx @tailwindcss/cli -i ./src/styles/tailwind.css -o ./dist/aaa-tailwind.css"
+        "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html"
     },
     "dependencies": {
         "@babel/runtime": "^7.24.0",
