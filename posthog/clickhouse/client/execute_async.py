@@ -292,7 +292,7 @@ def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str
         pass
 
     if dequeue_only:
-        message = "Query not found, only tried to dequeue"
+        message = "Only tried to dequeue, not cancelling query on clickhouse"
     else:
         from posthog.clickhouse.cancel import cancel_query_on_cluster
 
