@@ -41,26 +41,32 @@ type StatusProps = {
     tooltip: string
 }
 
-const STATUS_PROPS: Record<PropertyDefinitionVerificationStatus, StatusProps> = {
+const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificationStatus, StatusProps> => ({
     verified: {
         tagType: 'success',
         label: 'Verified',
         icon: <IconBadge />,
-        tooltip: 'This property is verified and can be used in filters and other selection components.',
+        tooltip: `This ${
+            isProperty ? 'property' : 'event'
+        } is verified and can be used in filters and other selection components.`,
     },
     hidden: {
-        tagType: 'caution',
+        tagType: 'danger',
         label: 'Hidden',
         icon: <IconHide />,
-        tooltip: 'This property is hidden and will not appear in filters and other selection components.',
+        tooltip: `This ${
+            isProperty ? 'property' : 'event'
+        } is hidden and will not appear in filters and other selection components.`,
     },
     visible: {
         tagType: 'default',
         label: 'Visible',
         icon: <IconEye />,
-        tooltip: 'This property is visible and can be used in filters and other selection components.',
+        tooltip: `This ${
+            isProperty ? 'property' : 'event'
+        } is visible and can be used in filters and other selection components.`,
     },
-}
+})
 
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
@@ -90,13 +96,9 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
         return <NotFound object="event" />
     }
 
-    const definitionStatus = isProperty
-        ? (definition as PropertyDefinition).verified
-            ? 'verified'
-            : (definition as PropertyDefinition).hidden
-            ? 'hidden'
-            : 'visible'
-        : null
+    const definitionStatus = definition.verified ? 'verified' : definition.hidden ? 'hidden' : 'visible'
+
+    const statusProps = getStatusProps(isProperty)
 
     return (
         <>
@@ -148,12 +150,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                                             : TaxonomicFilterGroupType.EventProperties
                                                     )}
                                                 </strong>{' '}
-                                                will no longer appear in selectors. Associated data will remain
-                                                in the database.
+                                                will no longer appear in selectors. Associated data will remain in the
+                                                database.
                                             </p>
                                             <p>
-                                                This definition will be recreated if the {singular} is ever seen again
-                                                in the event stream.
+                                                This definition will be recreated if the ${singular} is ever seen again
+                                                in the event stream.
                                             </p>
                                         </>
                                     ),
@@ -237,14 +239,14 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     </div>
                 )}
 
-                {isProperty && definitionStatus && (
+                {definitionStatus && (
                     <div className="flex-1 flex flex-col">
                         <h5>Verification status</h5>
                         <div>
-                            <Tooltip title={STATUS_PROPS[definitionStatus].tooltip}>
-                                <LemonTag type={STATUS_PROPS[definitionStatus].tagType}>
-                                    {STATUS_PROPS[definitionStatus].icon}
-                                    {STATUS_PROPS[definitionStatus].label}
+                            <Tooltip title={statusProps[definitionStatus].tooltip}>
+                                <LemonTag type={statusProps[definitionStatus].tagType}>
+                                    {statusProps[definitionStatus].icon}
+                                    {statusProps[definitionStatus].label}
                                 </LemonTag>
                             </Tooltip>
                         </div>

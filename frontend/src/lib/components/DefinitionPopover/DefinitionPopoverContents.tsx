@@ -42,6 +42,7 @@ export function PropertyStatusControl({
     allowVerification,
     onChange,
     compact = false,
+    isProperty,
 }: {
     verified: boolean
     hidden: boolean
@@ -49,16 +50,18 @@ export function PropertyStatusControl({
     allowVerification: boolean
     onChange: (status: { verified: boolean; hidden: boolean }) => void
     compact?: boolean
+    isProperty: boolean
 }): JSX.Element {
+    const definitionType = isProperty ? 'property' : 'event'
     const copy = {
-        verified:
-            'Prioritize this property in filters and other selection components to signal to collaborators that this property should be used in favor of similar properties.',
-        visible: 'Property is available for use but has not been verified by the team.',
-        hidden: 'Hide this property from filters and other selection components by default. Use this for deprecated or irrelevant properties.',
+        verified: `Prioritize this ${definitionType} in filters and other selection components to signal to collaborators that this ${definitionType} should be used in favor of similar ${definitionType}s.`,
+        visible: `${
+            definitionType.charAt(0).toUpperCase() + definitionType.slice(1)
+        } is available for use but has not been verified by the team.`,
+        hidden: `Hide this ${definitionType} from filters and other selection components by default. Use this for deprecated or irrelevant ${definitionType}s.`,
     }
 
-    const verifiedDisabledCorePropCopy =
-        'Core PostHog properties are inherently treated as if verified, but they can still be hidden.'
+    const verifiedDisabledCorePropCopy = `Core PostHog ${definitionType}s are inherently treated as if verified, but they can still be hidden.`
 
     const currentStatus: PropertyDefinitionVerificationStatus = hidden ? 'hidden' : verified ? 'verified' : 'visible'
 
@@ -418,6 +421,7 @@ function DefinitionEdit(): JSX.Element {
         type,
         dirty,
         viewFullDetailUrl,
+        isProperty,
     } = useValues(definitionPopoverLogic)
     const { setLocalDefinition, handleCancel, handleSave } = useActions(definitionPopoverLogic)
 
@@ -471,6 +475,7 @@ function DefinitionEdit(): JSX.Element {
                 {definition && definition.name && (showHiddenOption || allowVerification) && (
                     <div className="mb-4">
                         <PropertyStatusControl
+                            isProperty={isProperty}
                             verified={!!localDefinition.verified}
                             hidden={!!(localDefinition as Partial<PropertyDefinition>).hidden}
                             onChange={({ verified, hidden }) => {

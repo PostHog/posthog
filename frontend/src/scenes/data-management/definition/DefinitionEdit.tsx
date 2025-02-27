@@ -116,6 +116,7 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
                                     <LemonField name="hidden">
                                         {({ value: hidden, onChange: onHiddenChange }) => (
                                             <PropertyStatusControl
+                                                isProperty={isProperty}
                                                 verified={!!verified}
                                                 hidden={!!hidden}
                                                 showHiddenOption={showHiddenOption}
