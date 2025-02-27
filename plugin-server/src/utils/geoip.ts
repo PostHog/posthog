@@ -1,4 +1,6 @@
 import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
+import fs from 'fs/promises'
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { Hub, PluginsServerConfig } from '../types'
@@ -16,22 +18,53 @@ export const geoipCompareCounter = new Counter({
 
 export class GeoIPService {
     private _mmdbPromise: Promise<ReaderModel> | undefined
+    private _lastRefreshDate: string | undefined
 
     constructor(private config: PluginsServerConfig) {}
 
     private getMmdb() {
         if (!this._mmdbPromise) {
-            this._mmdbPromise = Reader.open(this.config.MMDB_FILE_LOCATION).catch((e) => {
-                status.warn('🌎', 'Error getting MMDB', {
-                    error: e.message,
-                })
-                throw e
-            })
+            this._mmdbPromise = this.refreshMmdbIfNeeded()
         }
 
         return this._mmdbPromise
     }
 
+    private async refreshMmdbIfNeeded(): Promise<ReaderModel> {
+        status.info('🌎', 'Refreshing MMDB')
+        /**
+         * NOTE: We sync the MMDB files to S3 in posthog-cloud-infra along with a JSON file that contains the date of the last refresh.
+         * That way we can do a cheap check to see if we need to refresh the MMDB file rather than downloading the whole file every time.
+         */
+        try {
+            const metadata: { date: string } = JSON.parse(
+                await fs.readFile(this.config.MMDB_FILE_LOCATION.replace('.mmdb', '.json'), 'utf8')
+            )
+
+            // If the date is different and we have a promise then we can return the promise
+            if (metadata.date === this._lastRefreshDate && this._mmdbPromise) {
+                return this._mmdbPromise
+            }
+
+            // Otherwise we can update the last refresh date and load the new file
+            this._lastRefreshDate = metadata.date
+        } catch (e) {
+            // NOTE: For self hosted instances this may fail as it is just using the bundled file so we just ignore the refreshing
+        }
+
+        status.info('🌎', 'Refreshing MMDB from disk (s3)')
+        return Reader.open(this.config.MMDB_FILE_LOCATION)
+            .then((mmdb) => {
+                status.info('🌎', 'Refreshed MMDB from disk (s3)!')
+                return mmdb
+            })
+            .catch((e) => {
+                status.warn('🌎', 'Error getting MMDB', {
+                    error: e.message,
+                })
+                throw e
+            })
+    }
     async get(hub: Hub): Promise<GeoIp> {
         // NOTE: There is a lot of code here just testing that the values are the same as before.
         // Once released we don't need the Hub and can simplify this.

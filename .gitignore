@@ -76,7 +76,7 @@ pnpm-error.log
 # pyright config (keep this until we have a standardized one)
 pyrightconfig.json
 settings.yml
-share/GeoLite2-City.mmdb
+share/GeoLite2-City.*
 staticfiles
 storybook-static
 frontend/storybook-static
