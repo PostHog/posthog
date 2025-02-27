@@ -273,18 +273,24 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
 
         # Start the query processing in a background thread
         loop = asyncio.get_running_loop()
-        query_task = loop.run_in_executor(
-            QUERY_EXECUTOR,  # Use our dedicated executor instead of None
-            lambda: process_query_model(
-                team=team,
-                query=query,
-                execution_mode=execution_mode,
-                query_id=client_query_id,
-                user=request.user
-                if not isinstance(request.user, AnonymousUser)
-                else None,  # just for typing, actual auth check happens above
-            ),
-        )
+
+        async def async_process_query():
+            # Run the synchronous function in an executor and await its result
+            return await loop.run_in_executor(
+                QUERY_EXECUTOR,
+                lambda: process_query_model(
+                    team=team,
+                    query=query,
+                    execution_mode=execution_mode,
+                    query_id=client_query_id,
+                    user=request.user
+                    if not isinstance(request.user, AnonymousUser)
+                    else None,  # just for typing, actual auth check happens above
+                ),
+            )
+
+        # Create a task from the async wrapper
+        query_task = asyncio.create_task(async_process_query())
 
         async def event_stream():
             assert kwargs.get("team_id") is not None
