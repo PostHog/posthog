@@ -517,7 +517,7 @@ class FeatureFlagSerializer(
         there is a conflict.
         """
 
-        if original_flag is None or {}:
+        if original_flag is None or original_flag == {}:
             return []
 
         # Get the fields that the user is trying to change
