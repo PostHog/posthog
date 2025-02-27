@@ -54,12 +54,16 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                     // Stop before the last item in a row, which is an incomplete time period
                                                     if (
                                                         (columnIndex >= row.length - 1 &&
+                                                            typeof row[columnIndex] === 'object' &&
                                                             row[columnIndex].isCurrentPeriod) ||
                                                         !row[columnIndex]
                                                     ) {
                                                         return null
                                                     }
-                                                    return row[columnIndex].percentage
+
+                                                    return typeof row[columnIndex] === 'object'
+                                                        ? row[columnIndex].percentage
+                                                        : 0
                                                 })
                                             ) || 0
                                         }
@@ -86,7 +90,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     <span className="RetentionTable__TextTab">{column}</span>
                                 ) : (
-                                    !column.isFuture && (
+                                    typeof column === 'object' && (
                                         <CohortDay
                                             percentage={column.percentage}
                                             clickable={true}
