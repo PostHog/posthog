@@ -1,3 +1,5 @@
+// PD - migrated to playwright
+
 describe('Redirect to other subdomain if logged in', () => {
     beforeEach(() => {
         cy.clearAllCookies()
