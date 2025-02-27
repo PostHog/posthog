@@ -1,8 +1,7 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import express from 'express'
 import { DateTime } from 'luxon'
 
-import { Hub, PluginServerService } from '../types'
+import { Hub, PluginEvent, PluginServerService } from '../types'
 import { status } from '../utils/status'
 import { delay, UUID, UUIDT } from '../utils/utils'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'

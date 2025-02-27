@@ -63,7 +63,7 @@ importers:
         version: 2.29.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)
       eslint-plugin-jest:
         specifier: ^28.6.0
-        version: 28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0)(typescript@4.9.5)
+        version: 28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))(typescript@4.9.5)
       eslint-plugin-posthog:
         specifier: workspace:*
         version: link:common/eslint_rules
@@ -96,7 +96,7 @@ importers:
         version: 4.3.0(stylelint@15.11.0(typescript@4.9.5))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
-        version: 11.1.0(postcss@8.5.2)(stylelint@15.11.0(typescript@4.9.5))
+        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5))
       stylelint-order:
         specifier: ^6.0.3
         version: 6.0.3(stylelint@15.11.0(typescript@4.9.5))
@@ -1039,7 +1039,7 @@ importers:
         version: 2.29.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)
       eslint-plugin-jest:
         specifier: ^28.6.0
-        version: 28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0)(typescript@4.9.5)
+        version: 28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))(typescript@4.9.5)
       eslint-plugin-posthog:
         specifier: workspace:*
         version: link:../common/eslint_rules
@@ -1193,9 +1193,6 @@ importers:
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
-      '@posthog/plugin-scaffold':
-        specifier: 1.4.4
-        version: 1.4.4
       '@posthog/siphash':
         specifier: 1.1.1
         version: 1.1.1
@@ -24808,7 +24805,7 @@ snapshots:
 
   eslint-import-resolver-node@0.3.9:
     dependencies:
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7(supports-color@5.5.0)
       is-core-module: 2.13.1
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -24816,7 +24813,7 @@ snapshots:
 
   eslint-module-utils@2.8.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint-import-resolver-node@0.3.9)(eslint@8.57.0):
     dependencies:
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7(supports-color@5.5.0)
     optionalDependencies:
       '@typescript-eslint/parser': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
       eslint: 8.57.0
@@ -24858,7 +24855,7 @@ snapshots:
       array.prototype.findlastindex: 1.2.3
       array.prototype.flat: 1.3.2
       array.prototype.flatmap: 1.3.2
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7(supports-color@5.5.0)
       doctrine: 2.1.0
       eslint: 8.57.0
       eslint-import-resolver-node: 0.3.9
@@ -24879,7 +24876,7 @@ snapshots:
       - eslint-import-resolver-webpack
       - supports-color
 
-  eslint-plugin-jest@28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0)(typescript@4.9.5):
+  eslint-plugin-jest@28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))(typescript@4.9.5):
     dependencies:
       '@typescript-eslint/utils': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
       eslint: 8.57.0
@@ -29904,6 +29901,10 @@ snapshots:
     dependencies:
       postcss: 8.4.31
 
+  postcss-scss@4.0.9(postcss@8.4.31):
+    dependencies:
+      postcss: 8.4.31
+
   postcss-scss@4.0.9(postcss@8.5.2):
     dependencies:
       postcss: 8.5.2
@@ -31798,6 +31799,15 @@ snapshots:
       stylelint: 15.11.0(typescript@4.9.5)
       stylelint-order: 6.0.3(stylelint@15.11.0(typescript@4.9.5))
 
+  stylelint-config-recommended-scss@13.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5)):
+    dependencies:
+      postcss-scss: 4.0.9(postcss@8.4.31)
+      stylelint: 15.11.0(typescript@4.9.5)
+      stylelint-config-recommended: 13.0.0(stylelint@15.11.0(typescript@4.9.5))
+      stylelint-scss: 5.3.1(stylelint@15.11.0(typescript@4.9.5))
+    optionalDependencies:
+      postcss: 8.4.31
+
   stylelint-config-recommended-scss@13.1.0(postcss@8.5.2)(stylelint@15.11.0(typescript@4.9.5)):
     dependencies:
       postcss-scss: 4.0.9(postcss@8.5.2)
@@ -31810,6 +31820,14 @@ snapshots:
   stylelint-config-recommended@13.0.0(stylelint@15.11.0(typescript@4.9.5)):
     dependencies:
       stylelint: 15.11.0(typescript@4.9.5)
+
+  stylelint-config-standard-scss@11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5)):
+    dependencies:
+      stylelint: 15.11.0(typescript@4.9.5)
+      stylelint-config-recommended-scss: 13.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5))
+      stylelint-config-standard: 34.0.0(stylelint@15.11.0(typescript@4.9.5))
+    optionalDependencies:
+      postcss: 8.4.31
 
   stylelint-config-standard-scss@11.1.0(postcss@8.5.2)(stylelint@15.11.0(typescript@4.9.5)):
     dependencies:

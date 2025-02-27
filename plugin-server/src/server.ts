@@ -20,6 +20,7 @@ import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { SessionRecordingIngester } from './ingestion/session-recording/session-recordings-consumer'
 import { DefaultBatchConsumerFactory } from './ingestion/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './ingestion/session-recording-v2/consumer'
+import { KafkaProducerWrapper } from './kafka/producer'
 import { Config, Hub, PluginServerService } from './types'
 import { isTestEnv } from './utils/env-utils'
 import { closeHub, createHub } from './utils/hub'
@@ -161,7 +162,15 @@ export class PluginServer {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
                     const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
-                    const ingester = new SessionRecordingIngesterV2(this.config, false, postgres, batchConsumerFactory)
+                    const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
+
+                    const ingester = new SessionRecordingIngesterV2(
+                        this.config,
+                        false,
+                        postgres,
+                        batchConsumerFactory,
+                        producer
+                    )
                     await ingester.start()
                     return ingester.service
                 })
@@ -171,7 +180,15 @@ export class PluginServer {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
                     const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
-                    const ingester = new SessionRecordingIngesterV2(this.config, true, postgres, batchConsumerFactory)
+                    const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
+
+                    const ingester = new SessionRecordingIngesterV2(
+                        this.config,
+                        true,
+                        postgres,
+                        batchConsumerFactory,
+                        producer
+                    )
                     await ingester.start()
                     return ingester.service
                 })
@@ -309,11 +326,7 @@ export class PluginServer {
             job.cancel()
         })
 
-        await Promise.allSettled([
-            this.pubsub?.stop(),
-            ...this.services.map((s) => s.onShutdown()),
-            posthog.shutdownAsync(),
-        ])
+        await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthog.shutdown()])
 
         if (this.hub) {
             // Wait 2 seconds to flush the last queues and caches

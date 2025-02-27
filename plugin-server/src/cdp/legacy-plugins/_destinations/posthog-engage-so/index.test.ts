@@ -37,7 +37,7 @@ describe('sendgrid', () => {
             },
         } as unknown as EngagePluginEvent
 
-        await onEvent(event, meta)
+        await onEvent(event, meta as any)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -66,7 +66,7 @@ describe('sendgrid', () => {
             },
         } as unknown as EngagePluginEvent
 
-        await onEvent(event, meta)
+        await onEvent(event, meta as any)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -96,7 +96,7 @@ describe('sendgrid', () => {
             },
         } as unknown as EngagePluginEvent
 
-        await onEvent(event, meta)
+        await onEvent(event, meta as any)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -125,7 +125,7 @@ describe('sendgrid', () => {
             },
         } as unknown as EngagePluginEvent
 
-        await onEvent(event, meta)
+        await onEvent(event, meta as any)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -167,7 +167,7 @@ describe('sendgrid', () => {
             },
         } as unknown as EngagePluginEvent
 
-        await onEvent(event, meta)
+        await onEvent(event, meta as any)
         expect(mockFetch.mock.calls.length).toEqual(0)
     })
 })

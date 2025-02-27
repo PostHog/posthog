@@ -1,7 +1,7 @@
 import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
-import { runInstrumentedFunction } from '../../main/utils'
+import { safeClickhouseString } from '../../ingestion/event-pipeline-runner/utils/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
-import { safeClickhouseString } from '../../utils/db/utils'
+import { runInstrumentedFunction } from '../../utils/instrument'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 import {
