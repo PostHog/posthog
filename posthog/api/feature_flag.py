@@ -637,10 +637,6 @@ class FeatureFlagViewSet(
                     queryset = queryset.filter(~Q(experiment__isnull=True))
                 elif type == "remote_config":
                     queryset = queryset.filter(is_remote_configuration=True)
-            elif key == "last_modified_by_id":
-                queryset = queryset.filter(last_modified_by_id=request.GET["last_modified_by_id"])
-            elif key == "version":
-                queryset = queryset.filter(version=request.GET["version"])
 
         return queryset
 
