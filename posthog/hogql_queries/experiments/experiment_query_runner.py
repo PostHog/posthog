@@ -195,7 +195,10 @@ class ExperimentQueryRunner(QueryRunner):
             ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
             ast.Alias(
                 alias="variant",
-                expr=ast.Field(chain=["properties", feature_flag_property]),
+                expr=parse_expr(
+                    "if(count(distinct {feature_flag_property}) > 1, '__multiple__', any({feature_flag_property}))",
+                    placeholders={"feature_flag_property": ast.Field(chain=["properties", feature_flag_property])},
+                ),
             ),
             ast.Alias(
                 alias="first_exposure_time",
@@ -205,7 +208,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ),
             ),
         ]
-        exposure_query_group_by = [ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])]
+        exposure_query_group_by = [ast.Field(chain=["entity_id"])]
         if is_data_warehouse_query:
             exposure_metric_config = cast(ExperimentDataWarehouseMetricConfig, self.metric.metric_config)
             exposure_query_select = [
@@ -459,6 +462,9 @@ class ExperimentQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
         )
+
+        # NOTE: For now, remove the __multiple__ variant
+        response.results = [result for result in response.results if result[0] != "__multiple__"]
 
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
