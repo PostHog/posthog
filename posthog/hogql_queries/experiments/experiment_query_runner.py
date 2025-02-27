@@ -173,8 +173,6 @@ class ExperimentQueryRunner(QueryRunner):
                         left=ast.Field(chain=["event"]),
                         right=ast.Constant(value="$feature_flag_called"),
                     ),
-                    # $feature_flag_called events have this materalized property we can use to look
-                    # up which flag it is
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["properties", "$feature_flag"]),
