@@ -9,6 +9,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
+import { ProcessedRetentionValue } from './types'
 
 export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -54,16 +55,14 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                     // Stop before the last item in a row, which is an incomplete time period
                                                     if (
                                                         (columnIndex >= row.length - 1 &&
-                                                            typeof row[columnIndex] === 'object' &&
-                                                            row[columnIndex].isCurrentPeriod) ||
+                                                            (row[columnIndex] as ProcessedRetentionValue)
+                                                                .isCurrentPeriod) ||
                                                         !row[columnIndex]
                                                     ) {
                                                         return null
                                                     }
 
-                                                    return typeof row[columnIndex] === 'object'
-                                                        ? row[columnIndex].percentage
-                                                        : 0
+                                                    return (row[columnIndex] as ProcessedRetentionValue).percentage
                                                 })
                                             ) || 0
                                         }
