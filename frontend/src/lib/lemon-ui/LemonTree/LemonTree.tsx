@@ -374,7 +374,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
 
                 nodeArray.forEach((node) => {
                     items.push(node)
-                    if (node.children && expandedItemIds?.includes(node.id)) {
+                    if (node.children && expandedItemIdsState?.includes(node.id)) {
                         traverse(node.children)
                     }
                 })
@@ -382,7 +382,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
 
             traverse(data)
             return items
-        }, [data, expandedItemIds])
+        }, [data, expandedItemIdsState])
 
         // Focus on provided content ref
         const focusContent = useCallback(() => {
@@ -477,6 +477,11 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 } else if (item?.record?.type === 'folder') {
                     // Handle click on a folder
                     if (onFolderClick) {
+                        // Update expanded state
+                        const newExpandedIds = expandedItemIdsState.includes(item.id)
+                            ? expandedItemIdsState.filter((id) => id !== item.id)
+                            : [...expandedItemIdsState, item.id]
+                        setExpandedItemIdsState(newExpandedIds)
                         onFolderClick(item, !expandedItemIdsState.includes(item.id))
                     }
                 }
@@ -714,7 +719,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             selectedId={selectedId}
                             focusedId={focusedId}
                             handleClick={handleClick}
-                            expandedItemIds={expandedItemIds}
+                            expandedItemIds={expandedItemIdsState}
                             onSetExpandedItemIds={onSetExpandedItemIds}
                             defaultNodeIcon={defaultNodeIcon}
                             showFolderActiveState={showFolderActiveState}
