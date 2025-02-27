@@ -130,7 +130,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         instance = self.get_object()
 
         assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=instance.id).first()
-        serialized_assignment_before = ErrorTrackingIssueAssignmentSerializer(assignment_before).data
+        serialized_assignment_before = (
+            ErrorTrackingIssueAssignmentSerializer(assignment_before).data if assignment_before else None
+        )
 
         if assignee:
             assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
@@ -141,11 +143,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 },
             )
 
-            # serialized_assignment_before =
-
-            serialized_assignment_after = ErrorTrackingIssueAssignmentSerializer(assignment_after).data
+            serialized_assignment_after = (
+                ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
+            )
         else:
-            assignment.delete()
+            assignment_before.delete()
             serialized_assignment_after = None
 
         log_activity(

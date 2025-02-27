@@ -1,3 +1,5 @@
+import { Link } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -9,15 +11,24 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { objectsEqual } from 'lib/utils'
+import { useEffect } from 'react'
+import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { AssigneeDisplay } from './AssigneeDisplay'
+import { assigneeSelectLogic } from './assigneeSelectLogic'
 
 type ErrorTrackingIssueAssignee = Exclude<ErrorTrackingIssue['assignee'], null>
 
 function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }): JSX.Element {
+    const { ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
+
+    useEffect(() => {
+        ensureAssigneeTypesLoaded()
+    }, [])
+
     return (
         <AssigneeDisplay assignee={assignee}>
             {({ displayAssignee }) => (
@@ -31,24 +42,15 @@ function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
-    debugger
-    return 'false'
-    // return <Link to={urls.errorTrackingIssue()}>{logItem?.detail.name || 'an issue'}</Link>
-
-    const name = logItem?.detail?.name || 'this one'
-    // TODO link needs to be calculated based on the logItem
-    return <i>{name}</i>
+    const name = logItem?.detail.name
+    return logItem?.item_id ? (
+        <Link to={urls.errorTrackingIssue(logItem.item_id)}>{name || 'an issue'}</Link>
+    ) : name ? (
+        <>{name}</>
+    ) : (
+        <i>an issue</i>
+    )
 }
-
-// function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
-//     return logItem?.detail?.short_id ? (
-//         <Link to={urls.notebook(logItem.detail.short_id)}>{logItem?.detail.name || 'unknown'}</Link>
-//     ) : logItem?.detail.name ? (
-//         <>{logItem?.detail.name}</>
-//     ) : (
-//         <i>Untitled</i>
-//     )
-// }
 
 const errorTrackingIssueActionsMapping: Record<
     keyof ErrorTrackingIssue,
@@ -81,13 +83,12 @@ const errorTrackingIssueActionsMapping: Record<
                 ) : wasUnassigned ? (
                     <>
                         unassigned {nameAndLink(logItem)} from{' '}
-                        <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} />.
+                        <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} />
                     </>
                 ) : (
                     <>
                         changed assignee from <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} /> to{' '}
-                        <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} />
-                        on {nameAndLink(logItem)}.
+                        <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} /> on {nameAndLink(logItem)}
                     </>
                 ),
             ],
@@ -128,11 +129,13 @@ export function errorTrackingActivityDescriber(logItem: ActivityLogItem, asNotif
         let changeSuffix: Description | undefined = undefined
 
         for (const change of logItem.detail.changes || []) {
-            if (!change?.field || !errorTrackingIssueActionsMapping[change.field]) {
+            const field = change.field as keyof ErrorTrackingIssue
+
+            if (!change?.field || !errorTrackingIssueActionsMapping[field]) {
                 continue //  not all fields are describable
             }
 
-            const actionHandler = errorTrackingIssueActionsMapping[change.field]
+            const actionHandler = errorTrackingIssueActionsMapping[field]
             const processedChange = actionHandler(change, logItem)
             if (processedChange === null) {
                 continue // // unexpected log from backend is indescribable
