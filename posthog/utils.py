@@ -91,7 +91,7 @@ def format_label_date(date: datetime.datetime, interval: str = "default") -> str
 
     if interval == "week":
         end_date = date + datetime.timedelta(days=6)
-        return f"{date.strftime('%-d-%b')} - {end_date.strftime('%-d-%b')}"
+        return f"{date.strftime('%-d-%b')} – {end_date.strftime('%-d-%b')}"
 
     return date.strftime(labels_format)
 
