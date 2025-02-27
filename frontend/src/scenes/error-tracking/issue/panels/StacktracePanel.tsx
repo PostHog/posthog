@@ -25,7 +25,11 @@ const Content = ({ hasStack, isThirdPartyScript }: ErrorTrackingIssueEventConten
                     anonymously will add stack traces to thrown exceptions.
                 </p>
                 <div className="flex">
-                    <LemonButton type="primary" status="danger" to="https://posthog.com">
+                    <LemonButton
+                        type="primary"
+                        status="danger"
+                        to="https://posthog.com/docs/error-tracking/common-questions#what-is-a-script-error-with-no-stack-traces"
+                    >
                         Learn more
                     </LemonButton>
                 </div>
