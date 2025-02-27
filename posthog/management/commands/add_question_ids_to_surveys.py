@@ -63,7 +63,7 @@ class Command(BaseCommand):
         total_surveys = Survey.objects.filter(questions__isnull=False).count()
         total_modified = 0
         total_questions_updated = 0
-        skipped_surveys = 0
+        total_processed = 0
 
         self.stdout.write(f"Found {total_surveys} surveys to process")
 
@@ -86,18 +86,8 @@ class Command(BaseCommand):
                 )
 
                 if not surveys:
-                    # If we got no surveys, it could be because they're all locked
-                    # or because we've processed all of them
-                    if skipped_surveys > 0:
-                        # If we've skipped surveys before, try again from the beginning
-                        # to catch any that were previously locked
-                        offset = 0
-                        skipped_surveys = 0
-                        self.stdout.write("Restarting from the beginning to process previously locked surveys")
-                        continue
-                    else:
-                        # If we haven't skipped any surveys, we're done
-                        break
+                    # If we got no surveys, we're done
+                    break
 
                 batch_modified = 0
                 batch_questions_updated = 0
@@ -133,6 +123,7 @@ class Command(BaseCommand):
 
                 total_modified += batch_modified
                 total_questions_updated += batch_questions_updated
+                total_processed += len(surveys)
 
                 # Report progress
                 processed_so_far = offset + len(surveys)
@@ -147,6 +138,17 @@ class Command(BaseCommand):
 
             # Move to the next batch
             offset += len(surveys)  # Use actual number of surveys processed, not batch_size
+
+        # Check if we processed all surveys
+        if total_processed < total_surveys:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Note: Only processed {total_processed} out of {total_surveys} surveys. "
+                    f"The remaining {total_surveys - total_processed} surveys may have been locked "
+                    f"by other processes. These surveys will likely get question IDs automatically "
+                    f"via the pre_save signal when they are next updated."
+                )
+            )
 
         if not really_run:
             self.stdout.write(
