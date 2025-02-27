@@ -201,7 +201,6 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                             configuration,
                         })
 
-                        actions.expandRow(row[0].uuid)
                         actions.removeLoadingRetry(row[0].uuid)
                         const retry: DestinationRetryType = {
                             eventId: row[0].uuid,
@@ -213,7 +212,6 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                         lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
                     }
 
-                    actions.expandRow(row[0].uuid)
                     actions.removeLoadingRetry(row[0].uuid)
                     return [...values.retries]
                 },

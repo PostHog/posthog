@@ -47,7 +47,7 @@ export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
     const { selectingMany, eventsWithRetries, loadingRetries, selectedForRetry } = useValues(
         hogFunctionTestingLogic({ id })
     )
-    const { setSelectingMany, retryInvocation, selectForRetry, deselectForRetry } = useActions(
+    const { setSelectingMany, retryInvocation, selectForRetry, deselectForRetry, resetSelectedForRetry } = useActions(
         hogFunctionTestingLogic({ id })
     )
     const { loading, loaded, showPaygate } = useValues(hogFunctionConfigurationLogic({ id }))
@@ -75,7 +75,14 @@ export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
                             </LemonButton>
                         ) : (
                             <>
-                                <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(false)}>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => {
+                                        setSelectingMany(false)
+                                        resetSelectedForRetry()
+                                    }}
+                                >
                                     Cancel
                                 </LemonButton>
                                 <LemonButton
@@ -394,7 +401,10 @@ export function TestingEventsList({ id }: { id: string }): JSX.Element | null {
                                         {
                                             label: 'Test event',
                                             disabledReason: !eventId ? 'Could not find the source event' : undefined,
-                                            onClick: () => retryInvocation(row),
+                                            onClick: () => {
+                                                retryInvocation(row)
+                                                expandRow(eventId)
+                                            },
                                         },
                                     ]}
                                 >
