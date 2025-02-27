@@ -976,26 +976,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
     }
 
-  auto limit_and_offset_clause_ctx = ctx->limitAndOffsetClause();
-  if (limit_and_offset_clause_ctx) {
-    PyObject* limit;
-    try {
-      limit = visitAsPyObject(limit_and_offset_clause_ctx->columnExpr(0));
-    } catch (...) {
-      Py_DECREF(select_query);
-      throw;
-    }
-    err_indicator = PyObject_SetAttrString(select_query, "limit", limit);
-    Py_DECREF(limit);
-    if (err_indicator == -1) {
-      Py_DECREF(select_query);
-      throw PyInternalError();
-    }
-    auto offset_ctx = limit_and_offset_clause_ctx->columnExpr(1);
-    if (offset_ctx) {
+    auto limit_and_offset_clause_ctx = ctx->limitAndOffsetClause();
+    auto offset_only_clause_ctx = ctx->offsetOnlyClause();
+
+    // Process OFFSET clause only if we don't have LIMIT AND OFFSET
+    if (offset_only_clause_ctx && !limit_and_offset_clause_ctx) {
       PyObject* offset;
       try {
-        offset = visitAsPyObject(offset_ctx);
+        offset = visitAsPyObject(offset_only_clause_ctx);
       } catch (...) {
         Py_DECREF(select_query);
         throw;
@@ -1007,33 +995,63 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         throw PyInternalError();
       }
     }
-    if (limit_and_offset_clause_ctx->WITH() && limit_and_offset_clause_ctx->TIES()) {
-      err_indicator = PyObject_SetAttrString(select_query, "limit_with_ties", Py_True);
+
+    if (limit_and_offset_clause_ctx) {
+      PyObject* limit;
+      try {
+        limit = visitAsPyObject(limit_and_offset_clause_ctx->columnExpr(0));
+      } catch (...) {
+        Py_DECREF(select_query);
+        throw;
+      }
+      err_indicator = PyObject_SetAttrString(select_query, "limit", limit);
+      Py_DECREF(limit);
+      if (err_indicator == -1) {
+        Py_DECREF(select_query);
+        throw PyInternalError();
+      }
+      auto offset_ctx = limit_and_offset_clause_ctx->columnExpr(1);
+      if (offset_ctx) {
+        PyObject* offset;
+        try {
+          offset = visitAsPyObject(offset_ctx);
+        } catch (...) {
+          Py_DECREF(select_query);
+          throw;
+        }
+        err_indicator = PyObject_SetAttrString(select_query, "offset", offset);
+        Py_DECREF(offset);
+        if (err_indicator == -1) {
+          Py_DECREF(select_query);
+          throw PyInternalError();
+        }
+      }
+      if (limit_and_offset_clause_ctx->WITH() && limit_and_offset_clause_ctx->TIES()) {
+        err_indicator = PyObject_SetAttrString(select_query, "limit_with_ties", Py_True);
+        if (err_indicator == -1) {
+          Py_DECREF(select_query);
+          throw PyInternalError();
+        }
+      }
+    }
+
+    // Handle limitByClause
+    auto limit_by_clause_ctx = ctx->limitByClause();
+    if (limit_by_clause_ctx) {
+      PyObject* limit_by_expr;
+      try {
+        limit_by_expr = visitAsPyObject(limit_by_clause_ctx);
+      } catch (...) {
+        Py_DECREF(select_query);
+        throw;
+      }
+      err_indicator = PyObject_SetAttrString(select_query, "limit_by", limit_by_expr);
+      Py_DECREF(limit_by_expr);
       if (err_indicator == -1) {
         Py_DECREF(select_query);
         throw PyInternalError();
       }
     }
-  }
-
-  // Handle limitByClause
-  auto limit_by_clause_ctx = ctx->limitByClause();
-  if (limit_by_clause_ctx) {
-    PyObject* limit_by_expr;
-    try {
-      limit_by_expr = visitAsPyObject(limit_by_clause_ctx);
-    } catch (...) {
-      Py_DECREF(select_query);
-      throw;
-    }
-    err_indicator = PyObject_SetAttrString(select_query, "limit_by", limit_by_expr);
-    Py_DECREF(limit_by_expr);
-    if (err_indicator == -1) {
-      Py_DECREF(select_query);
-      throw PyInternalError();
-    }
-  }
-
 
     auto array_join_clause_ctx = ctx->arrayJoinClause();
     if (array_join_clause_ctx) {
@@ -1129,9 +1147,28 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(OrderByClause) { return visit(ctx->orderExprList()); }
 
+  VISIT(LimitByClause) {
+    auto limit_expr = ctx->limitExpr();
+    PyObject* offset_value = visitAsPyObject(limit_expr);
+    PyObject* exprs = visitAsPyObject(ctx->columnExprList());
+    
+    RETURN_NEW_AST_NODE("LimitByExpr", "{s:N,s:N}", "offset_value", offset_value, "exprs", exprs);
+  }
+
+  VISIT(LimitExpr) {
+    return visitAsPyObject(ctx->columnExpr(0));
+  }
+
+  VISIT(OffsetOnlyClause) {
+    return visitAsPyObject(ctx->columnExpr());
+  }
+
   VISIT_UNSUPPORTED(ProjectionOrderByClause)
 
-  VISIT_UNSUPPORTED(LimitAndOffsetClause)
+  VISIT(LimitAndOffsetClause) {
+    // We handle this directly in the SelectStmt visitor, so just return NULL
+    return Py_BuildValue("");  // Returns None
+  }
 
   VISIT_UNSUPPORTED(SettingsClause)
 

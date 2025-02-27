@@ -219,6 +219,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitLimitExpr(HogQLParser::LimitExprContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitOrderExprList(HogQLParser::OrderExprListContext *ctx) override {
     return visitChildren(ctx);
   }

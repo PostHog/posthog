@@ -264,6 +264,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#limitExpr.
+    def visitLimitExpr(self, ctx:HogQLParser.LimitExprContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#orderExprList.
     def visitOrderExprList(self, ctx:HogQLParser.OrderExprListContext):
         return self.visitChildren(ctx)

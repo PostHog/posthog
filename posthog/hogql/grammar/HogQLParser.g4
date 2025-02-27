@@ -86,7 +86,7 @@ groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnEx
 havingClause: HAVING columnExpr;
 orderByClause: ORDER BY orderExprList;
 projectionOrderByClause: ORDER BY columnExprList;
-limitByClause: LIMIT columnExpr BY columnExprList;
+limitByClause: LIMIT limitExpr BY columnExprList;
 limitAndOffsetClause
     : LIMIT columnExpr (COMMA columnExpr)? (WITH TIES)? // compact OFFSET-optional form
     | LIMIT columnExpr (WITH TIES)? OFFSET columnExpr // verbose OFFSET-included form with WITH TIES
@@ -118,6 +118,7 @@ joinConstraintClause
     ;
 
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
+limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
 ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;

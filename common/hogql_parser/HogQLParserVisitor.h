@@ -121,6 +121,8 @@ public:
 
     virtual std::any visitSampleClause(HogQLParser::SampleClauseContext *context) = 0;
 
+    virtual std::any visitLimitExpr(HogQLParser::LimitExprContext *context) = 0;
+
     virtual std::any visitOrderExprList(HogQLParser::OrderExprListContext *context) = 0;
 
     virtual std::any visitOrderExpr(HogQLParser::OrderExprContext *context) = 0;
