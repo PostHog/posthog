@@ -10,13 +10,9 @@ import { groupsModel } from '~/models/groupsModel'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, HogFunctionTestInvocationResult } from '~/types'
+import { BaseMathType, ChartDisplayType, HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
 
-import {
-    convertToHogFunctionInvocationGlobals,
-    hogFunctionConfigurationLogic,
-    sanitizeConfiguration,
-} from './hogfunctions/hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogfunctions/hogFunctionConfigurationLogic'
 import type { hogFunctionTestingLogicType } from './hogFunctionTestingLogicType'
 import { HogFunctionTestInvocationResultWithEventId } from './TestingMenu'
 
@@ -164,33 +160,14 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
         retries: [
             [] as HogFunctionTestInvocationResultWithEventId[],
             {
-                retryInvocation: async (row: any) => {
-                    actions.addLoadingRetry(row[0].uuid)
-                    const globals = convertToHogFunctionInvocationGlobals(row[0], row[1])
-                    globals.groups = {}
-                    values.groupTypes.forEach((groupType, index) => {
-                        const tuple = row?.[4 + index]
-                        if (tuple && Array.isArray(tuple) && tuple[2]) {
-                            let properties = {}
-                            try {
-                                properties = JSON.parse(tuple[3])
-                            } catch (e) {
-                                // Ignore
-                            }
-                            globals.groups![groupType.group_type] = {
-                                type: groupType.group_type,
-                                index: tuple[1],
-                                id: tuple[2], // TODO: rename to "key"?
-                                url: `${window.location.origin}/groups/${tuple[1]}/${encodeURIComponent(tuple[2])}`,
-                                properties,
-                            }
-                        }
-                    })
-                    globals.source = {
-                        name: values.configuration?.name ?? 'Unnamed',
-                        url: window.location.href.split('#')[0],
-                    }
-
+                retryInvocation: async ({
+                    eventId,
+                    globals,
+                }: {
+                    eventId: string
+                    globals: HogFunctionInvocationGlobals
+                }) => {
+                    actions.addLoadingRetry(eventId)
                     const configuration = sanitizeConfiguration(values.configuration) as Record<string, any>
                     configuration.template_id = values.templateId
 
@@ -202,9 +179,9 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                             configuration,
                         })
 
-                        actions.removeLoadingRetry(row[0].uuid)
+                        actions.removeLoadingRetry(eventId)
                         const retry: HogFunctionTestInvocationResultWithEventId = {
-                            eventId: row[0].uuid,
+                            eventId: eventId,
                             ...res,
                         }
 
@@ -213,7 +190,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                         lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
                     }
 
-                    actions.removeLoadingRetry(row[0].uuid)
+                    actions.removeLoadingRetry(eventId)
                     return [...values.retries]
                 },
             },

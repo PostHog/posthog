@@ -15,6 +15,7 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { router } from 'kea-router'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -28,10 +29,23 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, HogFunctionTestInvocationResult, LogEntry } from '~/types'
+import {
+    AvailableFeature,
+    GroupType,
+    GroupTypeIndex,
+    HogFunctionInvocationGlobals,
+    HogFunctionTestInvocationResult,
+    LogEntry,
+    PipelineNodeTab,
+    PipelineStage,
+} from '~/types'
 
 import { HogFunctionFilters } from './hogfunctions/filters/HogFunctionFilters'
-import { hogFunctionConfigurationLogic } from './hogfunctions/hogFunctionConfigurationLogic'
+import {
+    convertToHogFunctionInvocationGlobals,
+    hogFunctionConfigurationLogic,
+} from './hogfunctions/hogFunctionConfigurationLogic'
+import { hogFunctionTestLogic } from './hogfunctions/hogFunctionTestLogic'
 import { tagTypeForLevel } from './hogfunctions/logs/LogsViewer'
 import { hogFunctionTestingLogic } from './hogFunctionTestingLogic'
 
@@ -43,6 +57,39 @@ export interface HogFunctionTestInvocationResultWithEventId extends HogFunctionT
     eventId: string
 }
 
+const buildGlobals = (
+    row: any,
+    groupTypes: Map<GroupTypeIndex, GroupType>,
+    hogFunctionName: string
+): HogFunctionInvocationGlobals => {
+    const globals = convertToHogFunctionInvocationGlobals(row[0], row[1])
+    globals.groups = {}
+    groupTypes.forEach((groupType, index) => {
+        const tuple = row?.[4 + index]
+        if (tuple && Array.isArray(tuple) && tuple[2]) {
+            let properties = {}
+            try {
+                properties = JSON.parse(tuple[3])
+            } catch (e) {
+                // Ignore
+            }
+            globals.groups![groupType.group_type] = {
+                type: groupType.group_type,
+                index: tuple[1],
+                id: tuple[2], // TODO: rename to "key"?
+                url: `${window.location.origin}/groups/${tuple[1]}/${encodeURIComponent(tuple[2])}`,
+                properties,
+            }
+        }
+    })
+    globals.source = {
+        name: hogFunctionName ?? 'Unnamed',
+        url: window.location.href.split('#')[0],
+    }
+
+    return globals
+}
+
 export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
     const { selectingMany, eventsWithRetries, loadingRetries, selectedForRetry } = useValues(
         hogFunctionTestingLogic({ id })
@@ -50,7 +97,7 @@ export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
     const { setSelectingMany, retryInvocation, selectForRetry, deselectForRetry, resetSelectedForRetry } = useActions(
         hogFunctionTestingLogic({ id })
     )
-    const { loading, loaded, showPaygate } = useValues(hogFunctionConfigurationLogic({ id }))
+    const { loading, loaded, showPaygate, groupTypes, configuration } = useValues(hogFunctionConfigurationLogic({ id }))
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -115,7 +162,16 @@ export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
                                                 onClick: () => {
                                                     eventsWithRetries
                                                         .filter((row) => selectedForRetry.includes(row[0].uuid))
-                                                        .forEach((row) => retryInvocation(row))
+                                                        .forEach((row) =>
+                                                            retryInvocation({
+                                                                eventId: row[0].uuid,
+                                                                globals: buildGlobals(
+                                                                    row,
+                                                                    groupTypes,
+                                                                    configuration?.name ?? 'Unnamed'
+                                                                ),
+                                                            })
+                                                        )
                                                 },
                                             },
                                         })
@@ -277,6 +333,8 @@ export function TestingEventsList({ id }: { id: string }): JSX.Element | null {
         selectForRetry,
         deselectForRetry,
     } = useActions(logic)
+    const { groupTypes, configuration, logicProps } = useValues(hogFunctionConfigurationLogic({ id }))
+    const { setSampleGlobals, toggleExpanded } = useActions(hogFunctionTestLogic(logicProps))
 
     return (
         <LemonTable
@@ -400,10 +458,35 @@ export function TestingEventsList({ id }: { id: string }): JSX.Element | null {
                                             : null,
                                         {
                                             label: 'Test event',
-                                            disabledReason: !eventId ? 'Could not find the source event' : undefined,
                                             onClick: () => {
-                                                retryInvocation(row)
+                                                retryInvocation({
+                                                    eventId,
+                                                    globals: buildGlobals(
+                                                        row,
+                                                        groupTypes,
+                                                        configuration?.name ?? 'Unnamed'
+                                                    ),
+                                                })
                                                 expandRow(eventId)
+                                            },
+                                        },
+                                        {
+                                            label: 'View event in configuration tab',
+                                            onClick: () => {
+                                                const globals = buildGlobals(
+                                                    row,
+                                                    groupTypes,
+                                                    configuration?.name ?? 'Unnamed'
+                                                )
+                                                setSampleGlobals(globals)
+                                                toggleExpanded(true)
+                                                router.actions.push(
+                                                    urls.pipelineNode(
+                                                        PipelineStage.Destination,
+                                                        'hog-' + id,
+                                                        PipelineNodeTab.Configuration
+                                                    )
+                                                )
                                             },
                                         },
                                     ]}
