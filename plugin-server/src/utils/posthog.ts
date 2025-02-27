@@ -5,7 +5,7 @@ import { SeverityLevel } from 'posthog-node/src/extensions/error-tracking/types'
 import { defaultConfig } from '../config/config'
 import { Team } from '../types'
 
-export const posthog = defaultConfig.POSTHOG_API_KEY
+const posthog = defaultConfig.POSTHOG_API_KEY
     ? new PostHog(defaultConfig.POSTHOG_API_KEY, {
           host: defaultConfig.POSTHOG_HOST_URL,
           enableExceptionAutocapture: false, // TODO - disabled while data volume is a problem, PS seems /extremely/ chatty exceptions wise
@@ -16,10 +16,15 @@ if (process.env.NODE_ENV === 'test' && posthog) {
     void posthog.disable()
 }
 
-export const captureTeamEvent = (team: Team, event: string, properties: Record<string, any> = {}): void => {
+export const captureTeamEvent = (
+    team: Team,
+    event: string,
+    properties: Record<string, any> = {},
+    distinctId: string | null = null
+): void => {
     if (posthog) {
         posthog.capture({
-            distinctId: team.uuid,
+            distinctId: distinctId ?? team.uuid,
             event,
             properties: {
                 team: team.uuid,
@@ -65,4 +70,14 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
     }
 
     return sentryId
+}
+
+export function shutdown(): Promise<void> | null {
+    return posthog && posthog.shutdown()
+}
+
+export function flush(): void {
+    if (posthog) {
+        void posthog.flush().catch(() => null)
+    }
 }
