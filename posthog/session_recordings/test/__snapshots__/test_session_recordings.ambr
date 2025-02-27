@@ -1,4 +1,12 @@
 # serializer version: 1
+# name: TestSessionRecordings.test_400_when_invalid_list_query
+  dict({
+    'attr': None,
+    'code': 'invalid_input',
+    'detail': '[{"type": "list_type", "loc": ["session_ids"], "msg": "Input should be a valid list", "input": "invalid", "url": "https://errors.pydantic.dev/2.9/v/list_type"}, {"type": "extra_forbidden", "loc": ["tomato"], "msg": "Extra inputs are not permitted", "input": "potato", "url": "https://errors.pydantic.dev/2.9/v/extra_forbidden"}]',
+    'type': 'validation_error',
+  })
+# ---
 # name: TestSessionRecordings.test_get_session_recordings
   '''
   SELECT "posthog_team"."id",
