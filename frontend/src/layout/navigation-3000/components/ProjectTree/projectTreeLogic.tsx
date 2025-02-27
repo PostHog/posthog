@@ -143,7 +143,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             true,
             { persist: true },
             {
-                dismissHelpNotice: () => false,
+                updateHelpNoticeVisibility: (_, { visible }) => visible,
             },
         ],
     }),

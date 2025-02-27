@@ -203,26 +203,29 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                     />
-                    {helpNoticeVisible && (
-                        <div className="p-2">
-                            <LemonBanner
-                                type="info"
-                                dismissKey="project-tree-help-notice"
-                                onClose={() => updateHelpNoticeVisibility(false)}
-                            >
-                                <p className="font-semibold mb-1">Behold, 🌲 navigation</p>
-                                <ul className="mb-0 text-xs list-disc pl-4 py-0">
-                                    <li>
-                                        All your files are still here, open 'unfiled' to see them, and organize them the
-                                        way you'd like.
-                                    </li>
-                                    <li>
-                                        Hold down <KeyboardShortcut command /> to enable drag and drop.
-                                    </li>
-                                </ul>
-                            </LemonBanner>
-                        </div>
-                    )}
+                    {helpNoticeVisible ? (
+                        <>
+                            <div className="border-b border-primary h-px" />
+                            <div className="p-2">
+                                <LemonBanner
+                                    type="info"
+                                    dismissKey="project-tree-help-notice"
+                                    onClose={() => updateHelpNoticeVisibility(false)}
+                                >
+                                    <p className="font-semibold mb-1">Behold, 🌲 navigation</p>
+                                    <ul className="mb-0 text-xs list-disc pl-4 py-0">
+                                        <li>
+                                            All your files are still here, open 'unfiled' to see them, and organize them
+                                            the way you'd like.
+                                        </li>
+                                        <li>
+                                            Hold down <KeyboardShortcut command /> to enable drag and drop.
+                                        </li>
+                                    </ul>
+                                </LemonBanner>
+                            </div>
+                        </>
+                    ) : null}
                     <div className="border-b border-primary h-px" />
                     <NavbarBottom />
                 </div>
