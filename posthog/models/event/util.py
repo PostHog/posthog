@@ -66,6 +66,7 @@ def create_event(
         "properties": json.dumps(properties),
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.pk,
+        "project_id": team.pk,
         "distinct_id": str(distinct_id),
         "elements_chain": elements_chain,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
