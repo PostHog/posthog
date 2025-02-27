@@ -25,6 +25,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     actions({
         setMinimumDetectableEffect: (value: number) => ({ value }),
         setMetricIndex: (value: number) => ({ value }),
+        setMetricResult: (value: { uniqueUsers: number; averageEventsPerUser: number }) => ({ value }),
     }),
     reducers({
         metricIndex: [
@@ -116,6 +117,8 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     averageEventsPerUser: result?.results?.[1]?.count ?? null,
                 }
             },
+            // For testing purposes, we want to set the metric result directly
+            setMetricResult: ({ value }) => value,
         },
     })),
     listeners(({ actions }) => ({
