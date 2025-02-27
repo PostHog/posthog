@@ -203,15 +203,6 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                     />
-                    {/* <div className="p-2">
-                        <div className="border border-primary rounded p-2 bg-surface-primary">
-                            <p className='font-semibold mb-1'>Behold, 🌲 navigation</p>
-                            <ul className="mb-0 text-xs list-disc pl-4 py-0">
-                                <li>All your files are still here, open 'unfiled' to see them, and organize them the way you'd like.</li>
-                                <li>Hold down <KeyboardShortcut command /> to enable drag and drop.</li>
-                            </ul>
-                        </div>
-                    </div> */}
                     {helpNoticeVisible && (
                         <div className="p-2">
                             <LemonBanner
