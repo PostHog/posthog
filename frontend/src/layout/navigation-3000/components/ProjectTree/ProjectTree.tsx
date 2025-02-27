@@ -98,7 +98,11 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                         isItemDraggable={(item) => {
-                            return item.record?.type !== 'project' && item.record?.path
+                            return (
+                                item.record?.type !== 'project' &&
+                                item.record?.path &&
+                                !specialItemsIds.includes(item.id || '')
+                            )
                         }}
                         isItemDroppable={(item) => {
                             const path = item.record?.path || ''
