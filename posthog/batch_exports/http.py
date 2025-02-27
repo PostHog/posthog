@@ -7,7 +7,7 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
-from rest_framework import filters, mixins, request, response, serializers, viewsets
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -525,6 +525,38 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         instance.save().
         """
         disable_and_delete_export(instance)
+
+    @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
+    def test(self, request: request.Request, *args, **kwargs) -> response.Response:
+        from posthog.temporal.batch_exports.destination_tests import get_destination_test
+
+        destination = request.data.pop("destination", None)
+        if not destination:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            destination_test = get_destination_test(destination=destination)
+        except ValueError:
+            return response.Response(status=status.HTTP_404_NOT_FOUND)
+
+        return response.Response(destination_test.as_dict())
+
+    @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
+    def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
+        from posthog.temporal.batch_exports.destination_tests import get_destination_test
+
+        test_step = request.data.pop("step", 0)
+
+        serializer = self.get_serializer(data=request.data)
+        _ = serializer.is_valid(raise_exception=True)
+
+        destination_test = get_destination_test(
+            destination=serializer.validated_data["destination"]["type"],
+        )
+        destination_test.configure(**serializer.validated_data["destination"]["config"])
+
+        result = destination_test.run_step(test_step)
+        return response.Response(result.as_dict())
 
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):
