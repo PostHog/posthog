@@ -1019,6 +1019,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 )
             }
         },
+        editFeatureFlag: async ({ editing }) => {
+            if (editing) {
+                actions.loadFeatureFlag()
+            }
+        },
     })),
     selectors({
         sentryErrorCount: [(s) => [s.sentryStats], (stats) => stats.total_count],
