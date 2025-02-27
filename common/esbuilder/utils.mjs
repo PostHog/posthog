@@ -388,7 +388,7 @@ export async function buildOrWatch(config) {
                     if (filePath.match(/\.tsx?$/)) {
                         // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
                         // in case any new utility classes are used. `touch`ing `base.scss` (or the file that imports tailwind.css) achieves this.
-                        await touchFile(path.resolve(absWorkingDir, 'src/styles/tailwind.css'))
+                        await touchFile(path.resolve(absWorkingDir, '../common/tailwind/tailwind.css'))
                     }
                     void debouncedBuild()
                 }

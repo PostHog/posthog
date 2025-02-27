@@ -306,15 +306,14 @@ const deprecatedColors = {
 
 const config = {
     content: [
-        // Starting all paths with '.." to share this between frontend/, cypress/, playwright/ and common/storybook/
-        // Update common/storybook/tailwind.config.js if you change this
-        '../frontend/src/**/*.{ts,tsx}',
-        '../ee/frontend/**/*.{ts,tsx}',
-        '../frontend/src/index.html',
-        '../products/**/frontend/**/*.{ts,tsx}',
-        '../common/**/src/**/*.{ts,tsx}',
-        '../common/**/frontend/**/*.{ts,tsx}',
-        '!../frontend/src/**/*Type.ts',
+        // Starting all paths with '../.." to share this between frontend/, cypress/, playwright/ and common/storybook/
+        '../../frontend/src/**/*.{ts,tsx}',
+        '../../ee/frontend/**/*.{ts,tsx}',
+        '../../frontend/src/index.html',
+        '../../products/**/frontend/**/*.{ts,tsx}',
+        '../../common/**/src/**/*.{ts,tsx}',
+        '../../common/**/frontend/**/*.{ts,tsx}',
+        '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
     important: true,

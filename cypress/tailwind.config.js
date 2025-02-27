@@ -1,2 +1,6 @@
-const baseConfig = require('../frontend/tailwind.config.js') // eslint-disable-line no-undef
-module.exports = baseConfig // eslint-disable-line no-undef
+const config = require('../common/tailwind/tailwind.config.js') // eslint-disable-line no-undef
+module.exports = {
+    // eslint-disable-line no-undef
+    ...config,
+    content: config.content.map((path) => path.replace('../../', '..')),
+}
