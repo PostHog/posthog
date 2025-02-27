@@ -10,7 +10,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, DestinationRetryType, HogFunctionTestInvocationResult } from '~/types'
+import { BaseMathType, ChartDisplayType, HogFunctionTestInvocationResult } from '~/types'
 
 import {
     convertToHogFunctionInvocationGlobals,
