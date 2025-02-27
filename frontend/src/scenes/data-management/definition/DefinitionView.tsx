@@ -132,7 +132,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                                 database.
                                             </p>
                                             <p>
-                                                This definition will be recreated if the ${singular} is ever seen again
+                                                This definition will be recreated if the {singular} is ever seen again
                                                 in the event stream.
                                             </p>
                                         </>
