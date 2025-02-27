@@ -811,6 +811,50 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_partial(self, mock_capture):
+        # Test that we can update a feature flag with only some of the fields
+        # And the unchanged fields are not updated
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {
+                    "name": "original name",
+                    "key": "a-feature-flag-that-is-updated",
+                    "filters": {
+                        "groups": [
+                            {
+                                "variant": None,
+                                "properties": [
+                                    {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ],
+                        "payloads": {},
+                        "multivariate": None,
+                    },
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=timedelta(minutes=10))
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "name": "Updated name",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(response.json()["name"], "Updated name")
+        self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 100)
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_with_different_user(self, mock_capture):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             # Create flag with original user
