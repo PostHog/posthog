@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
@@ -112,6 +112,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             experimentsLogic,
             ['allExperiments'],
         ],
+        actions: [experimentsLogic, ['getExperiments']],
     })),
 
     reducers({
@@ -380,6 +381,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 delete values.experimentForm.variants[variant]
                 actions.setExperimentFormValue('variants', values.experimentForm.variants)
                 actions.rebalanceRolloutPercentage()
+                actions.selectVariant('control')
             }
         },
         applyVariant: ({ newVariantKey }) => {
@@ -450,6 +452,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                 actions.setExperimentFormValue('variants', values.experimentForm.variants)
                 actions.rebalanceRolloutPercentage()
+                actions.selectVariant(nextVariantName)
             }
         },
         addNewTransformation: ({ variant }) => {
@@ -464,7 +467,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     actions.selectVariant(variant)
-                    actions.inspectForElementWithIndex(variant, 'all-elements', webVariant.transforms.length - 1)
                 }
             }
         },
@@ -501,6 +503,15 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 await breakpoint(1000)
                 actions.setShowExperimentsTooltip(false)
             }
+        },
+        selectVariant: ({ variant }) => {
+            // Deactivate element inspection when switching variant
+            actions.inspectForElementWithIndex(variant, 'all-elements', null)
+        },
+    })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.getExperiments()
         },
     })),
 ])

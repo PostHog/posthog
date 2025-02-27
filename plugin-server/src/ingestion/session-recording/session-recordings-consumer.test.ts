@@ -4,12 +4,13 @@ import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import path from 'path'
 
-import { waitForExpect } from '../../../functional_tests/expectations'
+import { Config } from '~/src/types'
+
 import { deleteKeysWithPrefix } from '../../_tests/helpers/redis'
 import { getFirstTeam, resetTestDatabase } from '../../_tests/helpers/sql'
 import { defaultConfig } from '../../config/config'
-import { Config, Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/hub'
+import { Hub, Team } from '../../types'
+import { closeHub, createHub } from '../../utils/db/hub'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './_tests/fixtures'
 import { SessionRecordingIngester } from './session-recordings-consumer'
 
@@ -30,6 +31,24 @@ const noop = () => undefined
 
 async function deleteKeys(hub: Hub) {
     await deleteKeysWithPrefix(hub.redisPool, SESSION_RECORDING_REDIS_PREFIX)
+}
+
+const waitForExpect = async <T>(fn: () => T | Promise<T>, timeout = 10_000, interval = 1_000): Promise<T> => {
+    // Allows for running expectations that are expected to pass eventually.
+    // This is useful for, e.g. waiting for events to have been ingested into
+    // the database.
+
+    const start = Date.now()
+    while (true) {
+        try {
+            return await fn()
+        } catch (error) {
+            if (Date.now() - start > timeout) {
+                throw error
+            }
+            await new Promise((resolve) => setTimeout(resolve, interval))
+        }
+    }
 }
 
 const mockConsumer = {
@@ -455,11 +474,15 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                     session_replay_console_logs_events_ingester: 3,
                     session_replay_events_ingester: 3,
                 }
+
                 if (consumeOverflow) {
+                    // @ts-expect-error TODO: Fix underlying type, this field exists
                     expectedWaterMarks['session-recordings-blob-overflow'] = 1
                 } else {
+                    // @ts-expect-error TODO: Fix underlying type, this field exists
                     expectedWaterMarks['session-recordings-blob'] = 1
                 }
+
                 await expect(getPersistentWaterMarks()).resolves.toEqual(expectedWaterMarks)
 
                 // sid1 should be watermarked up until the 3rd message as it HAS been processed

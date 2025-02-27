@@ -36,7 +36,7 @@ describe('Braze: export-events', () => {
                 debug: jest.fn(),
             },
             fetch: fetchMock as unknown,
-        } as BrazePluginMeta
+        } as unknown as BrazePluginMeta
 
         await onEvent(
             {
@@ -110,7 +110,7 @@ describe('Braze: export-events', () => {
                 debug: jest.fn(),
             },
             fetch: fetchMock as unknown,
-        } as BrazePluginMeta
+        } as unknown as BrazePluginMeta
 
         await onEvent(
             {
@@ -177,7 +177,7 @@ describe('Braze: export-events', () => {
                 debug: jest.fn(),
             },
             fetch: fetchMock as unknown,
-        } as BrazePluginMeta
+        } as unknown as BrazePluginMeta
 
         await onEvent(
             {
@@ -244,7 +244,7 @@ describe('Braze: export-events', () => {
                 debug: jest.fn(),
             },
             fetch: fetchMock as unknown,
-        } as BrazePluginMeta
+        } as unknown as BrazePluginMeta
 
         await onEvent(
             {
@@ -307,7 +307,7 @@ describe('Braze: export-events', () => {
                 debug: jest.fn(),
             },
             fetch: fetchMock as unknown,
-        } as BrazePluginMeta
+        } as unknown as BrazePluginMeta
 
         await onEvent(
             {
@@ -364,7 +364,7 @@ describe('Braze: export-events', () => {
                 debug: jest.fn(),
             },
             fetch: fetchMock as unknown,
-        } as BrazePluginMeta
+        } as unknown as BrazePluginMeta
 
         await onEvent(
             {
@@ -415,7 +415,7 @@ describe('Braze: export-events', () => {
                 debug: jest.fn(),
             },
             fetch: fetchMock as unknown,
-        } as BrazePluginMeta
+        } as unknown as BrazePluginMeta
 
         try {
             await onEvent(
@@ -466,7 +466,7 @@ describe('Braze: export-events', () => {
                 debug: jest.fn(),
             },
             fetch: fetchMock as unknown,
-        } as BrazePluginMeta
+        } as unknown as BrazePluginMeta
 
         try {
             await onEvent(

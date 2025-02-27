@@ -30,10 +30,12 @@ export function getDefaultConfig(): Config {
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
+        KAFKA_PRODUCER_HOSTS: undefined,
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
         KAFKA_TRUSTED_CERT_B64: undefined,
         KAFKA_SECURITY_PROTOCOL: undefined,
+        KAFKA_PRODUCER_SECURITY_PROTOCOL: undefined,
         KAFKA_SASL_MECHANISM: undefined,
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
@@ -61,7 +63,7 @@ export function getDefaultConfig(): Config {
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
-        BASE_DIR: '.',
+        BASE_DIR: '..',
         TASK_TIMEOUT: 30,
         KAFKA_CONSUMPTION_BATCH_SIZE: 500,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
@@ -72,6 +74,9 @@ export function getDefaultConfig(): Config {
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
         DISABLE_MMDB: isTestEnv(),
+        MMDB_FILE_LOCATION:
+            isDevEnv() || isTestEnv() ? './share/GeoLite2-City.mmdb' : '/s3/ingestion-assets/mmdb/GeoLite2-City.mmdb',
+        MMDB_COMPARE_MODE: isTestEnv() || isDevEnv() ? false : true, // For now production is only testing it
         SITE_URL: null,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -147,7 +152,7 @@ export function getDefaultConfig(): Config {
         CDP_REDIS_HOST: '',
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
-        CDP_CYCLOTRON_BATCH_SIZE: 500,
+        CDP_CYCLOTRON_BATCH_SIZE: 300,
 
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
 

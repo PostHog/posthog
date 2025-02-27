@@ -78,7 +78,7 @@ from posthog.models.raw_sessions.sql import (
     DROP_RAW_SESSION_TABLE_SQL,
     DROP_RAW_SESSION_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
-    RAW_SESSIONS_VIEW_SQL,
+    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
@@ -125,10 +125,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
         )
 
     else:
-        query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
-        query = re.sub(r"(team|cohort)_id(\"?) IN \(\d+(, ?\d+)*\)", r"\1_id\2 IN (1, 2, 3, 4, 5 /* ... */)", query)
-        query = re.sub(r"(team|cohort)_id(\"?) IN \[\d+(, ?\d+)*\]", r"\1_id\2 IN [1, 2, 3, 4, 5 /* ... */]", query)
-        query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"99999 as \1_id\2", query)
+        query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
+        query = re.sub(
+            r"(team|project|cohort)_id(\"?) IN \(\d+(, ?\d+)*\)", r"\1_id\2 IN (1, 2, 3, 4, 5 /* ... */)", query
+        )
+        query = re.sub(
+            r"(team|project|cohort)_id(\"?) IN \[\d+(, ?\d+)*\]", r"\1_id\2 IN [1, 2, 3, 4, 5 /* ... */]", query
+        )
+        query = re.sub(r"\d+ as (team|project|cohort)_id(\"?)", r"99999 as \1_id\2", query)
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
@@ -136,7 +140,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
     # hog ql checks some ids differently
     query = re.sub(
-        r"equals\(([^.]+\.)?(team_id|cohort_id)?, \d+\)",
+        r"equals\(([^.]+\.)?((team|project|cohort)_id)?, \d+\)",
         r"equals(\1\2, 99999)",
         query,
     )
@@ -1019,6 +1023,70 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
             j.join()
 
 
+def reset_clickhouse_database() -> None:
+    run_clickhouse_statement_in_parallel(
+        [
+            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
+            DROP_RAW_SESSION_VIEW_SQL(),
+            DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+            DROP_SESSION_VIEW_SQL(),
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+            DROP_CHANNEL_DEFINITION_TABLE_SQL,
+            DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
+            DROP_EVENTS_TABLE_SQL(),
+            DROP_PERSON_TABLE_SQL,
+            DROP_RAW_SESSION_TABLE_SQL(),
+            DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
+            DROP_SESSION_TABLE_SQL(),
+            TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+            TRUNCATE_GROUPS_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+            TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            CHANNEL_DEFINITION_DICTIONARY_SQL(),
+            CHANNEL_DEFINITION_TABLE_SQL(),
+            EVENTS_TABLE_SQL(),
+            PERSONS_TABLE_SQL(),
+            RAW_SESSIONS_TABLE_SQL(),
+            SESSIONS_TABLE_SQL(),
+            SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(),
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            DISTRIBUTED_EVENTS_TABLE_SQL(),
+            DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
+            DISTRIBUTED_SESSIONS_TABLE_SQL(),
+            DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(),
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            CHANNEL_DEFINITION_DATA_SQL(),
+            RAW_SESSIONS_TABLE_MV_SQL(),
+            RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
+            SESSIONS_TABLE_MV_SQL(),
+            SESSIONS_VIEW_SQL(),
+        ]
+    )
+
+
 class ClickhouseDestroyTablesMixin(BaseTest):
     """
     To speed up tests we normally don't destroy the tables between tests, so clickhouse tables will have data from previous tests.
@@ -1027,125 +1095,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
     def setUp(self):
         super().setUp()
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_SESSION_VIEW_SQL(),
-                DROP_RAW_SESSION_VIEW_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-                DROP_EVENTS_TABLE_SQL(),
-                DROP_PERSON_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                TRUNCATE_GROUPS_TABLE_SQL,
-                TRUNCATE_COHORTPEOPLE_TABLE_SQL,
-                TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-                TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-                DROP_CHANNEL_DEFINITION_TABLE_SQL,
-                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-                DROP_SESSION_TABLE_SQL(),
-                DROP_RAW_SESSION_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                EVENTS_TABLE_SQL(),
-                PERSONS_TABLE_SQL(),
-                SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL(),
-                SESSIONS_TABLE_SQL(),
-                RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DISTRIBUTED_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(),
-                DISTRIBUTED_SESSIONS_TABLE_SQL(),
-                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                CHANNEL_DEFINITION_DATA_SQL(),
-                SESSIONS_TABLE_MV_SQL(),
-                RAW_SESSIONS_TABLE_MV_SQL(),
-                SESSIONS_VIEW_SQL(),
-                RAW_SESSIONS_VIEW_SQL(),
-            ]
-        )
+        reset_clickhouse_database()
 
     def tearDown(self):
         super().tearDown()
-
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_SESSION_VIEW_SQL(),
-                DROP_RAW_SESSION_VIEW_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-                DROP_EVENTS_TABLE_SQL(),
-                DROP_PERSON_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
-                DROP_CHANNEL_DEFINITION_TABLE_SQL,
-                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-                DROP_SESSION_TABLE_SQL(),
-                DROP_RAW_SESSION_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                EVENTS_TABLE_SQL(),
-                PERSONS_TABLE_SQL(),
-                SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(),
-                CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL(),
-                SESSIONS_TABLE_SQL(),
-                RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DISTRIBUTED_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(),
-                DISTRIBUTED_SESSIONS_TABLE_SQL(),
-                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                SESSIONS_TABLE_MV_SQL(),
-                RAW_SESSIONS_TABLE_MV_SQL(),
-                SESSIONS_VIEW_SQL(),
-                RAW_SESSIONS_VIEW_SQL(),
-                CHANNEL_DEFINITION_DATA_SQL(),
-            ]
-        )
+        reset_clickhouse_database()
 
 
 def snapshot_clickhouse_queries(fn_or_class):

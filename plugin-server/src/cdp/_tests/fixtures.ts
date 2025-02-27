@@ -24,7 +24,7 @@ export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
         hog: '',
         bytecode: [],
         ...hogFunction,
-    }
+    } as HogFunctionType
 
     return item
 }

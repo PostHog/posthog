@@ -11,6 +11,7 @@ import { GroupTypeManager } from './services/group-type-manager'
 import { OrganizationManager } from './services/organization-manager'
 import { TeamManager } from './services/team-manager'
 import { Celery } from './utils/celery'
+import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
 import { PostgresRouter } from './utils/postgres'
 
@@ -113,7 +114,6 @@ export enum KafkaSaslMechanism {
 }
 
 export enum PluginServerMode {
-    all_v2 = 'all-v2',
     ingestion_v2 = 'ingestion-v2',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -241,6 +241,8 @@ export interface Config extends CdpConfig, IngestionConsumerConfig {
     SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
     HTTP_SERVER_PORT: number
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
+    MMDB_FILE_LOCATION: string // if set we will load the MMDB file from this location instead of downloading it
+    MMDB_COMPARE_MODE: boolean // whether to compare the MMDB file to the local file
     SITE_URL: string | null
     OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
     OBJECT_STORAGE_REGION: string // s3 region
@@ -342,6 +344,7 @@ export interface Hub extends Config {
     celery: Celery
     // geoip database, setup in workers
     mmdb?: ReaderModel
+    geoipService: GeoIPService
     eventsToDropByToken: Map<string, string[]>
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields

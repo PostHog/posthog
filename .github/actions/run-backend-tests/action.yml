@@ -41,9 +41,9 @@ runs:
               docker compose -f docker-compose.dev.yml down
               docker compose -f docker-compose.dev.yml up -d
 
-        - name: Add Kafka to /etc/hosts
+        - name: Add Kafka and ClickHouse to /etc/hosts
           shell: bash
-          run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+          run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
         - name: Set up Python
           uses: actions/setup-python@v5
@@ -89,9 +89,8 @@ runs:
         - name: Install plugin_transpiler
           shell: bash
           run: |
-              cd common/plugin_transpiler
-              pnpm --filter=@posthog/plugin-transpiler install --frozen-lockfile
-              pnpm run build
+              pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
+              bin/turbo --filter=@posthog/plugin-transpiler build
 
         - name: Install Python dependencies
           shell: bash
@@ -131,7 +130,7 @@ runs:
               touch frontend/dist/index.html
               touch frontend/dist/layout.html
               touch frontend/dist/exporter.html
-              [ ! -f ./share/GeoLite2-City.mmdb ] && ( curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb )
+              ./bin/download-mmdb
 
         - name: Wait for Clickhouse & Kafka
           shell: bash
@@ -161,7 +160,7 @@ runs:
               pytest ${{
                   inputs.person-on-events == 'true'
                   && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
-                  || 'posthog'
+                  || 'posthog dags'
               }} ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --ignore=posthog/temporal \
                   --ignore=common/hogvm/python/test \

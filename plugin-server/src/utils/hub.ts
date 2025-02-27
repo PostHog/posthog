@@ -12,6 +12,7 @@ import { OrganizationManager } from '../services/organization-manager'
 import { TeamManager } from '../services/team-manager'
 import { Config, Hub, PluginServerCapabilities } from '../types'
 import { Celery } from './celery'
+import { GeoIPService } from './geoip'
 import { getObjectStorage } from './object_storage'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
@@ -95,7 +96,7 @@ export async function createHub(
         kafkaProducer,
         objectStorage: objectStorage,
         groupTypeManager,
-
+        geoipService: new GeoIPService(serverConfig),
         teamManager,
         organizationManager,
         eventsToDropByToken: createEventsToDropByToken(serverConfig.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),

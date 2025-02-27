@@ -78,6 +78,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_minimum_duration_milliseconds: null,
     session_recording_linked_flag: null,
     session_recording_network_payload_capture_config: { recordHeaders: true, recordBody: true },
+    session_recording_masking_config: {
+        maskAllInputs: true,
+    },
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
@@ -112,7 +115,6 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     name: 'MockHog App + Marketing',
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: '2020-06-30T09:53:35.932534Z',
-    product_description: null,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {

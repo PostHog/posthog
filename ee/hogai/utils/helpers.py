@@ -77,3 +77,10 @@ def dereference_schema(schema: dict) -> dict:
     if "$defs" in new_schema:
         new_schema.pop("$defs")
     return new_schema
+
+
+def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str | None = None) -> HumanMessage | None:
+    for msg in messages:
+        if isinstance(msg, HumanMessage) and msg.id == start_id:
+            return msg
+    return None

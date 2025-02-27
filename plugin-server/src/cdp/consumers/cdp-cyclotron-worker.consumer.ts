@@ -30,9 +30,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             func: async () => await this.processInvocations(invocations),
         })
 
-        await this.processInvocationResults(invocationResults)
+        await this.hogWatcher.observeResults(invocationResults)
+        await this.hogFunctionMonitoringService.processInvocationResults(invocationResults)
         await this.updateJobs(invocationResults)
-        await this.produceQueuedMessages()
+        await this.hogFunctionMonitoringService.produceQueuedMessages()
 
         return invocationResults
     }
@@ -42,7 +43,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             invocations.map((item) => {
                 if (item.invocation.queue === 'fetch') {
                     // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-                    this.produceAppMetric({
+                    this.hogFunctionMonitoringService.produceAppMetric({
                         team_id: item.invocation.teamId,
                         app_source_id: item.invocation.hogFunction.id,
                         metric_kind: 'other',

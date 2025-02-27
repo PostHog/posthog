@@ -5,25 +5,21 @@ export function getPluginServerCapabilities(config: Config): PluginServerCapabil
         ? stringToPluginServerMode[config.PLUGIN_SERVER_MODE]
         : null
 
-    const singleProcessCapabilities: PluginServerCapabilities = {
-        sessionRecordingBlobIngestion: true,
-        sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
-        sessionRecordingBlobIngestionV2: true,
-        sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
-        appManagementSingleton: true,
-        preflightSchedules: true,
-        cdpProcessedEvents: true,
-        cdpInternalEvents: true,
-        cdpCyclotronWorker: true,
-        cdpCyclotronWorkerPlugins: true,
-        cdpApi: true,
-    }
-
     switch (mode) {
         case null:
             return {
-                ...singleProcessCapabilities,
                 ingestionV2Combined: true,
+                sessionRecordingBlobIngestion: true,
+                sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
+                sessionRecordingBlobIngestionV2: true,
+                sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
+                appManagementSingleton: true, // TODO: PURGE
+                preflightSchedules: true,
+                cdpProcessedEvents: true,
+                cdpInternalEvents: true,
+                cdpCyclotronWorker: true,
+                cdpCyclotronWorkerPlugins: true,
+                cdpApi: true,
             }
 
         case PluginServerMode.ingestion_v2:
@@ -68,7 +64,6 @@ export function getPluginServerCapabilities(config: Config): PluginServerCapabil
         case PluginServerMode.cdp_api:
             return {
                 cdpApi: true,
-                mmdb: true,
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
             }

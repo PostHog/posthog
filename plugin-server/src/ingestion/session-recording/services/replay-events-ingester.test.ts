@@ -16,6 +16,7 @@ const makeIncomingMessage = (
     timestamp: number,
     extraWindowedEvents?: Record<string, Record<string, any>[]>
 ): IncomingRecordingMessage => {
+    // @ts-expect-error TODO: Fix underlying types
     return {
         distinct_id: '',
         eventsRange: { start: timestamp, end: timestamp },

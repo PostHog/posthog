@@ -1,3 +1,5 @@
+import './SessionRecordingPreview.scss'
+
 import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
@@ -11,7 +13,7 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
-import { countryTitleFrom } from 'scenes/session-recordings/player/playerMetaLogic'
+import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -150,10 +152,27 @@ function RecordingOngoingIndicator(): JSX.Element {
     )
 }
 
-function UnwatchedIndicator(): JSX.Element {
+function UnwatchedIndicator({ otherViewers }: { otherViewers: SessionRecordingType['viewers'] }): JSX.Element {
+    const tooltip = otherViewers.length ? (
+        <span>
+            You have not watched this recording yet. {otherViewers.length} other{' '}
+            {otherViewers.length === 1 ? 'person has' : 'people have'}.
+        </span>
+    ) : (
+        <span>Nobody has watched this recording yet.</span>
+    )
+
     return (
-        <Tooltip title="Indicates the recording has not been watched yet">
-            <div className="w-2 h-2 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
+        <Tooltip title={tooltip}>
+            <div
+                className={clsx(
+                    'UnwatchedIndicator w-2 h-2 rounded-full',
+                    otherViewers.length ? 'UnwatchedIndicator--secondary' : 'UnwatchedIndicator--primary'
+                )}
+                aria-label={
+                    otherViewers.length ? 'unwatched-recording-by-you-label' : 'unwatched-recording-by-everyone-label'
+                }
+            />
         </Tooltip>
     )
 }
@@ -261,7 +280,7 @@ export function SessionRecordingPreview({
                 >
                     {recording.ongoing ? <RecordingOngoingIndicator /> : null}
                     {pinned ? <PinnedIndicator /> : null}
-                    {!recording.viewed ? <UnwatchedIndicator /> : null}
+                    {!recording.viewed ? <UnwatchedIndicator otherViewers={recording.viewers} /> : null}
                 </div>
             </div>
         </DraggableToNotebook>

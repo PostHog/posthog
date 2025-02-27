@@ -56,11 +56,15 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (isCloudOrDev, featureflags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
+                if (featureflags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+                    tabs.push(SidePanelTab.Max)
+                }
                 tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
+                tabs.push(SidePanelTab.Activity)
 
                 if (currentTeam?.created_at) {
                     const teamCreatedAt = dayjs(currentTeam.created_at)
