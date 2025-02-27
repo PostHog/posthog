@@ -2,7 +2,7 @@ import { Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
 import { createRedis } from './db/redis'
-import { captureException } from './posthog'
+import { captureException } from './exceptions'
 import { status } from './status'
 
 export type PubSubTask = ((message: string) => void) | ((message: string) => Promise<void>)

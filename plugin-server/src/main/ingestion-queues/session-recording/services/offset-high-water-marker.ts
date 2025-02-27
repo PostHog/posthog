@@ -3,7 +3,7 @@ import { TopicPartition } from 'node-rdkafka'
 
 import { RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
-import { captureException } from '../../../../utils/posthog'
+import { captureException } from '../../../../utils/exceptions'
 import { status } from '../../../../utils/status'
 
 export const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {

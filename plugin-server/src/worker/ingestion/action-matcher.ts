@@ -21,7 +21,7 @@ import {
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
-import { captureException } from '../../utils/posthog'
+import { captureException } from '../../utils/exceptions'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 

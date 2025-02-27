@@ -2,7 +2,7 @@ import * as schedule from 'node-schedule'
 
 import { Hub, Team } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
-import { captureException } from '../../utils/posthog'
+import { captureException } from '../../utils/exceptions'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'

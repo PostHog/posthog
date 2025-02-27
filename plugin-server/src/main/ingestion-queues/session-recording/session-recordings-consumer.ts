@@ -16,7 +16,7 @@ import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatch
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
-import { captureException } from '../../../utils/posthog'
+import { captureException } from '../../../utils/exceptions'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'

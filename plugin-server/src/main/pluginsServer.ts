@@ -26,8 +26,9 @@ import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig
 import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
+import { captureException } from '../utils/exceptions'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
-import { captureException, flush as flushPostHog, shutdown as shutdownPostHog } from '../utils/posthog'
+import posthog from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
@@ -132,7 +133,7 @@ export async function startPluginsServer(
             pubSub?.stop(),
             graphileWorker?.stop(),
             ...services.map((service) => service.onShutdown()),
-            shutdownPostHog(),
+            posthog.shutdown(),
         ])
 
         if (serverInstance.hub) {
@@ -610,7 +611,7 @@ export async function startPluginsServer(
         captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
-        flushPostHog()
+        posthog.flush()
         status.error('💥', 'Exception while starting server, shutting down!', { error })
         await closeJobs()
         process.exit(1)

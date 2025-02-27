@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events'
 import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { createRedis } from '../../../../utils/db/redis'
 import { timeoutGuard } from '../../../../utils/db/utils'
-import { captureException } from '../../../../utils/posthog'
+import { captureException } from '../../../../utils/exceptions'
 import { status } from '../../../../utils/status'
 
 const Keys = {

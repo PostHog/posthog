@@ -1,6 +1,4 @@
-import { captureException as captureSentryException, captureMessage as captureSentryMessage } from '@sentry/node'
 import { PostHog } from 'posthog-node'
-import { SeverityLevel } from 'posthog-node/src/extensions/error-tracking/types'
 
 import { defaultConfig } from '../config/config'
 import { Team } from '../types'
@@ -39,46 +37,19 @@ const captureTeamEvent = (
     }
 }
 
-// We use sentry-style hints rather than our flat property list all over the place,
-// so define a type for them that we can flatten internally
-type Primitive = number | string | boolean | bigint | symbol | null | undefined
-interface ExceptionHint {
-    level: SeverityLevel
-    tags: Record<string, Primitive>
-    extra: Record<string, any>
-}
-
-function captureException(exception: any, hint?: Partial<ExceptionHint>): string {
-    //If the passed "exception" is a string, capture it as a message, otherwise, capture it as an exception
-    let sentryId: string
-    if (typeof exception === 'string') {
-        sentryId = captureSentryMessage(exception, hint)
-    } else {
-        sentryId = captureSentryException(exception, hint)
-    }
-
-    if (posthog) {
-        let additionalProperties = {}
-        if (hint) {
-            additionalProperties = {
-                ...(hint.level ? { level: hint.level } : {}),
-                ...(hint.tags || {}),
-                ...(hint.extra || {}),
-            }
-        }
-        posthog.captureException(exception, undefined, additionalProperties)
-    }
-
-    return sentryId
-}
-
 function shutdown(): Promise<void> | null {
-    return posthog && posthog.shutdown()
+    return posthog ? posthog.shutdown() : null
 }
 
 function flush(): void {
     if (posthog) {
         void posthog.flush().catch(() => null)
+    }
+}
+
+function captureException(exception: unknown, additionalProperties?: Record<string | number, any>): void {
+    if (posthog) {
+        posthog.captureException(exception, undefined, additionalProperties)
     }
 }
 

@@ -1,7 +1,7 @@
 import RE2 from 're2'
 
 import { Element } from '../../types'
-import { captureException } from '../posthog'
+import { captureException } from '../exceptions'
 import { escapeQuotes } from './utils'
 
 // Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes

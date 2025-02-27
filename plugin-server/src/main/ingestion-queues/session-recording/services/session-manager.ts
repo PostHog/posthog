@@ -12,7 +12,7 @@ import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
-import { captureException } from '../../../../utils/posthog'
+import { captureException } from '../../../../utils/exceptions'
 import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { ObjectStorage } from '../../../services/object_storage'

@@ -8,7 +8,7 @@ import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
-import { captureException } from '../utils/posthog'
+import { captureException } from '../utils/exceptions'
 import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import { CdpInternalEvent } from './schema'
