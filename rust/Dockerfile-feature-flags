@@ -23,10 +23,19 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo chef cook --release --recipe-path recipe.json --bin $BIN
 
 COPY . .
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
+RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
+    --mount=type=secret,id=SCCACHE_WEBDAV_TOKEN,required=false \
+    --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo build --release --bin $BIN
+    if [ -f "/run/secrets/SCCACHE_WEBDAV_ENDPOINT" ] && [ -f "/run/secrets/SCCACHE_WEBDAV_TOKEN" ]; then \
+        SCCACHE_WEBDAV_ENDPOINT=$(cat /run/secrets/SCCACHE_WEBDAV_ENDPOINT) \
+        SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN) \
+        cargo build --release --bin $BIN; \
+    else \
+        cargo build --release --bin $BIN; \
+    fi
+
 
 FROM debian:bookworm-slim AS runtime
 
