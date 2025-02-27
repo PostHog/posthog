@@ -8,11 +8,10 @@ from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
-from rest_framework import status
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
-from .wizard import SETUP_WIZARD_CACHE_PREFIX
+from .wizard import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -46,6 +45,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_organization_from_view,
 )
+from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -55,6 +55,7 @@ from posthog.utils import (
     get_week_start_for_country_code,
 )
 from django.core.cache import cache
+from rest_framework.throttling import UserRateThrottle
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -765,12 +766,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
-    @cached_property
-    def user_permissions(self):
-        team = self.get_object() if self.action == "reset_token" else None
-        return UserPermissions(cast(User, self.request.user), team)
-
-    @action(methods=["POST"], detail=False, required_scopes=["team:read"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="authenticate_wizard",
+        throttle_classes=[SetupWizardAuthenticationRateThrottle],
+    )
     def authenticate_wizard(self, request, **kwargs):
         hash = request.data.get("hash")
 
@@ -778,19 +779,22 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
 
         cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
+        wizard_data = cache.get(cache_key)
 
-        valid_hash = cache.has_key(cache_key)
+        if wizard_data is None:
+            raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
 
-        if not valid_hash:
-            raise serializers.ValidationError(
-                {"hash": ["This wizard hash is invalid or has expired."]}, code="invalid_hash"
-            )
+        # Set the project API key in the wizard data
+        wizard_data = {"project_api_key": request.user.team.api_token, "host": "http://localhost:8010/"}
 
-        wizard_data = {"project_api_key": "test_key"}
+        cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
-        cache.set(cache_key, wizard_data)
+        return response.Response({"success": True}, status=200)
 
-        return response.Response({"success": True}, status=status.HTTP_200_OK)
+    @cached_property
+    def user_permissions(self):
+        team = self.get_object() if self.action == "reset_token" else None
+        return UserPermissions(cast(User, self.request.user), team)
 
 
 class RootTeamViewSet(TeamViewSet):
@@ -838,3 +842,8 @@ def validate_team_attrs(
                 "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
             )
     return attrs
+
+
+# Define a custom throttle class
+class WizardAuthRateThrottle(UserRateThrottle):
+    rate = "5/day"

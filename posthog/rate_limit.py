@@ -346,3 +346,18 @@ class UserAuthenticationThrottle(UserOrEmailRateThrottle):
 class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     scope = "user_email_verification"
     rate = "6/day"
+
+
+class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
+    scope = "wizard_authentication"
+    rate = "50/day"
+
+
+class SetupWizardQueryRateThrottle(SimpleRateThrottle):
+    rate = "100/day"
+
+    def get_cache_key(self, request, view):
+        hash = request.headers.get("X-PostHog-Wizard-Hash")
+        if not hash:
+            return None
+        return f"throttle_wizard_query_{hash}"

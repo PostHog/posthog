@@ -20,13 +20,13 @@ export const wizardLogic = kea<wizardLogicType>([
     actions({
         setWizardHash: (wizardHash: string | null) => ({ wizardHash }),
         setView: (view: 'pending' | 'creating' | 'success' | 'invalid') => ({ view }),
-        createWizardToken: (wizardHash: string) => ({ wizardHash }),
+        authenticateWizard: (wizardHash: string) => ({ wizardHash }),
     }),
     loaders(({ actions, values }) => ({
         wizardToken: [
             null as WizardTokenResponseType | null,
             {
-                createWizardToken: async ({ wizardHash }: { wizardHash: string }) => {
+                authenticateWizard: async ({ wizardHash }: { wizardHash: string }) => {
                     try {
                         const response: WizardTokenResponseType = await api.create(
                             `api/projects/${values.currentTeam?.id}/authenticate_wizard/`,
@@ -62,7 +62,7 @@ export const wizardLogic = kea<wizardLogicType>([
             if (wizardHash) {
                 actions.setWizardHash(wizardHash)
                 actions.setView('pending')
-                actions.createWizardToken(wizardHash)
+                actions.authenticateWizard(wizardHash)
             } else {
                 actions.setView('invalid')
             }
