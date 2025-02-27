@@ -12,7 +12,7 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.schema import FunnelsQuery, FunnelsQueryResponse
+from posthog.schema import FunnelsQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -2540,27 +2540,3 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
             assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
             assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
-
-
-class TestFunnelTrends(BaseTestFunnelTrends):
-    __test__ = True
-
-    def test_assert_udf_flag_is_working(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "hour",
-            "date_from": "2021-05-01 00:00:00",
-            "funnel_window_interval": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
-
-        self.assertFalse(results.isUdf)
