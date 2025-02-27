@@ -1,6 +1,8 @@
 from typing import Any, Optional
 from collections.abc import Iterator
 
+from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.warehouse.types import IncrementalFieldType
 from cryptography.hazmat.backends import default_backend
@@ -59,8 +61,39 @@ def _get_connection(
     )
 
 
+def _build_query(
+    database: str,
+    schema: str,
+    table_name: str,
+    is_incremental: bool,
+    incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType],
+    db_incremental_field_last_value: Optional[Any],
+) -> tuple[str, tuple[Any, ...]]:
+    if not is_incremental:
+        return f"SELECT * FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
+
+    if incremental_field is None or incremental_field_type is None:
+        raise ValueError("incremental_field and incremental_field_type can't be None")
+
+    if db_incremental_field_last_value is None:
+        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+
+    return f"SELECT * FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) >= %s ORDER BY IDENTIFIER(%s) ASC", (
+        f"{database}.{schema}.{table_name}",
+        incremental_field,
+        db_incremental_field_last_value,
+        incremental_field,
+    )
+
+
 def _get_primary_keys(cursor: SnowflakeCursor, database: str, schema: str, table_name: str) -> list[str] | None:
-    pass
+    cursor.execute(f"SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
+
+    column_index = next((i for i, row in enumerate(cursor.description) if row.name == "column_name"), -1)
+    keys = [row[column_index] for row in cursor]
+
+    return keys if len(keys) > 0 else None
 
 
 def snowflake_source(
@@ -74,6 +107,8 @@ def snowflake_source(
     warehouse: str,
     schema: str,
     table_names: list[str],
+    is_incremental: bool,
+    logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
     role: Optional[str] = None,
     incremental_field: Optional[str] = None,
@@ -94,8 +129,20 @@ def snowflake_source(
             account_id, user, password, passphrase, private_key, auth_type, database, warehouse, schema, role
         ) as connection:
             with connection.cursor() as cursor:
-                cursor.execute(f"SELECT * FROM {schema}.{table_name}")
+                query, params = _build_query(
+                    database,
+                    schema,
+                    table_name,
+                    is_incremental,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                )
+                logger.debug(f"Snowflake query: {query.format(params)}")
+                cursor.execute(query, params)
 
+                # We cant control the batch size from snowflake when using the arrow function
+                # https://github.com/snowflakedb/snowflake-connector-python/issues/1712
                 yield from cursor.fetch_arrow_batches()
 
     name = NamingConvention().normalize_identifier(table_name)
