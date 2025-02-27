@@ -21,7 +21,7 @@ import { initKeaTests } from '~/test/init'
 import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
-import recordingMetaJson from '../__mocks__/recording_meta.json'
+import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
