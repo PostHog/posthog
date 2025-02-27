@@ -1,54 +1,48 @@
-import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
-import { IconUpload } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { ReactNode, useRef } from 'react'
+import { useRef } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { navigation3000Logic } from '../../navigationLogic'
+import { KeyboardShortcut } from '../KeyboardShortcut'
 import { NavbarBottom } from '../NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
-
-// TODO: Swap out for a better DnD approach
-// Currently you can only drag the title text, and must click on the icon or to the right of it to trigger a click
-function Draggable(props: { id: string; children: ReactNode }): JSX.Element {
-    const { attributes, listeners, setNodeRef, transform } = useDraggable({
-        id: props.id,
-    })
-    const style = {
-        transform: CSS.Translate.toString(transform),
-    }
-
-    return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
-            {props.children}
-        </div>
-    )
-}
-export function Droppable(props: { id: string; children: ReactNode }): JSX.Element {
-    const { setNodeRef } = useDroppable({ id: props.id })
-
-    return <div ref={setNodeRef}>{props.children}</div>
-}
 
 export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, viableItems, loadingPaths, unappliedPaths } = useValues(projectTreeLogic)
-    const { addFolder, deleteItem, moveItem } = useActions(projectTreeLogic)
+    const { treeData, loadingPaths, expandedFolders, lastViewedPath, viableItems, helpNoticeVisible } =
+        useValues(projectTreeLogic)
+
+    const {
+        addFolder,
+        deleteItem,
+        moveItem,
+        toggleFolder,
+        updateSelectedFolder,
+        updateLastViewedPath,
+        updateExpandedFolders,
+        updateHelpNoticeVisibility,
+    } = useActions(projectTreeLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
+
+    // Items that should not be draggable or droppable, or have a side action
+    // TODO: sync with projectTreeLogic
+    const specialItemsIds: string[] = [
+        'project',
+        'project/Explore',
+        'project/Create new',
+        '__separator__',
+        '__apply_pending_actions__',
+    ]
 
     return (
         <>
@@ -58,21 +52,31 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                     // eslint-disable-next-line react/forbid-dom-props
                     style={theme?.sidebarStyle}
                 >
-                    <DndContext
-                        onDragEnd={({ active, over }) => {
-                            const oldPath = active.id as string
-                            const folder = over?.id
-                            if (folder === oldPath) {
-                                // We can't click on draggable items. If we drag to itself, assume it's a click
-                                // TODO: clicking on expandable folders does not work as we can't control
-                                // the open/closed state of the tree - only files work.
-                                const item = viableItems.find((i) => i.path === oldPath)
-                                if (item) {
-                                    if (item.href) {
-                                        router.actions.push(item.href)
-                                    }
-                                }
-                            } else if (folder === '') {
+                    <LemonTree
+                        contentRef={contentRef}
+                        className="px-0 py-1"
+                        data={treeData}
+                        expandedItemIds={expandedFolders}
+                        isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
+                        defaultSelectedFolderOrNodeId={lastViewedPath || undefined}
+                        onNodeClick={(node) => {
+                            if (node?.record?.type === 'project' || node?.record?.type === 'folder') {
+                                updateLastViewedPath(node.record?.path)
+                            }
+                        }}
+                        onFolderClick={(folder, isExpanded) => {
+                            if (folder) {
+                                updateSelectedFolder(folder.record?.path || '')
+                                toggleFolder(folder.record?.path || '', isExpanded)
+                            }
+                        }}
+                        onSetExpandedItemIds={updateExpandedFolders}
+                        enableDragAndDrop={true}
+                        onDragEnd={(dragEvent) => {
+                            const oldPath = dragEvent.active.id as string
+                            const folder = dragEvent.over?.id
+
+                            if (folder === '') {
                                 const oldSplit = splitPath(oldPath)
                                 const oldFile = oldSplit.pop()
                                 if (oldFile && oldSplit.length > 0) {
@@ -92,127 +96,148 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                 }
                             }
                         }}
-                    >
-                        <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
-                            <LemonTree
-                                contentRef={contentRef}
-                                className="px-0 py-1"
-                                data={treeData}
-                                renderItem={(item, children): JSX.Element => {
-                                    const path = item.record?.path || ''
-                                    const loading =
-                                        typeof item.record?.path === 'string' || item.record?.type === 'project' ? (
-                                            loadingPaths[path] ? (
-                                                <Spinner className="ml-1" />
-                                            ) : unappliedPaths[path] ? (
-                                                <IconUpload className="ml-1 text-warning" />
-                                            ) : undefined
-                                        ) : undefined
-                                    if (item.record?.type === 'project') {
-                                        return (
-                                            <Droppable id="">
-                                                {children}
-                                                {loading}
-                                            </Droppable>
-                                        )
-                                    } else if (path) {
-                                        return (
-                                            <Droppable id={path}>
-                                                <Draggable id={path}>
-                                                    {children}
-                                                    {loading}
-                                                </Draggable>
-                                            </Droppable>
-                                        )
-                                    }
-                                    return (
-                                        <>
-                                            {children}
-                                            {loading}
-                                        </>
-                                    )
-                                }}
-                                right={({ record }) =>
-                                    record?.created_at || record?.type ? (
-                                        <More
-                                            size="xsmall"
-                                            onClick={(e) => e.stopPropagation()}
-                                            overlay={
-                                                <>
-                                                    {record?.type === 'folder' || record?.type === 'project' ? (
-                                                        <LemonButton
-                                                            onClick={() => {
+                        isItemDraggable={(item) => {
+                            return (
+                                item.record?.type !== 'project' &&
+                                item.record?.path &&
+                                !specialItemsIds.includes(item.id || '')
+                            )
+                        }}
+                        isItemDroppable={(item) => {
+                            const path = item.record?.path || ''
+
+                            // disable dropping for special items
+                            if (specialItemsIds.includes(item.id || '')) {
+                                return false
+                            }
+
+                            // hacky, if the item has a href, it should not be droppable
+                            if (item.record?.href) {
+                                return false
+                            }
+
+                            if (path) {
+                                return true
+                            }
+                            return false
+                        }}
+                        itemSideAction={(item) => {
+                            if (specialItemsIds.includes(item.id || '')) {
+                                return undefined
+                            }
+                            return {
+                                icon: (
+                                    <More
+                                        size="xsmall"
+                                        onClick={(e) => e.stopPropagation()}
+                                        overlay={
+                                            <>
+                                                {item.record?.type === 'folder' || item.record?.type === 'project' ? (
+                                                    <LemonButton
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            const folder = prompt(
+                                                                item.record?.path
+                                                                    ? `Create a folder under "${item.record?.path}":`
+                                                                    : 'Create a new folder:',
+                                                                ''
+                                                            )
+                                                            if (folder) {
+                                                                addFolder(
+                                                                    item.record?.path
+                                                                        ? joinPath([item.record?.path, folder])
+                                                                        : folder
+                                                                )
+                                                            }
+                                                        }}
+                                                        fullWidth
+                                                        size="small"
+                                                    >
+                                                        New Folder
+                                                    </LemonButton>
+                                                ) : null}
+                                                {item.record?.path ? (
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            const oldPath = item.record?.path
+                                                            const splits = splitPath(oldPath)
+                                                            if (splits.length > 0) {
                                                                 const folder = prompt(
-                                                                    record.path
-                                                                        ? `Create a folder under "${record.path}":`
-                                                                        : 'Create a new folder:',
-                                                                    ''
+                                                                    'New name?',
+                                                                    splits[splits.length - 1]
                                                                 )
                                                                 if (folder) {
-                                                                    addFolder(
-                                                                        record.path
-                                                                            ? joinPath([
-                                                                                  ...splitPath(record.path),
-                                                                                  folder,
-                                                                              ])
-                                                                            : folder
+                                                                    moveItem(
+                                                                        oldPath,
+                                                                        joinPath([...splits.slice(0, -1), folder])
                                                                     )
                                                                 }
-                                                            }}
-                                                            fullWidth
-                                                        >
-                                                            New Folder
-                                                        </LemonButton>
-                                                    ) : null}
-                                                    {record.path ? (
-                                                        <LemonButton
-                                                            onClick={() => {
-                                                                const oldPath = record.path
-                                                                const splits = splitPath(oldPath)
-                                                                if (splits.length > 0) {
-                                                                    const folder = prompt(
-                                                                        'New name?',
-                                                                        splits[splits.length - 1]
-                                                                    )
-                                                                    if (folder) {
-                                                                        moveItem(
-                                                                            oldPath,
-                                                                            joinPath([...splits.slice(0, -1), folder])
-                                                                        )
-                                                                    }
-                                                                }
-                                                            }}
-                                                            fullWidth
-                                                        >
-                                                            Rename
-                                                        </LemonButton>
-                                                    ) : null}
-                                                    {record.path ? (
-                                                        <LemonButton
-                                                            onClick={() => {
-                                                                void navigator.clipboard.writeText(record.path)
-                                                            }}
-                                                            fullWidth
-                                                        >
-                                                            Copy Path
-                                                        </LemonButton>
-                                                    ) : null}
-                                                    {record?.created_at ? (
-                                                        <LemonButton
-                                                            onClick={() => deleteItem(record as FileSystemEntry)}
-                                                            fullWidth
-                                                        >
-                                                            Delete
-                                                        </LemonButton>
-                                                    ) : null}
-                                                </>
-                                            }
-                                        />
-                                    ) : undefined
-                                }
-                            />
-                        </ScrollableShadows>
-                    </DndContext>
+                                                            }
+                                                        }}
+                                                        fullWidth
+                                                        size="small"
+                                                    >
+                                                        Rename
+                                                    </LemonButton>
+                                                ) : null}
+                                                {item.record?.path ? (
+                                                    <LemonButton
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            if (item.record?.path) {
+                                                                void navigator.clipboard.writeText(item.record?.path)
+                                                            }
+                                                        }}
+                                                        fullWidth
+                                                        size="small"
+                                                    >
+                                                        Copy Path
+                                                    </LemonButton>
+                                                ) : null}
+                                                {item.record?.created_at ? (
+                                                    <LemonButton
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            deleteItem(item.record as unknown as FileSystemEntry)
+                                                        }}
+                                                        fullWidth
+                                                        size="small"
+                                                    >
+                                                        Delete
+                                                    </LemonButton>
+                                                ) : null}
+                                            </>
+                                        }
+                                    />
+                                ),
+                                identifier: item.record?.path || 'more',
+                            }
+                        }}
+                    />
+                    {helpNoticeVisible ? (
+                        <>
+                            <div className="border-b border-primary h-px" />
+                            <div className="p-2">
+                                <LemonBanner
+                                    type="info"
+                                    dismissKey="project-tree-help-notice"
+                                    onClose={() => updateHelpNoticeVisibility(false)}
+                                >
+                                    <p className="font-semibold mb-1">Behold, 🌲 navigation</p>
+                                    <ul className="mb-0 text-xs list-disc pl-4 py-0">
+                                        <li>
+                                            All your files are still here, open 'unfiled' to see them, and organize them
+                                            the way you'd like.
+                                        </li>
+                                        <li>
+                                            Hold down <KeyboardShortcut command /> to enable drag and drop.
+                                        </li>
+                                    </ul>
+                                </LemonBanner>
+                            </div>
+                        </>
+                    ) : null}
+                    <div className="border-b border-primary h-px" />
                     <NavbarBottom />
                 </div>
                 {!mobileLayout && (
