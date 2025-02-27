@@ -45,6 +45,7 @@ class FeatureFlag(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         related_name="updated_feature_flags",
+        db_index=False,
     )
 
     rollback_conditions = models.JSONField(null=True, blank=True)
