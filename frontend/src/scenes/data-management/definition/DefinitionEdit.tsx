@@ -1,7 +1,10 @@
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { VerifiedDefinitionCheckbox } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import {
+    PropertyStatusControl,
+    VerifiedDefinitionCheckbox,
+} from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -33,8 +36,9 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
 
-    const showVerifiedCheckbox =
-        hasTaxonomyFeatures && !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
+    const allowVerification = hasTaxonomyFeatures && !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
+
+    const showHiddenOption = hasTaxonomyFeatures && 'hidden' in editDefinition
 
     if (definitionMissing) {
         return <NotFound object="event" />
@@ -108,21 +112,41 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
                             </LemonField>
                         </div>
                     )}
-                    {showVerifiedCheckbox && (
-                        <div className="ph-ignore-input">
-                            <LemonField name="verified" label="Verification" data-attr="definition-verified">
-                                {({ value, onChange }) => (
-                                    <VerifiedDefinitionCheckbox
-                                        isProperty={isProperty}
-                                        verified={!!value}
-                                        onChange={(nextVerified) => {
-                                            onChange(nextVerified)
-                                        }}
-                                    />
-                                )}
-                            </LemonField>
-                        </div>
-                    )}
+                    {(allowVerification || showHiddenOption) &&
+                        (isProperty ? (
+                            <div className="ph-ignore-input">
+                                <LemonField name="verified" label="Status" data-attr="definition-status">
+                                    {({ value: verified, onChange }) => (
+                                        <LemonField name="hidden">
+                                            {({ value: hidden, onChange: onHiddenChange }) => (
+                                                <PropertyStatusControl
+                                                    verified={!!verified}
+                                                    hidden={!!hidden}
+                                                    showHiddenOption={showHiddenOption}
+                                                    allowVerification={allowVerification}
+                                                    onChange={({ verified: newVerified, hidden: newHidden }) => {
+                                                        onChange(newVerified)
+                                                        onHiddenChange(newHidden)
+                                                    }}
+                                                />
+                                            )}
+                                        </LemonField>
+                                    )}
+                                </LemonField>
+                            </div>
+                        ) : (
+                            <div className="ph-ignore-input">
+                                <LemonField name="verified" label="Verification" data-attr="definition-verified">
+                                    {({ value, onChange }) => (
+                                        <VerifiedDefinitionCheckbox
+                                            verified={!!value}
+                                            isProperty={isProperty}
+                                            onChange={onChange}
+                                        />
+                                    )}
+                                </LemonField>
+                            </div>
+                        ))}
 
                     {isProperty && (
                         <div className="ph-ignore-input">
