@@ -181,6 +181,9 @@ importers:
       '@swc/jest':
         specifier: ^0.2.37
         version: 0.2.37(@swc/core@1.11.4(@swc/helpers@0.5.15))
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
       '@types/luxon':
         specifier: ^3.4.2
         version: 3.4.2

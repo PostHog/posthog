@@ -978,7 +978,7 @@ export const STL: Record<string, STLFunction> = {
         maxArgs: 1,
     },
     isIPAddressInRange: {
-        fn: ([address, prefix], _, options) => isIPAddressInRange(address, prefix, options),
+        fn: ([address, prefix]) => isIPAddressInRange(address, prefix),
         minArgs: 2,
         maxArgs: 2,
     },

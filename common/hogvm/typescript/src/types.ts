@@ -1,5 +1,4 @@
 import type crypto from 'crypto'
-import type ipaddr from 'ipaddr.js'
 
 export interface BytecodeEntry {
     bytecode: any[]
@@ -57,7 +56,6 @@ export interface ExecOptions {
         }
         /** NodeJS crypto */
         crypto?: typeof crypto
-        ipaddr?: typeof ipaddr
     }
     /** Collect telemetry data */
     telemetry?: boolean

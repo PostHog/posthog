@@ -2,7 +2,7 @@
 set -e
 
 # List of test files to skip the compiledjs tests
-SKIP_COMPILEDJS_FILES=("crypto.hog" "ip.hog")
+SKIP_COMPILEDJS_FILES=("crypto.hog")
 
 # Files on which we only want to run Node.js tests
 ONLY_NODEJS_FILES=("sql.hog")

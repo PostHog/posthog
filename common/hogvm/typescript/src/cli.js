@@ -4,8 +4,6 @@ const exec = require('./index').exec
 const fs = require('fs')
 // eslint-disable-next-line no-undef
 const RE2 = require('re2')
-// eslint-disable-next-line no-undef
-const ipaddr = require('ipaddr.js')
 
 // eslint-disable-next-line no-undef
 const args = process.argv.slice(2).filter((arg) => arg !== '' && !arg.startsWith('-'))
@@ -25,7 +23,6 @@ const options = {
         },
         // eslint-disable-next-line no-undef
         crypto: require('crypto'),
-        ipaddr,
     },
 }
 
