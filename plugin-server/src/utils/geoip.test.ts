@@ -32,7 +32,7 @@ describe('GeoIp', () => {
             await expect(service.get(mockHub)).rejects.toThrow()
         })
 
-        it('should load only load mmdb from disk once', async () => {
+        it('should only load mmdb from disk once', async () => {
             const getSpy = jest.spyOn(Reader, 'open')
             const res = await Promise.all([service.get(mockHub), service.get(mockHub)])
             expect(getSpy).toHaveBeenCalledTimes(1)
