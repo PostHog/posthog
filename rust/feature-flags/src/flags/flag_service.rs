@@ -1,8 +1,6 @@
-use common_metrics::inc;
-
 use crate::{
     api::errors::FlagError,
-    client::{database::Client as DatabaseClient, redis::Client as RedisClient},
+    client::database::Client as DatabaseClient,
     flags::flag_models::FeatureFlagList,
     metrics::metrics_consts::{
         DB_FLAG_READS_COUNTER, DB_TEAM_READS_COUNTER, FLAG_CACHE_ERRORS_COUNTER,
@@ -11,6 +9,8 @@ use crate::{
     },
     team::team_models::Team,
 };
+use common_metrics::inc;
+use common_redis::Client as RedisClient;
 use std::sync::Arc;
 
 /// Service layer for handling feature flag operations
