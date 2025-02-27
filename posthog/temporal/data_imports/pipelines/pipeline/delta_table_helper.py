@@ -110,9 +110,13 @@ class DeltaTableHelper:
         if delta_table:
             delta_table = self._evolve_delta_schema(data.schema)
 
+        self._logger.debug(f"write_to_deltalake: _is_first_sync = {self._is_first_sync}")
+
         if is_incremental and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
+
+            self._logger.debug(f"write_to_deltalake: merging...")
 
             # Normalize keys and check the keys actually exist in the dataset
             py_table_column_names = data.column_names
@@ -132,6 +136,8 @@ class DeltaTableHelper:
             if chunk_index == 0 or delta_table is None:
                 mode = "overwrite"
                 schema_mode = "overwrite"
+
+            self._logger.debug(f"write_to_deltalake: mode = {mode}")
 
             if delta_table is None:
                 storage_options = self._get_credentials()
