@@ -4,7 +4,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.legacy_compatibility.feature_flag import (
     insight_funnels_use_udf_trends,
     insight_funnels_use_udf,
-    insight_funnels_use_udf_time_to_covert,
+    insight_funnels_use_udf_time_to_convert,
 )
 from posthog.models import Team
 from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, FunnelsFilter, StepOrderValue
@@ -19,7 +19,7 @@ def use_udf(funnelsFilter: FunnelsFilter, team: Team):
         return True
     if funnelVizType == FunnelVizType.STEPS and insight_funnels_use_udf(team):
         return True
-    if funnelVizType == FunnelVizType.TIME_TO_CONVERT and insight_funnels_use_udf_time_to_covert(team):
+    if funnelVizType == FunnelVizType.TIME_TO_CONVERT and insight_funnels_use_udf_time_to_convert(team):
         return True
     return False
 

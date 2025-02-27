@@ -46,7 +46,7 @@ def insight_funnels_use_udf(team: Team) -> bool:
     )
 
 
-def insight_funnels_use_udf_time_to_covert(team: Team) -> bool:
+def insight_funnels_use_udf_time_to_convert(team: Team) -> bool:
     return posthoganalytics.feature_enabled(
         "insight-funnels-use-udf-time-to-convert",
         str(team.uuid),
