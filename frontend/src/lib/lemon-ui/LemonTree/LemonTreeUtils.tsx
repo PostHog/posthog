@@ -1,5 +1,4 @@
-import { useDraggable } from '@dnd-kit/core'
-import { useDroppable } from '@dnd-kit/core'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { IconChevronRight } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
