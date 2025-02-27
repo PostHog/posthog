@@ -189,7 +189,7 @@ export function FeatureFlagReleaseConditions({
                                         <LemonButton
                                             icon={<IconArrowDown />}
                                             noPadding
-                                            tooltip="Move condition set down in precendence"
+                                            tooltip="Move condition set down in precedence"
                                             disabledReason={
                                                 index === filterGroups.length - 1
                                                     ? 'Cannot move last condition set down'
