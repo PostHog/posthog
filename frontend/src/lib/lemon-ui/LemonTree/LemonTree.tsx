@@ -522,7 +522,6 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                                 const nextItem = visibleItems[currentIndex + 1]
                                 if (nextItem) {
                                     setFocusedId(nextItem.id)
-                                    // setSelectedId(undefined)
                                 }
                             }
                         }
@@ -590,7 +589,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             }
                         } else if (currentIndex < visibleItems.length - 1) {
                             setFocusedId(visibleItems[currentIndex + 1].id)
-                            // setSelectedId(undefined)
+                            // setSelectedd(undefined)
                         }
                         break
                     }
@@ -608,7 +607,6 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         } else if (currentIndex > 0) {
                             // Otherwise move focus to previous item
                             setFocusedId(visibleItems[currentIndex - 1].id)
-                            // setSelectedId(undefined)
                         }
                         break
                     }
