@@ -368,7 +368,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
-            from posthog.temporal.data_imports.pipelines.sql_database import (
+            from posthog.temporal.data_imports.pipelines.snowflake.snowflake import (
                 snowflake_source,
             )
 
