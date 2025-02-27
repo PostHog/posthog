@@ -4,13 +4,16 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import dlt
+import structlog
 from dlt.sources.helpers.requests import Request, Response
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
-from posthog.temporal.common.logger import get_internal_logger
+from posthog.temporal.common.logger import get_temporal_context
 from posthog.temporal.data_imports.pipelines.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.pipelines.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.pipelines.salesforce.auth import SalseforceAuth
+
+LOGGER = structlog.get_logger()
 
 
 # Note: When pulling all fields, salesforce requires a 200 limit. We circumvent the pagination by using Id ordering.
@@ -313,7 +316,6 @@ class SalesforceEndpointPaginator(BasePaginator):
         super().__init__()
         self.instance_url = instance_url
         self.is_incremental = is_incremental
-        self.logger = get_internal_logger()
 
     def __repr__(self):
         pairs = (
@@ -321,6 +323,11 @@ class SalesforceEndpointPaginator(BasePaginator):
             for attr in ("is_incremental", "_has_next_page", "_model_name", "_last_record_id")
         )
         return f"<SalesforceEndpointPaginator at {hex(id(self))}: {', '.join(pairs)}>"
+
+    @property
+    def logger(self):
+        temporal_context = get_temporal_context()
+        return LOGGER.bind(**temporal_context)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()

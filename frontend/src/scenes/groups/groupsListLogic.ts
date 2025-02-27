@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { Group } from '~/types'
@@ -25,8 +25,8 @@ export const groupsListLogic = kea<groupsListLogicType>([
     path(['groups', 'groupsListLogic']),
     connect({
         values: [
-            projectLogic,
-            ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
             groupsAccessLogic,
@@ -49,7 +49,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     }
                     url =
                         url ||
-                        `api/projects/${values.currentProjectId}/groups/?group_type_index=${props.groupTypeIndex}${
+                        `api/environments/${values.currentTeamId}/groups/?group_type_index=${props.groupTypeIndex}${
                             values.search ? '&search=' + encodeURIComponent(values.search) : ''
                         }`
                     return await api.get(url)

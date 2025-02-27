@@ -1,20 +1,23 @@
 from django.db import models
 from django.utils import timezone
 
-from posthog.models.team import Team
-from posthog.models.project import Project
 from posthog.models.utils import UUIDModel, UniqueConstraintByExpression
 
 
+# NOTE: This model is deprecated. It was created as an attempt to track all of the domains that are using PostHog.
+# This wasn't very performant inside propdefs, and for that reason it was sunsetted.
+#
+# # TODO: Enable `@deprecated` once we move to Python 3.13
+# @deprecated("This model is no longer used due to performance issues with propdefs")
 class HostDefinition(UUIDModel):
     team = models.ForeignKey(
-        Team,
+        "Team",
         on_delete=models.CASCADE,
         related_name="host_definitions",
         related_query_name="host_definition",
     )
     project = models.ForeignKey(
-        Project,
+        "Project",
         null=True,
         on_delete=models.CASCADE,
         related_name="host_definitions",

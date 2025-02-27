@@ -362,7 +362,9 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 continue
 
             try:
-                parent_query = DataWarehouseSavedQuery.objects.filter(team=team, name=parent).get()
+                parent_query = (
+                    DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=parent).get()
+                )
             except ObjectDoesNotExist:
                 pass
             else:
@@ -374,7 +376,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 continue
 
             try:
-                parent_table = DataWarehouseTable.objects.filter(team=team, name=parent).get()
+                parent_table = DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=parent).get()
             except ObjectDoesNotExist:
                 pass
             else:
@@ -433,10 +435,18 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                         parent_id = parent
                     else:
                         try:
-                            parent_query = DataWarehouseSavedQuery.objects.filter(team=team, name=parent).get()
+                            parent_query = (
+                                DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                                .filter(team=team, name=parent)
+                                .get()
+                            )
                         except ObjectDoesNotExist:
                             try:
-                                parent_table = DataWarehouseTable.objects.filter(team=team, name=parent).get()
+                                parent_table = (
+                                    DataWarehouseTable.objects.exclude(deleted=True)
+                                    .filter(team=team, name=parent)
+                                    .get()
+                                )
                             except ObjectDoesNotExist:
                                 raise UnknownParentError(parent, query)
                             else:

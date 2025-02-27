@@ -2,6 +2,13 @@ import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
+        model: 'deepseek-r1-distill-llama-8b',
+        cost: {
+            prompt_token: 0.00000004,
+            completion_token: 0.00000004,
+        },
+    },
+    {
         model: 'deepseek-r1-distill-qwen-1.5b',
         cost: {
             prompt_token: 0.00000018,
@@ -60,8 +67,8 @@ export const costs: ModelRow[] = [
     {
         model: 'deepseek-chat',
         cost: {
-            prompt_token: 0.00000049,
-            completion_token: 0.00000089,
+            prompt_token: 0.00000125,
+            completion_token: 0.00000125,
         },
     },
     {

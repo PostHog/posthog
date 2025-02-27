@@ -301,6 +301,7 @@ export interface HogQLVariable {
     variableId: string
     code_name: string
     value?: any
+    isNull?: boolean
 }
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
@@ -387,10 +388,18 @@ export interface HogQLNotice {
     fix?: string
 }
 
+export enum QueryIndexUsage {
+    Undecisive = 'undecisive',
+    No = 'no',
+    Partial = 'partial',
+    Yes = 'yes',
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isValidView?: boolean
+    isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -1089,7 +1098,7 @@ export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
 export type RetentionFilter = {
     retentionType?: RetentionFilterLegacy['retention_type']
     retentionReference?: RetentionFilterLegacy['retention_reference']
-    /** @default 11 */
+    /** @default 8 */
     totalIntervals?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
@@ -1183,6 +1192,13 @@ export type StickinessOperator =
     | PropertyOperator.LessThanOrEqual
     | PropertyOperator.Exact
 
+export const StickinessComputationModes = {
+    NonCumulative: 'non_cumulative',
+    Cumulative: 'cumulative',
+} as const
+
+export type StickinessComputationMode = (typeof StickinessComputationModes)[keyof typeof StickinessComputationModes]
+
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
@@ -1193,6 +1209,7 @@ export type StickinessFilter = {
         operator: StickinessOperator
         value: integer
     }
+    computedAs?: StickinessComputationMode
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([

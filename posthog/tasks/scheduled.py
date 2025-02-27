@@ -56,10 +56,13 @@ from posthog.tasks.tasks import (
     update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
+    ee_count_items_in_playlists,
 )
 from posthog.utils import get_crontab
 
 from posthog.tasks.remote_config import sync_all_remote_configs
+
+TWENTY_FOUR_HOURS = 24 * 60 * 60
 
 
 def add_periodic_task_with_expiry(
@@ -131,7 +134,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
     sender.add_periodic_task(
-        crontab(hour="*", minute="30"),
+        crontab(minute="*/30"),
         update_quota_limiting.s(),
         name="update quota limiting",
     )
@@ -329,6 +332,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sender.add_periodic_task(
             crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings.s(),
+        )
+
+        add_periodic_task_with_expiry(
+            sender,
+            settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS or TWENTY_FOUR_HOURS,
+            ee_count_items_in_playlists.s(),
+            "ee_count_items_in_playlists",
         )
 
         sender.add_periodic_task(

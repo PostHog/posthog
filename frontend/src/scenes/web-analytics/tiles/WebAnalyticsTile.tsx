@@ -6,6 +6,7 @@ import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -262,6 +263,36 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 )
             }
             break
+        case WebStatsBreakdown.DeviceType:
+            if (typeof value === 'string') {
+                return (
+                    <div className="flex items-center gap-2">
+                        <PropertyIcon property="$device_type" value={value} />
+                        <span>{value}</span>
+                    </div>
+                )
+            }
+            break
+        case WebStatsBreakdown.Browser:
+            if (typeof value === 'string') {
+                return (
+                    <div className="flex items-center gap-2">
+                        <PropertyIcon property="$browser" value={value} />
+                        <span>{value}</span>
+                    </div>
+                )
+            }
+            break
+        case WebStatsBreakdown.OS:
+            if (typeof value === 'string') {
+                return (
+                    <div className="flex items-center gap-2">
+                        <PropertyIcon property="$os" value={value} />
+                        <span>{value}</span>
+                    </div>
+                )
+            }
+            break
     }
 
     if (typeof value === 'string') {
@@ -467,7 +498,7 @@ export const WebStatsTrendTile = ({
                 geographyTab: hasCountryFilter ? undefined : GeographyTab.REGIONS,
             })
         },
-        [togglePropertyFilter, worldMapPropertyName]
+        [togglePropertyFilter, worldMapPropertyName, hasCountryFilter]
     )
 
     const context = useMemo((): QueryContext => {

@@ -11,7 +11,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
     "distinct_ids": [
       "187d7c7619b1fc0-05f7306e935865-1d525634-384000-187d7c7619c2867",
     ],
-    "id": 11,
+    "id": "11",
     "name": "187d7c7619b1fc0-05f7306e935865-1d525634-384000-187d7c7619c2867",
     "properties": {
       "$initial_os": "Mac OS X",
@@ -44,7 +44,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
     "distinct_ids": [
       "187d7c7619b1fc0-05f7306e935865-1d525634-384000-187d7c7619c2867",
     ],
-    "id": 11,
+    "id": "11",
     "name": "187d7c7619b1fc0-05f7306e935865-1d525634-384000-187d7c7619c2867",
     "properties": {
       "$initial_os": "Mac OS X",
@@ -2173,7 +2173,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata only by
     "distinct_ids": [
       "187d7c7619b1fc0-05f7306e935865-1d525634-384000-187d7c7619c2867",
     ],
-    "id": 11,
+    "id": "11",
     "name": "187d7c7619b1fc0-05f7306e935865-1d525634-384000-187d7c7619c2867",
     "properties": {
       "$initial_os": "Mac OS X",

@@ -70,7 +70,7 @@ function formatTickValue(value: number): string {
 
     return `${(value * 100).toFixed(decimals)}%`
 }
-const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
+export const getMetricTitle = (metric: any, metricType?: InsightType): JSX.Element => {
     if (metric.name) {
         return <span className="truncate">{metric.name}</span>
     }

@@ -40,10 +40,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
+        KAFKA_PRODUCER_HOSTS: undefined,
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
         KAFKA_TRUSTED_CERT_B64: undefined,
         KAFKA_SECURITY_PROTOCOL: undefined,
+        KAFKA_PRODUCER_SECURITY_PROTOCOL: undefined,
         KAFKA_SASL_MECHANISM: undefined,
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
@@ -73,7 +75,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
-        BASE_DIR: '.',
+        BASE_DIR: '..',
         PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
@@ -91,6 +93,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
         DISABLE_MMDB: isTestEnv(),
+        MMDB_FILE_LOCATION:
+            isDevEnv() || isTestEnv() ? './share/GeoLite2-City.mmdb' : '/s3/ingestion-assets/mmdb/GeoLite2-City.mmdb',
+        MMDB_COMPARE_MODE: isTestEnv() || isDevEnv() ? false : true, // For now production is only testing it
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
         JOB_QUEUES: 'graphile',

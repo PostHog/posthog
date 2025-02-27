@@ -42,7 +42,7 @@ export function ErrorTrackingConfigurationScene(): JSX.Element {
             <Settings
                 logicKey={SETTINGS_LOGIC_KEY}
                 sectionId="environment-error-tracking"
-                settingId="error-tracking-user-groups" // acts as a default
+                settingId="error-tracking-exception-autocapture" // acts as a default
                 handleLocally
             />
         </ErrorTrackingSetupPrompt>

@@ -31,7 +31,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { showFilters } = useValues(playerSettingsLogic)
     const { setShowFilters } = useActions(playerSettingsLogic)
 
-    if (!playlist && playlistLoading) {
+    if (playlistLoading) {
         return (
             <div className="space-y-4 mt-6">
                 <LemonSkeleton className="h-10 w-1/4" />
@@ -147,7 +147,9 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         updateSearchParams={true}
                     />
                 </div>
-            ) : null}
+            ) : (
+                <NotFound object="Recording Playlist" />
+            )}
         </div>
     )
 }
