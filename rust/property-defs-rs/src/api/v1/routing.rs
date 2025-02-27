@@ -119,7 +119,7 @@ fn parse_request(params: HashMap<String, String>) -> Params {
                 .map(|s| s.trim().to_string().to_lowercase())
                 .collect()
         })
-        .unwrap();
+        .unwrap_or_default();
 
     // which columns should we fuzzy-search for each of the user-supplied search terms?
     // defaults to "posthog_propertydefinition.name" column, but user can supply more
