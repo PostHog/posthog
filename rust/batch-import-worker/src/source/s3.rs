@@ -1,6 +1,7 @@
 use anyhow::Error;
 use aws_sdk_s3::Client as S3Client;
 use axum::async_trait;
+use tracing::debug;
 
 use super::DataSource;
 
@@ -23,6 +24,10 @@ impl S3Source {
 #[async_trait]
 impl DataSource for S3Source {
     async fn keys(&self) -> Result<Vec<String>, Error> {
+        debug!(
+            "Listing keys in bucket {} with prefix {}",
+            self.bucket, self.prefix
+        );
         let mut keys = Vec::new();
         let mut continuation_token = None;
         loop {
@@ -35,6 +40,7 @@ impl DataSource for S3Source {
                 cmd = cmd.continuation_token(token);
             }
             let output = cmd.send().await?;
+            debug!("Got response: {:?}", output);
             if let Some(contents) = output.contents {
                 keys.extend(contents.iter().filter_map(|o| o.key.clone()));
             }

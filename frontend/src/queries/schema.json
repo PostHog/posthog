@@ -8607,6 +8607,9 @@
                     },
                     "type": "array"
                 },
+                "isUsingIndices": {
+                    "$ref": "#/definitions/QueryIndexUsage"
+                },
                 "isValid": {
                     "type": "boolean"
                 },
@@ -10508,6 +10511,10 @@
             ],
             "type": "string"
         },
+        "QueryIndexUsage": {
+            "enum": ["undecisive", "no", "partial", "yes"],
+            "type": "string"
+        },
         "QueryRequest": {
             "additionalProperties": false,
             "properties": {
@@ -10908,6 +10915,9 @@
                                 "$ref": "#/definitions/HogQLNotice"
                             },
                             "type": "array"
+                        },
+                        "isUsingIndices": {
+                            "$ref": "#/definitions/QueryIndexUsage"
                         },
                         "isValid": {
                             "type": "boolean"
