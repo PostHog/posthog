@@ -73,7 +73,7 @@ class FunnelTimeToConvertUDF(FunnelBase):
                 arrayMap(timing -> toInt(floor((timing - min_timing) / bin_width_seconds)), timings) as indices,
                 arrayMap(x -> countEqual(indices, x-1), range(1, bin_count + 2)) as counts
             FROM {{inner_select}}
-            WHERE step_reached >= {funnelsFilter.funnelToStep} """,
+            WHERE step_reached >= {to_step}""",
             {"inner_select": inner_select},
         )
 
