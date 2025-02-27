@@ -3,7 +3,7 @@ use std::{fmt::Display, sync::Arc};
 use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{postgres::PgQueryResult, PgPool};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -81,7 +81,7 @@ impl JobModel {
             UPDATE posthog_batchimport
             SET
                 status = 'running',
-                leased_until = now() + interval '5 minutes'
+                leased_until = now() + interval '30 minutes' -- We lease for a long time because job init can be quite slow
             FROM next_job
             WHERE posthog_batchimport.id = next_job.id
             RETURNING
@@ -139,11 +139,13 @@ impl JobModel {
     }
 
     pub async fn flush(&mut self, pool: &PgPool, extend_lease: bool) -> Result<(), Error> {
+        let Some(old_lease) = self.lease_id.take() else {
+            anyhow::bail!("Cannot flush a job with no lease")
+        };
+
         if extend_lease {
             self.lease_id = Some(Uuid::now_v7().to_string());
-        } else {
-            self.lease_id = None;
-        };
+        }
 
         if extend_lease {
             self.leased_until =
@@ -152,7 +154,7 @@ impl JobModel {
             self.leased_until = None;
         };
 
-        sqlx::query!(
+        let res = sqlx::query!(
             r#"
             UPDATE posthog_batchimport
             SET
@@ -162,17 +164,20 @@ impl JobModel {
                 updated_at = now(),
                 lease_id = $5,
                 leased_until = $6
-            WHERE id = $1
+            WHERE id = $1 AND lease_id = $7
             "#,
             self.id,
             self.status.to_string(),
             self.status_message,
             serde_json::to_value(&self.state)?,
             self.lease_id,
-            self.leased_until
+            self.leased_until,
+            old_lease
         )
         .execute(pool)
         .await?;
+
+        throw_if_no_rows(res)?;
 
         Ok(())
     }
@@ -252,5 +257,14 @@ impl TryFrom<(JobRow, &[String])> for JobModel {
             secrets,
             was_leased: row.previous_lease_id.is_some(),
         })
+    }
+}
+
+// Returns an InvalidLock error if the query run did not affect any rows.
+pub fn throw_if_no_rows(res: PgQueryResult) -> Result<(), Error> {
+    if res.rows_affected() == 0 {
+        anyhow::bail!("No update done")
+    } else {
+        Ok(())
     }
 }
