@@ -7,7 +7,7 @@ from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
-from posthog.schema import FunnelTimeToConvertResults
+from posthog.schema import FunnelTimeToConvertResults, StepOrderValue
 
 
 class FunnelTimeToConvertUDF(FunnelBase):
@@ -29,6 +29,8 @@ class FunnelTimeToConvertUDF(FunnelBase):
 
     def get_query(self) -> ast.SelectQuery:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
+        if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+            return self.get_query_old()
 
         # Conversion from which step should be calculated
         from_step = funnelsFilter.funnelFromStep or 0
