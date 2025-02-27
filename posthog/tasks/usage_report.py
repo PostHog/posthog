@@ -287,7 +287,7 @@ def get_org_user_count(organization_id: str) -> int:
     return OrganizationMembership.objects.filter(organization_id=organization_id).count()
 
 
-@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="10/s")
+@shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="5/s")
 def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
@@ -310,7 +310,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
+        response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers, timeout=15)
         if response.status_code != 200:
             raise Exception(
                 f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
