@@ -1,12 +1,22 @@
-import { LemonButton, LemonCheckbox, LemonModal, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonSwitch,
+    LemonTable,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
-    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay } = useActions(sourceWizardLogic)
-    const { databaseSchema } = useValues(sourceWizardLogic)
+    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsLocalTime } =
+        useActions(sourceWizardLogic)
+    const { databaseSchema, isLocalTime } = useValues(sourceWizardLogic)
 
     return (
         <>
@@ -73,6 +83,45 @@ export default function SchemaForm(): JSX.Element {
                                                 { value: '18:00', label: '6:00 PM' },
                                                 { value: '21:00', label: '9:00 PM' },
                                             ]}
+                                        />
+                                    )
+                                },
+                            },
+                            {
+                                title: (
+                                    <div className="flex items-center gap-2">
+                                        <span>Sync Time of Day</span>
+                                        <div className="flex items-center gap-1">
+                                            <span>UTC</span>
+                                            <LemonSwitch checked={isLocalTime} onChange={setIsLocalTime} />
+                                            <span>{dayjs().format('z')}</span>
+                                        </div>
+                                    </div>
+                                ),
+                                key: 'sync_time_of_day_local',
+                                render: function RenderSyncTimeOfDayLocal(_, schema) {
+                                    const utcTime = schema.sync_time_of_day || '00:00:00'
+                                    const localTime = isLocalTime
+                                        ? dayjs
+                                              .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
+                                              .local()
+                                              .format('HH:mm:00')
+                                        : utcTime
+
+                                    return (
+                                        <LemonInput
+                                            type="time"
+                                            disabled={!schema.should_sync}
+                                            value={localTime.substring(0, 5)}
+                                            onChange={(value) => {
+                                                const newValue = `${value}:00`
+                                                const utcValue = isLocalTime
+                                                    ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
+                                                          .utc()
+                                                          .format('HH:mm:00')
+                                                    : newValue
+                                                updateSyncTimeOfDay(schema, utcValue)
+                                            }}
                                         />
                                     )
                                 },

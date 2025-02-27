@@ -825,6 +825,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             schema,
             syncTimeOfDay,
         }),
+        setIsLocalTime: (isLocalTime: boolean) => ({ isLocalTime }),
     }),
     connect({
         values: [
@@ -948,6 +949,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     incremental_field: incrementalField,
                     incremental_field_type: incrementalFieldType,
                 }),
+            },
+        ],
+        isLocalTime: [
+            false as boolean,
+            {
+                setIsLocalTime: (_, { isLocalTime }) => isLocalTime,
             },
         ],
     }),
