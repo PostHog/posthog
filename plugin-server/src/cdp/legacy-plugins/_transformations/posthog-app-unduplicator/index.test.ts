@@ -24,7 +24,12 @@ describe('`Event and Timestamp` mode', () => {
     })
     test('same key properties produces the same UUID', () => {
         const event1 = processEvent(
-            { ...createPageview(), event: 'myPageview', timestamp: '2020-05-02T20:59:59.999999Z', ignoreMe: 'yes' },
+            {
+                ...createPageview(),
+                event: 'myPageview',
+                timestamp: '2020-05-02T20:59:59.999999Z',
+                ignoreMe: 'yes',
+            } as any,
             meta
         )
         const event2 = processEvent(

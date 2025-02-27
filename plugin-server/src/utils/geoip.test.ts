@@ -1,13 +1,13 @@
 import { Reader } from '@maxmind/geoip2-node'
 
 import { defaultConfig } from '../config/config'
-import { Hub, PluginsServerConfig } from '../types'
+import { Config, Hub } from '../types'
 import { GeoIp, geoipCompareCounter, GeoIPService } from './geoip'
 import { status } from './status'
 
 describe('GeoIp', () => {
     let service: GeoIPService
-    let config: PluginsServerConfig
+    let config: Config
     const mockHub = {} as Hub
 
     jest.setTimeout(1000)

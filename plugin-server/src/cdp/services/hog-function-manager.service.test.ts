@@ -455,8 +455,8 @@ describe('HogFunctionManager - Integration Updates', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await hub.db.fetchTeam(2)
-        teamId = await createTeam(hub.db.postgres, team!.organization_id)
+        const team = await fetchTeam(hub.postgres, 2)
+        teamId = await createTeam(hub.postgres, team!.organization_id)
 
         // Create an integration
         integration = await insertIntegration(hub.postgres, teamId, {
@@ -501,7 +501,7 @@ describe('HogFunctionManager - Integration Updates', () => {
         })
 
         // Update the integration in the database
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_integration 
              SET config = jsonb_set(config, '{team}', '"updated-team"'::jsonb),
@@ -514,7 +514,7 @@ describe('HogFunctionManager - Integration Updates', () => {
         await manager.reloadIntegrations(teamId, [integration.id])
 
         // Verify the database update worked
-        const updatedIntegration = await hub.db.postgres.query(
+        const updatedIntegration = await hub.postgres.query(
             PostgresUse.COMMON_READ,
             `SELECT config, sensitive_config FROM posthog_integration WHERE id = $1`,
             [integration.id],

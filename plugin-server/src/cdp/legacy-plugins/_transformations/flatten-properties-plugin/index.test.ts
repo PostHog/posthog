@@ -38,7 +38,7 @@ describe('the property flattener', () => {
     test('flattens all nested properties', () => {
         const event = createEvent({ event: 'test', properties: nestedEventProperties })
 
-        const eventsOutput = processEvent(event, { config: { separator: '__' } })
+        const eventsOutput = processEvent(event, { config: { separator: '__' } } as any)
 
         const expectedProperties = {
             a: nestedEventProperties.a,
@@ -68,7 +68,7 @@ describe('the property flattener', () => {
             },
         })
 
-        const eventsOutput = processEvent(event, { config: { separator: '__' } })
+        const eventsOutput = processEvent(event, { config: { separator: '__' } } as any)
 
         const expectedProperties = {
             $elements: [
@@ -89,7 +89,7 @@ describe('the property flattener', () => {
             },
         })
 
-        const eventsOutput = processEvent(event, { config: { separator: '__' } })
+        const eventsOutput = processEvent(event, { config: { separator: '__' } } as any)
 
         const expectedProperties = {
             any: [{ nested: 'property' }],
@@ -119,7 +119,7 @@ describe('the property flattener', () => {
             },
         })
 
-        const eventsOutput = processEvent(event, { config: { separator: '__' } })
+        const eventsOutput = processEvent(event, { config: { separator: '__' } } as any)
 
         const expectedProperties = {
             $set: {
@@ -170,7 +170,7 @@ describe('the property flattener', () => {
             },
         })
 
-        const eventsOutput = processEvent(event, { config: { separator: '__' } })
+        const eventsOutput = processEvent(event, { config: { separator: '__' } } as any)
 
         const expectedProperties = {
             $group_set: {

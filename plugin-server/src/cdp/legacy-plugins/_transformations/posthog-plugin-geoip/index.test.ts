@@ -25,7 +25,7 @@ describe('posthog-plugin-geoip', () => {
     function resetMetaWithMmdb(
         transformResult = (res: City) => res as Record<string, any>
     ): LegacyTransformationPluginMeta {
-        meta = {
+        const meta = {
             geoip: {
                 locate: (ipAddress: string) => {
                     const res = geoip.city(ipAddress)
