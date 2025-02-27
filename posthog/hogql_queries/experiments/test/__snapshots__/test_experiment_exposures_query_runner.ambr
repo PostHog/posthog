@@ -6,7 +6,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '') AS variant,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -16,9 +16,9 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
      GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-              replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '')) AS subq
+              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')) AS subq
   GROUP BY subq.day,
            subq.variant
   ORDER BY subq.day ASC
@@ -38,7 +38,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '') AS variant,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -58,9 +58,9 @@
                                                               WHERE equals(person.team_id, 99999)
                                                               GROUP BY person.id
                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
+     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1))
      GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-              replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '')) AS subq
+              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')) AS subq
   GROUP BY subq.day,
            subq.variant
   ORDER BY subq.day ASC
@@ -80,7 +80,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '') AS variant,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -90,9 +90,9 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
      GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-              replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '')) AS subq
+              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')) AS subq
   GROUP BY subq.day,
            subq.variant
   ORDER BY subq.day ASC
@@ -112,7 +112,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '') AS variant,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -122,9 +122,9 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
      GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-              replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '')) AS subq
+              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')) AS subq
   GROUP BY subq.day,
            subq.variant
   ORDER BY subq.day ASC
@@ -144,7 +144,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '') AS variant,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -154,9 +154,9 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', ''), ['control', 'test']), 0), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
      GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-              replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '')) AS subq
+              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')) AS subq
   GROUP BY subq.day,
            subq.variant
   ORDER BY subq.day ASC
@@ -176,7 +176,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '') AS variant,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -186,9 +186,9 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$pageview'), ifNull(in(replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', ''), ['control', 'test']), 0), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'free'), 1)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
+     WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$pageview'), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'free'), 1)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')))
      GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
-              replaceAll(JSONExtractRaw(events.properties, '$feature/test-experiment'), '"', '')) AS subq
+              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')) AS subq
   GROUP BY subq.day,
            subq.variant
   ORDER BY subq.day ASC
