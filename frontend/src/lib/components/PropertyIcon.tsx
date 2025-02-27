@@ -34,6 +34,14 @@ const osIcons = {
     ['android']: <IconAndroidOS />,
     ['ios']: <IconAppleIOS />,
     ['other']: <IconGearFilled />,
+    ['chrome os']: <IconChrome />,
+    ['windows mobile']: <IconWindows />,
+    ['windows phone']: <IconWindows />,
+    ['xbox']: <IconWindows />,
+    ['playstation']: <IconHeadset />,
+    ['nintendo']: <IconHeadset />,
+    ['blackberry']: <IconBlackberry />,
+    ['watchos']: <IconMacOS />,
 }
 
 export const PROPERTIES_ICON_MAP = {

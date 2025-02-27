@@ -2,7 +2,7 @@ import re
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, sentinel
 
 import pytest
 from clickhouse_driver import Client
@@ -16,6 +16,7 @@ from posthog.clickhouse.cluster import (
     MutationRunner,
     T,
     Query,
+    RetryPolicy,
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -54,6 +55,62 @@ def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
         cluster.map_all_hosts(explode).result()
 
     assert replace_memory_addresses_and_ips(e.value.message) == snapshot
+
+
+def test_retry_policy():
+    policy = RetryPolicy(max_attempts=2, delay=0)
+
+    # happy function, should not be retried
+    happy_function = Mock(side_effect=[sentinel.RESULT])
+    task = policy(happy_function)
+    assert task(Mock()) is sentinel.RESULT
+    assert happy_function.call_count == 1
+
+    # flaky function, should be retried
+    flaky_function = Mock(side_effect=[Exception(), sentinel.RESULT])
+    task = policy(flaky_function)
+    assert task(Mock()) is sentinel.RESULT
+    assert flaky_function.call_count == 2
+
+    # angry function, always fails and should retry up to max
+    angry_function = Mock(side_effect=Exception(sentinel.ERROR))
+    task = policy(angry_function)
+    with pytest.raises(Exception) as e:
+        task(Mock())
+
+    assert e.value.args == (sentinel.ERROR,)
+    assert angry_function.call_count == 2
+
+    # function that throws a surprising non-retryable error should not be retried
+    surprising_function = Mock(side_effect=Exception(sentinel.ERROR))
+    task = RetryPolicy(max_attempts=2, delay=0, exceptions=(ValueError,))(surprising_function)
+    with pytest.raises(Exception) as e:
+        task(Mock())
+
+    assert e.value.args == (sentinel.ERROR,)
+    assert surprising_function.call_count == 1
+
+
+def test_retry_policy_exception_test():
+    retryable_exception = Exception(sentinel.RETRYABLE)
+    policy = RetryPolicy(max_attempts=2, delay=0, exceptions=lambda e: e == retryable_exception)
+
+    retryable_callable = Mock(side_effect=retryable_exception)
+    task = policy(retryable_callable)
+    with pytest.raises(Exception) as e:
+        task(Mock())
+
+    assert e.value == retryable_exception
+    assert retryable_callable.call_count == policy.max_attempts
+
+    non_retryable_exception = Exception(sentinel.NON_RETRYABLE)
+    non_retryable_callable = Mock(side_effect=non_retryable_exception)
+    task = policy(non_retryable_callable)
+    with pytest.raises(Exception) as e:
+        task(Mock())
+
+    assert e.value == non_retryable_exception
+    assert non_retryable_callable.call_count == 1
 
 
 def test_mutations(cluster: ClickhouseCluster) -> None:

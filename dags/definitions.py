@@ -70,3 +70,8 @@ defs = Definitions(
     sensors=[run_deletes_after_squash],
     resources=resources,
 )
+
+if settings.DEBUG:
+    from . import testing
+
+    defs.jobs.append(testing.error)

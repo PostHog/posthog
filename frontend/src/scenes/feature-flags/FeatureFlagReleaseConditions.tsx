@@ -70,8 +70,7 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
                                   false,
                                   String(val).slice(-1) === 'h' ? 'MMMM D, YYYY HH:mm:ss' : 'MMMM D, YYYY',
                                   true
-                              )}{' '}
-                                                            )`
+                              )} )`
                             : ''}
                     </span>
                 </LemonSnack>
