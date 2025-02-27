@@ -22,7 +22,12 @@ export class GeoIPService {
 
     private getMmdb() {
         if (!this._mmdbPromise) {
-            this._mmdbPromise = Reader.open(join(this.config.BASE_DIR, this.config.MMDB_FILE_LOCATION))
+            this._mmdbPromise = Reader.open(join(this.config.BASE_DIR, this.config.MMDB_FILE_LOCATION)).catch((e) => {
+                status.warn('🌎', 'Error getting MMDB', {
+                    error: e.message,
+                })
+                throw e
+            })
         }
 
         return this._mmdbPromise
