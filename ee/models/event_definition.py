@@ -23,6 +23,7 @@ class EnterpriseEventDefinition(EventDefinition):
         blank=True,
         related_name="verifying_user",
     )
+    hidden = models.BooleanField(null=True, blank=True, default=False)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)

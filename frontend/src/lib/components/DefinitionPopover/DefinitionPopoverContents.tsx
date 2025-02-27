@@ -1,6 +1,6 @@
 import { hide } from '@floating-ui/react'
-import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { IconBadge, IconEye, IconHide } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -34,46 +34,6 @@ import {
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TZLabel } from '../TZLabel'
-
-export function VerifiedDefinitionCheckbox({
-    verified,
-    isProperty,
-    onChange,
-    compact = false,
-}: {
-    verified: boolean
-    isProperty: boolean
-    onChange: (nextVerified: boolean) => void
-    compact?: boolean
-}): JSX.Element {
-    const copy = isProperty
-        ? 'Verifying a property is a signal to collaborators that this property should be used in favor of similar properties.'
-        : 'Verified events are prioritized in filters and other selection components. Verifying an event is a signal to collaborators that this event should be used in favor of similar events.'
-
-    return (
-        <>
-            {!compact && <p>{copy}</p>}
-
-            <LemonSwitch
-                checked={verified}
-                onChange={() => {
-                    onChange(!verified)
-                }}
-                bordered
-                label={
-                    <>
-                        Mark as verified {isProperty ? 'property' : 'event'}
-                        {compact && (
-                            <Tooltip title={copy}>
-                                <IconInfo className="ml-2 text-secondary text-xl shrink-0" />
-                            </Tooltip>
-                        )}
-                    </>
-                }
-            />
-        </>
-    )
-}
 
 export function PropertyStatusControl({
     verified,
@@ -458,7 +418,6 @@ function DefinitionEdit(): JSX.Element {
         type,
         dirty,
         viewFullDetailUrl,
-        isProperty,
     } = useValues(definitionPopoverLogic)
     const { setLocalDefinition, handleCancel, handleSave } = useActions(definitionPopoverLogic)
 
@@ -511,27 +470,16 @@ function DefinitionEdit(): JSX.Element {
                 )}
                 {definition && definition.name && (showHiddenOption || allowVerification) && (
                     <div className="mb-4">
-                        {isProperty ? (
-                            <PropertyStatusControl
-                                verified={!!localDefinition.verified}
-                                hidden={!!(localDefinition as Partial<PropertyDefinition>).hidden}
-                                onChange={({ verified, hidden }) => {
-                                    setLocalDefinition({ verified, hidden } as Partial<PropertyDefinition>)
-                                }}
-                                compact
-                                showHiddenOption={showHiddenOption}
-                                allowVerification={allowVerification}
-                            />
-                        ) : (
-                            <VerifiedDefinitionCheckbox
-                                verified={!!localDefinition.verified}
-                                isProperty={isProperty}
-                                onChange={(nextVerified) => {
-                                    setLocalDefinition({ verified: nextVerified })
-                                }}
-                                compact
-                            />
-                        )}
+                        <PropertyStatusControl
+                            verified={!!localDefinition.verified}
+                            hidden={!!(localDefinition as Partial<PropertyDefinition>).hidden}
+                            onChange={({ verified, hidden }) => {
+                                setLocalDefinition({ verified, hidden } as Partial<PropertyDefinition>)
+                            }}
+                            compact
+                            showHiddenOption={showHiddenOption}
+                            allowVerification={allowVerification}
+                        />
                     </div>
                 )}
                 <LemonDivider className="DefinitionPopover mt-0" />

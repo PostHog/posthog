@@ -68,6 +68,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             <IconWithBadge
                 icon={<IconEye />}
                 verified={definition.verified}
+                hidden={definition.hidden}
                 tooltipTitle="Pageview"
                 className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted"
             />
@@ -78,6 +79,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             <IconWithBadge
                 icon={<IconLeave />}
                 verified={definition.verified}
+                hidden={definition.hidden}
                 tooltipTitle="PostHog event"
                 className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted"
             />
@@ -88,6 +90,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             <IconWithBadge
                 icon={<IconBolt />}
                 verified={definition.verified}
+                hidden={definition.hidden}
                 tooltipTitle="Autocapture event"
                 className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted"
             />
@@ -98,6 +101,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             <IconWithBadge
                 icon={<IconLogomark />}
                 verified={definition.verified}
+                hidden={definition.hidden}
                 tooltipTitle="PostHog event"
                 className="taxonomy-icon taxonomy-icon-muted"
             />
@@ -108,6 +112,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             <IconWithBadge
                 icon={<IconSelectAll />}
                 verified={definition.verified}
+                hidden={definition.hidden}
                 tooltipTitle="All events"
                 className="taxonomy-icon taxonomy-icon-built-in"
             />
@@ -117,6 +122,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
         <IconWithBadge
             icon={<IconCursor />}
             verified={definition.verified}
+            hidden={definition.hidden}
             tooltipTitle="Custom event"
             className="taxonomy-icon taxonomy-icon-muted"
         />
