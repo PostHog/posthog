@@ -487,9 +487,11 @@ export function FeatureFlagReleaseConditions({
                             {!excludeTitle && (
                                 <>
                                     <h3 className="l3">Release conditions</h3>
-                                    <div className="text-secondary mb-4">
+                                    <div className="text-secondary">
                                         Specify {aggregationTargetName} for flag release. Condition sets are evaluated
                                         from top to bottom. The first condition set that matches will be used.
+                                    </div>
+                                    <div className="text-secondary mb-4">
                                         {aggregationTargetName === 'users' && (
                                             <>
                                                 {' '}
