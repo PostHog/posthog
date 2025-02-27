@@ -718,10 +718,10 @@ def substring(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     # start is 1-based.
     s = args[0]
     start = args[1]
-    length = args[2]
     if not isinstance(s, str):
         return ""
     start_idx = start - 1
+    length = args[2] if len(args) > 2 else len(s) - start_idx
     if start_idx < 0 or length < 0:
         return ""
     end_idx = start_idx + length
@@ -1060,7 +1060,7 @@ STL: dict[str, STLFunction] = {
     "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2),
     "round": STLFunction(fn=round_fn, minArgs=1, maxArgs=1),
     "startsWith": STLFunction(fn=startsWith, minArgs=2, maxArgs=2),
-    "substring": STLFunction(fn=substring, minArgs=3, maxArgs=3),
+    "substring": STLFunction(fn=substring, minArgs=2, maxArgs=3),
     "toIntervalDay": STLFunction(fn=toIntervalDay, minArgs=1, maxArgs=1),
     "toIntervalHour": STLFunction(fn=toIntervalHour, minArgs=1, maxArgs=1),
     "toIntervalMinute": STLFunction(fn=toIntervalMinute, minArgs=1, maxArgs=1),
