@@ -1860,6 +1860,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             f"{BILLING_SERVICE_URL}/api/usage",
             json=full_report_as_dict,
             headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
         )
 
         mock_posthog.capture.assert_any_call(
@@ -1899,6 +1900,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                 f"{BILLING_SERVICE_URL}/api/usage",
                 json=full_report_as_dict,
                 headers={"Authorization": f"Bearer {token}"},
+                timeout=15,
             )
 
             mock_posthog.capture.assert_any_call(
