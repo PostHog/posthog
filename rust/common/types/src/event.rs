@@ -196,4 +196,13 @@ impl RawEvent {
             None => Some(false),
         }
     }
+
+    pub fn map_property<F>(&mut self, key: &str, f: F)
+    where
+        F: FnOnce(Value) -> Value,
+    {
+        if let Some(value) = self.properties.get_mut(key) {
+            *value = f(value.take());
+        }
+    }
 }
