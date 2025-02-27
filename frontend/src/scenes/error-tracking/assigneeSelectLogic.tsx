@@ -10,11 +10,11 @@ import { OrganizationMemberType, UserGroup } from '~/types'
 
 import type { assigneeSelectLogicType } from './assigneeSelectLogicType'
 
-export type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
-
 export type ErrorTrackingAssigneeSelectProps = {
     assignee: ErrorTrackingIssue['assignee']
 }
+
+export type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
 
 const groupDisplay = (group: UserGroup, index: number): AssigneeDisplayType => ({
     id: group.id,
@@ -28,8 +28,9 @@ const userDisplay = (member: OrganizationMemberType): AssigneeDisplayType => ({
     icon: <ProfilePicture size="md" user={member.user} />,
 })
 
-const unassignedUser = {
+const unassignedDisplay: AssigneeDisplayType = {
     id: 'unassigned',
+    displayName: 'Unassigned',
     icon: <IconPerson className="rounded-full border border-dashed border-muted text-secondary p-0.5" />,
 }
 
@@ -88,14 +89,14 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
                     if (assignee) {
                         if (assignee.type === 'user_group') {
                             const assignedGroup = groups.find((group) => group.id === assignee.id)
-                            return assignedGroup ? groupDisplay(assignedGroup, 0) : unassignedUser
+                            return assignedGroup ? groupDisplay(assignedGroup, 0) : unassignedDisplay
                         }
 
                         const assignedMember = members.find((member) => member.user.id === assignee.id)
-                        return assignedMember ? userDisplay(assignedMember) : unassignedUser
+                        return assignedMember ? userDisplay(assignedMember) : unassignedDisplay
                     }
 
-                    return unassignedUser
+                    return unassignedDisplay
                 }
             },
         ],

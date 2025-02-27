@@ -100,10 +100,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
-                        left=parse_expr(
-                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '')",
-                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
-                        ),
+                        left=ast.Field(chain=["properties", feature_flag_property]),
                         right=ast.Constant(value=self.variants),
                     ),
                     *exposure_property_filters,
@@ -119,20 +116,17 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"),
+                        left=ast.Field(chain=["properties", "$feature_flag"]),
                         right=ast.Constant(value=feature_flag_key),
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
-                        left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"),
+                        left=ast.Field(chain=["properties", "$feature_flag_response"]),
                         right=ast.Constant(value=self.variants),
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
-                        left=parse_expr(
-                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '')",
-                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
-                        ),
+                        left=ast.Field(chain=["properties", feature_flag_property]),
                         right=ast.Constant(value=self.variants),
                     ),
                 ]
@@ -148,11 +142,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 table=ast.SelectQuery(
                     select=[
                         parse_expr("toDate(toString(min(timestamp))) as day"),
-                        parse_expr(
-                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '') AS variant",
-                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
+                        ast.Alias(
+                            alias="variant",
+                            expr=ast.Field(chain=["properties", feature_flag_property]),
                         ),
-                        parse_expr("person_id"),
+                        ast.Field(chain=["person_id"]),
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     where=ast.And(
@@ -172,11 +166,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                         ]
                     ),
                     group_by=[
-                        parse_expr("person_id"),
-                        parse_expr(
-                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '')",
-                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
-                        ),
+                        ast.Field(chain=["person_id"]),
+                        ast.Field(chain=["properties", feature_flag_property]),
                     ],
                 ),
                 alias="subq",
