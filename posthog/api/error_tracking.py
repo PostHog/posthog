@@ -60,16 +60,8 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
         model = ErrorTrackingIssue
         fields = ["id", "status", "name", "description", "first_seen", "assignee"]
 
-
-class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
-    queryset = ErrorTrackingIssue.objects.with_first_seen().all()
-    serializer_class = ErrorTrackingIssueSerializer
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
-
     def update(self, instance, validated_data):
+        team = instance.team
         status_after = validated_data.get("status")
         status_before = instance.status
         status_updated = "status" in validated_data and status_after != status_before
@@ -78,14 +70,15 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         if status_updated:
             log_activity(
-                organization_id=self.organization_id,
-                team_id=self.context["team_id"],
+                organization_id=team.organization.id,
+                team_id=team.id,
                 user=self.context["request"].user,
                 was_impersonated=is_impersonated_session(self.context["request"]),
                 item_id=str(updated_instance.id),
                 scope="ErrorTrackingIssue",
                 activity="updated",
                 detail=Detail(
+                    name=instance.name,
                     changes=[
                         Change(
                             type="ErrorTrackingIssue",
@@ -99,6 +92,15 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             )
 
         return updated_instance
+
+
+class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingIssue.objects.with_first_seen().all()
+    serializer_class = ErrorTrackingIssueSerializer
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team.id)
 
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")
@@ -147,11 +149,12 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
             )
         else:
-            assignment_before.delete()
+            if assignment_before:
+                assignment_before.delete()
             serialized_assignment_after = None
 
         log_activity(
-            organization_id=self.organization_id,
+            organization_id=self.organization.id,
             team_id=self.team_id,
             user=request.user,
             was_impersonated=is_impersonated_session(request),

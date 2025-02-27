@@ -58,9 +58,9 @@ const errorTrackingIssueActionsMapping: Record<
 > = {
     assignee: (change, logItem) => {
         const { before, after } = change || {}
-        const unnassignedBefore = before === null
-        const unnassignedAfter = after === null
-        if (unnassignedBefore && unnassignedAfter) {
+        const unassignedBefore = before === null
+        const unassignedAfter = after === null
+        if (unassignedBefore && unassignedAfter) {
             return null
         }
         if (objectsEqual(before, after)) {
@@ -70,8 +70,8 @@ const errorTrackingIssueActionsMapping: Record<
             return null
         }
 
-        const wasAssigned = unnassignedBefore && !unnassignedAfter
-        const wasUnassigned = !unnassignedBefore && unnassignedAfter
+        const wasAssigned = unassignedBefore && !unassignedAfter
+        const wasUnassigned = !unassignedBefore && unassignedAfter
 
         return {
             description: [
@@ -102,7 +102,7 @@ const errorTrackingIssueActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed status of {nameAndLink(logItem)} from <strong>{before}</strong> to <strong>{after}</strong>.
+                    changed status of {nameAndLink(logItem)} from <strong>{before}</strong> to <strong>{after}</strong>
                 </>,
             ],
         }
@@ -120,7 +120,7 @@ const errorTrackingIssueActionsMapping: Record<
 
 export function errorTrackingActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.ERROR_TRACKING_ISSUE) {
-        console.error('team describer received a non-error tracking activity')
+        console.error('describer received a non-error tracking activity')
         return { description: null }
     }
 
@@ -138,7 +138,7 @@ export function errorTrackingActivityDescriber(logItem: ActivityLogItem, asNotif
             const actionHandler = errorTrackingIssueActionsMapping[field]
             const processedChange = actionHandler(change, logItem)
             if (processedChange === null) {
-                continue // // unexpected log from backend is indescribable
+                continue // unexpected log from backend is indescribable
             }
 
             const { description, suffix } = processedChange
