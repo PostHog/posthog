@@ -55,7 +55,7 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
 
                             const filteredCohortRetentionValues = cohortRetention.values.filter((_, idx) => {
                                 const cellDate = startDate.add(idx, periodUnit)
-                                const now = dayjs()
+                                const now = dayjs.utc()
                                 return cellDate.isBefore(now)
                             })
 
@@ -65,7 +65,9 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>([
                             }
                         })
                         .map((cohortRetention, datasetIndex) => {
-                            const retentionPercentages = cohortRetention.values
+                            const retentionPercentages = (
+                                cohortRetention.values.length === 0 ? [] : cohortRetention.values
+                            )
                                 .map((value) => value.count / cohortRetention.values[0].count)
                                 .map((value) => (isNaN(value) ? 0 : 100 * value))
 
