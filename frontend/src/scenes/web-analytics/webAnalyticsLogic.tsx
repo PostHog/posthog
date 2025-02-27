@@ -621,7 +621,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 let filters = rawWebAnalyticsFilters
 
                 // Add domain filter if set
-                if (domainFilter && domainFilter !== 'all') {
+                if (
+                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN] &&
+                    domainFilter &&
+                    domainFilter !== 'all'
+                ) {
                     // Remove the leading protocol if it exists
                     const value = domainFilter.replace(/^https?:\/\//, '')
 
@@ -637,7 +641,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 // Add device type filter if set
-                if (deviceTypeFilter) {
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN] && deviceTypeFilter) {
                     filters = [
                         ...filters,
                         {
