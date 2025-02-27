@@ -5,7 +5,7 @@ import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
-    const { toggleSchemaShouldSync, openSyncMethodModal } = useActions(sourceWizardLogic)
+    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay } = useActions(sourceWizardLogic)
     const { databaseSchema } = useValues(sourceWizardLogic)
 
     return (
@@ -61,7 +61,7 @@ export default function SchemaForm(): JSX.Element {
                                             value={(schema.sync_time_of_day || '00:00:00').substring(0, 5)}
                                             onChange={(value) => {
                                                 const updatedSchema = { ...schema, sync_time_of_day: `${value}:00` }
-                                                toggleSchemaShouldSync(updatedSchema, updatedSchema.should_sync)
+                                                updateSyncTimeOfDay(updatedSchema, updatedSchema.sync_time_of_day)
                                             }}
                                             options={[
                                                 { value: '00:00', label: '12:00 AM (Midnight)' },
